@@ -1,0 +1,710 @@
+{
+	"artifacts" : 
+	[
+		{
+			"path" : "bin/Debug/AstralEngine_Debug.exe"
+		},
+		{
+			"path" : "bin/Debug/AstralEngine_Debug.pdb"
+		}
+	],
+	"backtrace" : 1,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"add_executable",
+			"target_link_libraries",
+			"add_dependencies",
+			"compile_vulkan_shaders",
+			"add_compile_options",
+			"target_compile_definitions",
+			"add_compile_definitions",
+			"target_include_directories",
+			"target_compile_features"
+		],
+		"files" : 
+		[
+			"CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 583,
+				"parent" : 0
+			},
+			{
+				"command" : 1,
+				"file" : 0,
+				"line" : 626,
+				"parent" : 0
+			},
+			{
+				"command" : 1,
+				"file" : 0,
+				"line" : 637,
+				"parent" : 0
+			},
+			{
+				"command" : 3,
+				"file" : 0,
+				"line" : 794,
+				"parent" : 0
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 790,
+				"parent" : 4
+			},
+			{
+				"command" : 4,
+				"file" : 0,
+				"line" : 52,
+				"parent" : 0
+			},
+			{
+				"command" : 4,
+				"file" : 0,
+				"line" : 69,
+				"parent" : 0
+			},
+			{
+				"command" : 4,
+				"file" : 0,
+				"line" : 70,
+				"parent" : 0
+			},
+			{
+				"command" : 4,
+				"file" : 0,
+				"line" : 125,
+				"parent" : 0
+			},
+			{
+				"command" : 5,
+				"file" : 0,
+				"line" : 596,
+				"parent" : 0
+			},
+			{
+				"command" : 6,
+				"file" : 0,
+				"line" : 118,
+				"parent" : 0
+			},
+			{
+				"command" : 6,
+				"file" : 0,
+				"line" : 134,
+				"parent" : 0
+			},
+			{
+				"command" : 6,
+				"file" : 0,
+				"line" : 111,
+				"parent" : 0
+			},
+			{
+				"command" : 7,
+				"file" : 0,
+				"line" : 589,
+				"parent" : 0
+			},
+			{
+				"command" : 8,
+				"file" : 0,
+				"line" : 586,
+				"parent" : 0
+			}
+		]
+	},
+	"compileGroups" : 
+	[
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : "/DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++20 -MDd"
+				},
+				{
+					"backtrace" : 6,
+					"fragment" : "/W4"
+				},
+				{
+					"backtrace" : 6,
+					"fragment" : "/permissive-"
+				},
+				{
+					"backtrace" : 6,
+					"fragment" : "/Zc:preprocessor"
+				},
+				{
+					"backtrace" : 6,
+					"fragment" : "/Zc:__cplusplus"
+				},
+				{
+					"backtrace" : 6,
+					"fragment" : "/EHsc"
+				},
+				{
+					"backtrace" : 6,
+					"fragment" : "/utf-8"
+				},
+				{
+					"backtrace" : 6,
+					"fragment" : "/MP"
+				},
+				{
+					"backtrace" : 6,
+					"fragment" : "/bigobj"
+				},
+				{
+					"backtrace" : 7,
+					"fragment" : "/Od"
+				},
+				{
+					"backtrace" : 8,
+					"fragment" : "/ZI"
+				},
+				{
+					"backtrace" : 9,
+					"fragment" : "/DVK_ENABLE_BETA_EXTENSIONS"
+				}
+			],
+			"defines" : 
+			[
+				{
+					"backtrace" : 10,
+					"define" : "ASTRAL_DEBUG"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "ASTRAL_USE_SDL3"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "ASTRAL_USE_VULKAN"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "ASTRAL_VERSION_MAJOR=0"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "ASTRAL_VERSION_MINOR=1"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "ASTRAL_VERSION_PATCH=0"
+				},
+				{
+					"backtrace" : 11,
+					"define" : "ASTRAL_VULKAN_VALIDATION_LAYERS"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "NOMINMAX"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "PLATFORM_WINDOWS"
+				},
+				{
+					"backtrace" : 12,
+					"define" : "VK_USE_PLATFORM_WIN32_KHR"
+				},
+				{
+					"backtrace" : 13,
+					"define" : "VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1"
+				},
+				{
+					"backtrace" : 11,
+					"define" : "VULKAN_HPP_ENABLE_DYNAMIC_LOADER_TOOL=1"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "VULKAN_HPP_NO_EXCEPTIONS"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "VULKAN_HPP_TYPESAFE_CONVERSION"
+				},
+				{
+					"backtrace" : 10,
+					"define" : "WIN32_LEAN_AND_MEAN"
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 14,
+					"path" : "C:/Users/tpoyr/OneDrive/Desktop/AstralEngine/Source"
+				},
+				{
+					"backtrace" : 14,
+					"path" : "C:/Users/tpoyr/OneDrive/Desktop/AstralEngine/External/vulkan/include"
+				},
+				{
+					"backtrace" : 2,
+					"isSystem" : true,
+					"path" : "C:/VulkanSDK/1.4.321.1/include"
+				},
+				{
+					"backtrace" : 3,
+					"isSystem" : true,
+					"path" : "C:/Users/tpoyr/OneDrive/Desktop/AstralEngine/External/SDL3/include"
+				}
+			],
+			"language" : "CXX",
+			"languageStandard" : 
+			{
+				"backtraces" : 
+				[
+					15
+				],
+				"standard" : "20"
+			},
+			"sourceIndexes" : 
+			[
+				0,
+				1,
+				2,
+				3,
+				4,
+				5,
+				6,
+				7,
+				8,
+				9,
+				10,
+				11,
+				12,
+				13,
+				14,
+				15,
+				16,
+				17,
+				18,
+				19,
+				20,
+				21,
+				22,
+				23,
+				24
+			]
+		}
+	],
+	"dependencies" : 
+	[
+		{
+			"backtrace" : 5,
+			"id" : "AstralEngine_shaders::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "ZERO_CHECK::@6890427a1f51a3e7e1df"
+		}
+	],
+	"id" : "AstralEngine::@6890427a1f51a3e7e1df",
+	"link" : 
+	{
+		"commandFragments" : 
+		[
+			{
+				"fragment" : "/DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -MDd",
+				"role" : "flags"
+			},
+			{
+				"fragment" : "/machine:x64 /INCREMENTAL:NO /debug /INCREMENTAL",
+				"role" : "flags"
+			},
+			{
+				"fragment" : "/subsystem:console",
+				"role" : "flags"
+			},
+			{
+				"backtrace" : 2,
+				"fragment" : "C:\\VulkanSDK\\1.4.321.1\\Lib\\vulkan-1.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 3,
+				"fragment" : "C:\\Users\\tpoyr\\OneDrive\\Desktop\\AstralEngine\\External\\SDL3\\lib\\x64\\SDL3.lib",
+				"role" : "libraries"
+			},
+			{
+				"fragment" : "kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib",
+				"role" : "libraries"
+			}
+		],
+		"language" : "CXX"
+	},
+	"name" : "AstralEngine",
+	"nameOnDisk" : "AstralEngine_Debug.exe",
+	"paths" : 
+	{
+		"build" : ".",
+		"source" : "."
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "Source\\Core",
+			"sourceIndexes" : 
+			[
+				0,
+				1,
+				2,
+				3
+			]
+		},
+		{
+			"name" : "Source\\Events",
+			"sourceIndexes" : 
+			[
+				4
+			]
+		},
+		{
+			"name" : "Source\\Subsystems\\Platform",
+			"sourceIndexes" : 
+			[
+				5,
+				6,
+				7
+			]
+		},
+		{
+			"name" : "Source\\Subsystems\\Asset",
+			"sourceIndexes" : 
+			[
+				8,
+				9
+			]
+		},
+		{
+			"name" : "Source\\Subsystems\\Renderer",
+			"sourceIndexes" : 
+			[
+				10,
+				11,
+				12,
+				13
+			]
+		},
+		{
+			"name" : "Source\\Subsystems\\Renderer\\Vulkan",
+			"sourceIndexes" : 
+			[
+				14,
+				15
+			]
+		},
+		{
+			"name" : "Source\\Subsystems\\Renderer\\Core",
+			"sourceIndexes" : 
+			[
+				16,
+				17,
+				18
+			]
+		},
+		{
+			"name" : "Source\\Subsystems\\Renderer\\Shaders",
+			"sourceIndexes" : 
+			[
+				19,
+				20
+			]
+		},
+		{
+			"name" : "Source\\Subsystems\\Renderer\\Commands",
+			"sourceIndexes" : 
+			[
+				21,
+				22
+			]
+		},
+		{
+			"name" : "Source\\Subsystems\\Renderer\\Buffers",
+			"sourceIndexes" : 
+			[
+				23
+			]
+		},
+		{
+			"name" : "Source",
+			"sourceIndexes" : 
+			[
+				24
+			]
+		},
+		{
+			"name" : "Headers\\Core",
+			"sourceIndexes" : 
+			[
+				25,
+				26,
+				27,
+				28,
+				29
+			]
+		},
+		{
+			"name" : "Headers\\Events",
+			"sourceIndexes" : 
+			[
+				30,
+				31
+			]
+		},
+		{
+			"name" : "Headers\\Subsystems\\Platform",
+			"sourceIndexes" : 
+			[
+				32,
+				33,
+				34
+			]
+		},
+		{
+			"name" : "Headers\\Subsystems\\Asset",
+			"sourceIndexes" : 
+			[
+				35,
+				36
+			]
+		},
+		{
+			"name" : "Headers\\ECS",
+			"sourceIndexes" : 
+			[
+				37
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Core/Engine.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Core/Logger.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Core/FileLogger.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Core/MemoryManager.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Events/EventManager.cpp",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Subsystems/Platform/PlatformSubsystem.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Subsystems/Platform/Window.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Subsystems/Platform/InputManager.cpp",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Subsystems/Asset/AssetSubsystem.cpp",
+			"sourceGroupIndex" : 3
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Subsystems/Asset/AssetManager.cpp",
+			"sourceGroupIndex" : 3
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Subsystems/Renderer/VulkanRenderer.cpp",
+			"sourceGroupIndex" : 4
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Subsystems/Renderer/RendererFactory.cpp",
+			"sourceGroupIndex" : 4
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Subsystems/Renderer/RenderCommandQueue.cpp",
+			"sourceGroupIndex" : 4
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Subsystems/Renderer/Camera.cpp",
+			"sourceGroupIndex" : 4
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Subsystems/Renderer/Vulkan/VulkanGraphicsContext.cpp",
+			"sourceGroupIndex" : 5
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Subsystems/Renderer/Vulkan/VulkanCommandBufferManager.cpp",
+			"sourceGroupIndex" : 5
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Subsystems/Renderer/Core/VulkanInstance.cpp",
+			"sourceGroupIndex" : 6
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Subsystems/Renderer/Core/VulkanDevice.cpp",
+			"sourceGroupIndex" : 6
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Subsystems/Renderer/Core/VulkanSwapchain.cpp",
+			"sourceGroupIndex" : 6
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Subsystems/Renderer/Shaders/VulkanShader.cpp",
+			"sourceGroupIndex" : 7
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Subsystems/Renderer/Shaders/ShaderValidator.cpp",
+			"sourceGroupIndex" : 7
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Subsystems/Renderer/Commands/VulkanCommandPool.cpp",
+			"sourceGroupIndex" : 8
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Subsystems/Renderer/Commands/VulkanPipeline.cpp",
+			"sourceGroupIndex" : 8
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/Subsystems/Renderer/Buffers/VulkanBuffer.cpp",
+			"sourceGroupIndex" : 9
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "Source/main.cpp",
+			"sourceGroupIndex" : 10
+		},
+		{
+			"backtrace" : 1,
+			"path" : "Source/Core/Engine.h",
+			"sourceGroupIndex" : 11
+		},
+		{
+			"backtrace" : 1,
+			"path" : "Source/Core/ISubsystem.h",
+			"sourceGroupIndex" : 11
+		},
+		{
+			"backtrace" : 1,
+			"path" : "Source/Core/Logger.h",
+			"sourceGroupIndex" : 11
+		},
+		{
+			"backtrace" : 1,
+			"path" : "Source/Core/FileLogger.h",
+			"sourceGroupIndex" : 11
+		},
+		{
+			"backtrace" : 1,
+			"path" : "Source/Core/MemoryManager.h",
+			"sourceGroupIndex" : 11
+		},
+		{
+			"backtrace" : 1,
+			"path" : "Source/Events/Event.h",
+			"sourceGroupIndex" : 12
+		},
+		{
+			"backtrace" : 1,
+			"path" : "Source/Events/EventManager.h",
+			"sourceGroupIndex" : 12
+		},
+		{
+			"backtrace" : 1,
+			"path" : "Source/Subsystems/Platform/PlatformSubsystem.h",
+			"sourceGroupIndex" : 13
+		},
+		{
+			"backtrace" : 1,
+			"path" : "Source/Subsystems/Platform/Window.h",
+			"sourceGroupIndex" : 13
+		},
+		{
+			"backtrace" : 1,
+			"path" : "Source/Subsystems/Platform/InputManager.h",
+			"sourceGroupIndex" : 13
+		},
+		{
+			"backtrace" : 1,
+			"path" : "Source/Subsystems/Asset/AssetSubsystem.h",
+			"sourceGroupIndex" : 14
+		},
+		{
+			"backtrace" : 1,
+			"path" : "Source/Subsystems/Asset/AssetManager.h",
+			"sourceGroupIndex" : 14
+		},
+		{
+			"backtrace" : 1,
+			"path" : "Source/ECS/Components.h",
+			"sourceGroupIndex" : 15
+		}
+	],
+	"type" : "EXECUTABLE"
+}

@@ -1,0 +1,4 @@
+C:/Users/tpoyr/OneDrive/Desktop/AstralEngine/build/CMakeFiles/AstralEngine.dir
+C:/Users/tpoyr/OneDrive/Desktop/AstralEngine/build/CMakeFiles/AstralEngine_shaders.dir
+C:/Users/tpoyr/OneDrive/Desktop/AstralEngine/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/tpoyr/OneDrive/Desktop/AstralEngine/build/CMakeFiles/ZERO_CHECK.dir
