@@ -379,7 +379,16 @@ public:
      * 
      * Vulkan render için pencere surface'i oluşturur.
      */
-    bool CreateVulkanSurface(VkInstance instance, VkSurfaceKHR* surface);
+    bool CreateVulkanSurface(VkInstance instance, VkSurfaceKHR* surface) const;
+    
+    /**
+     * @brief Gerekli Vulkan extension'larını getir.
+     * 
+     * @return std::vector<const char*> Vulkan extension isimleri
+     * 
+     * SDL3 tarafından gereken Vulkan extension'larını döndürür.
+     */
+    std::vector<const char*> GetRequiredVulkanExtensions() const;
 
 private:
     /**********************************************************************

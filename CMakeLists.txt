@@ -336,8 +336,8 @@ set(ASTRAL_HAS_SDL3 TRUE)
 #  * GLM Mathematics Library
 #  **********************************************************************/
 find_path(GLM_INCLUDE_DIR
-    NAMES glm/glm.hpp
-    PATHS ${EXTERNAL_DIR}/glm ${EXTERNAL_DIR}/glm/glm
+    NAMES glm.hpp
+    PATHS ${EXTERNAL_DIR}/glm
     NO_DEFAULT_PATH
     DOC "GLM include directory"
 )
@@ -357,6 +357,7 @@ if(NOT GLM_INCLUDE_DIR)
         set(ASTRAL_HAS_GLM FALSE)
     else()
         set(ASTRAL_HAS_GLM TRUE)
+        set(GLM_INCLUDE_DIR "${glm_INCLUDE_DIRS}")
     endif()
 else()
     message(STATUS "GLM found at: ${GLM_INCLUDE_DIR}")
@@ -534,11 +535,12 @@ set(ENGINE_SOURCES
     
     # Renderer Subsystem
     Source/Subsystems/Renderer/VulkanRenderer.cpp
-    Source/Subsystems/Renderer/RendererFactory.cpp
-    Source/Subsystems/Renderer/RenderCommandQueue.cpp
     Source/Subsystems/Renderer/Camera.cpp
-    Source/Subsystems/Renderer/Vulkan/VulkanGraphicsContext.cpp
-    Source/Subsystems/Renderer/Vulkan/VulkanCommandBufferManager.cpp
+    Source/Subsystems/Renderer/GraphicsDevice.cpp
+    Source/Subsystems/Renderer/RenderSubsystem.cpp
+    Source/Subsystems/Renderer/VulkanMemoryManager.cpp
+    Source/Subsystems/Renderer/VulkanSynchronization.cpp
+    Source/Subsystems/Renderer/VulkanUtils.cpp
     Source/Subsystems/Renderer/Core/VulkanInstance.cpp
     Source/Subsystems/Renderer/Core/VulkanDevice.cpp
     Source/Subsystems/Renderer/Core/VulkanSwapchain.cpp
@@ -550,6 +552,43 @@ set(ENGINE_SOURCES
     
     # Main entry point
     Source/main.cpp
+)
+
+set(ENGINE_SOURCES_NO_MAIN
+    # Core
+    Source/Core/Engine.cpp
+    Source/Core/Logger.cpp
+    Source/Core/FileLogger.cpp
+    Source/Core/MemoryManager.cpp
+    
+    # Events
+    Source/Events/EventManager.cpp
+    
+    # Platform Subsystem
+    Source/Subsystems/Platform/PlatformSubsystem.cpp
+    Source/Subsystems/Platform/Window.cpp
+    Source/Subsystems/Platform/InputManager.cpp
+    
+    # Asset Subsystem
+    Source/Subsystems/Asset/AssetSubsystem.cpp
+    Source/Subsystems/Asset/AssetManager.cpp
+    
+    # Renderer Subsystem
+    Source/Subsystems/Renderer/VulkanRenderer.cpp
+    Source/Subsystems/Renderer/Camera.cpp
+    Source/Subsystems/Renderer/GraphicsDevice.cpp
+    Source/Subsystems/Renderer/RenderSubsystem.cpp
+    Source/Subsystems/Renderer/VulkanMemoryManager.cpp
+    Source/Subsystems/Renderer/VulkanSynchronization.cpp
+    Source/Subsystems/Renderer/VulkanUtils.cpp
+    Source/Subsystems/Renderer/Core/VulkanInstance.cpp
+    Source/Subsystems/Renderer/Core/VulkanDevice.cpp
+    Source/Subsystems/Renderer/Core/VulkanSwapchain.cpp
+    Source/Subsystems/Renderer/Shaders/VulkanShader.cpp
+    Source/Subsystems/Renderer/Shaders/ShaderValidator.cpp
+    Source/Subsystems/Renderer/Commands/VulkanCommandPool.cpp
+    Source/Subsystems/Renderer/Commands/VulkanPipeline.cpp
+    Source/Subsystems/Renderer/Buffers/VulkanBuffer.cpp
 )
 
 set(ENGINE_HEADERS
@@ -575,88 +614,136 @@ set(ENGINE_HEADERS
     
     # ECS
     Source/ECS/Components.h
+    
+    # Renderer Subsystem
+    Source/Subsystems/Renderer/RendererTypes.h
+    Source/Subsystems/Renderer/VulkanMemoryManager.h
+    Source/Subsystems/Renderer/VulkanSynchronization.h
+    Source/Subsystems/Renderer/VulkanUtils.h
+    Source/Subsystems/Renderer/Buffers/VulkanBuffer.h
+    Source/Subsystems/Renderer/Commands/VulkanCommandPool.h
+    Source/Subsystems/Renderer/Commands/VulkanPipeline.h
+    Source/Subsystems/Renderer/Core/VulkanDevice.h
+    Source/Subsystems/Renderer/Core/VulkanInstance.h
+    Source/Subsystems/Renderer/Core/VulkanSwapchain.h
+    Source/Subsystems/Renderer/Shaders/ShaderValidator.h
+    Source/Subsystems/Renderer/Shaders/VulkanShader.h
 )
+
+# /**********************************************************************
+#  * Astral Target Configuration Function
+#  **********************************************************************/
+function(configure_astral_target target_name)
+    # Compiler features
+    target_compile_features(${target_name} PRIVATE cxx_std_20)
+
+    # Include directories
+    target_include_directories(${target_name} PRIVATE
+        ${CMAKE_SOURCE_DIR}/Source
+        $<$<BOOL:${GLM_INCLUDE_DIR}>:${GLM_INCLUDE_DIR}>
+        $<$<BOOL:${ASTRAL_HAS_VULKAN}>:${CMAKE_SOURCE_DIR}/External/vulkan/include>
+    )
+
+    # Compile definitions
+    target_compile_definitions(${target_name} PRIVATE
+        # Version information
+        ASTRAL_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+        ASTRAL_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+        ASTRAL_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+        
+        # Build configuration
+        $<$<CONFIG:Debug>:ASTRAL_DEBUG>
+        $<$<CONFIG:Release>:ASTRAL_RELEASE>
+        $<$<CONFIG:RelWithDebInfo>:ASTRAL_RELEASE_WITH_DEBUG_INFO>
+        
+        # Platform definitions
+        $<$<PLATFORM_ID:Windows>:PLATFORM_WINDOWS>
+        $<$<PLATFORM_ID:Linux>:PLATFORM_LINUX>
+        $<$<PLATFORM_ID:Darwin>:PLATFORM_MACOS>
+        
+        # Windows-specific definitions
+        $<$<PLATFORM_ID:Windows>:NOMINMAX>
+        $<$<PLATFORM_ID:Windows>:WIN32_LEAN_AND_MEAN>
+        
+        # SDL3 integration
+        ASTRAL_USE_SDL3
+        
+        # Vulkan integration
+        $<$<BOOL:${ASTRAL_HAS_VULKAN}>:ASTRAL_USE_VULKAN>
+        $<$<BOOL:${ASTRAL_HAS_VULKAN}>:VULKAN_HPP_NO_EXCEPTIONS>
+        $<$<BOOL:${ASTRAL_HAS_VULKAN}>:VULKAN_HPP_TYPESAFE_CONVERSION>
+    )
+
+    # Link libraries
+    target_link_libraries(${target_name} PRIVATE
+        # Threading
+        Threads::Threads
+        
+        # Vulkan libraries
+        $<$<TARGET_EXISTS:Vulkan::Vulkan>:Vulkan::Vulkan>
+        $<$<TARGET_EXISTS:vulkan>::vulkan>
+    )
+
+    # SDL3 linking
+    if(TARGET SDL3::SDL3)
+        target_link_libraries(${target_name} PRIVATE SDL3::SDL3)
+        
+        # Link SDL3main on Windows
+        if(WIN32 AND ASTRAL_LINK_SDL3MAIN AND TARGET SDL3::SDL3main)
+            target_link_libraries(${target_name} PRIVATE SDL3::SDL3main)
+        endif()
+    elseif(ASTRAL_USE_LOCAL_SDL3)
+        # Local SDL3 build
+        target_link_libraries(${target_name} PRIVATE SDL3)
+        
+        # Link SDL3main on Windows for local build
+        if(WIN32 AND ASTRAL_LINK_SDL3MAIN AND TARGET SDL3main)
+            target_link_libraries(${target_name} PRIVATE SDL3main)
+        endif()
+    else()
+        # FetchContent SDL3
+        target_link_libraries(${target_name} PRIVATE SDL3)
+    endif()
+
+    # Copy SDL3 DLL on Windows (if needed)
+    if(WIN32)
+        if(ASTRAL_USE_PREBUILT_SDL3 AND DEFINED SDL3_DLL_PATH)
+            add_custom_command(TARGET ${target_name} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${SDL3_DLL_PATH}"
+                    $<TARGET_FILE_DIR:${target_name}>
+                COMMENT "Copying pre-built SDL3 DLL to output directory"
+                VERBATIM
+            )
+        elseif(TARGET SDL3::SDL3)
+            add_custom_command(TARGET ${target_name} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    $<TARGET_FILE:SDL3::SDL3>
+                    $<TARGET_FILE_DIR:${target_name}>
+                COMMENT "Copying SDL3 DLL to output directory"
+                VERBATIM
+            )
+        elseif(ASTRAL_USE_LOCAL_SDL3 AND TARGET SDL3)
+            add_custom_command(TARGET ${target_name} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    $<TARGET_FILE:SDL3>
+                    $<TARGET_FILE_DIR:${target_name}>
+                COMMENT "Copying local SDL3 DLL to output directory"
+                VERBATIM
+            )
+        endif()
+    endif()
+endfunction()
 
 # /**********************************************************************
 #  * Main Engine Target
 #  **********************************************************************/
 add_executable(AstralEngine ${ENGINE_SOURCES} ${ENGINE_HEADERS})
 
-# Compiler features
-target_compile_features(AstralEngine PRIVATE cxx_std_20)
+# Configure the target using our common function
+configure_astral_target(AstralEngine)
 
-# Include directories
-target_include_directories(AstralEngine PRIVATE
-    ${CMAKE_SOURCE_DIR}/Source
-    $<$<BOOL:${GLM_INCLUDE_DIR}>:${GLM_INCLUDE_DIR}>
-    $<$<BOOL:${ASTRAL_HAS_VULKAN}>:${CMAKE_SOURCE_DIR}/External/vulkan/include>
-)
-
-# Compile definitions
-target_compile_definitions(AstralEngine PRIVATE
-    # Version information
-    ASTRAL_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
-    ASTRAL_VERSION_MINOR=${PROJECT_VERSION_MINOR}
-    ASTRAL_VERSION_PATCH=${PROJECT_VERSION_PATCH}
-    
-    # Build configuration
-    $<$<CONFIG:Debug>:ASTRAL_DEBUG>
-    $<$<CONFIG:Release>:ASTRAL_RELEASE>
-    $<$<CONFIG:RelWithDebInfo>:ASTRAL_RELEASE_WITH_DEBUG_INFO>
-    
-    # Platform definitions
-    $<$<PLATFORM_ID:Windows>:PLATFORM_WINDOWS>
-    $<$<PLATFORM_ID:Linux>:PLATFORM_LINUX>
-    $<$<PLATFORM_ID:Darwin>:PLATFORM_MACOS>
-    
-    # Windows-specific definitions
-    $<$<PLATFORM_ID:Windows>:NOMINMAX>
-    $<$<PLATFORM_ID:Windows>:WIN32_LEAN_AND_MEAN>
-    
-    # SDL3 integration
-    ASTRAL_USE_SDL3
-    
-    # Vulkan integration
-    $<$<BOOL:${ASTRAL_HAS_VULKAN}>:ASTRAL_USE_VULKAN>
-    $<$<BOOL:${ASTRAL_HAS_VULKAN}>:VULKAN_HPP_NO_EXCEPTIONS>
-    $<$<BOOL:${ASTRAL_HAS_VULKAN}>:VULKAN_HPP_TYPESAFE_CONVERSION>
-)
-
-# Link libraries
-target_link_libraries(AstralEngine PRIVATE
-    # Threading
-    Threads::Threads
-    
-    # Vulkan libraries
-    $<$<TARGET_EXISTS:Vulkan::Vulkan>:Vulkan::Vulkan>
-    $<$<TARGET_EXISTS:vulkan>::vulkan>
-)
-
-# SDL3 linking
-if(TARGET SDL3::SDL3)
-    target_link_libraries(AstralEngine PRIVATE SDL3::SDL3)
-    
-    # Link SDL3main on Windows
-    if(WIN32 AND ASTRAL_LINK_SDL3MAIN AND TARGET SDL3::SDL3main)
-        target_link_libraries(AstralEngine PRIVATE SDL3::SDL3main)
-    endif()
-elseif(ASTRAL_USE_LOCAL_SDL3)
-    # Local SDL3 build
-    target_link_libraries(AstralEngine PRIVATE SDL3)
-    
-    # Link SDL3main on Windows for local build
-    if(WIN32 AND ASTRAL_LINK_SDL3MAIN AND TARGET SDL3main)
-        target_link_libraries(AstralEngine PRIVATE SDL3main)
-    endif()
-else()
-    # FetchContent SDL3
-    target_link_libraries(AstralEngine PRIVATE SDL3)
-endif()
-
-# GLM linking
-if(TARGET glm::glm)
-    target_link_libraries(AstralEngine PRIVATE glm::glm)
-endif()
+# GLM is header-only, no linking required
 
 # Threading library
 find_package(Threads REQUIRED)
@@ -703,40 +790,40 @@ add_custom_command(TARGET AstralEngine POST_BUILD
     COMMENT "Copying compiled shaders to output directory"
 )
 
-# Copy SDL3 DLL on Windows (if needed)
-if(WIN32)
-    if(ASTRAL_USE_PREBUILT_SDL3 AND DEFINED SDL3_DLL_PATH)
-        add_custom_command(TARGET AstralEngine POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${SDL3_DLL_PATH}"
-                $<TARGET_FILE_DIR:AstralEngine>
-            COMMENT "Copying pre-built SDL3 DLL to output directory"
-            VERBATIM
-        )
-    elseif(TARGET SDL3::SDL3)
-        add_custom_command(TARGET AstralEngine POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                $<TARGET_FILE:SDL3::SDL3>
-                $<TARGET_FILE_DIR:AstralEngine>
-            COMMENT "Copying SDL3 DLL to output directory"
-            VERBATIM
-        )
-    elseif(ASTRAL_USE_LOCAL_SDL3 AND TARGET SDL3)
-        add_custom_command(TARGET AstralEngine POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                $<TARGET_FILE:SDL3>
-                $<TARGET_FILE_DIR:AstralEngine>
-            COMMENT "Copying local SDL3 DLL to output directory"
-            VERBATIM
-        )
-    endif()
-endif()
-
 # /**********************************************************************
 #  * Optional: Sandbox Example Application
 #  **********************************************************************/
 if(ASTRAL_BUILD_EXAMPLES)
     add_subdirectory(Examples OPTIONAL)
+endif()
+
+# /**********************************************************************
+#  * SDL3 Test Application
+#  **********************************************************************/
+if(EXISTS "${CMAKE_SOURCE_DIR}/Source/test_sdl3.cpp")
+    add_executable(AstralEngine_SDL3Test
+        Source/test_sdl3.cpp
+        ${ENGINE_SOURCES_NO_MAIN}
+    )
+    
+    # Configure the target using our common function
+    configure_astral_target(AstralEngine_SDL3Test)
+    
+    # Target properties
+    set_target_properties(AstralEngine_SDL3Test PROPERTIES
+        OUTPUT_NAME "AstralEngine_SDL3Test$<$<CONFIG:Debug>:_Debug>"
+        DESCRIPTION "Astral Engine SDL3 Test Application"
+        VERSION ${PROJECT_VERSION}
+        
+        # Windows specific properties
+        $<$<PLATFORM_ID:Windows>:WIN32_EXECUTABLE OFF>
+        
+        # Debug symbols
+        $<$<CONFIG:Debug>:DEBUG_POSTFIX "_d">
+        $<$<CONFIG:RelWithDebInfo>:RELWITHDEBINFO_POSTFIX "_rd">
+    )
+    
+    message(STATUS "SDL3 Test Application target created")
 endif()
 
 # /**********************************************************************
@@ -754,6 +841,30 @@ endif()
 #  * Shader Compilation System
 #  **********************************************************************/
 if(ASTRAL_HAS_VULKAN)
+    # Find GLSLC executable
+    find_program(Vulkan_GLSLC_EXECUTABLE
+        NAMES glslc
+        PATHS
+            "$ENV{VULKAN_SDK}/Bin"
+            "$ENV{VULKAN_SDK}/bin"
+            "/usr/bin"
+            "/usr/local/bin"
+            "/opt/local/bin"
+        DOC "Path to GLSLC shader compiler"
+    )
+    
+    if(NOT Vulkan_GLSLC_EXECUTABLE)
+        message(WARNING
+            "GLSLC shader compiler not found. Shaders won't be compiled.\n"
+            "Please install Vulkan SDK or ensure glslc is in PATH.\n"
+            "Windows: Install Vulkan SDK from https://vulkan.lunarg.com/\n"
+            "Linux: sudo apt install glslang-tools or install Vulkan SDK\n"
+            "macOS: brew install glslang or install Vulkan SDK"
+        )
+    else()
+        message(STATUS "GLSLC found at: ${Vulkan_GLSLC_EXECUTABLE}")
+    endif()
+    
     # Shader compilation function
     function(compile_vulkan_shaders TARGET_NAME SHADER_DIR)
         if(NOT Vulkan_GLSLC_EXECUTABLE)

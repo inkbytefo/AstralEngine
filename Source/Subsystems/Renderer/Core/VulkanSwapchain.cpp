@@ -131,6 +131,14 @@ VkFramebuffer VulkanSwapchain::GetFramebuffer(uint32_t index) const {
     return m_swapchainFramebuffers[index];
 }
 
+VkImageView VulkanSwapchain::GetImageView(uint32_t index) const {
+    if (index >= m_swapchainImageViews.size()) {
+        Logger::Error("VulkanSwapchain", "Image view index out of range: " + std::to_string(index));
+        return VK_NULL_HANDLE;
+    }
+    return m_swapchainImageViews[index];
+}
+
 VulkanSwapchain::SwapchainSupportDetails VulkanSwapchain::QuerySwapchainSupport(VkPhysicalDevice device) {
     SwapchainSupportDetails details;
 

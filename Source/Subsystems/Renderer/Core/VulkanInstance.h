@@ -87,7 +87,6 @@ public:
 
 private:
     bool CreateInstance();
-    bool SetupDebugCallback();
     bool QueryPhysicalDevices();
     bool ValidateConfiguration();
     

@@ -1,8 +1,7 @@
 #pragma once
 
-#include "Core/Logger.h"
-#include "Subsystems/Platform/Window.h"
-#include "VulkanInstance.h"
+#include "../../../Core/Logger.h"
+#include "../../Platform/Window.h"
 #include <vulkan/vulkan.h>
 #include <memory>
 #include <optional>
@@ -10,6 +9,9 @@
 #include <vector>
 
 namespace AstralEngine {
+
+// Forward declaration
+class VulkanInstance;
 
 /**
  * @class VulkanDevice
@@ -27,6 +29,7 @@ public:
     struct QueueFamilyIndices {
         std::optional<uint32_t> graphicsFamily;  ///< Grafik komutları için kuyruk ailesi
         std::optional<uint32_t> presentFamily;   ///< Sunum (presentation) için kuyruk ailesi
+        std::optional<uint32_t> transferFamily;  ///< Transfer işlemleri için kuyruk ailesi
 
         /**
          * @brief Tüm gerekli kuyruk ailelerinin bulunup bulunmadığını kontrol eder
@@ -43,6 +46,8 @@ public:
     struct Config {
         bool enableValidationLayers = true;      ///< Validation layer'ları etkinleştir
         std::vector<const char*> requiredExtensions; ///< Gerekli cihaz extension'ları
+        std::vector<const char*> deviceExtensions; ///< Cihaz extension'ları
+        VkSurfaceKHR surface = VK_NULL_HANDLE;   ///< Vulkan surface
     };
 
     VulkanDevice();
@@ -58,6 +63,7 @@ public:
     VkSurfaceKHR GetSurface() const { return m_surface; }
     VkQueue GetGraphicsQueue() const { return m_graphicsQueue; }
     VkQueue GetPresentQueue() const { return m_presentQueue; }
+    VkQueue GetTransferQueue() const { return m_transferQueue; }
     const QueueFamilyIndices& GetQueueFamilyIndices() const { return m_queueFamilyIndices; }
     
     // Device properties and features
@@ -74,6 +80,18 @@ public:
     
     // Memory management
     uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+    
+    // Device management
+    void SetPhysicalDevice(VkPhysicalDevice physicalDevice) { m_physicalDevice = physicalDevice; }
+    
+    // Swapchain support query
+    struct SwapChainSupportDetails {
+        VkSurfaceCapabilitiesKHR capabilities;
+        std::vector<VkSurfaceFormatKHR> formats;
+        std::vector<VkPresentModeKHR> presentModes;
+    };
+    
+    SwapChainSupportDetails QuerySwapChainSupport(VkPhysicalDevice device);
 
 private:
     // Device selection and creation
@@ -115,6 +133,7 @@ private:
     // Queues
     VkQueue m_graphicsQueue = VK_NULL_HANDLE;
     VkQueue m_presentQueue = VK_NULL_HANDLE;
+    VkQueue m_transferQueue = VK_NULL_HANDLE;
     
     // Queue family indices
     QueueFamilyIndices m_queueFamilyIndices;

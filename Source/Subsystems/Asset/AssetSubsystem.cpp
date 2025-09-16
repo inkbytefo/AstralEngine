@@ -16,6 +16,10 @@ void AssetSubsystem::OnInitialize(Engine* owner) {
     m_owner = owner;
     Logger::Info("AssetSubsystem", "Initializing asset subsystem...");
     
+    // Asset dizinini çalışma dizinine göre ayarla
+    // Program build/bin/Debug dizininden çalıştığı için Assets kullanmalıyız
+    m_assetDirectory = "Assets";
+    
     // Asset Manager oluştur
     m_assetManager = std::make_unique<AssetManager>();
     if (!m_assetManager->Initialize(m_assetDirectory)) {

@@ -101,10 +101,7 @@ bool VulkanInstance::Initialize(const Config& config) {
             return false;
         }
         
-        // Setup debug callback
-        if (m_config.enableDebugUtils && !SetupDebugCallback()) {
-            return false;
-        }
+        // Debug callback is set up during instance creation, no need for a separate call here.
         
         // Query physical devices
         if (!QueryPhysicalDevices()) {
@@ -165,21 +162,26 @@ bool VulkanInstance::CreateInstance() {
     // Add extensions
     std::vector<const char*> enabledExtensions;
     for (const auto& ext : m_config.instanceExtensions) {
-        std::cout << "[VulkanInstance] Checking extension: " << ext << std::endl;
-        if (IsExtensionSupported(ext)) {
+        bool isSupported = IsExtensionSupported(ext);
+        if (isSupported) {
             enabledExtensions.push_back(ext.c_str());
-            std::cout << "[VulkanInstance] Extension enabled: " << ext << std::endl;
+            Logger::Debug("VulkanInstance", "Extension enabled: {}", ext);
         } else {
-            // Skip debug utils if not supported, but fail on other required extensions
-            if (ext == VK_EXT_DEBUG_UTILS_EXTENSION_NAME) {
-                std::cout << "[VulkanInstance] Extension NOT supported (skipping): " << ext << std::endl;
-                continue;
-            } else {
+            if (ext == VK_EXT_DEBUG_UTILS_EXTENSION_NAME && m_config.enableDebugUtils) {
+                m_lastError = "Debug extension not supported: " + ext;
+                Logger::Error("VulkanInstance", m_lastError);
+                return false;
+            } else if (ext != VK_EXT_DEBUG_UTILS_EXTENSION_NAME) {
                 m_lastError = "Extension not supported: " + ext;
-                std::cout << "[VulkanInstance] Extension NOT supported: " << ext << std::endl;
+                Logger::Error("VulkanInstance", m_lastError);
                 return false;
             }
         }
+    }
+    
+    Logger::Info("VulkanInstance", "Total enabled extensions: {}", enabledExtensions.size());
+    for (const auto& ext : enabledExtensions) {
+        Logger::Debug("VulkanInstance", "Enabled extension: {}", ext);
     }
     
     createInfo.enabledExtensionCount = static_cast<uint32_t>(enabledExtensions.size());
@@ -218,53 +220,19 @@ bool VulkanInstance::CreateInstance() {
         createInfo.pNext = &debugCreateInfo;
     }
     
-    std::cout << "[VulkanInstance] Creating Vulkan instance..." << std::endl;
+    Logger::Info("VulkanInstance", "Creating Vulkan instance...");
     VkResult result = vkCreateInstance(&createInfo, nullptr, &m_instance);
     if (result != VK_SUCCESS) {
         m_lastError = "Failed to create Vulkan instance: " + GetVulkanResultString(result);
-        std::cout << "[VulkanInstance] Failed to create Vulkan instance: " << m_lastError << std::endl;
+        Logger::Error("VulkanInstance", m_lastError);
         return false;
     }
-    std::cout << "[VulkanInstance] Vulkan instance created successfully!" << std::endl;
+    Logger::Info("VulkanInstance", "Vulkan instance created successfully!");
     
     return true;
 }
 
-bool VulkanInstance::SetupDebugCallback() {
-    if (!m_config.enableDebugUtils) {
-        return true;
-    }
-    
-    // Load debug function
-    auto func = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(m_instance, "vkCreateDebugUtilsMessengerEXT"));
-    if (!func) {
-        Logger::Warning("VulkanInstance", "Debug utils extension not available - debug callback disabled");
-        m_config.enableDebugUtils = false; // Disable debug utils since it's not available
-        return true; // Continue without debug callback - this is not a fatal error
-    }
-    
-    VkDebugUtilsMessengerCreateInfoEXT createInfo{};
-    createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-    createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
-                                 VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
-                                 VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                                 VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-    createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-                             VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-                             VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-    createInfo.pfnUserCallback = DebugCallback;
-    createInfo.pUserData = nullptr;
-    
-    VkResult result = func(m_instance, &createInfo, nullptr, &m_debugMessenger);
-    if (result != VK_SUCCESS) {
-        Logger::Warning("VulkanInstance", "Failed to create debug messenger: {} - continuing without debug callback", GetVulkanResultString(result));
-        m_config.enableDebugUtils = false; // Disable debug utils since it failed
-        return true; // Continue without debug callback - this is not a fatal error
-    }
-    
-    Logger::Info("VulkanInstance", "Debug callback setup successfully");
-    return true;
-}
+
 
 bool VulkanInstance::QueryPhysicalDevices() {
     uint32_t deviceCount = 0;

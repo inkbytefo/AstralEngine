@@ -6,12 +6,15 @@
 #include <future>
 #include <functional>
 
-namespace AstralEngine {
-
 // Forward declarations
+namespace AstralEngine {
 class Model;
 class Texture;
-class Shader;
+class VulkanShader;
+class VulkanDevice;
+}
+
+namespace AstralEngine {
 
 /**
  * @brief Oyun varlıklarını yönetir ve önbellekte tutar.
@@ -36,7 +39,9 @@ public:
     // Senkron yükleme (blok eder)
     std::shared_ptr<Model> LoadModel(const std::string& filePath);
     std::shared_ptr<Texture> LoadTexture(const std::string& filePath);
-    std::shared_ptr<Shader> LoadShader(const std::string& vertexPath, const std::string& fragmentPath);
+    std::shared_ptr<VulkanShader> LoadShader(const std::string& vertexPath, const std::string& fragmentPath);
+    std::shared_ptr<VulkanShader> LoadShader(const std::string& shaderName); // Yeni metod
+    std::shared_ptr<VulkanShader> LoadShader(const std::string& shaderName, VulkanDevice* device); // VulkanRenderer için
 
     // Asenkron yükleme (non-blocking)
     using LoadCallback = std::function<void(std::shared_ptr<void>)>;
@@ -51,6 +56,10 @@ public:
     // İstatistikler
     size_t GetLoadedAssetCount() const;
     size_t GetMemoryUsage() const;
+
+    // Public cache erişim metodları
+    template<typename T>
+    std::shared_ptr<T> GetAssetFromCache(const std::string& filePath);
 
 private:
     struct AssetEntry {
@@ -102,6 +111,11 @@ void AssetManager::AddToCache(const std::string& filePath, std::shared_ptr<T> as
     entry.memorySize = memorySize;
     
     m_assetCache[filePath] = entry;
+}
+
+template<typename T>
+std::shared_ptr<T> AssetManager::GetAssetFromCache(const std::string& filePath) {
+    return GetFromCache<T>(filePath);
 }
 
 } // namespace AstralEngine

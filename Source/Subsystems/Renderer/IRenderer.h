@@ -1,72 +1,46 @@
 #pragma once
 
-#include "Core/ISubsystem.h"
+#include "RendererTypes.h"
 #include <memory>
 #include <vector>
 
 namespace AstralEngine {
 
-/**
- * @enum RendererAPI
- * @brief Desteklenen render API'leri
- */
-enum class RendererAPI {
-    Vulkan,
-    DirectX12,
-    Metal,
-    OpenGL
-};
+// Forward declaration
+class GraphicsDevice;
 
 /**
- * @struct RenderCommand
- * @brief Render komutları için temel yapı
- */
-struct RenderCommand {
-    enum class Type {
-        DrawMesh,
-        SetViewport,
-        SetScissor,
-        BindPipeline,
-        ClearColor
-    };
-
-    Type type;
-    std::vector<uint8_t> data; // Komuta özel veriler
-};
-
-/**
- * @class IRenderer
- * @brief Tüm renderer implementasyonları için arayüz
+ * @interface IRenderer
+ * @brief Abstract interface for rendering backends
  * 
- * Bu arayüz, farklı render API'leri (Vulkan, DirectX12, Metal vb.)
- * için ortak bir arayüz sağlar. Motorun geri kalanı bu arayüz üzerinden
- * renderer ile iletişim kurar. ISubsystem'den türetilerek tutarlı
- * yaşam döngüsü yönetimi sağlanır.
+ * This interface defines the common functionality that all rendering
+ * implementations must provide, allowing for easy swapping between
+ * different graphics APIs (Vulkan, DirectX, OpenGL, etc.)
  */
-class IRenderer : public ISubsystem {
+class IRenderer {
 public:
     virtual ~IRenderer() = default;
 
-    // Temel yaşam döngüsü
-    virtual bool Initialize() = 0;
+    // Core lifecycle
+    virtual bool Initialize(GraphicsDevice* device, void* owner = nullptr) = 0;
     virtual void Shutdown() = 0;
-    
-    // Frame yönetimi
+    virtual bool IsInitialized() const = 0;
+
+    // Frame management
     virtual void BeginFrame() = 0;
     virtual void EndFrame() = 0;
     virtual void Present() = 0;
-    
-    // Komut gönderimi
+
+    // Command submission
     virtual void Submit(const RenderCommand& command) = 0;
     virtual void SubmitCommands(const std::vector<RenderCommand>& commands) = 0;
-    
-    // Durum sorgulama
-    virtual bool IsInitialized() const = 0;
-    virtual RendererAPI GetAPI() const = 0;
-    
-    // Yapılandırma
+
+    // Configuration
     virtual void SetClearColor(float r, float g, float b, float a) = 0;
     virtual void SetViewport(uint32_t x, uint32_t y, uint32_t width, uint32_t height) = 0;
+
+    // Information
+    virtual RendererAPI GetAPI() const = 0;
 };
 
 } // namespace AstralEngine

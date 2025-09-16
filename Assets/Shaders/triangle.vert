@@ -12,7 +12,9 @@ layout(binding = 0) uniform UniformBufferObject {
 layout(location = 0) out vec3 fragColor;
 
 void main() {
-    // 2D pozisyonu 3D'ye genişlet ve MVP matrisiyle çarp
-    gl_Position = ubo.proj * ubo.view * ubo.model * vec4(inPosition, 0.0, 1.0);
+    // DEBUG: Direct screen space rendering - bypass all matrices
+    // This should definitely show a triangle if the pipeline works
+    vec2 screenPos = inPosition * 0.8; // Scale down a bit to ensure visibility
+    gl_Position = vec4(screenPos, 0.0, 1.0);
     fragColor = inColor;
 }

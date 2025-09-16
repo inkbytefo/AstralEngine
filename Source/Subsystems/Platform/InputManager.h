@@ -95,8 +95,6 @@ public:
     void HandleSDLKeyEvent(int sdlKeycode, bool pressed);
     void HandleSDLMouseButtonEvent(uint8_t sdlButton, bool pressed, float x, float y);
     
-    // Doğrudan SDL3 event işleme (Window tarafından çağrılır)
-    void ProcessSDLEvent(const void* sdlEvent);
 
 private:
     void ResetFrameInputs();

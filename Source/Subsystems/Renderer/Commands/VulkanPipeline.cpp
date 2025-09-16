@@ -1,5 +1,6 @@
 #include "VulkanPipeline.h"
 #include "../../../Core/Logger.h"
+#include "../RendererTypes.h"
 #include <chrono>
 
 namespace AstralEngine {
@@ -46,6 +47,7 @@ bool VulkanPipeline::Initialize(VulkanDevice* device, const Config& config) {
     
     Logger::Info("VulkanPipeline", "Initializing Vulkan pipeline with {} shaders", 
                 config.shaders.size());
+    Logger::Info("VulkanPipeline", "Received descriptorSetLayout in config: {}", (void*)config.descriptorSetLayout);
     
     try {
         // Pipeline layout oluştur
@@ -100,6 +102,7 @@ void VulkanPipeline::Shutdown() {
 
 bool VulkanPipeline::CreatePipelineLayout() {
     Logger::Debug("VulkanPipeline", "Creating pipeline layout");
+    Logger::Info("VulkanPipeline", "Checking m_config.descriptorSetLayout in CreatePipelineLayout: {}", (void*)m_config.descriptorSetLayout);
     
     VkPipelineLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -203,12 +206,12 @@ bool VulkanPipeline::CreateGraphicsPipeline() {
         Logger::Debug("VulkanPipeline", "Creating depth stencil state...");
         VkPipelineDepthStencilStateCreateInfo depthStencil{};
         depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-        depthStencil.depthTestEnable = VK_TRUE;           // Derinlik testi aktif
-        depthStencil.depthWriteEnable = VK_TRUE;          // Derinlik buffer'ına yazma aktif
+        depthStencil.depthTestEnable = VK_FALSE;          // Derinlik testi devre dışı - üçgen için gerek yok
+        depthStencil.depthWriteEnable = VK_FALSE;         // Derinlik buffer'ına yazma devre dışı
         depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;  // Daha az olan kabul edilir
         depthStencil.depthBoundsTestEnable = VK_FALSE;    // Depth bounds test devre dışı
         depthStencil.stencilTestEnable = VK_FALSE;        // Stencil test devre dışı
-        Logger::Debug("VulkanPipeline", "Depth stencil state created (LESS, depth test enabled)");
+        Logger::Debug("VulkanPipeline", "Depth stencil state created (depth test disabled for triangle)");
         
         // Color blending state
         Logger::Debug("VulkanPipeline", "Creating color blend state...");

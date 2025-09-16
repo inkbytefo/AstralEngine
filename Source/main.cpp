@@ -2,7 +2,7 @@
 #include "Core/Logger.h"
 #include "Subsystems/Platform/PlatformSubsystem.h"
 #include "Subsystems/Asset/AssetSubsystem.h"
-#include "Subsystems/Renderer/VulkanRenderer.h"
+#include "Subsystems/Renderer/RenderSubsystem.h"
 #include <filesystem>
 
 using namespace AstralEngine;
@@ -39,8 +39,8 @@ int main(int argc, char* argv[]) {
         // 2. Asset Subsystem (varlık yönetimi)
         engine.RegisterSubsystem<AssetSubsystem>();
         
-        // 3. Vulkan Renderer (3D rendering)
-        engine.RegisterSubsystem<VulkanRenderer>();
+        // 3. Render Subsystem (3D rendering)
+        engine.RegisterSubsystem<RenderSubsystem>();
         
         // TODO: Diğer subsystem'ler
         // engine.RegisterSubsystem<ECSSubsystem>();

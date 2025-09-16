@@ -1,4 +1,5 @@
 #include "VulkanDevice.h"
+#include "VulkanInstance.h"
 #include "Core/Logger.h"
 #include <set>
 #include <algorithm>
@@ -11,6 +12,7 @@ VulkanDevice::VulkanDevice()
     , m_surface(VK_NULL_HANDLE)
     , m_graphicsQueue(VK_NULL_HANDLE)
     , m_presentQueue(VK_NULL_HANDLE)
+    , m_transferQueue(VK_NULL_HANDLE)
     , m_isInitialized(false) {
     
     // Set default configuration
@@ -32,8 +34,8 @@ bool VulkanDevice::Initialize(VulkanInstance* instance, Window* window) {
         return false;
     }
     
-    if (!instance || !window) {
-        SetError("Invalid instance or window pointer");
+    if (!instance) {
+        SetError("Invalid instance pointer");
         return false;
     }
     
@@ -41,8 +43,16 @@ bool VulkanDevice::Initialize(VulkanInstance* instance, Window* window) {
         Logger::Info("VulkanDevice", "Initializing VulkanDevice...");
         
         // Step 1: Create surface first (needed for queue family selection)
-        if (!CreateSurface(instance, window)) {
-            Logger::Error("VulkanDevice", "Failed to create surface: " + GetLastError());
+        if (m_config.surface != VK_NULL_HANDLE) {
+            m_surface = m_config.surface;
+            Logger::Info("VulkanDevice", "Using provided surface");
+        } else if (window) {
+            if (!CreateSurface(instance, window)) {
+                Logger::Error("VulkanDevice", "Failed to create surface: " + GetLastError());
+                return false;
+            }
+        } else {
+            SetError("No surface provided and no window to create surface");
             return false;
         }
         
@@ -111,6 +121,7 @@ void VulkanDevice::Shutdown(VkInstance instance) {
         m_physicalDevice = VK_NULL_HANDLE;
         m_graphicsQueue = VK_NULL_HANDLE;
         m_presentQueue = VK_NULL_HANDLE;
+        m_transferQueue = VK_NULL_HANDLE;
         
         m_isInitialized = false;
         Logger::Info("VulkanDevice", "VulkanDevice shutdown completed");
@@ -256,6 +267,12 @@ VulkanDevice::QueueFamilyIndices VulkanDevice::FindQueueFamilies(VkPhysicalDevic
             indices.graphicsFamily = i;
         }
         
+        // Check for transfer queue family (dedicated transfer queue is better)
+        if ((queueFamily.queueFlags & VK_QUEUE_TRANSFER_BIT) && 
+            !(queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)) {
+            indices.transferFamily = i;
+        }
+        
         // Check for presentation support
         VkBool32 presentSupport = false;
         vkGetPhysicalDeviceSurfaceSupportKHR(device, static_cast<uint32_t>(i), m_surface, &presentSupport);
@@ -271,6 +288,11 @@ VulkanDevice::QueueFamilyIndices VulkanDevice::FindQueueFamilies(VkPhysicalDevic
         i++;
     }
     
+    // If no dedicated transfer queue found, use graphics queue
+    if (!indices.transferFamily.has_value() && indices.graphicsFamily.has_value()) {
+        indices.transferFamily = indices.graphicsFamily;
+    }
+    
     return indices;
 }
 
@@ -281,7 +303,8 @@ bool VulkanDevice::CheckDeviceExtensionSupport(VkPhysicalDevice device) {
     std::vector<VkExtensionProperties> availableExtensions(extensionCount);
     vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
     
-    std::set<std::string> requiredExtensions(m_deviceExtensions.begin(), m_deviceExtensions.end());
+    auto extensionsToCheck = m_config.deviceExtensions.empty() ? m_deviceExtensions : m_config.deviceExtensions;
+    std::set<std::string> requiredExtensions(extensionsToCheck.begin(), extensionsToCheck.end());
     
     for (const auto& extension : availableExtensions) {
         requiredExtensions.erase(extension.extensionName);
@@ -326,8 +349,9 @@ bool VulkanDevice::CreateLogicalDevice() {
     createInfo.pEnabledFeatures = &deviceFeatures;
     
     // Device extensions
-    createInfo.enabledExtensionCount = static_cast<uint32_t>(m_deviceExtensions.size());
-    createInfo.ppEnabledExtensionNames = m_deviceExtensions.data();
+    auto extensionsToUse = m_config.deviceExtensions.empty() ? m_deviceExtensions : m_config.deviceExtensions;
+    createInfo.enabledExtensionCount = static_cast<uint32_t>(extensionsToUse.size());
+    createInfo.ppEnabledExtensionNames = extensionsToUse.data();
     
     // Validation layers (deprecated but included for compatibility)
     if (m_config.enableValidationLayers) {
@@ -352,6 +376,14 @@ bool VulkanDevice::CreateDeviceQueues() {
     
     // Get present queue
     vkGetDeviceQueue(m_device, m_queueFamilyIndices.presentFamily.value(), 0, &m_presentQueue);
+    
+    // Get transfer queue if available
+    if (m_queueFamilyIndices.transferFamily.has_value()) {
+        vkGetDeviceQueue(m_device, m_queueFamilyIndices.transferFamily.value(), 0, &m_transferQueue);
+    } else {
+        // If no dedicated transfer queue, use graphics queue
+        m_transferQueue = m_graphicsQueue;
+    }
     
     Logger::Info("VulkanDevice", "Device queues retrieved successfully");
     return true;
@@ -481,6 +513,31 @@ uint32_t VulkanDevice::FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags
     Logger::Error("VulkanDevice", "Failed to find suitable memory type");
     SetError("Failed to find suitable memory type");
     return UINT32_MAX;
+}
+
+VulkanDevice::SwapChainSupportDetails VulkanDevice::QuerySwapChainSupport(VkPhysicalDevice device) {
+    SwapChainSupportDetails details;
+    
+    // Get surface capabilities
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, m_surface, &details.capabilities);
+    
+    // Get surface formats
+    uint32_t formatCount;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(device, m_surface, &formatCount, nullptr);
+    if (formatCount != 0) {
+        details.formats.resize(formatCount);
+        vkGetPhysicalDeviceSurfaceFormatsKHR(device, m_surface, &formatCount, details.formats.data());
+    }
+    
+    // Get present modes
+    uint32_t presentModeCount;
+    vkGetPhysicalDeviceSurfacePresentModesKHR(device, m_surface, &presentModeCount, nullptr);
+    if (presentModeCount != 0) {
+        details.presentModes.resize(presentModeCount);
+        vkGetPhysicalDeviceSurfacePresentModesKHR(device, m_surface, &presentModeCount, details.presentModes.data());
+    }
+    
+    return details;
 }
 
 } // namespace AstralEngine

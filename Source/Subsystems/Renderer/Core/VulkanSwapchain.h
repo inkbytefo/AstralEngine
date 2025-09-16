@@ -40,6 +40,7 @@ public:
     VkSwapchainKHR GetSwapchain() const { return m_swapchain; }
     VkRenderPass GetRenderPass() const { return m_renderPass; }
     VkFramebuffer GetFramebuffer(uint32_t index) const;
+    VkImageView GetImageView(uint32_t index) const;
     uint32_t GetImageCount() const { return static_cast<uint32_t>(m_swapchainImages.size()); }
     VkExtent2D GetExtent() const { return m_swapchainExtent; }
     VkFormat GetImageFormat() const { return m_swapchainImageFormat; }
@@ -47,6 +48,9 @@ public:
     
     // State management
     bool IsInitialized() const { return m_isInitialized; }
+    
+    // Error handling
+    const std::string& GetLastError() const { return m_lastError; }
 
 private:
     // Swapchain support query methods

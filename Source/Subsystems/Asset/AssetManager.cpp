@@ -1,7 +1,13 @@
 #include "AssetManager.h"
+#include "Subsystems/Renderer/Shaders/VulkanShader.h"
 #include "../../Core/Logger.h"
 #include <filesystem>
 #include <mutex>
+
+// Forward declarations for Vulkan device
+namespace AstralEngine {
+class VulkanDevice;
+}
 
 // Forward declarations for asset types (will be implemented later)
 namespace AstralEngine {
@@ -19,17 +25,6 @@ public:
     const std::string& GetFilePath() const { return m_filePath; }
 private:
     std::string m_filePath;
-};
-
-class Shader {
-public:
-    Shader(const std::string& vertPath, const std::string& fragPath) 
-        : m_vertexPath(vertPath), m_fragmentPath(fragPath) {}
-    const std::string& GetVertexPath() const { return m_vertexPath; }
-    const std::string& GetFragmentPath() const { return m_fragmentPath; }
-private:
-    std::string m_vertexPath;
-    std::string m_fragmentPath;
 };
 }
 
@@ -156,7 +151,7 @@ std::shared_ptr<Texture> AssetManager::LoadTexture(const std::string& filePath) 
     return texture;
 }
 
-std::shared_ptr<Shader> AssetManager::LoadShader(const std::string& vertexPath, const std::string& fragmentPath) {
+std::shared_ptr<VulkanShader> AssetManager::LoadShader(const std::string& vertexPath, const std::string& fragmentPath) {
     if (!m_initialized) {
         Logger::Error("AssetManager", "Cannot load shader: AssetManager not initialized");
         return nullptr;
@@ -169,7 +164,7 @@ std::shared_ptr<Shader> AssetManager::LoadShader(const std::string& vertexPath, 
     std::string shaderKey = normalizedVertexPath + "|" + normalizedFragmentPath;
     
     // Cache'den kontrol et
-    auto cached = GetFromCache<Shader>(shaderKey);
+    auto cached = GetFromCache<VulkanShader>(shaderKey);
     if (cached) {
         Logger::Debug("AssetManager", "Shader loaded from cache: '{}' + '{}'", vertexPath, fragmentPath);
         return cached;
@@ -189,8 +184,11 @@ std::shared_ptr<Shader> AssetManager::LoadShader(const std::string& vertexPath, 
         return nullptr;
     }
     
-    // TODO: Gerçek shader yükleme implementasyonu
-    auto shader = std::make_shared<Shader>(fullVertexPath, fullFragmentPath);
+    // Gerçek shader yükleme implementasyonu
+    // VulkanShader nesnesini oluştur ve başlat
+    auto shader = std::make_shared<VulkanShader>();
+    // TODO: Shader'ı başlatmak için gerekli işlemleri yap
+    // Not: Bu metod device parametresi almadığı için shader sadece oluşturulur, başlatılmaz
     
     // Cache'e ekle
     size_t estimatedSize = std::filesystem::file_size(fullVertexPath) + 
@@ -199,6 +197,184 @@ std::shared_ptr<Shader> AssetManager::LoadShader(const std::string& vertexPath, 
     
     Logger::Info("AssetManager", "Shader loaded successfully: '{}' + '{}'", vertexPath, fragmentPath);
     return shader;
+}
+
+std::shared_ptr<VulkanShader> AssetManager::LoadShader(const std::string& shaderName) {
+    if (!m_initialized) {
+        Logger::Error("AssetManager", "Cannot load shader: AssetManager not initialized");
+        return nullptr;
+    }
+    
+    // Shader adını normalize et
+    std::string normalizedName = NormalizePath(shaderName);
+    
+    // Cache'den kontrol et
+    auto cached = GetFromCache<VulkanShader>(normalizedName);
+    if (cached) {
+        Logger::Debug("AssetManager", "Shader loaded from cache: '{}'", shaderName);
+        return cached;
+    }
+    
+    // Varsayılan shader yollarını oluştur
+    std::string vertexPath = "Shaders/" + normalizedName + ".vert";
+    std::string fragmentPath = "Shaders/" + normalizedName + ".frag";
+    
+    // Dosyalardan yükle
+    std::string fullVertexPath = GetFullPath(vertexPath);
+    std::string fullFragmentPath = GetFullPath(fragmentPath);
+    
+    // .spv dosyalarını kontrol et
+    std::string vertexSpvPath = "Shaders/" + normalizedName + ".vert.spv";
+    std::string fragmentSpvPath = "Shaders/" + normalizedName + ".frag.spv";
+    std::string fullVertexSpvPath = GetFullPath(vertexSpvPath);
+    std::string fullFragmentSpvPath = GetFullPath(fragmentSpvPath);
+    
+    // Eğer .spv dosyaları varsa onları kullan
+    if (std::filesystem::exists(fullVertexSpvPath) && std::filesystem::exists(fullFragmentSpvPath)) {
+        fullVertexPath = fullVertexSpvPath;
+        fullFragmentPath = fullFragmentSpvPath;
+        Logger::Debug("AssetManager", "Using compiled shader files (.spv) for '{}'", shaderName);
+    } else {
+        Logger::Debug("AssetManager", "Using source shader files (.vert/.frag) for '{}'", shaderName);
+    }
+    
+    if (!std::filesystem::exists(fullVertexPath)) {
+        Logger::Error("AssetManager", "Vertex shader file not found: '{}'", fullVertexPath);
+        return nullptr;
+    }
+    
+    if (!std::filesystem::exists(fullFragmentPath)) {
+        Logger::Error("AssetManager", "Fragment shader file not found: '{}'", fullFragmentPath);
+        return nullptr;
+    }
+    
+    // Gerçek shader yükleme implementasyonu
+    // VulkanShader nesnesini oluştur ve başlat
+    auto shader = std::make_shared<VulkanShader>();
+    // TODO: Shader'ı başlatmak için gerekli işlemleri yap
+    // Not: Bu metod device parametresi almadığı için shader sadece oluşturulur, başlatılmaz
+    
+    // Cache'e ekle
+    size_t estimatedSize = std::filesystem::file_size(fullVertexPath) + 
+                          std::filesystem::file_size(fullFragmentPath);
+    AddToCache(normalizedName, shader, estimatedSize);
+    
+    Logger::Info("AssetManager", "Shader '{}' loaded successfully", shaderName);
+    return shader;
+}
+
+std::shared_ptr<VulkanShader> AssetManager::LoadShader(const std::string& shaderName, VulkanDevice* device) {
+    if (!m_initialized) {
+        Logger::Error("AssetManager", "Cannot load shader: AssetManager not initialized");
+        return nullptr;
+    }
+    
+    if (!device) {
+        Logger::Error("AssetManager", "Cannot load shader: VulkanDevice is null");
+        return nullptr;
+    }
+    
+    // Shader adını normalize et
+    std::string normalizedName = this->NormalizePath(shaderName);
+    
+    // Cache'den kontrol et
+    auto cached = this->GetFromCache<VulkanShader>(normalizedName);
+    if (cached) {
+        Logger::Debug("AssetManager", "Shader loaded from cache: '{}'", shaderName);
+        return cached;
+    }
+    
+    // Varsayılan shader yollarını oluştur
+    std::string vertexPath = "Shaders/" + normalizedName + ".vert";
+    std::string fragmentPath = "Shaders/" + normalizedName + ".frag";
+    
+    // Dosyalardan yükle
+    std::string fullVertexPath = GetFullPath(vertexPath);
+    std::string fullFragmentPath = GetFullPath(fragmentPath);
+    
+    // .spv dosyalarını kontrol et
+    std::string vertexSpvPath = "Shaders/" + normalizedName + ".vert.spv";
+    std::string fragmentSpvPath = "Shaders/" + normalizedName + ".frag.spv";
+    std::string fullVertexSpvPath = GetFullPath(vertexSpvPath);
+    std::string fullFragmentSpvPath = GetFullPath(fragmentSpvPath);
+    
+    // Debug: Dosya yollarını logla
+    Logger::Debug("AssetManager", "Checking for compiled shaders:");
+    Logger::Debug("AssetManager", "  Asset directory: '{}'", m_assetDirectory);
+    Logger::Debug("AssetManager", "  Current working directory: {}", std::filesystem::current_path().string());
+    Logger::Debug("AssetManager", "  Vertex SPV path: '{}'", fullVertexSpvPath);
+    Logger::Debug("AssetManager", "  Fragment SPV path: '{}'", fullFragmentSpvPath);
+    Logger::Debug("AssetManager", "  Vertex SPV exists: {}", std::filesystem::exists(fullVertexSpvPath));
+    Logger::Debug("AssetManager", "  Fragment SPV exists: {}", std::filesystem::exists(fullFragmentSpvPath));
+    
+    // Debug: Assets dizinini listele
+    try {
+        Logger::Debug("AssetManager", "Contents of asset directory:");
+        for (const auto& entry : std::filesystem::directory_iterator(m_assetDirectory)) {
+            Logger::Debug("AssetManager", "  {}", entry.path().string());
+        }
+    } catch (const std::exception& e) {
+        Logger::Debug("AssetManager", "Failed to list asset directory: {}", e.what());
+    }
+    
+    // Eğer .spv dosyaları varsa onları kullan
+    bool useCompiledShaders = false;
+    if (std::filesystem::exists(fullVertexSpvPath) && std::filesystem::exists(fullFragmentSpvPath)) {
+        fullVertexPath = fullVertexSpvPath;
+        fullFragmentPath = fullFragmentSpvPath;
+        useCompiledShaders = true;
+        Logger::Debug("AssetManager", "Using compiled shader files (.spv) for '{}'", shaderName);
+    } else {
+        Logger::Debug("AssetManager", "Using source shader files (.vert/.frag) for '{}'", shaderName);
+    }
+    
+    if (!std::filesystem::exists(fullVertexPath)) {
+        Logger::Error("AssetManager", "Vertex shader file not found: '{}'", fullVertexPath);
+        return nullptr;
+    }
+    
+    if (!std::filesystem::exists(fullFragmentPath)) {
+        Logger::Error("AssetManager", "Fragment shader file not found: '{}'", fullFragmentPath);
+        return nullptr;
+    }
+    
+    // Vertex shader'ı yükle ve başlat
+    auto vertexShader = std::make_shared<VulkanShader>();
+    VulkanShader::Config vertexConfig;
+    vertexConfig.filePath = fullVertexPath;
+    vertexConfig.stage = VK_SHADER_STAGE_VERTEX_BIT;
+    
+    if (!vertexShader->Initialize(device, vertexConfig)) {
+        Logger::Error("AssetManager", "Failed to initialize vertex shader '{}': {}", shaderName, vertexShader->GetLastError());
+        return nullptr;
+    }
+    
+    // Fragment shader'ı yükle ve başlat
+    auto fragmentShader = std::make_shared<VulkanShader>();
+    VulkanShader::Config fragmentConfig;
+    fragmentConfig.filePath = fullFragmentPath;
+    fragmentConfig.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    
+    if (!fragmentShader->Initialize(device, fragmentConfig)) {
+        Logger::Error("AssetManager", "Failed to initialize fragment shader '{}': {}", shaderName, fragmentShader->GetLastError());
+        return nullptr;
+    }
+    
+    // Not: Bu metod iki ayrı shader döndürmek yerine, pipeline için kullanılacak şekilde
+    // vertex shader'ı döndürüyor. Fragment shader'ı da aynı isimle cache'e ekliyoruz.
+    // VulkanRenderer'da bu iki shader'ı birleştirerek kullanacak.
+    
+    // Cache'e vertex shader'ı ekle
+    size_t estimatedSize = std::filesystem::file_size(fullVertexPath) + 
+                          std::filesystem::file_size(fullFragmentPath);
+    AddToCache(normalizedName, vertexShader, estimatedSize);
+    
+    // Fragment shader'ı da ayrı bir key ile cache'e ekle
+    std::string fragmentKey = normalizedName + "_fragment";
+    AddToCache(fragmentKey, fragmentShader, 0); // Boyut zaten hesaplandı
+    
+    Logger::Info("AssetManager", "Shader '{}' loaded and initialized successfully", shaderName);
+    return vertexShader;
 }
 
 void AssetManager::LoadModelAsync(const std::string& filePath, LoadCallback callback) {

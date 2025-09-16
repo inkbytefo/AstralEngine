@@ -449,7 +449,41 @@ void Window::DestroyRenderContext() {
     m_data->IsRenderingContextCreated = false;
 }
 
-bool Window::CreateVulkanSurface(VkInstance instance, VkSurfaceKHR* surface) {
+std::vector<const char*> Window::GetRequiredVulkanExtensions() const {
+    std::vector<const char*> extensions;
+    
+#ifdef ASTRAL_USE_SDL3
+    if (!m_data->IsInitialized || !m_data->SDLWindow) {
+        Logger::Error("Window", "Window not initialized - cannot get Vulkan extensions");
+        return extensions;
+    }
+    
+    // Get required extensions from SDL3
+    uint32_t extensionCount = 0;
+    const char* const* sdlExtensions = SDL_Vulkan_GetInstanceExtensions(&extensionCount);
+    
+    if (!sdlExtensions || extensionCount == 0) {
+        Logger::Error("Window", "Failed to get Vulkan extensions from SDL3: {}", SDL_GetError());
+        return extensions;
+    }
+    
+    // Copy SDL3 extensions to our vector
+    extensions.reserve(extensionCount);
+    for (uint32_t i = 0; i < extensionCount; ++i) {
+        extensions.push_back(sdlExtensions[i]);
+        Logger::Debug("Window", "Required Vulkan extension: {}", sdlExtensions[i]);
+    }
+    
+    Logger::Info("Window", "Found {} required Vulkan extensions", extensions.size());
+    
+#else
+    Logger::Warning("Window", "SDL3 not available - no Vulkan extensions will be added");
+#endif
+    
+    return extensions;
+}
+
+bool Window::CreateVulkanSurface(VkInstance instance, VkSurfaceKHR* surface) const {
     if (!m_data->IsInitialized || !instance || !surface) {
         Logger::Error("Window", "Invalid parameters for CreateVulkanSurface");
         return false;

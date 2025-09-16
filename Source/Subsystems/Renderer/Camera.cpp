@@ -114,9 +114,10 @@ void Camera::UpdateProjectionMatrix() {
     
     m_projectionMatrix = glm::perspective(fovRadians, m_config.aspectRatio, m_config.nearPlane, m_config.farPlane);
     
-    // GLM'de matrisler column-major olduğu için, Vulkan'ın row-major formatına çevir
-    // Not: Aslında glm::perspective zaten doğru formatta üretir, bu sadece bilgilendirme amaçlı
-    Logger::Debug("Camera", "Projection matrix updated");
+    // Vulkan'ın [0, 1] derinlik aralığı için Y eksenini ters çevir
+    m_projectionMatrix[1][1] *= -1;
+    
+    Logger::Debug("Camera", "Projection matrix updated for Vulkan clip space");
 }
 
 void Camera::UpdateMatrices() {
