@@ -204,14 +204,8 @@ bool VulkanPipeline::CreateGraphicsPipeline() {
         
         // Depth stencil state
         Logger::Debug("VulkanPipeline", "Creating depth stencil state...");
-        VkPipelineDepthStencilStateCreateInfo depthStencil{};
-        depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-        depthStencil.depthTestEnable = VK_FALSE;          // Derinlik testi devre dışı - üçgen için gerek yok
-        depthStencil.depthWriteEnable = VK_FALSE;         // Derinlik buffer'ına yazma devre dışı
-        depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;  // Daha az olan kabul edilir
-        depthStencil.depthBoundsTestEnable = VK_FALSE;    // Depth bounds test devre dışı
-        depthStencil.stencilTestEnable = VK_FALSE;        // Stencil test devre dışı
-        Logger::Debug("VulkanPipeline", "Depth stencil state created (depth test disabled for triangle)");
+        VkPipelineDepthStencilStateCreateInfo depthStencil = CreateDepthStencilState();
+        Logger::Debug("VulkanPipeline", "Depth stencil state created using CreateDepthStencilState()");
         
         // Color blending state
         Logger::Debug("VulkanPipeline", "Creating color blend state...");

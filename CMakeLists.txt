@@ -533,6 +533,9 @@ set(ENGINE_SOURCES
     Source/Subsystems/Asset/AssetSubsystem.cpp
     Source/Subsystems/Asset/AssetManager.cpp
     
+    # ECS Subsystem
+    Source/Subsystems/ECS/ECSSubsystem.cpp
+    
     # Renderer Subsystem
     Source/Subsystems/Renderer/VulkanRenderer.cpp
     Source/Subsystems/Renderer/Camera.cpp
@@ -572,6 +575,9 @@ set(ENGINE_SOURCES_NO_MAIN
     # Asset Subsystem
     Source/Subsystems/Asset/AssetSubsystem.cpp
     Source/Subsystems/Asset/AssetManager.cpp
+    
+    # ECS Subsystem
+    Source/Subsystems/ECS/ECSSubsystem.cpp
     
     # Renderer Subsystem
     Source/Subsystems/Renderer/VulkanRenderer.cpp
@@ -614,6 +620,7 @@ set(ENGINE_HEADERS
     
     # ECS
     Source/ECS/Components.h
+    Source/Subsystems/ECS/ECSSubsystem.h
     
     # Renderer Subsystem
     Source/Subsystems/Renderer/RendererTypes.h

@@ -6,6 +6,7 @@
 #include "Subsystems/Platform/PlatformSubsystem.h"
 #include "Subsystems/Renderer/RenderSubsystem.h"
 #include "Subsystems/Asset/AssetSubsystem.h"
+#include "Subsystems/ECS/ECSSubsystem.h"
 #include <iostream>
 #include <vector>
 #include <cstring>
@@ -386,6 +387,31 @@ void VulkanRenderer::RecordCommands(uint32_t frameIndex) {
     }
 }
 
+void VulkanRenderer::RecordCommands(uint32_t frameIndex, const ECSSubsystem::RenderPacket& renderPacket) {
+    if (!m_isInitialized || !m_graphicsDevice) {
+        Logger::Error("VulkanRenderer", "Cannot record commands - renderer not properly initialized");
+        return;
+    }
+    
+    Logger::Debug("VulkanRenderer", "Starting command recording with ECS data - frame index: {}, items: {}", frameIndex, renderPacket.renderItems.size());
+    
+    try {
+        // Update uniform buffer with current frame data
+        UpdateUniformBuffer(frameIndex);
+        
+        // GraphicsDevice'den mevcut frame bilgilerini al
+        uint32_t imageIndex = m_graphicsDevice->GetCurrentImageIndex();
+        
+        // Record command buffer for this frame with ECS data
+        RecordCommandBufferWithECS(imageIndex, frameIndex, renderPacket);
+        
+        Logger::Debug("VulkanRenderer", "Commands recorded successfully for frame {} with {} ECS items", frameIndex, renderPacket.renderItems.size());
+        
+    } catch (const std::exception& e) {
+        Logger::Error("VulkanRenderer", "RecordCommands with ECS failed: {}", e.what());
+    }
+}
+
 void VulkanRenderer::RecordCommandBuffer(uint32_t imageIndex, uint32_t frameIndex) {
     Logger::Debug("VulkanRenderer", "Recording command buffer for image index: {}", imageIndex);
     
@@ -436,10 +462,12 @@ void VulkanRenderer::RecordCommandBuffer(uint32_t imageIndex, uint32_t frameInde
         renderPassInfo.renderArea.offset = {0, 0};
         renderPassInfo.renderArea.extent = m_graphicsDevice->GetSwapchain()->GetExtent();
         
-        // Set clear color
-        VkClearValue clearColor = {{{m_clearColor[0], m_clearColor[1], m_clearColor[2], m_clearColor[3]}}};
-        renderPassInfo.clearValueCount = 1;
-        renderPassInfo.pClearValues = &clearColor;
+        // Set clear values (color + depth)
+        VkClearValue clearValues[2] = {};
+        clearValues[0].color = {{m_clearColor[0], m_clearColor[1], m_clearColor[2], m_clearColor[3]}};  // Color clear
+        clearValues[1].depthStencil = {1.0f, 0};  // Depth clear to 1.0 (farthest), stencil to 0
+        renderPassInfo.clearValueCount = 2;
+        renderPassInfo.pClearValues = clearValues;
         
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         
@@ -496,6 +524,197 @@ void VulkanRenderer::RecordCommandBuffer(uint32_t imageIndex, uint32_t frameInde
         
     } catch (const std::exception& e) {
         Logger::Error("VulkanRenderer", "RecordCommandBuffer failed: {}", e.what());
+    }
+}
+
+void VulkanRenderer::RecordCommandBufferWithECS(uint32_t imageIndex, uint32_t frameIndex, const ECSSubsystem::RenderPacket& renderPacket) {
+    Logger::Debug("VulkanRenderer", "Recording command buffer with ECS data for image index: {}, items: {}", imageIndex, renderPacket.renderItems.size());
+    
+    try {
+        // Boundary check: imageIndex değerini doğrula
+        if (!m_graphicsDevice || !m_graphicsDevice->GetSwapchain()) {
+            Logger::Error("VulkanRenderer", "GraphicsDevice or swapchain is null in ECS recording");
+            return;
+        }
+        
+        if (imageIndex >= m_graphicsDevice->GetSwapchain()->GetImageCount()) {
+            Logger::Error("VulkanRenderer", "Image index {} out of range (swapchain has {} images) in ECS recording", 
+                        imageIndex, m_graphicsDevice->GetSwapchain()->GetImageCount());
+            return;
+        }
+        
+        // Boundary check: frameIndex değerini doğrula
+        if (frameIndex >= m_graphicsDevice->GetConfig().maxFramesInFlight) {
+            Logger::Error("VulkanRenderer", "Frame index {} out of range (max frames: {}) in ECS recording", 
+                        frameIndex, m_graphicsDevice->GetConfig().maxFramesInFlight);
+            return;
+        }
+        
+        // GraphicsDevice'den mevcut command buffer'ı al
+        VkCommandBuffer commandBuffer = m_graphicsDevice->GetCurrentCommandBuffer();
+        if (!commandBuffer) {
+            Logger::Error("VulkanRenderer", "Failed to get command buffer from GraphicsDevice in ECS recording");
+            return;
+        }
+        
+        // Begin command buffer recording
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = 0; // Optional
+        beginInfo.pInheritanceInfo = nullptr; // Optional
+        
+        VkResult result = vkBeginCommandBuffer(commandBuffer, &beginInfo);
+        if (result != VK_SUCCESS) {
+            Logger::Error("VulkanRenderer", "Failed to begin recording command buffer in ECS recording: {}", static_cast<int32_t>(result));
+            return;
+        }
+        
+        // Begin render pass
+        VkRenderPassBeginInfo renderPassInfo{};
+        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        renderPassInfo.renderPass = m_graphicsDevice->GetSwapchain()->GetRenderPass();
+        renderPassInfo.framebuffer = m_graphicsDevice->GetSwapchain()->GetFramebuffer(imageIndex);
+        renderPassInfo.renderArea.offset = {0, 0};
+        renderPassInfo.renderArea.extent = m_graphicsDevice->GetSwapchain()->GetExtent();
+        
+        // Set clear values (color + depth) - same as non-ECS version
+        VkClearValue clearValues[2] = {};
+        clearValues[0].color = {{m_clearColor[0], m_clearColor[1], m_clearColor[2], m_clearColor[3]}};  // Color clear
+        clearValues[1].depthStencil = {1.0f, 0};  // Depth clear to 1.0 (farthest), stencil to 0
+        renderPassInfo.clearValueCount = 2;
+        renderPassInfo.pClearValues = clearValues;
+        
+        vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        
+        // Bind graphics pipeline
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline->GetPipeline());
+        
+        // Set viewport and scissor
+        VkViewport viewport{};
+        viewport.x = 0.0f;
+        viewport.y = 0.0f;
+        viewport.width = static_cast<float>(m_graphicsDevice->GetSwapchain()->GetExtent().width);
+        viewport.height = static_cast<float>(m_graphicsDevice->GetSwapchain()->GetExtent().height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+        
+        VkRect2D scissor{};
+        scissor.offset = {0, 0};
+        scissor.extent = m_graphicsDevice->GetSwapchain()->GetExtent();
+        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+        
+        // Bind descriptor sets
+        VkDescriptorSet currentDescriptorSet = m_graphicsDevice->GetCurrentDescriptorSet(frameIndex);
+        vkCmdBindDescriptorSets(
+            commandBuffer,
+            VK_PIPELINE_BIND_POINT_GRAPHICS,
+            m_pipeline->GetLayout(),
+            0,
+            1,
+            &currentDescriptorSet,
+            0,
+            nullptr
+        );
+        
+        // Process ECS render items
+        for (const auto& renderItem : renderPacket.renderItems) {
+            if (renderItem.visible) {
+                // For now, use the hardcoded vertex buffer but apply the transform from ECS
+                // TODO: Implement proper dynamic vertex buffer creation based on modelPath
+                
+                // Update uniform buffer with ECS transform
+                UpdateUniformBufferWithECS(frameIndex, renderItem.transform);
+                
+                // Bind vertex buffer (using hardcoded triangle for now)
+                VkBuffer vertexBuffers[] = {m_vertexBuffer->GetBuffer()};
+                VkDeviceSize offsets[] = {0};
+                vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+                
+                // Draw triangle with ECS transform
+                vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+                
+                Logger::Debug("VulkanRenderer", "Drew ECS item with model path: {}", renderItem.modelPath);
+            }
+        }
+        
+        // End render pass
+        vkCmdEndRenderPass(commandBuffer);
+        
+        // End command buffer recording
+        result = vkEndCommandBuffer(commandBuffer);
+        if (result != VK_SUCCESS) {
+            Logger::Error("VulkanRenderer", "Failed to end recording command buffer in ECS recording: {}", static_cast<int32_t>(result));
+            return;
+        }
+        
+        Logger::Debug("VulkanRenderer", "ECS command buffer recorded successfully for image index: {}", imageIndex);
+        
+    } catch (const std::exception& e) {
+        Logger::Error("VulkanRenderer", "RecordCommandBufferWithECS failed: {}", e.what());
+    }
+}
+
+void VulkanRenderer::UpdateUniformBufferWithECS(uint32_t frameIndex, const glm::mat4& ecsTransform) {
+    try {
+        // Boundary check: frameIndex değerini doğrula
+        if (!m_graphicsDevice) {
+            Logger::Error("VulkanRenderer", "GraphicsDevice is null - cannot update uniform buffer with ECS");
+            return;
+        }
+        
+        if (frameIndex >= m_graphicsDevice->GetConfig().maxFramesInFlight) {
+            Logger::Error("VulkanRenderer", "Frame index {} out of range for uniform buffer update with ECS", frameIndex);
+            return;
+        }
+        
+        // Create UBO data with ECS transform
+        UniformBufferObject ubo{};
+        
+        // Model matrix: use ECS transform instead of animation
+        ubo.model = ecsTransform;
+        
+        // View ve projection matrislerini kameradan al
+        if (m_camera) {
+            ubo.view = m_camera->GetViewMatrix();
+            ubo.proj = m_camera->GetProjectionMatrix();
+            Logger::Debug("VulkanRenderer", "Using camera matrices for ECS uniform buffer");
+            
+            // Camera matrislerini doğrula
+            if (glm::any(glm::isnan(ubo.view[0])) || glm::any(glm::isnan(ubo.proj[0]))) {
+                Logger::Error("VulkanRenderer", "Camera matrices contain NaN values - using fallback");
+                // Fallback matrisler kullan
+                ubo.view = glm::lookAt(glm::vec3(0.0f, 0.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+                ubo.proj = glm::perspective(glm::radians(45.0f), 800.0f / 600.0f, 0.1f, 100.0f);
+            }
+        } else {
+            Logger::Warning("VulkanRenderer", "No camera set, using fallback matrices");
+            // Fallback view matrix (looking at origin from Z axis)
+            ubo.view = glm::lookAt(glm::vec3(0.0f, 0.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+            // Fallback projection matrix
+            ubo.proj = glm::perspective(glm::radians(45.0f), 800.0f / 600.0f, 0.1f, 100.0f);
+        }
+        
+        // GraphicsDevice'dan uniform buffer wrapper'ını al
+        VulkanBuffer* uniformBuffer = m_graphicsDevice->GetCurrentUniformBufferWrapper(frameIndex);
+        if (!uniformBuffer) {
+            Logger::Error("VulkanRenderer", "Failed to get uniform buffer wrapper from GraphicsDevice for ECS frame {}", frameIndex);
+            return;
+        }
+        
+        // Buffer'ı map et, veriyi kopyala ve unmap et
+        void* mappedData = uniformBuffer->Map();
+        if (!mappedData) {
+            Logger::Error("VulkanRenderer", "Failed to map uniform buffer for ECS frame {}", frameIndex);
+            return;
+        }
+        memcpy(mappedData, &ubo, sizeof(ubo));
+        uniformBuffer->Unmap();
+        
+        Logger::Debug("VulkanRenderer", "ECS uniform buffer updated for frame {}", frameIndex);
+        
+    } catch (const std::exception& e) {
+        Logger::Error("VulkanRenderer", "UpdateUniformBufferWithECS failed: {}", e.what());
     }
 }
 

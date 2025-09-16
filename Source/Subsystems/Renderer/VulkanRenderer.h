@@ -3,6 +3,7 @@
 #include "IRenderer.h"
 #include "Core/Engine.h"
 #include "Camera.h"
+#include "Subsystems/ECS/ECSSubsystem.h"
 #include <vulkan/vulkan.h>
 #include <memory>
 #include <vector>
@@ -77,6 +78,7 @@ public:
     
     // Public rendering methods
     void RecordCommands(uint32_t frameIndex); // Sadece komut kaydı yapar, submit/present yapmaz
+    void RecordCommands(uint32_t frameIndex, const ECSSubsystem::RenderPacket& renderPacket); // ECS verisi ile komut kaydı yapar
     
     // Dynamic rendering methods
     bool InitializeDynamicRendering();
@@ -97,7 +99,9 @@ private:
     
     // Rendering
     void RecordCommandBuffer(uint32_t imageIndex, uint32_t frameIndex);
+    void RecordCommandBufferWithECS(uint32_t imageIndex, uint32_t frameIndex, const ECSSubsystem::RenderPacket& renderPacket);
     void UpdateUniformBuffer(uint32_t frameIndex);
+    void UpdateUniformBufferWithECS(uint32_t frameIndex, const glm::mat4& ecsTransform);
     
     // Error handling
     void HandleVulkanError(VkResult result, const std::string& operation);

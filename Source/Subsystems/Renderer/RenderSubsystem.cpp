@@ -2,6 +2,7 @@
 #include "../../Core/Engine.h"
 #include "../../Core/Logger.h"
 #include "../Platform/PlatformSubsystem.h"
+#include "../ECS/ECSSubsystem.h"
 
 namespace AstralEngine {
 
@@ -27,6 +28,13 @@ void RenderSubsystem::OnInitialize(Engine* owner) {
     m_window = platformSubsystem->GetWindow();
     if (!m_window) {
         Logger::Error("RenderSubsystem", "Window not found!");
+        return;
+    }
+    
+    // ECS subsystem'e eriş
+    m_ecsSubsystem = m_owner->GetSubsystem<ECSSubsystem>();
+    if (!m_ecsSubsystem) {
+        Logger::Error("RenderSubsystem", "ECSSubsystem not found!");
         return;
     }
     
@@ -69,23 +77,32 @@ void RenderSubsystem::OnUpdate(float deltaTime) {
         }
     }
 
-    // GraphicsDevice frame'i başlatsın (fence bekleme ve image alma)
-    if (m_graphicsDevice->BeginFrame()) {
-        // VulkanRenderer sadece komutları kaydetsin
-        auto vulkanRenderer = m_graphicsDevice->GetVulkanRenderer();
-        if (vulkanRenderer) {
-            // Kamera referansını güncelle
-            vulkanRenderer->SetCamera(m_camera.get());
-            // GraphicsDevice'den güncel frame indeksini al
-            uint32_t currentFrameIndex = m_graphicsDevice->GetCurrentFrameIndex();
-            vulkanRenderer->RecordCommands(currentFrameIndex); // Sadece komut kaydı, submit/present yapma
+    // ECS'den render verilerini al
+    if (m_ecsSubsystem) {
+        auto renderPacket = m_ecsSubsystem->GetRenderData();
+        
+        // GraphicsDevice frame'i başlatsın (fence bekleme ve image alma)
+        if (m_graphicsDevice->BeginFrame()) {
+            // VulkanRenderer sadece komutları kaydetsin
+            auto vulkanRenderer = m_graphicsDevice->GetVulkanRenderer();
+            if (vulkanRenderer) {
+                // Kamera referansını güncelle
+                vulkanRenderer->SetCamera(m_camera.get());
+                // GraphicsDevice'den güncel frame indeksini al
+                uint32_t currentFrameIndex = m_graphicsDevice->GetCurrentFrameIndex();
+                // Render verilerini VulkanRenderer'a gönder
+                vulkanRenderer->RecordCommands(currentFrameIndex, renderPacket); // Sadece komut kaydı, submit/present yapma
+            }
+            
+            // GraphicsDevice frame'i bitirsin (submit ve present)
+            m_graphicsDevice->EndFrame();
         }
         
-        // GraphicsDevice frame'i bitirsin (submit ve present)
-        m_graphicsDevice->EndFrame();
+        Logger::Debug("RenderSubsystem", "Rendering {} items from ECS with deltaTime: {}", 
+                     renderPacket.renderItems.size(), deltaTime);
+    } else {
+        Logger::Error("RenderSubsystem", "ECSSubsystem not available for render data");
     }
-    
-    Logger::Debug("RenderSubsystem", "Rendering frame with deltaTime: {}", deltaTime);
 }
 
 void RenderSubsystem::OnShutdown() {

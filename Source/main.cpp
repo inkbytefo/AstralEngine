@@ -2,6 +2,7 @@
 #include "Core/Logger.h"
 #include "Subsystems/Platform/PlatformSubsystem.h"
 #include "Subsystems/Asset/AssetSubsystem.h"
+#include "Subsystems/ECS/ECSSubsystem.h"
 #include "Subsystems/Renderer/RenderSubsystem.h"
 #include <filesystem>
 
@@ -39,7 +40,10 @@ int main(int argc, char* argv[]) {
         // 2. Asset Subsystem (varlık yönetimi)
         engine.RegisterSubsystem<AssetSubsystem>();
         
-        // 3. Render Subsystem (3D rendering)
+        // 3. ECS Subsystem (entity component system)
+        engine.RegisterSubsystem<ECSSubsystem>();
+        
+        // 4. Render Subsystem (3D rendering)
         engine.RegisterSubsystem<RenderSubsystem>();
         
         // TODO: Diğer subsystem'ler

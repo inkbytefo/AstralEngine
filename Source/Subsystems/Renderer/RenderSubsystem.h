@@ -8,12 +8,14 @@
 namespace AstralEngine {
 
 class Window;
+class ECSSubsystem;
 
 /**
  * @brief Vulkan tabanlı render alt sistemi
  * 
  * Grafik API'sini (Vulkan) soyutlar ve sahneyi ekrana çizer.
  * SDL3 window ve GraphicsDevice ile entegre çalışır.
+ * ECSSubsystem'den gelen render verilerini kullanarak çizim yapar.
  */
 class RenderSubsystem : public ISubsystem {
 public:
@@ -39,6 +41,7 @@ private:
     std::unique_ptr<Camera> m_camera;
     Engine* m_owner = nullptr;
     Window* m_window = nullptr;
+    ECSSubsystem* m_ecsSubsystem = nullptr;
 };
 
 } // namespace AstralEngine

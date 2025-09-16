@@ -15,6 +15,6 @@ void main() {
     // DEBUG: Direct screen space rendering - bypass all matrices
     // This should definitely show a triangle if the pipeline works
     vec2 screenPos = inPosition * 0.8; // Scale down a bit to ensure visibility
-    gl_Position = vec4(screenPos, 0.0, 1.0);
+    gl_Position = vec4(screenPos, 0.5, 1.0);  // Z = 0.5 for proper depth testing
     fragColor = inColor;
 }
