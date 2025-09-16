@@ -32,6 +32,8 @@ option(ASTRAL_ENABLE_TESTS "Enable unit tests" OFF)
 option(ASTRAL_ENABLE_VULKAN "Enable Vulkan graphics API support" ON)
 option(ASTRAL_VULKAN_VALIDATION "Enable Vulkan validation layers in debug builds" ON)
 option(ASTRAL_VENDOR_VULKAN "Fetch and build Vulkan dependencies from source if not found" OFF)
+option(ASTRAL_VENDOR_ASSIMP "Fetch and build Assimp from source if not found" OFF)
+set(ASTRAL_ASSIMP_VERSION "5.2.5" CACHE STRING "Target Assimp version")
 
 # Output directories
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
@@ -512,6 +514,179 @@ if(ASTRAL_ENABLE_VULKAN)
 endif()
 
 # /**********************************************************************
+#  * Assimp Integration
+#  **********************************************************************/
+message(STATUS "Configuring Assimp support...")
+
+# Assimp version configuration
+set(ASTRAL_ASSIMP_ROOT "" CACHE PATH "Path to Assimp installation directory")
+
+# Strategy 1: Check for pre-built Assimp in External directory first
+if(EXISTS "${EXTERNAL_DIR}/Assimp/include/assimp" AND EXISTS "${EXTERNAL_DIR}/Assimp/lib")
+    message(STATUS "Found pre-built Assimp in External/Assimp directory")
+    set(ASSIMP_FOUND TRUE)
+    set(ASTRAL_USE_PREBUILT_ASSIMP TRUE)
+elseif(EXISTS "${EXTERNAL_DIR}/Assimp/CMakeLists.txt")
+    message(STATUS "Found source Assimp in External/Assimp directory")
+    set(ASSIMP_FOUND TRUE)
+    set(ASTRAL_USE_LOCAL_ASSIMP TRUE)
+else()
+    # Strategy 2: Try to find Assimp via Config mode
+    find_package(assimp CONFIG QUIET)
+endif()
+
+# Strategy 3: Try pkgconfig if available
+if(NOT ASSIMP_FOUND)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(ASSIMP_PKG QUIET assimp)
+        if(ASSIMP_PKG_FOUND)
+            set(ASSIMP_FOUND TRUE)
+            add_library(assimp::assimp INTERFACE IMPORTED)
+            target_link_libraries(assimp::assimp INTERFACE ${ASSIMP_PKG_LIBRARIES})
+            target_include_directories(assimp::assimp INTERFACE ${ASSIMP_PKG_INCLUDE_DIRS})
+            target_compile_options(assimp::assimp INTERFACE ${ASSIMP_PKG_CFLAGS_OTHER})
+            message(STATUS "Assimp found via pkg-config")
+        endif()
+    endif()
+endif()
+
+# Strategy 4: FetchContent from source if enabled
+if(NOT ASSIMP_FOUND AND ASTRAL_VENDOR_ASSIMP)
+    message(STATUS "Fetching Assimp from source (version: ${ASTRAL_ASSIMP_VERSION})...")
+    
+    FetchContent_Declare(
+        Assimp
+        GIT_REPOSITORY https://github.com/assimp/assimp.git
+        GIT_TAG v${ASTRAL_ASSIMP_VERSION}
+        GIT_SHALLOW TRUE
+        GIT_PROGRESS TRUE 
+    )
+    
+    # Configure Assimp build options for static library
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build Assimp as static library" FORCE)
+    set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "Build Assimp tools" FORCE)
+    set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "Build Assimp tests" FORCE)
+    set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "Build Assimp samples" FORCE)
+    set(ASSIMP_INSTALL OFF CACHE BOOL "Install Assimp" FORCE)
+    set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "Build zlib" FORCE)
+    set(ASSIMP_BUILD_DOUBLE_SUPPORT OFF CACHE BOOL "Build double precision support" FORCE)
+    set(ASSIMP_BUILD_SINGLE_THREADED OFF CACHE BOOL "Build single-threaded" FORCE)
+    set(ASSIMP_NO_EXPORT ON CACHE BOOL "Disable export functionality" FORCE)
+    set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT ON CACHE BOOL "Build all importers" FORCE)
+    set(ASSIMP_BUILD_ALL_EXPORTERS_BY_DEFAULT OFF CACHE BOOL "Build all exporters" FORCE)
+    
+    FetchContent_MakeAvailable(Assimp)
+    set(ASSIMP_FOUND TRUE)
+    message(STATUS "Assimp successfully built from source")
+endif()
+
+# Final validation and error reporting
+if(NOT ASSIMP_FOUND)
+    message(WARNING
+        "\n========================================\n"
+        "Assimp Integration Warning!\n"
+        "\n"
+        "Assimp ${ASTRAL_ASSIMP_VERSION} could not be found or built.\n"
+        "\n"
+        "Solutions:\n"
+        "  1. Install Assimp development libraries:\n"
+        "     - Windows: Download from https://github.com/assimp/assimp/releases\n"
+        "     - Linux: sudo apt install libassimp-dev\n"
+        "     - macOS: brew install assimp\n"
+        "\n"
+        "  2. Set ASTRAL_ASSIMP_ROOT to your Assimp installation path\n"
+        "\n"
+        "  3. Enable source build: -DASTRAL_VENDOR_ASSIMP=ON\n"
+        "\n"
+        "  4. Use vcpkg: vcpkg install assimp\n"
+        "\n"
+        "Continuing without Assimp support (3D model loading will be limited)...\n"
+        "========================================\n"
+    )
+    set(ASTRAL_HAS_ASSIMP FALSE)
+else()
+    set(ASTRAL_HAS_ASSIMP TRUE)
+    message(STATUS "Assimp support configured successfully")
+endif()
+
+# Handle pre-built Assimp if detected
+if(ASTRAL_USE_PREBUILT_ASSIMP)
+    message(STATUS "Configuring pre-built Assimp from External/Assimp...")
+    
+    # Determine architecture-specific library path
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+        set(ASSIMP_ARCH_DIR "x64")
+    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "i386|i686|x86")
+        set(ASSIMP_ARCH_DIR "x86")
+    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+        set(ASSIMP_ARCH_DIR "arm64")
+    else()
+        set(ASSIMP_ARCH_DIR "x64")  # Default fallback
+    endif()
+    
+    set(ASSIMP_LIB_DIR "${EXTERNAL_DIR}/Assimp/lib/${ASSIMP_ARCH_DIR}")
+    
+    # Verify the library exists
+    if(NOT EXISTS "${ASSIMP_LIB_DIR}/assimp.lib")
+        message(FATAL_ERROR "assimp.lib not found at ${ASSIMP_LIB_DIR}")
+    endif()
+    
+    # Create imported target for Assimp
+    add_library(assimp::assimp STATIC IMPORTED)
+    set_target_properties(assimp::assimp PROPERTIES
+        IMPORTED_LOCATION "${ASSIMP_LIB_DIR}/assimp.lib"
+        INTERFACE_INCLUDE_DIRECTORIES "${EXTERNAL_DIR}/Assimp/include"
+    )
+    
+    message(STATUS "Pre-built Assimp configured successfully (${ASSIMP_ARCH_DIR})")
+endif()
+
+# Handle source Assimp build if detected
+if(ASTRAL_USE_LOCAL_ASSIMP)
+    message(STATUS "Building local Assimp from External/Assimp...")
+    
+    # Configure Assimp build options for static library
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build Assimp as static library" FORCE)
+    set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "Build Assimp tools" FORCE)
+    set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "Build Assimp tests" FORCE)
+    set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "Build Assimp samples" FORCE)
+    set(ASSIMP_INSTALL OFF CACHE BOOL "Install Assimp" FORCE)
+    set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "Build zlib" FORCE)
+    set(ASSIMP_BUILD_DOUBLE_SUPPORT OFF CACHE BOOL "Build double precision support" FORCE)
+    set(ASSIMP_BUILD_SINGLE_THREADED OFF CACHE BOOL "Build single-threaded" FORCE)
+    set(ASSIMP_NO_EXPORT ON CACHE BOOL "Disable export functionality" FORCE)
+    set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT ON CACHE BOOL "Build all importers" FORCE)
+    set(ASSIMP_BUILD_ALL_EXPORTERS_BY_DEFAULT OFF CACHE BOOL "Build all exporters" FORCE)
+    
+    # Add Assimp subdirectory
+    add_subdirectory(${EXTERNAL_DIR}/Assimp EXCLUDE_FROM_ALL)
+    
+    message(STATUS "Local Assimp build configured successfully")
+endif()
+
+# Assimp configuration logging and validation
+if(TARGET assimp::assimp)
+    get_target_property(ASSIMP_TYPE assimp::assimp TYPE)
+    message(STATUS "Assimp target type: ${ASSIMP_TYPE}")
+    
+    # Try to get version information
+    if(ASSIMP_VERSION_STRING)
+        message(STATUS "Assimp version: ${ASSIMP_VERSION_STRING}")
+    elseif(ASSIMP_PKG_VERSION)
+        message(STATUS "Assimp version: ${ASSIMP_PKG_VERSION}")
+    else()
+        message(STATUS "Assimp version: ${ASTRAL_ASSIMP_VERSION}")
+    endif()
+elseif(ASTRAL_USE_PREBUILT_ASSIMP)
+    message(STATUS "Assimp using pre-built libraries from External/Assimp")
+elseif(ASTRAL_USE_LOCAL_ASSIMP)
+    message(STATUS "Assimp built from local source in External/Assimp")
+else()
+    message(STATUS "Assimp found via FetchContent (built from source)")
+endif()
+
+# /**********************************************************************
 #  * Engine Source Files
 #  **********************************************************************/
 set(ENGINE_SOURCES
@@ -532,6 +707,7 @@ set(ENGINE_SOURCES
     # Asset Subsystem
     Source/Subsystems/Asset/AssetSubsystem.cpp
     Source/Subsystems/Asset/AssetManager.cpp
+    Source/Subsystems/Asset/Model.cpp
     
     # ECS Subsystem
     Source/Subsystems/ECS/ECSSubsystem.cpp
@@ -552,6 +728,7 @@ set(ENGINE_SOURCES
     Source/Subsystems/Renderer/Commands/VulkanCommandPool.cpp
     Source/Subsystems/Renderer/Commands/VulkanPipeline.cpp
     Source/Subsystems/Renderer/Buffers/VulkanBuffer.cpp
+    Source/Subsystems/Renderer/Buffers/VulkanMesh.cpp
     
     # Main entry point
     Source/main.cpp
@@ -575,6 +752,7 @@ set(ENGINE_SOURCES_NO_MAIN
     # Asset Subsystem
     Source/Subsystems/Asset/AssetSubsystem.cpp
     Source/Subsystems/Asset/AssetManager.cpp
+    Source/Subsystems/Asset/Model.cpp
     
     # ECS Subsystem
     Source/Subsystems/ECS/ECSSubsystem.cpp
@@ -595,6 +773,7 @@ set(ENGINE_SOURCES_NO_MAIN
     Source/Subsystems/Renderer/Commands/VulkanCommandPool.cpp
     Source/Subsystems/Renderer/Commands/VulkanPipeline.cpp
     Source/Subsystems/Renderer/Buffers/VulkanBuffer.cpp
+    Source/Subsystems/Renderer/Buffers/VulkanMesh.cpp
 )
 
 set(ENGINE_HEADERS
@@ -617,6 +796,7 @@ set(ENGINE_HEADERS
     # Asset Subsystem
     Source/Subsystems/Asset/AssetSubsystem.h
     Source/Subsystems/Asset/AssetManager.h
+    Source/Subsystems/Asset/Model.h
     
     # ECS
     Source/ECS/Components.h
@@ -628,6 +808,7 @@ set(ENGINE_HEADERS
     Source/Subsystems/Renderer/VulkanSynchronization.h
     Source/Subsystems/Renderer/VulkanUtils.h
     Source/Subsystems/Renderer/Buffers/VulkanBuffer.h
+    Source/Subsystems/Renderer/Buffers/VulkanMesh.h
     Source/Subsystems/Renderer/Commands/VulkanCommandPool.h
     Source/Subsystems/Renderer/Commands/VulkanPipeline.h
     Source/Subsystems/Renderer/Core/VulkanDevice.h
@@ -649,6 +830,9 @@ function(configure_astral_target target_name)
         ${CMAKE_SOURCE_DIR}/Source
         $<$<BOOL:${GLM_INCLUDE_DIR}>:${GLM_INCLUDE_DIR}>
         $<$<BOOL:${ASTRAL_HAS_VULKAN}>:${CMAKE_SOURCE_DIR}/External/vulkan/include>
+        $<$<BOOL:${ASTRAL_HAS_ASSIMP}>:${assimp_SOURCE_DIR}/include>
+        $<$<BOOL:${ASTRAL_USE_PREBUILT_ASSIMP}>:${EXTERNAL_DIR}/Assimp/include>
+        $<$<BOOL:${ASTRAL_USE_LOCAL_ASSIMP}>:${EXTERNAL_DIR}/Assimp/include>
     )
 
     # Compile definitions
@@ -679,6 +863,9 @@ function(configure_astral_target target_name)
         $<$<BOOL:${ASTRAL_HAS_VULKAN}>:ASTRAL_USE_VULKAN>
         $<$<BOOL:${ASTRAL_HAS_VULKAN}>:VULKAN_HPP_NO_EXCEPTIONS>
         $<$<BOOL:${ASTRAL_HAS_VULKAN}>:VULKAN_HPP_TYPESAFE_CONVERSION>
+        
+        # Assimp integration
+        $<$<BOOL:${ASTRAL_HAS_ASSIMP}>:ASTRAL_USE_ASSIMP>
     )
 
     # Link libraries
@@ -689,6 +876,10 @@ function(configure_astral_target target_name)
         # Vulkan libraries
         $<$<TARGET_EXISTS:Vulkan::Vulkan>:Vulkan::Vulkan>
         $<$<TARGET_EXISTS:vulkan>::vulkan>
+        
+        # Assimp libraries
+        $<$<TARGET_EXISTS:assimp::assimp>:assimp::assimp>
+        $<$<BOOL:${ASTRAL_USE_LOCAL_ASSIMP}>:assimp>
     )
 
     # SDL3 linking
@@ -934,6 +1125,7 @@ message(STATUS "  Profiling: ${ASTRAL_ENABLE_PROFILING}")
 message(STATUS "  Vulkan Support: ${ASTRAL_ENABLE_VULKAN}")
 message(STATUS "  Vulkan Validation: ${ASTRAL_VULKAN_VALIDATION}")
 message(STATUS "  Vendor Vulkan: ${ASTRAL_VENDOR_VULKAN}")
+message(STATUS "  Vendor Assimp: ${ASTRAL_VENDOR_ASSIMP}")
 message(STATUS "")
 message(STATUS "Dependencies:")
 message(STATUS "  SDL3: Found")
@@ -946,6 +1138,11 @@ if(ASTRAL_HAS_VULKAN)
     message(STATUS "  Vulkan: Found (Version ${ASTRAL_VULKAN_VERSION})")
 else()
     message(STATUS "  Vulkan: Not found (optional)")
+endif()
+if(ASTRAL_HAS_ASSIMP)
+    message(STATUS "  Assimp: Found (Version ${ASTRAL_ASSIMP_VERSION})")
+else()
+    message(STATUS "  Assimp: Not found (optional)")
 endif()
 message(STATUS "")
 message(STATUS "Output Directory: ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")

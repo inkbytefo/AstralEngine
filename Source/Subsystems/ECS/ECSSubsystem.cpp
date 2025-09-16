@@ -1,6 +1,11 @@
 #include "ECSSubsystem.h"
 #include "../../Core/Engine.h"
 #include "../../Core/Logger.h"
+#include "../Renderer/Buffers/VulkanMesh.h"
+#include "../Renderer/RendererTypes.h"
+#include "../Renderer/Core/VulkanDevice.h"
+#include "../Renderer/RenderSubsystem.h"
+#include <glm/glm.hpp>
 
 namespace AstralEngine {
 
@@ -36,6 +41,50 @@ void ECSSubsystem::OnInitialize(Engine* owner) {
     // Add Name component for debugging
     auto& name = AddComponent<NameComponent>(testEntity);
     name.name = "TestTriangle";
+    
+    // Create default triangle mesh
+    Logger::Info("ECSSubsystem", "Creating default triangle mesh...");
+    
+    // Get Vulkan device from RenderSubsystem
+    auto renderSubsystem = m_owner->GetSubsystem<RenderSubsystem>();
+    if (!renderSubsystem) {
+        Logger::Error("ECSSubsystem", "RenderSubsystem not found - cannot create mesh");
+        return;
+    }
+    
+    auto graphicsDevice = renderSubsystem->GetGraphicsDevice();
+    if (!graphicsDevice) {
+        Logger::Error("ECSSubsystem", "GraphicsDevice not found - cannot create mesh");
+        return;
+    }
+    
+    auto vulkanDevice = graphicsDevice->GetVulkanDevice();
+    if (!vulkanDevice) {
+        Logger::Error("ECSSubsystem", "VulkanDevice not found - cannot create mesh");
+        return;
+    }
+    
+    // Create triangle vertices and indices
+    std::vector<Vertex> vertices = {
+        {{0.0f, -0.8f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.5f, 0.0f}},  // Bottom - white
+        {{0.8f, 0.8f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},   // Right top - white  
+        {{-0.8f, 0.8f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}   // Left top - white
+    };
+    
+    std::vector<uint32_t> indices = {0, 1, 2}; // Triangle indices
+    
+    // Create VulkanMesh
+    auto triangleMesh = std::make_shared<VulkanMesh>();
+    if (!triangleMesh->Initialize(vulkanDevice, vertices, indices)) {
+        Logger::Error("ECSSubsystem", "Failed to initialize triangle mesh: {}", triangleMesh->GetLastError());
+        return;
+    }
+    
+    Logger::Info("ECSSubsystem", "Triangle mesh created successfully with {} vertices and {} indices", 
+                 vertices.size(), indices.size());
+    
+    // Store the mesh in the render component for future reference
+    // Note: We'll pass it through the render packet in GetRenderData
     
     Logger::Info("ECSSubsystem", "Created test entity {} with Transform and Render components", testEntity);
     Logger::Info("ECSSubsystem", "ECS subsystem initialized successfully");
@@ -161,6 +210,10 @@ ECSSubsystem::RenderPacket ECSSubsystem::GetRenderData() {
     // Query entities with both Transform and Render components
     auto renderableEntities = QueryEntities<TransformComponent, RenderComponent>();
     
+    // Create default triangle mesh for the default_triangle model
+    // This is a temporary solution - in a real implementation, we would load meshes from AssetManager
+    std::shared_ptr<VulkanMesh> defaultTriangleMesh = nullptr;
+    
     for (uint32_t entity : renderableEntities) {
         auto& transform = GetComponent<TransformComponent>(entity);
         auto& render = GetComponent<RenderComponent>(entity);
@@ -172,6 +225,40 @@ ECSSubsystem::RenderPacket ECSSubsystem::GetRenderData() {
             item.materialPath = render.materialPath;
             item.visible = render.visible;
             item.renderLayer = render.renderLayer;
+            
+            // Create mesh for default_triangle model
+            if (render.modelPath == "default_triangle" && !defaultTriangleMesh) {
+                Logger::Debug("ECSSubsystem", "Creating default triangle mesh for entity {}", entity);
+                
+                // Get Vulkan device from RenderSubsystem
+                auto renderSubsystem = m_owner->GetSubsystem<RenderSubsystem>();
+                if (renderSubsystem && renderSubsystem->GetGraphicsDevice()) {
+                    auto vulkanDevice = renderSubsystem->GetGraphicsDevice()->GetVulkanDevice();
+                    if (vulkanDevice) {
+                        // Create triangle vertices and indices
+                        std::vector<Vertex> vertices = {
+                            {{0.0f, -0.8f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.5f, 0.0f}},  // Bottom - white
+                            {{0.8f, 0.8f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},   // Right top - white  
+                            {{-0.8f, 0.8f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}   // Left top - white
+                        };
+                        
+                        std::vector<uint32_t> indices = {0, 1, 2}; // Triangle indices
+                        
+                        // Create VulkanMesh
+                        defaultTriangleMesh = std::make_shared<VulkanMesh>();
+                        if (!defaultTriangleMesh->Initialize(vulkanDevice, vertices, indices)) {
+                            Logger::Error("ECSSubsystem", "Failed to initialize triangle mesh in GetRenderData: {}", 
+                                         defaultTriangleMesh->GetLastError());
+                            defaultTriangleMesh = nullptr;
+                        } else {
+                            Logger::Debug("ECSSubsystem", "Default triangle mesh created successfully");
+                        }
+                    }
+                }
+            }
+            
+            // Assign the mesh to the render item
+            item.mesh = defaultTriangleMesh;
             
             packet.renderItems.push_back(item);
         }

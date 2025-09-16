@@ -63,7 +63,7 @@ private:
     std::vector<VkPipelineShaderStageCreateInfo> CreateShaderStages();
     VkPipelineVertexInputStateCreateInfo CreateVertexInputState(
         const VkVertexInputBindingDescription& bindingDescription,
-        const std::array<VkVertexInputAttributeDescription, 2>& attributeDescriptions
+        const std::array<VkVertexInputAttributeDescription, 3>& attributeDescriptions
     );
     VkPipelineInputAssemblyStateCreateInfo CreateInputAssemblyState();
     std::vector<VkDynamicState> GetDynamicStates();

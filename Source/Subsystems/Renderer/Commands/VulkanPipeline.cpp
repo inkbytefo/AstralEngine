@@ -385,7 +385,7 @@ std::vector<VkPipelineShaderStageCreateInfo> VulkanPipeline::CreateShaderStages(
 
 VkPipelineVertexInputStateCreateInfo VulkanPipeline::CreateVertexInputState(
     const VkVertexInputBindingDescription& bindingDescription,
-    const std::array<VkVertexInputAttributeDescription, 2>& attributeDescriptions) {
+    const std::array<VkVertexInputAttributeDescription, 3>& attributeDescriptions) {
     // Check if we should use minimal vertex input (for debugging)
     if (m_config.useMinimalVertexInput) {
         Logger::Warning("VulkanPipeline", "Using minimal vertex input state (no attributes)");
@@ -421,20 +421,27 @@ VkPipelineVertexInputStateCreateInfo VulkanPipeline::CreateVertexInputState(
         if (i == 1 && attributeDescriptions[i].location != 1) {
             Logger::Error("VulkanPipeline", "ERROR: Color attribute should be at location 1, but found at location {}", attributeDescriptions[i].location);
         }
+        if (i == 2 && attributeDescriptions[i].location != 2) {
+            Logger::Error("VulkanPipeline", "ERROR: Texture coordinate attribute should be at location 2, but found at location {}", attributeDescriptions[i].location);
+        }
         
         // Validate format matches expected shader input
-        if (i == 0 && attributeDescriptions[i].format != VK_FORMAT_R32G32_SFLOAT) {
-            Logger::Error("VulkanPipeline", "ERROR: Position attribute should be VK_FORMAT_R32G32_SFLOAT, but found {}", static_cast<uint32_t>(attributeDescriptions[i].format));
+        if (i == 0 && attributeDescriptions[i].format != VK_FORMAT_R32G32B32_SFLOAT) {
+            Logger::Error("VulkanPipeline", "ERROR: Position attribute should be VK_FORMAT_R32G32B32_SFLOAT, but found {}", static_cast<uint32_t>(attributeDescriptions[i].format));
         }
         if (i == 1 && attributeDescriptions[i].format != VK_FORMAT_R32G32B32_SFLOAT) {
             Logger::Error("VulkanPipeline", "ERROR: Color attribute should be VK_FORMAT_R32G32B32_SFLOAT, but found {}", static_cast<uint32_t>(attributeDescriptions[i].format));
+        }
+        if (i == 2 && attributeDescriptions[i].format != VK_FORMAT_R32G32_SFLOAT) {
+            Logger::Error("VulkanPipeline", "ERROR: Texture coordinate attribute should be VK_FORMAT_R32G32_SFLOAT, but found {}", static_cast<uint32_t>(attributeDescriptions[i].format));
         }
     }
     
     // Log shader layout expectations for comparison
     Logger::Info("VulkanPipeline", "Expected shader layout:");
-    Logger::Info("VulkanPipeline", "  - layout(location = 0) in vec2 inPosition");
+    Logger::Info("VulkanPipeline", "  - layout(location = 0) in vec3 inPosition");
     Logger::Info("VulkanPipeline", "  - layout(location = 1) in vec3 inColor");
+    Logger::Info("VulkanPipeline", "  - layout(location = 2) in vec2 inTexCoord");
     
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;

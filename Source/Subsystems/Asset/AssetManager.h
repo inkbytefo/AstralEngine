@@ -5,11 +5,18 @@
 #include <memory>
 #include <future>
 #include <functional>
+#include "Model.h"
 
 // Forward declarations
 namespace AstralEngine {
-class Model;
-class Texture;
+class Texture {
+public:
+    Texture(const std::string& path) : m_filePath(path) {}
+    const std::string& GetFilePath() const { return m_filePath; }
+private:
+    std::string m_filePath;
+};
+
 class VulkanShader;
 class VulkanDevice;
 }
@@ -38,6 +45,7 @@ public:
 
     // Senkron yükleme (blok eder)
     std::shared_ptr<Model> LoadModel(const std::string& filePath);
+    std::shared_ptr<Model> LoadModel(const std::string& filePath, VulkanDevice* device);
     std::shared_ptr<Texture> LoadTexture(const std::string& filePath);
     std::shared_ptr<VulkanShader> LoadShader(const std::string& vertexPath, const std::string& fragmentPath);
     std::shared_ptr<VulkanShader> LoadShader(const std::string& shaderName); // Yeni metod

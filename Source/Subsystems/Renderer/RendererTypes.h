@@ -25,13 +25,15 @@ struct UniformBufferObject {
  * @struct Vertex
  * @brief Vertex veri yapısı - shader'daki input değişkenleriyle eşleşir
  * 
- * Bu yapı, üçgenin her bir vertex'i için konum ve renk bilgisi tutar.
- * Shader'daki layout(location = 0) in vec2 inPosition ve
- * layout(location = 1) in vec3 inColor ile eşleşir.
+ * Bu yapı, üçgenin her bir vertex'i için konum, renk ve texture koordinatları bilgisi tutar.
+ * Shader'daki layout(location = 0) in vec3 inPosition,
+ * layout(location = 1) in vec3 inColor ve
+ * layout(location = 2) in vec2 inTexCoord ile eşleşir.
  */
 struct Vertex {
-    glm::vec2 pos;     ///< 2D konum (x, y)
-    glm::vec3 color;   ///< 3D renk (r, g, b)
+    glm::vec3 pos;       ///< 3D konum (x, y, z)
+    glm::vec3 color;     ///< 3D renk (r, g, b)
+    glm::vec2 texCoord;  ///< 2D texture koordinatları (u, v)
 
     /**
      * @brief Vertex binding description'ını döndürür
@@ -53,18 +55,18 @@ struct Vertex {
     /**
      * @brief Vertex attribute description'larını döndürür
      * 
-     * Bu fonksiyon, vertex struct'ındaki her bir üyenin (pos, color)
+     * Bu fonksiyon, vertex struct'ındaki her bir üyenin (pos, color, texCoord)
      * shader'daki location'larla nasıl eşleşeceğini tanımlar.
      * 
-     * @return std::array<VkVertexInputAttributeDescription, 2> attribute descriptions
+     * @return std::array<VkVertexInputAttributeDescription, 3> attribute descriptions
      */
-    static std::array<VkVertexInputAttributeDescription, 2> GetAttributeDescriptions() {
-        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
+    static std::array<VkVertexInputAttributeDescription, 3> GetAttributeDescriptions() {
+        std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions{};
 
         // Position attribute (location = 0)
         attributeDescriptions[0].binding = 0;                           // Aynı binding index
         attributeDescriptions[0].location = 0;                          // Shader'daki location
-        attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;      // 2 float (vec2)
+        attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;   // 3 float (vec3)
         attributeDescriptions[0].offset = offsetof(Vertex, pos);        // Struct içindeki offset
 
         // Color attribute (location = 1)
@@ -72,6 +74,12 @@ struct Vertex {
         attributeDescriptions[1].location = 1;                          // Shader'daki location
         attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;   // 3 float (vec3)
         attributeDescriptions[1].offset = offsetof(Vertex, color);      // Struct içindeki offset
+
+        // Texture coordinate attribute (location = 2)
+        attributeDescriptions[2].binding = 0;                           // Aynı binding index
+        attributeDescriptions[2].location = 2;                          // Shader'daki location
+        attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;      // 2 float (vec2)
+        attributeDescriptions[2].offset = offsetof(Vertex, texCoord);   // Struct içindeki offset
 
         return attributeDescriptions;
     }

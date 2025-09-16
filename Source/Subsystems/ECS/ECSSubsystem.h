@@ -2,6 +2,7 @@
 
 #include "../../Core/ISubsystem.h"
 #include "../../ECS/Components.h"
+#include "../Renderer/Buffers/VulkanMesh.h"
 #include <unordered_map>
 #include <vector>
 #include <typeindex>
@@ -11,6 +12,7 @@
 namespace AstralEngine {
 
 class Engine;
+class RenderSubsystem;
 
 /**
  * @brief Entity Component System (ECS) Subsystem
@@ -60,6 +62,7 @@ public:
             std::string materialPath;
             bool visible;
             int renderLayer;
+            std::shared_ptr<VulkanMesh> mesh;
         };
         std::vector<RenderItem> renderItems;
     };

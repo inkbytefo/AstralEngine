@@ -1,31 +1,19 @@
 #include "AssetManager.h"
 #include "Subsystems/Renderer/Shaders/VulkanShader.h"
+#include "Subsystems/Renderer/Core/VulkanDevice.h"
+#include "Subsystems/Renderer/Buffers/VulkanMesh.h"
 #include "../../Core/Logger.h"
 #include <filesystem>
 #include <mutex>
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+#include <glm/glm.hpp>
+#include "Subsystems/Renderer/RendererTypes.h"
 
 // Forward declarations for Vulkan device
 namespace AstralEngine {
 class VulkanDevice;
-}
-
-// Forward declarations for asset types (will be implemented later)
-namespace AstralEngine {
-class Model {
-public:
-    Model(const std::string& path) : m_filePath(path) {}
-    const std::string& GetFilePath() const { return m_filePath; }
-private:
-    std::string m_filePath;
-};
-
-class Texture {
-public:
-    Texture(const std::string& path) : m_filePath(path) {}
-    const std::string& GetFilePath() const { return m_filePath; }
-private:
-    std::string m_filePath;
-};
 }
 
 namespace AstralEngine {
@@ -86,8 +74,19 @@ void AssetManager::Shutdown() {
 }
 
 std::shared_ptr<Model> AssetManager::LoadModel(const std::string& filePath) {
+    // Device parametresi almayan versiyon, log uyarısı verip nullptr döndür
+    Logger::Warning("AssetManager", "LoadModel called without device parameter. Use LoadModel(filePath, device) for 3D model loading.");
+    return nullptr;
+}
+
+std::shared_ptr<Model> AssetManager::LoadModel(const std::string& filePath, VulkanDevice* device) {
     if (!m_initialized) {
         Logger::Error("AssetManager", "Cannot load model: AssetManager not initialized");
+        return nullptr;
+    }
+    
+    if (!device) {
+        Logger::Error("AssetManager", "Cannot load model: VulkanDevice is null");
         return nullptr;
     }
     
@@ -107,14 +106,140 @@ std::shared_ptr<Model> AssetManager::LoadModel(const std::string& filePath) {
         return nullptr;
     }
     
-    // TODO: Gerçek model yükleme implementasyonu (tinyobjloader, Assimp vs.)
+    Logger::Info("AssetManager", "Loading model from file: '{}'", fullPath);
+    
+    // Assimp ile modeli yükle
+    Assimp::Importer importer;
+    const aiScene* scene = importer.ReadFile(fullPath, 
+        aiProcess_Triangulate |           // Üçgenlere dönüştür
+        aiProcess_FlipUVs |              // Texture koordinatlarını flip et
+        aiProcess_CalcTangentSpace |     // Tangent space hesapla
+        aiProcess_GenNormals |           // Normal vektörleri oluştur
+        aiProcess_JoinIdenticalVertices | // Aynı vertex'leri birleştir
+        aiProcess_ImproveCacheLocality); // Cache locality'i iyileştir
+    
+    // Yükleme kontrolü
+    if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
+        Logger::Error("AssetManager", "Assimp failed to load model '{}': {}", 
+                     fullPath, importer.GetErrorString());
+        return nullptr;
+    }
+    
+    if (scene->mNumMeshes == 0) {
+        Logger::Warning("AssetManager", "Model '{}' contains no meshes", fullPath);
+        return nullptr;
+    }
+    
+    // Model nesnesini oluştur
     auto model = std::make_shared<Model>(fullPath);
     
+    // Tüm mesh'leri işle
+    size_t totalVertices = 0;
+    size_t totalIndices = 0;
+    
+    for (unsigned int i = 0; i < scene->mNumMeshes; ++i) {
+        const aiMesh* mesh = scene->mMeshes[i];
+        
+        if (!mesh->HasPositions()) {
+            Logger::Warning("AssetManager", "Mesh {} has no positions, skipping", i);
+            continue;
+        }
+        
+        Logger::Debug("AssetManager", "Processing mesh {}: {} vertices, {} faces", 
+                     i, mesh->mNumVertices, mesh->mNumFaces);
+        
+        // Vertex ve index verilerini hazırla
+        std::vector<Vertex> vertices;
+        std::vector<uint32_t> indices;
+        
+        // Vertex verilerini dönüştür
+        for (unsigned int j = 0; j < mesh->mNumVertices; ++j) {
+            Vertex vertex;
+            
+            // Position (3D)
+            vertex.pos = glm::vec3(mesh->mVertices[j].x, mesh->mVertices[j].y, mesh->mVertices[j].z);
+            
+            // Color (varsayılan beyaz, veya vertex colors varsa kullan)
+            if (mesh->HasVertexColors(0)) {
+                vertex.color = glm::vec3(
+                    mesh->mColors[0][j].r,
+                    mesh->mColors[0][j].g,
+                    mesh->mColors[0][j].b
+                );
+            } else {
+                vertex.color = glm::vec3(1.0f, 1.0f, 1.0f); // Beyaz
+            }
+            
+            // Texture coordinates (varsayılan sıfır, veya texture coords varsa kullan)
+            if (mesh->HasTextureCoords(0)) {
+                vertex.texCoord = glm::vec2(
+                    mesh->mTextureCoords[0][j].x,
+                    mesh->mTextureCoords[0][j].y
+                );
+            } else {
+                vertex.texCoord = glm::vec2(0.0f, 0.0f); // Sıfır
+            }
+            
+            vertices.push_back(vertex);
+        }
+        
+        // Index verilerini dönüştür
+        for (unsigned int j = 0; j < mesh->mNumFaces; ++j) {
+            const aiFace& face = mesh->mFaces[j];
+            
+            // Sadece üçgen yüzleri destekle
+            if (face.mNumIndices != 3) {
+                Logger::Warning("AssetManager", "Face {} has {} indices (expected 3), skipping", 
+                               j, face.mNumIndices);
+                continue;
+            }
+            
+            for (unsigned int k = 0; k < face.mNumIndices; ++k) {
+                indices.push_back(face.mIndices[k]);
+            }
+        }
+        
+        if (vertices.empty() || indices.empty()) {
+            Logger::Warning("AssetManager", "Mesh {} has no valid geometry, skipping", i);
+            continue;
+        }
+        
+        // VulkanMesh oluştur ve başlat
+        auto vulkanMesh = std::make_shared<VulkanMesh>();
+        if (!vulkanMesh->Initialize(device, vertices, indices)) {
+            Logger::Error("AssetManager", "Failed to initialize VulkanMesh for mesh {}", i);
+            continue;
+        }
+        
+        // Model'e mesh'i ekle
+        model->AddMesh(vulkanMesh);
+        
+        totalVertices += vertices.size();
+        totalIndices += indices.size();
+        
+        Logger::Debug("AssetManager", "Mesh {} loaded successfully: {} vertices, {} indices", 
+                     i, vertices.size(), indices.size());
+    }
+    
+    // Model'in geçerliliğini kontrol et
+    if (model->GetMeshCount() == 0) {
+        Logger::Error("AssetManager", "No valid meshes found in model '{}'", fullPath);
+        return nullptr;
+    }
+    
+    // Model'i geçerli olarak işaretle
+    // Model sınıfında bunu yapacak bir metod yok, doğrudan erişemeyiz
+    // Bu yüzden sadece loglama yapıyoruz
+    
     // Cache'e ekle
-    size_t estimatedSize = std::filesystem::file_size(fullPath);
+    size_t estimatedSize = std::filesystem::file_size(fullPath) + 
+                          (totalVertices * sizeof(Vertex)) + 
+                          (totalIndices * sizeof(uint32_t));
     AddToCache(normalizedPath, model, estimatedSize);
     
-    Logger::Info("AssetManager", "Model loaded successfully: '{}'", filePath);
+    Logger::Info("AssetManager", "Model loaded successfully: '{}', {} meshes, {} vertices, {} indices", 
+                 filePath, model->GetMeshCount(), totalVertices, totalIndices);
+    
     return model;
 }
 

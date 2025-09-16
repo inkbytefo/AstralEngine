@@ -1,4 +1,5 @@
 #include "VulkanRenderer.h"
+#include "RendererTypes.h"
 #include "Core/Logger.h"
 #include "Shaders/VulkanShader.h"
 #include "Commands/VulkanPipeline.h"
@@ -326,9 +327,9 @@ bool VulkanRenderer::InitializeVertexBuffer() {
     try {
         // Triangle vertex data - make it larger and more visible
         std::vector<Vertex> vertices = {
-            {{0.0f, -0.8f}, {1.0f, 1.0f, 1.0f}},  // Bottom - white
-            {{0.8f, 0.8f}, {1.0f, 1.0f, 1.0f}},   // Right top - white  
-            {{-0.8f, 0.8f}, {1.0f, 1.0f, 1.0f}}   // Left top - white
+            {{0.0f, -0.8f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.5f, 0.0f}},  // Bottom - white
+            {{0.8f, 0.8f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},   // Right top - white  
+            {{-0.8f, 0.8f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}   // Left top - white
         };
         
         // Create vertex buffer
@@ -619,22 +620,20 @@ void VulkanRenderer::RecordCommandBufferWithECS(uint32_t imageIndex, uint32_t fr
         
         // Process ECS render items
         for (const auto& renderItem : renderPacket.renderItems) {
-            if (renderItem.visible) {
-                // For now, use the hardcoded vertex buffer but apply the transform from ECS
-                // TODO: Implement proper dynamic vertex buffer creation based on modelPath
-                
+            if (renderItem.visible && renderItem.mesh) {
                 // Update uniform buffer with ECS transform
                 UpdateUniformBufferWithECS(frameIndex, renderItem.transform);
                 
-                // Bind vertex buffer (using hardcoded triangle for now)
-                VkBuffer vertexBuffers[] = {m_vertexBuffer->GetBuffer()};
-                VkDeviceSize offsets[] = {0};
-                vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+                // Bind the mesh's vertex and index buffers
+                renderItem.mesh->Bind(commandBuffer);
                 
-                // Draw triangle with ECS transform
-                vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+                // Draw using indexed drawing with the mesh's index count
+                vkCmdDrawIndexed(commandBuffer, renderItem.mesh->GetIndexCount(), 1, 0, 0, 0);
                 
-                Logger::Debug("VulkanRenderer", "Drew ECS item with model path: {}", renderItem.modelPath);
+                Logger::Debug("VulkanRenderer", "Drew ECS item with model path: {}, index count: {}", 
+                             renderItem.modelPath, renderItem.mesh->GetIndexCount());
+            } else if (renderItem.visible && !renderItem.mesh) {
+                Logger::Warning("VulkanRenderer", "Render item visible but has no mesh: {}", renderItem.modelPath);
             }
         }
         

@@ -34,10 +34,8 @@ public:
         bool enableValidationLayers = true;
     };
 
-    struct Vertex {
-        glm::vec2 position;
-        glm::vec3 color;
-    };
+    // Vertex structure is now defined in RendererTypes.h
+    // Using the unified Vertex structure with 3D position and texture coordinates
 
     struct UniformBufferObject {
         glm::mat4 model;
