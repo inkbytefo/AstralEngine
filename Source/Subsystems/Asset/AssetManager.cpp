@@ -2,6 +2,7 @@
 #include "Subsystems/Renderer/Shaders/VulkanShader.h"
 #include "Subsystems/Renderer/Core/VulkanDevice.h"
 #include "Subsystems/Renderer/Buffers/VulkanMesh.h"
+#include "Subsystems/Renderer/Buffers/VulkanTexture.h"
 #include "../../Core/Logger.h"
 #include <filesystem>
 #include <mutex>
@@ -10,6 +11,10 @@
 #include <assimp/postprocess.h>
 #include <glm/glm.hpp>
 #include "Subsystems/Renderer/RendererTypes.h"
+
+// stb_image implementation
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 
 // Forward declarations for Vulkan device
 namespace AstralEngine {
@@ -57,6 +62,9 @@ bool AssetManager::Initialize(const std::string& assetDirectory) {
 void AssetManager::Update() {
     // TODO: Async yükleme operasyonlarını kontrol et
     // Future'ları check et, tamamlananları callback'leri çağır
+    
+    // Asset registry'deki durumları güncelle
+    // Burada ileride async loading işlemleri yönetilecek
 }
 
 void AssetManager::Shutdown() {
@@ -68,6 +76,8 @@ void AssetManager::Shutdown() {
                 GetLoadedAssetCount(), GetMemoryUsage());
     
     ClearCache();
+    ClearAssetCache();
+    m_registry.ClearAll();
     m_initialized = false;
     
     Logger::Info("AssetManager", "AssetManager shutdown complete");
@@ -243,6 +253,219 @@ std::shared_ptr<Model> AssetManager::LoadModel(const std::string& filePath, Vulk
     return model;
 }
 
+// Yeni AssetHandle tabanlı metodlar
+AssetHandle AssetManager::RegisterAsset(const std::string& filePath, AssetHandle::Type type) {
+    if (!m_initialized) {
+        Logger::Error("AssetManager", "Cannot register asset: AssetManager not initialized");
+        return AssetHandle();
+    }
+    
+    // AssetHandle oluştur
+    AssetHandle handle(filePath, type);
+    if (!handle.IsValid()) {
+        Logger::Error("AssetManager", "Failed to create asset handle for: {}", filePath);
+        return AssetHandle();
+    }
+    
+    // Registry'e kaydet
+    if (!m_registry.RegisterAsset(handle, filePath, type)) {
+        Logger::Error("AssetManager", "Failed to register asset: {}", filePath);
+        return AssetHandle();
+    }
+    
+    Logger::Debug("AssetManager", "Asset registered: {} (ID: {}, Type: {})", 
+                 filePath, handle.GetID(), static_cast<int>(type));
+    
+    return handle;
+}
+
+bool AssetManager::LoadAsset(const AssetHandle& handle, VulkanDevice* device) {
+    if (!m_initialized) {
+        Logger::Error("AssetManager", "Cannot load asset: AssetManager not initialized");
+        return false;
+    }
+    
+    if (!handle.IsValid()) {
+        Logger::Error("AssetManager", "Cannot load invalid asset handle");
+        return false;
+    }
+    
+    // Asset durumunu kontrol et
+    AssetLoadState currentState = m_registry.GetAssetState(handle);
+    if (currentState == AssetLoadState::Loaded) {
+        Logger::Debug("AssetManager", "Asset already loaded: {}", handle.GetID());
+        return true;
+    }
+    
+    if (currentState == AssetLoadState::Loading) {
+        Logger::Debug("AssetManager", "Asset already loading: {}", handle.GetID());
+        return true;
+    }
+    
+    // Yükleme durumunu güncelle
+    m_registry.SetAssetState(handle, AssetLoadState::Loading);
+    m_registry.SetLoadProgress(handle, 0.0f);
+    
+    const AssetMetadata* metadata = m_registry.GetMetadata(handle);
+    if (!metadata) {
+        Logger::Error("AssetManager", "Asset metadata not found: {}", handle.GetID());
+        m_registry.SetAssetState(handle, AssetLoadState::Failed);
+        return false;
+    }
+    
+    // Asset tipine göre yükleme yap
+    auto startTime = std::chrono::high_resolution_clock::now();
+    bool success = false;
+    
+    try {
+        switch (metadata->type) {
+            case AssetHandle::Type::Model:
+                if (device) {
+                    auto model = LoadModel(metadata->filePath, device);
+                    success = (model != nullptr);
+                    if (success) {
+                        std::lock_guard<std::mutex> lock(m_cacheMutex);
+                        m_assetHandleCache[handle] = std::static_pointer_cast<void>(model);
+                    }
+                }
+                break;
+                
+            case AssetHandle::Type::Texture:
+                if (device) {
+                    auto texture = LoadVulkanTexture(metadata->filePath, device);
+                    success = (texture != nullptr);
+                    if (success) {
+                        std::lock_guard<std::mutex> lock(m_cacheMutex);
+                        m_assetHandleCache[handle] = std::static_pointer_cast<void>(texture);
+                    }
+                }
+                break;
+                
+            case AssetHandle::Type::Shader:
+                if (device) {
+                    auto shader = LoadShader(metadata->filePath, device);
+                    success = (shader != nullptr);
+                    if (success) {
+                        std::lock_guard<std::mutex> lock(m_cacheMutex);
+                        m_assetHandleCache[handle] = std::static_pointer_cast<void>(shader);
+                    }
+                }
+                break;
+                
+            default:
+                Logger::Error("AssetManager", "Unsupported asset type: {}", static_cast<int>(metadata->type));
+                success = false;
+                break;
+        }
+    } catch (const std::exception& e) {
+        Logger::Error("AssetManager", "Exception while loading asset {}: {}", metadata->filePath, e.what());
+        success = false;
+    }
+    
+    // Yükleme süresini hesapla
+    auto endTime = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration<double, std::milli>(endTime - startTime).count();
+    m_registry.SetLoadTime(handle, duration);
+    
+    // Durumu güncelle
+    if (success) {
+        m_registry.SetAssetState(handle, AssetLoadState::Loaded);
+        m_registry.SetLoadProgress(handle, 1.0f);
+        m_registry.UpdateLastAccessTime(handle);
+        
+        // Bellek boyutunu güncelle (dosya boyutu + tahmini GPU bellek)
+        size_t fileSize = std::filesystem::exists(metadata->filePath) ? 
+                         std::filesystem::file_size(metadata->filePath) : 0;
+        m_registry.SetMemorySize(handle, fileSize);
+        
+        Logger::Info("AssetManager", "Asset loaded successfully: {} ({:.2f} ms)", 
+                     metadata->filePath, duration);
+    } else {
+        m_registry.SetAssetState(handle, AssetLoadState::Failed);
+        m_registry.SetAssetError(handle, "Loading failed");
+        Logger::Error("AssetManager", "Asset loading failed: {}", metadata->filePath);
+    }
+    
+    return success;
+}
+
+bool AssetManager::UnloadAsset(const AssetHandle& handle) {
+    if (!handle.IsValid()) {
+        return false;
+    }
+    
+    std::lock_guard<std::mutex> lock(m_cacheMutex);
+    
+    auto it = m_assetHandleCache.find(handle);
+    if (it != m_assetHandleCache.end()) {
+        Logger::Debug("AssetManager", "Unloading asset: {}", handle.GetID());
+        m_assetHandleCache.erase(it);
+        m_registry.SetAssetState(handle, AssetLoadState::Unloaded);
+        return true;
+    }
+    
+    return false;
+}
+
+
+template<typename T>
+bool AssetManager::IsAssetLoaded(const AssetHandle& handle) const {
+    if (!handle.IsValid()) {
+        return false;
+    }
+    
+    return m_registry.GetAssetState(handle) == AssetLoadState::Loaded;
+}
+
+AssetLoadState AssetManager::GetAssetState(const AssetHandle& handle) const {
+    if (!handle.IsValid()) {
+        return AssetLoadState::NotLoaded;
+    }
+    
+    // Asset'in registered olup olmadığını kontrol et
+    if (!m_registry.IsAssetRegistered(handle)) {
+        Logger::Debug("AssetManager", "Asset not registered in registry: {} (type: {})", 
+                     handle.GetID(), static_cast<int>(handle.GetType()));
+        return AssetLoadState::NotLoaded;
+    }
+    
+    return m_registry.GetAssetState(handle);
+}
+
+float AssetManager::GetAssetLoadProgress(const AssetHandle& handle) const {
+    if (!handle.IsValid()) {
+        return 0.0f;
+    }
+    
+    return m_registry.GetLoadProgress(handle);
+}
+
+std::string AssetManager::GetAssetError(const AssetHandle& handle) const {
+    if (!handle.IsValid()) {
+        return "Invalid asset handle";
+    }
+    
+    return m_registry.GetAssetError(handle);
+}
+
+void AssetManager::ClearAssetCache() {
+    std::lock_guard<std::mutex> lock(m_cacheMutex);
+    
+    Logger::Info("AssetManager", "Clearing asset handle cache. {} assets removed", 
+                m_assetHandleCache.size());
+    m_assetHandleCache.clear();
+}
+
+size_t AssetManager::GetLoadedAssetCountByType([[maybe_unused]] AssetHandle::Type type) const {
+    return m_registry.GetAssetCountByState(AssetLoadState::Loaded);
+}
+
+// Template implementations for the new GetAssetFromCache method
+template<typename T>
+std::shared_ptr<T> AssetManager::GetAssetFromCache(const AssetHandle& handle) {
+    return GetAsset<T>(handle);
+}
+
 std::shared_ptr<Texture> AssetManager::LoadTexture(const std::string& filePath) {
     if (!m_initialized) {
         Logger::Error("AssetManager", "Cannot load texture: AssetManager not initialized");
@@ -276,119 +499,52 @@ std::shared_ptr<Texture> AssetManager::LoadTexture(const std::string& filePath) 
     return texture;
 }
 
-std::shared_ptr<VulkanShader> AssetManager::LoadShader(const std::string& vertexPath, const std::string& fragmentPath) {
+std::shared_ptr<VulkanTexture> AssetManager::LoadVulkanTexture(const std::string& filePath, VulkanDevice* device) {
     if (!m_initialized) {
-        Logger::Error("AssetManager", "Cannot load shader: AssetManager not initialized");
+        Logger::Error("AssetManager", "Cannot load texture: AssetManager not initialized");
         return nullptr;
     }
     
-    std::string normalizedVertexPath = NormalizePath(vertexPath);
-    std::string normalizedFragmentPath = NormalizePath(fragmentPath);
+    if (!device) {
+        Logger::Error("AssetManager", "Cannot load texture: VulkanDevice is null");
+        return nullptr;
+    }
     
-    // Shader için unique key oluştur
-    std::string shaderKey = normalizedVertexPath + "|" + normalizedFragmentPath;
+    std::string normalizedPath = NormalizePath(filePath);
     
     // Cache'den kontrol et
-    auto cached = GetFromCache<VulkanShader>(shaderKey);
+    auto cached = GetFromCache<VulkanTexture>(normalizedPath);
     if (cached) {
-        Logger::Debug("AssetManager", "Shader loaded from cache: '{}' + '{}'", vertexPath, fragmentPath);
+        Logger::Debug("AssetManager", "VulkanTexture loaded from cache: '{}'", filePath);
         return cached;
     }
     
-    // Dosyalardan yükle
-    std::string fullVertexPath = GetFullPath(normalizedVertexPath);
-    std::string fullFragmentPath = GetFullPath(normalizedFragmentPath);
-    
-    if (!std::filesystem::exists(fullVertexPath)) {
-        Logger::Error("AssetManager", "Vertex shader file not found: '{}'", fullVertexPath);
+    // Dosyadan yükle
+    std::string fullPath = GetFullPath(normalizedPath);
+    if (!std::filesystem::exists(fullPath)) {
+        Logger::Error("AssetManager", "Texture file not found: '{}'", fullPath);
         return nullptr;
     }
     
-    if (!std::filesystem::exists(fullFragmentPath)) {
-        Logger::Error("AssetManager", "Fragment shader file not found: '{}'", fullFragmentPath);
+    Logger::Info("AssetManager", "Loading VulkanTexture from file: '{}'", fullPath);
+    
+    // VulkanTexture oluştur ve başlat
+    auto texture = std::make_shared<VulkanTexture>();
+    if (!texture->Initialize(device, fullPath)) {
+        Logger::Error("AssetManager", "Failed to initialize VulkanTexture '{}': {}", 
+                     fullPath, texture->GetLastError());
         return nullptr;
     }
-    
-    // Gerçek shader yükleme implementasyonu
-    // VulkanShader nesnesini oluştur ve başlat
-    auto shader = std::make_shared<VulkanShader>();
-    // TODO: Shader'ı başlatmak için gerekli işlemleri yap
-    // Not: Bu metod device parametresi almadığı için shader sadece oluşturulur, başlatılmaz
     
     // Cache'e ekle
-    size_t estimatedSize = std::filesystem::file_size(fullVertexPath) + 
-                          std::filesystem::file_size(fullFragmentPath);
-    AddToCache(shaderKey, shader, estimatedSize);
+    size_t estimatedSize = std::filesystem::file_size(fullPath);
+    AddToCache(normalizedPath, texture, estimatedSize);
     
-    Logger::Info("AssetManager", "Shader loaded successfully: '{}' + '{}'", vertexPath, fragmentPath);
-    return shader;
+    Logger::Info("AssetManager", "VulkanTexture loaded successfully: '{}'", filePath);
+    return texture;
 }
 
-std::shared_ptr<VulkanShader> AssetManager::LoadShader(const std::string& shaderName) {
-    if (!m_initialized) {
-        Logger::Error("AssetManager", "Cannot load shader: AssetManager not initialized");
-        return nullptr;
-    }
-    
-    // Shader adını normalize et
-    std::string normalizedName = NormalizePath(shaderName);
-    
-    // Cache'den kontrol et
-    auto cached = GetFromCache<VulkanShader>(normalizedName);
-    if (cached) {
-        Logger::Debug("AssetManager", "Shader loaded from cache: '{}'", shaderName);
-        return cached;
-    }
-    
-    // Varsayılan shader yollarını oluştur
-    std::string vertexPath = "Shaders/" + normalizedName + ".vert";
-    std::string fragmentPath = "Shaders/" + normalizedName + ".frag";
-    
-    // Dosyalardan yükle
-    std::string fullVertexPath = GetFullPath(vertexPath);
-    std::string fullFragmentPath = GetFullPath(fragmentPath);
-    
-    // .spv dosyalarını kontrol et
-    std::string vertexSpvPath = "Shaders/" + normalizedName + ".vert.spv";
-    std::string fragmentSpvPath = "Shaders/" + normalizedName + ".frag.spv";
-    std::string fullVertexSpvPath = GetFullPath(vertexSpvPath);
-    std::string fullFragmentSpvPath = GetFullPath(fragmentSpvPath);
-    
-    // Eğer .spv dosyaları varsa onları kullan
-    if (std::filesystem::exists(fullVertexSpvPath) && std::filesystem::exists(fullFragmentSpvPath)) {
-        fullVertexPath = fullVertexSpvPath;
-        fullFragmentPath = fullFragmentSpvPath;
-        Logger::Debug("AssetManager", "Using compiled shader files (.spv) for '{}'", shaderName);
-    } else {
-        Logger::Debug("AssetManager", "Using source shader files (.vert/.frag) for '{}'", shaderName);
-    }
-    
-    if (!std::filesystem::exists(fullVertexPath)) {
-        Logger::Error("AssetManager", "Vertex shader file not found: '{}'", fullVertexPath);
-        return nullptr;
-    }
-    
-    if (!std::filesystem::exists(fullFragmentPath)) {
-        Logger::Error("AssetManager", "Fragment shader file not found: '{}'", fullFragmentPath);
-        return nullptr;
-    }
-    
-    // Gerçek shader yükleme implementasyonu
-    // VulkanShader nesnesini oluştur ve başlat
-    auto shader = std::make_shared<VulkanShader>();
-    // TODO: Shader'ı başlatmak için gerekli işlemleri yap
-    // Not: Bu metod device parametresi almadığı için shader sadece oluşturulur, başlatılmaz
-    
-    // Cache'e ekle
-    size_t estimatedSize = std::filesystem::file_size(fullVertexPath) + 
-                          std::filesystem::file_size(fullFragmentPath);
-    AddToCache(normalizedName, shader, estimatedSize);
-    
-    Logger::Info("AssetManager", "Shader '{}' loaded successfully", shaderName);
-    return shader;
-}
-
-std::shared_ptr<VulkanShader> AssetManager::LoadShader(const std::string& shaderName, VulkanDevice* device) {
+std::shared_ptr<ShaderProgram> AssetManager::LoadShader(const std::string& shaderName, VulkanDevice* device) {
     if (!m_initialized) {
         Logger::Error("AssetManager", "Cannot load shader: AssetManager not initialized");
         return nullptr;
@@ -400,16 +556,16 @@ std::shared_ptr<VulkanShader> AssetManager::LoadShader(const std::string& shader
     }
     
     // Shader adını normalize et
-    std::string normalizedName = this->NormalizePath(shaderName);
+    std::string normalizedName = NormalizePath(shaderName);
     
     // Cache'den kontrol et
-    auto cached = this->GetFromCache<VulkanShader>(normalizedName);
+    auto cached = GetFromCache<ShaderProgram>(normalizedName);
     if (cached) {
-        Logger::Debug("AssetManager", "Shader loaded from cache: '{}'", shaderName);
+        Logger::Debug("AssetManager", "Shader program loaded from cache: '{}'", shaderName);
         return cached;
     }
     
-    // Varsayılan shader yollarını oluştur
+    // Shader yollarını oluştur
     std::string vertexPath = "Shaders/" + normalizedName + ".vert";
     std::string fragmentPath = "Shaders/" + normalizedName + ".frag";
     
@@ -422,25 +578,6 @@ std::shared_ptr<VulkanShader> AssetManager::LoadShader(const std::string& shader
     std::string fragmentSpvPath = "Shaders/" + normalizedName + ".frag.spv";
     std::string fullVertexSpvPath = GetFullPath(vertexSpvPath);
     std::string fullFragmentSpvPath = GetFullPath(fragmentSpvPath);
-    
-    // Debug: Dosya yollarını logla
-    Logger::Debug("AssetManager", "Checking for compiled shaders:");
-    Logger::Debug("AssetManager", "  Asset directory: '{}'", m_assetDirectory);
-    Logger::Debug("AssetManager", "  Current working directory: {}", std::filesystem::current_path().string());
-    Logger::Debug("AssetManager", "  Vertex SPV path: '{}'", fullVertexSpvPath);
-    Logger::Debug("AssetManager", "  Fragment SPV path: '{}'", fullFragmentSpvPath);
-    Logger::Debug("AssetManager", "  Vertex SPV exists: {}", std::filesystem::exists(fullVertexSpvPath));
-    Logger::Debug("AssetManager", "  Fragment SPV exists: {}", std::filesystem::exists(fullFragmentSpvPath));
-    
-    // Debug: Assets dizinini listele
-    try {
-        Logger::Debug("AssetManager", "Contents of asset directory:");
-        for (const auto& entry : std::filesystem::directory_iterator(m_assetDirectory)) {
-            Logger::Debug("AssetManager", "  {}", entry.path().string());
-        }
-    } catch (const std::exception& e) {
-        Logger::Debug("AssetManager", "Failed to list asset directory: {}", e.what());
-    }
     
     // Eğer .spv dosyaları varsa onları kullan
     bool useCompiledShaders = false;
@@ -485,21 +622,16 @@ std::shared_ptr<VulkanShader> AssetManager::LoadShader(const std::string& shader
         return nullptr;
     }
     
-    // Not: Bu metod iki ayrı shader döndürmek yerine, pipeline için kullanılacak şekilde
-    // vertex shader'ı döndürüyor. Fragment shader'ı da aynı isimle cache'e ekliyoruz.
-    // VulkanRenderer'da bu iki shader'ı birleştirerek kullanacak.
+    // Shader program oluştur
+    auto shaderProgram = std::make_shared<ShaderProgram>(vertexShader, fragmentShader);
     
-    // Cache'e vertex shader'ı ekle
+    // Cache'e ekle
     size_t estimatedSize = std::filesystem::file_size(fullVertexPath) + 
                           std::filesystem::file_size(fullFragmentPath);
-    AddToCache(normalizedName, vertexShader, estimatedSize);
+    AddToCache(normalizedName, shaderProgram, estimatedSize);
     
-    // Fragment shader'ı da ayrı bir key ile cache'e ekle
-    std::string fragmentKey = normalizedName + "_fragment";
-    AddToCache(fragmentKey, fragmentShader, 0); // Boyut zaten hesaplandı
-    
-    Logger::Info("AssetManager", "Shader '{}' loaded and initialized successfully", shaderName);
-    return vertexShader;
+    Logger::Info("AssetManager", "Shader program '{}' loaded and initialized successfully", shaderName);
+    return shaderProgram;
 }
 
 void AssetManager::LoadModelAsync(const std::string& filePath, LoadCallback callback) {

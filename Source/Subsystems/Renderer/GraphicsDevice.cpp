@@ -92,67 +92,27 @@ bool GraphicsDevice::Initialize(Window* window, Engine* owner, const GraphicsDev
         return false;
     }
     
-    // YENİ: Frame kaynaklarını oluştur (Renderer'dan ÖNCE)
-    Logger::Info("GraphicsDevice", "Creating frame resources...");
-    
+    // Descriptor set layout'ı oluştur (frame'den bağımsız)
+    Logger::Info("GraphicsDevice", "Creating descriptor set layout...");
     if (!CreateDescriptorSetLayout()) {
         Logger::Error("GraphicsDevice", "Failed to create descriptor set layout");
         return false;
     }
     
-    if (!CreateDescriptorPool()) {
-        Logger::Error("GraphicsDevice", "Failed to create descriptor pool");
+    // Frame manager'ı oluştur ve başlat
+    Logger::Info("GraphicsDevice", "Creating frame manager...");
+    m_frameManager = std::make_unique<VulkanFrameManager>();
+    if (!m_frameManager->Initialize(m_vulkanDevice.get(), m_swapchain.get(), m_descriptorSetLayout, m_config.maxFramesInFlight)) {
+        Logger::Error("GraphicsDevice", "Failed to initialize frame manager: {}", m_frameManager->GetLastError());
         return false;
     }
     
-    if (!CreateUniformBuffers()) {
-        Logger::Error("GraphicsDevice", "Failed to create uniform buffers");
-        return false;
-    }
-    
-    if (!CreateDescriptorSets()) {
-        Logger::Error("GraphicsDevice", "Failed to create descriptor sets");
-        return false;
-    }
-    
-    if (!UpdateDescriptorSets()) {
-        Logger::Error("GraphicsDevice", "Failed to update descriptor sets");
-        return false;
-    }
-    
-    if (!CreateCommandBuffers()) {
-        Logger::Error("GraphicsDevice", "Failed to create command buffers");
-        return false;
-    }
+    Logger::Info("GraphicsDevice", "Frame manager created successfully");
 
     if (!CreateRenderer()) {
         Logger::Error("GraphicsDevice", "Failed to create renderer");
         return false;
     }
-    
-    // Frame senkronizasyon nesnelerini oluştur
-    m_imageAvailableSemaphores.resize(m_config.maxFramesInFlight);
-    m_renderFinishedSemaphores.resize(m_config.maxFramesInFlight);
-    m_inFlightFences.resize(m_config.maxFramesInFlight);
-    m_imagesInFlight.resize(m_swapchain->GetImageCount(), VK_NULL_HANDLE);
-    
-    VkSemaphoreCreateInfo semaphoreInfo{};
-    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-    
-    VkFenceCreateInfo fenceInfo{};
-    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-    
-    for (uint32_t i = 0; i < m_config.maxFramesInFlight; i++) {
-        if (vkCreateSemaphore(m_vulkanDevice->GetDevice(), &semaphoreInfo, nullptr, &m_imageAvailableSemaphores[i]) != VK_SUCCESS ||
-            vkCreateSemaphore(m_vulkanDevice->GetDevice(), &semaphoreInfo, nullptr, &m_renderFinishedSemaphores[i]) != VK_SUCCESS ||
-            vkCreateFence(m_vulkanDevice->GetDevice(), &fenceInfo, nullptr, &m_inFlightFences[i]) != VK_SUCCESS) {
-            Logger::Error("GraphicsDevice", "Failed to create synchronization objects for frame {}", i);
-            return false;
-        }
-    }
-    
-    Logger::Info("GraphicsDevice", "Frame resources created successfully");
     
     LogInitialization();
     LogDeviceCapabilities();
@@ -179,20 +139,11 @@ void GraphicsDevice::Shutdown() {
     // Cihazı idle bekle
     vkDeviceWaitIdle(m_vulkanDevice->GetDevice());
     
-    // Frame senkronizasyon nesnelerini temizle
-    for (uint32_t i = 0; i < m_config.maxFramesInFlight; i++) {
-        vkDestroySemaphore(m_vulkanDevice->GetDevice(), m_imageAvailableSemaphores[i], nullptr);
-        vkDestroySemaphore(m_vulkanDevice->GetDevice(), m_renderFinishedSemaphores[i], nullptr);
-        vkDestroyFence(m_vulkanDevice->GetDevice(), m_inFlightFences[i], nullptr);
+    // Frame manager'ı kapat
+    if (m_frameManager) {
+        m_frameManager->Shutdown();
+        m_frameManager.reset();
     }
-    
-    m_imageAvailableSemaphores.clear();
-    m_renderFinishedSemaphores.clear();
-    m_inFlightFences.clear();
-    m_imagesInFlight.clear();
-    
-    // YENİ: Frame kaynaklarını temizle
-    CleanupFrameResources();
     
     // Renderer'ı kapat
     if (m_vulkanRenderer) {
@@ -252,15 +203,13 @@ bool GraphicsDevice::BeginFrame() {
         return false;
     }
     
-    // Önceki frame'in bitmesini bekle
-    WaitForFrame();
-    
-    // Bir sonraki image'i al
-    if (!AcquireNextImage()) {
+    // Frame manager'a delege et
+    if (!m_frameManager || !m_frameManager->BeginFrame()) {
         return false;
     }
     
     m_frameStarted = true;
+    m_currentFrameIndex = m_frameManager->GetCurrentFrameIndex();
     return true;
 }
 
@@ -269,51 +218,13 @@ bool GraphicsDevice::EndFrame() {
         return false;
     }
     
-    // Command buffer'ı submit et
-    VkSubmitInfo submitInfo{};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    
-    VkSemaphore waitSemaphores[] = {m_imageAvailableSemaphores[m_currentFrameIndex]};
-    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-    submitInfo.waitSemaphoreCount = 1;
-    submitInfo.pWaitSemaphores = waitSemaphores;
-    submitInfo.pWaitDstStageMask = waitStages;
-    
-    // VulkanRenderer'dan command buffer'ı al
-    VkCommandBuffer commandBuffer = GetCurrentCommandBuffer();
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer;
-    
-    VkSemaphore signalSemaphores[] = {m_renderFinishedSemaphores[m_currentFrameIndex]};
-    submitInfo.signalSemaphoreCount = 1;
-    submitInfo.pSignalSemaphores = signalSemaphores;
-    
-    // Fence'i resetle ve submit et
-    vkResetFences(m_vulkanDevice->GetDevice(), 1, &m_inFlightFences[m_currentFrameIndex]);
-    
-    VkResult result = vkQueueSubmit(m_vulkanDevice->GetGraphicsQueue(), 1, &submitInfo, m_inFlightFences[m_currentFrameIndex]);
-    if (result != VK_SUCCESS) {
-        SetError("Failed to submit draw command buffer: " + VulkanUtils::GetVkResultString(result));
+    // Frame manager'a delege et
+    if (!m_frameManager || !m_frameManager->EndFrame()) {
         return false;
-    }
-    
-    // Image'i present et
-    if (!PresentImage()) {
-        return false;
-    }
-    
-    // CRITICAL FIX: Command buffer'ı bir sonraki kullanım için reset et
-    // Bu, VulkanRenderer'da RecordCommandBuffer çağrılmadan önce yapılmalı
-    VkCommandBufferResetFlags resetFlags = 0;
-    result = vkResetCommandBuffer(m_commandBuffers[m_currentFrameIndex], resetFlags);
-    if (result != VK_SUCCESS) {
-        Logger::Warning("GraphicsDevice", "Failed to reset command buffer {}: {}", m_currentFrameIndex, VulkanUtils::GetVkResultString(result));
-        // Bu kritik bir hata değil, sadece warning logla
     }
     
     m_frameStarted = false;
-    m_currentFrameIndex = (m_currentFrameIndex + 1) % m_config.maxFramesInFlight;
-    
+    m_currentFrameIndex = m_frameManager->GetCurrentFrameIndex();
     return true;
 }
 
@@ -322,13 +233,8 @@ bool GraphicsDevice::WaitForFrame() {
         return false;
     }
     
-    VkResult result = vkWaitForFences(m_vulkanDevice->GetDevice(), 1, &m_inFlightFences[m_currentFrameIndex], VK_TRUE, UINT64_MAX);
-    if (result != VK_SUCCESS) {
-        SetError("Failed to wait for fence: " + VulkanUtils::GetVkResultString(result));
-        return false;
-    }
-    
-    return true;
+    // Frame manager'a delege et
+    return m_frameManager && m_frameManager->WaitForFrame();
 }
 
 void GraphicsDevice::RecreateSwapchain() {
@@ -350,8 +256,10 @@ void GraphicsDevice::RecreateSwapchain() {
         return;
     }
     
-    // Images in flight vektörünü yeniden boyutlandır
-    m_imagesInFlight.resize(m_swapchain->GetImageCount(), VK_NULL_HANDLE);
+    // Frame manager'ı bilgilendir
+    if (m_frameManager) {
+        m_frameManager->RecreateSwapchain(m_swapchain.get());
+    }
     
     Logger::Info("GraphicsDevice", "Swapchain recreated successfully");
 }
@@ -769,75 +677,6 @@ void GraphicsDevice::ClearError() {
     m_lastError.clear();
 }
 
-bool GraphicsDevice::AcquireNextImage() {
-    VkResult result = vkAcquireNextImageKHR(
-        m_vulkanDevice->GetDevice(),
-        m_swapchain->GetSwapchain(),
-        UINT64_MAX,
-        m_imageAvailableSemaphores[m_currentFrameIndex],
-        VK_NULL_HANDLE,
-        &m_imageIndex);
-    
-    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-        RecreateSwapchain();
-        return false;
-    } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-        SetError("Failed to acquire swap chain image: " + VulkanUtils::GetVkResultString(result));
-        return false;
-    }
-    
-    // Boundary check: m_imageIndex değerini doğrula
-    if (m_imageIndex >= m_imagesInFlight.size()) {
-        Logger::Error("GraphicsDevice", "Image index {} out of range for imagesInFlight vector (size: {})", 
-                    m_imageIndex, m_imagesInFlight.size());
-        Logger::Error("GraphicsDevice", "This indicates a swapchain synchronization issue");
-        return false;
-    }
-    
-    // Boundary check: m_currentFrameIndex değerini doğrula
-    if (m_currentFrameIndex >= m_inFlightFences.size()) {
-        Logger::Error("GraphicsDevice", "Current frame index {} out of range for inFlightFences vector (size: {})", 
-                    m_currentFrameIndex, m_inFlightFences.size());
-        return false;
-    }
-    
-    // Eğer bu image için zaten bir fence varsa bekle
-    if (m_imagesInFlight[m_imageIndex] != VK_NULL_HANDLE) {
-        vkWaitForFences(m_vulkanDevice->GetDevice(), 1, &m_imagesInFlight[m_imageIndex], VK_TRUE, UINT64_MAX);
-    }
-    
-    // Mevcut frame'in fence'ini işaretle
-    m_imagesInFlight[m_imageIndex] = m_inFlightFences[m_currentFrameIndex];
-    
-    return true;
-}
-
-bool GraphicsDevice::PresentImage() {
-    VkSemaphore signalSemaphores[] = {m_renderFinishedSemaphores[m_currentFrameIndex]};
-    
-    VkPresentInfoKHR presentInfo{};
-    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    presentInfo.waitSemaphoreCount = 1;
-    presentInfo.pWaitSemaphores = signalSemaphores;
-    
-    VkSwapchainKHR swapChains[] = {m_swapchain->GetSwapchain()};
-    presentInfo.swapchainCount = 1;
-    presentInfo.pSwapchains = swapChains;
-    presentInfo.pImageIndices = &m_imageIndex;
-    
-    VkResult result = vkQueuePresentKHR(m_vulkanDevice->GetPresentQueue(), &presentInfo);
-    
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-        RecreateSwapchain();
-        return false;
-    } else if (result != VK_SUCCESS) {
-        SetError("Failed to present swap chain image: " + VulkanUtils::GetVkResultString(result));
-        return false;
-    }
-    
-    return true;
-}
-
 void GraphicsDevice::CleanupSwapchain() {
     if (m_swapchain) {
         m_swapchain->Shutdown();
@@ -845,258 +684,34 @@ void GraphicsDevice::CleanupSwapchain() {
     }
 }
 
-bool GraphicsDevice::CreateCommandBuffers() {
-    Logger::Info("GraphicsDevice", "Creating command buffers");
-    
-    try {
-        // Create command pool first
-        VkCommandPoolCreateInfo poolInfo{};
-        poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-        poolInfo.queueFamilyIndex = GetGraphicsQueueFamily();
-        
-        VkResult result = vkCreateCommandPool(GetDevice(), &poolInfo, nullptr, &m_commandPool);
-        if (result != VK_SUCCESS) {
-            Logger::Error("GraphicsDevice", "Failed to create command pool: {}", static_cast<int32_t>(result));
-            return false;
-        }
-        
-        // Resize command buffers array
-        m_commandBuffers.resize(m_config.maxFramesInFlight);
-        
-        // Command buffer allocation info
-        VkCommandBufferAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        allocInfo.commandPool = m_commandPool;
-        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        allocInfo.commandBufferCount = static_cast<uint32_t>(m_config.maxFramesInFlight);
-        
-        // Allocate command buffers
-        result = vkAllocateCommandBuffers(GetDevice(), &allocInfo, m_commandBuffers.data());
-        if (result != VK_SUCCESS) {
-            Logger::Error("GraphicsDevice", "Failed to allocate command buffers: {}", static_cast<int32_t>(result));
-            return false;
-        }
-        
-        Logger::Info("GraphicsDevice", "Command buffers allocated successfully");
-        return true;
-        
-    } catch (const std::exception& e) {
-        Logger::Error("GraphicsDevice", "Command buffers creation failed: {}", e.what());
-        return false;
-    }
-}
-
 bool GraphicsDevice::CreateDescriptorSetLayout() {
-    Logger::Info("GraphicsDevice", "Creating descriptor set layout");
-    
-    try {
-        // UBO binding definition
-        VkDescriptorSetLayoutBinding uboLayoutBinding{};
-        uboLayoutBinding.binding = 0;
-        uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        uboLayoutBinding.descriptorCount = 1;
-        uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-        uboLayoutBinding.pImmutableSamplers = nullptr;
-        
-        VkDescriptorSetLayoutCreateInfo layoutInfo{};
-        layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        layoutInfo.bindingCount = 1;
-        layoutInfo.pBindings = &uboLayoutBinding;
-        
-        VkResult result = vkCreateDescriptorSetLayout(GetDevice(), &layoutInfo, nullptr, &m_descriptorSetLayout);
-        
-        if (result != VK_SUCCESS) {
-            Logger::Error("GraphicsDevice", "Failed to create descriptor set layout: {}", static_cast<int32_t>(result));
-            return false;
-        }
-        
-        Logger::Debug("GraphicsDevice", "Descriptor set layout created successfully");
-        return true;
-        
-    } catch (const std::exception& e) {
-        Logger::Error("GraphicsDevice", "Descriptor set layout creation failed: {}", e.what());
+    // UBO binding
+    VkDescriptorSetLayoutBinding uboLayoutBinding{};
+    uboLayoutBinding.binding = 0;
+    uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uboLayoutBinding.descriptorCount = 1;
+    uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    // Texture sampler binding
+    VkDescriptorSetLayoutBinding samplerLayoutBinding{};
+    samplerLayoutBinding.binding = 1;
+    samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    samplerLayoutBinding.descriptorCount = 1;
+    samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    std::array<VkDescriptorSetLayoutBinding, 2> bindings = {uboLayoutBinding, samplerLayoutBinding};
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+    layoutInfo.pBindings = bindings.data();
+
+    if (vkCreateDescriptorSetLayout(m_vulkanDevice->GetDevice(), &layoutInfo, nullptr, &m_descriptorSetLayout) != VK_SUCCESS) {
+        SetError("Failed to create descriptor set layout");
         return false;
     }
-}
 
-bool GraphicsDevice::CreateDescriptorPool() {
-    Logger::Info("GraphicsDevice", "Creating descriptor pool");
-    
-    try {
-        // UBO descriptors pool size
-        VkDescriptorPoolSize poolSize{};
-        poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        poolSize.descriptorCount = static_cast<uint32_t>(m_config.maxFramesInFlight);
-        
-        VkDescriptorPoolCreateInfo poolInfo{};
-        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        poolInfo.poolSizeCount = 1;
-        poolInfo.pPoolSizes = &poolSize;
-        poolInfo.maxSets = static_cast<uint32_t>(m_config.maxFramesInFlight);
-        poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-        
-        VkResult result = vkCreateDescriptorPool(GetDevice(), &poolInfo, nullptr, &m_descriptorPool);
-        
-        if (result != VK_SUCCESS) {
-            Logger::Error("GraphicsDevice", "Failed to create descriptor pool: {}", static_cast<int32_t>(result));
-            return false;
-        }
-        
-        Logger::Debug("GraphicsDevice", "Descriptor pool created successfully");
-        return true;
-        
-    } catch (const std::exception& e) {
-        Logger::Error("GraphicsDevice", "Descriptor pool creation failed: {}", e.what());
-        return false;
-    }
-}
-
-bool GraphicsDevice::CreateDescriptorSets() {
-    Logger::Info("GraphicsDevice", "Creating descriptor sets");
-    
-    try {
-        // Descriptor set layout info
-        std::vector<VkDescriptorSetLayout> layouts(m_config.maxFramesInFlight, m_descriptorSetLayout);
-        
-        VkDescriptorSetAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocInfo.descriptorPool = m_descriptorPool;
-        allocInfo.descriptorSetCount = static_cast<uint32_t>(m_config.maxFramesInFlight);
-        allocInfo.pSetLayouts = layouts.data();
-        
-        // Allocate descriptor sets
-        m_descriptorSets.resize(m_config.maxFramesInFlight);
-        VkResult result = vkAllocateDescriptorSets(GetDevice(), &allocInfo, m_descriptorSets.data());
-        
-        if (result != VK_SUCCESS) {
-            Logger::Error("GraphicsDevice", "Failed to allocate descriptor sets: {}", static_cast<int32_t>(result));
-            return false;
-        }
-        
-        Logger::Debug("GraphicsDevice", "Descriptor sets allocated successfully");
-        return true;
-        
-    } catch (const std::exception& e) {
-        Logger::Error("GraphicsDevice", "Descriptor sets creation failed: {}", e.what());
-        return false;
-    }
-}
-
-bool GraphicsDevice::CreateUniformBuffers() {
-    Logger::Info("GraphicsDevice", "Creating uniform buffers");
-    
-    try {
-        // Uniform Buffer Object size
-        VkDeviceSize bufferSize = sizeof(VulkanRenderer::UniformBufferObject);
-        
-        // Create uniform buffer for each frame
-        m_uniformBuffers.resize(m_config.maxFramesInFlight);
-        
-        for (size_t i = 0; i < m_config.maxFramesInFlight; i++) {
-            m_uniformBuffers[i] = std::make_unique<VulkanBuffer>();
-            
-            VulkanBuffer::Config bufferConfig;
-            bufferConfig.size = bufferSize;
-            bufferConfig.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-            bufferConfig.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-            
-            if (!m_uniformBuffers[i]->Initialize(GetVulkanDevice(), bufferConfig)) {
-                Logger::Error("GraphicsDevice", "Failed to initialize uniform buffer {}: {}", i, m_uniformBuffers[i]->GetLastError());
-                return false;
-            }
-            
-            Logger::Debug("GraphicsDevice", "Uniform buffer {} created successfully", i);
-        }
-        
-        Logger::Debug("GraphicsDevice", "All uniform buffers created successfully");
-        return true;
-        
-    } catch (const std::exception& e) {
-        Logger::Error("GraphicsDevice", "Uniform buffers creation failed: {}", e.what());
-        return false;
-    }
-}
-
-bool GraphicsDevice::UpdateDescriptorSets() {
-    Logger::Info("GraphicsDevice", "Updating descriptor sets");
-    
-    try {
-        for (size_t i = 0; i < m_config.maxFramesInFlight; i++) {
-            // Buffer info
-            VkDescriptorBufferInfo bufferInfo{};
-            bufferInfo.buffer = m_uniformBuffers[i]->GetBuffer();
-            bufferInfo.offset = 0;
-            bufferInfo.range = sizeof(VulkanRenderer::UniformBufferObject);
-            
-            // Write descriptor set
-            VkWriteDescriptorSet descriptorWrite{};
-            descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrite.dstSet = m_descriptorSets[i];
-            descriptorWrite.dstBinding = 0;
-            descriptorWrite.dstArrayElement = 0;
-            descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            descriptorWrite.descriptorCount = 1;
-            descriptorWrite.pBufferInfo = &bufferInfo;
-            descriptorWrite.pImageInfo = nullptr;
-            descriptorWrite.pTexelBufferView = nullptr;
-            
-            vkUpdateDescriptorSets(GetDevice(), 1, &descriptorWrite, 0, nullptr);
-        }
-        
-        Logger::Debug("GraphicsDevice", "Descriptor sets updated successfully");
-        return true;
-        
-    } catch (const std::exception& e) {
-        Logger::Error("GraphicsDevice", "Descriptor sets update failed: {}", e.what());
-        return false;
-    }
-}
-
-void GraphicsDevice::CleanupFrameResources() {
-    Logger::Info("GraphicsDevice", "Cleaning up frame resources");
-    
-    try {
-        // Wait for device to finish operations
-        if (GetDevice() != VK_NULL_HANDLE) {
-            vkDeviceWaitIdle(GetDevice());
-        }
-        
-        // Destroy command pool
-        if (m_commandPool != VK_NULL_HANDLE) {
-            vkDestroyCommandPool(GetDevice(), m_commandPool, nullptr);
-            m_commandPool = VK_NULL_HANDLE;
-        }
-        
-        // Shutdown uniform buffers
-        for (auto& buffer : m_uniformBuffers) {
-            if (buffer) {
-                buffer->Shutdown();
-                buffer.reset();
-            }
-        }
-        m_uniformBuffers.clear();
-        
-        // Destroy descriptor pool
-        if (m_descriptorPool != VK_NULL_HANDLE) {
-            vkDestroyDescriptorPool(GetDevice(), m_descriptorPool, nullptr);
-            m_descriptorPool = VK_NULL_HANDLE;
-        }
-        
-        // Destroy descriptor set layout
-        if (m_descriptorSetLayout != VK_NULL_HANDLE) {
-            vkDestroyDescriptorSetLayout(GetDevice(), m_descriptorSetLayout, nullptr);
-            m_descriptorSetLayout = VK_NULL_HANDLE;
-        }
-        
-        // Clear vectors
-        m_commandBuffers.clear();
-        m_descriptorSets.clear();
-        
-        Logger::Info("GraphicsDevice", "Frame resources cleanup completed");
-    } catch (const std::exception& e) {
-        Logger::Error("GraphicsDevice", "Frame resources cleanup failed: {}", e.what());
-    }
+    return true;
 }
 
 #endif // ASTRAL_USE_VULKAN

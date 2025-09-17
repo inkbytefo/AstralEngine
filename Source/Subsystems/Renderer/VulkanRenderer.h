@@ -8,6 +8,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <unordered_map>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -17,6 +18,10 @@ class GraphicsDevice;
 class VulkanShader;
 class VulkanPipeline;
 class VulkanBuffer;
+class VulkanMesh;
+class VulkanTexture;
+class AssetManager;
+class Model;
 }
 
 namespace AstralEngine {
@@ -84,19 +89,24 @@ public:
     void EndDynamicRendering(VkCommandBuffer commandBuffer);
     void RecordDynamicRenderingCommands(uint32_t frameIndex, uint32_t imageIndex);
     
+    // Descriptor management
+    void UpdateDescriptors(uint32_t frameIndex, const std::shared_ptr<VulkanTexture>& texture);
+    
+    // Asset-based rendering methods
+    void RenderModelWithAssetHandles(VkCommandBuffer commandBuffer, uint32_t frameIndex, 
+                                   const ECSSubsystem::RenderPacket::RenderItem& renderItem, 
+                                   const std::shared_ptr<Model>& model);
+    void RenderPlaceholder(VkCommandBuffer commandBuffer, uint32_t frameIndex, const glm::mat4& transform);
 
 private:
     // Core initialization
     bool InitializeRenderingComponents();
     void ShutdownRenderingComponents();
     
-    // Shader and pipeline management
-    bool InitializeShaders(Engine* owner);
+    // Pipeline management
     bool InitializePipeline();
-    bool InitializeVertexBuffer();
     
     // Rendering
-    void RecordCommandBuffer(uint32_t imageIndex, uint32_t frameIndex);
     void RecordCommandBufferWithECS(uint32_t imageIndex, uint32_t frameIndex, const ECSSubsystem::RenderPacket& renderPacket);
     void UpdateUniformBuffer(uint32_t frameIndex);
     void UpdateUniformBufferWithECS(uint32_t frameIndex, const glm::mat4& ecsTransform);
@@ -112,10 +122,7 @@ private:
     Engine* m_owner = nullptr;
     
     // Rendering components
-    std::shared_ptr<VulkanShader> m_vertexShader;
-    std::shared_ptr<VulkanShader> m_fragmentShader;
     std::unique_ptr<VulkanPipeline> m_pipeline;
-    std::unique_ptr<VulkanBuffer> m_vertexBuffer;
     
     // Frame management
     float m_frameTime = 0.0f;
@@ -129,14 +136,22 @@ private:
     bool m_isInitialized = false;
     bool m_isFrameStarted = false;
     
-    // Animation timing
-    float m_startTime = 0.0f;
-    
     // Kamera
     Camera* m_camera = nullptr;
     
+    // Asset Management
+    AssetManager* m_assetManager = nullptr;
+    std::unordered_map<std::string, std::shared_ptr<Model>> m_modelCache;
+    std::unordered_map<std::string, std::shared_ptr<VulkanTexture>> m_textureCache;
+    
+    // Fallback texture for missing assets (cached to avoid recreation every frame)
+    std::shared_ptr<VulkanTexture> m_fallbackTexture;
+
     // Error handling
     std::string m_lastError;
+    
+    // Private helper methods
+    std::shared_ptr<VulkanTexture> CreateFallbackTexture();
 };
 
 } // namespace AstralEngine

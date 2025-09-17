@@ -13,6 +13,7 @@
 #include "../../Core/Logger.h"
 #include "../../Events/EventManager.h"
 #include "../../Events/Event.h"
+#include "InputManager.h"
 
 #ifdef ASTRAL_USE_SDL3
     #include <SDL3/SDL.h>
@@ -644,23 +645,25 @@ void Window::HandleKeyboardEvent(const void* event) {
     
     switch (sdlEvent->type) {
         case SDL_EVENT_KEY_DOWN: {
-            if (!sdlEvent->key.repeat) { // First press, not repeat
-                SDL_Keycode keycode = sdlEvent->key.key;
-                eventManager.PublishEvent<KeyPressedEvent>(static_cast<int>(keycode), false);
-                
+            SDL_Keycode keycode = sdlEvent->key.key;
+            KeyCode astralKey = SDLKeyToAstralKey(keycode);
+            if (astralKey != KeyCode::Unknown) {
+                eventManager.PublishEvent<KeyPressedEvent>(astralKey, sdlEvent->key.repeat != 0);
+            }
+            
+            if (!sdlEvent->key.repeat) {
                 Logger::Trace("Window", "Key pressed: {} (scancode: {})", 
                             SDL_GetKeyName(keycode), static_cast<int>(sdlEvent->key.scancode));
-            } else {
-                // Repeated key presses
-                SDL_Keycode keycode = sdlEvent->key.key;
-                eventManager.PublishEvent<KeyPressedEvent>(static_cast<int>(keycode), true);
             }
             break;
         }
         
         case SDL_EVENT_KEY_UP: {
             SDL_Keycode keycode = sdlEvent->key.key;
-            eventManager.PublishEvent<KeyReleasedEvent>(static_cast<int>(keycode));
+            KeyCode astralKey = SDLKeyToAstralKey(keycode);
+            if (astralKey != KeyCode::Unknown) {
+                eventManager.PublishEvent<KeyReleasedEvent>(astralKey);
+            }
             
             Logger::Trace("Window", "Key released: {}", SDL_GetKeyName(keycode));
             break;
@@ -819,8 +822,7 @@ void Window::HandleWindowEvent(const void* event) {
 }
 
 // Windows handle için özel implementasyon
-#ifdef _WIN32
-#ifdef PLATFORM_WINDOWS
+#if defined(_WIN32) && defined(PLATFORM_WINDOWS)
 void* Window::GetHWND() const {
 #ifdef ASTRAL_USE_SDL3
     if (m_data->SDLWindow) {
@@ -864,14 +866,12 @@ SDL_WindowFlags Window::GetWindowFlags() const {
     return SDL_WINDOW_HIDDEN;
 }
 
-void Window::SetWindowFlags(SDL_WindowFlags flags) {
+void Window::SetWindowFlags([[maybe_unused]] SDL_WindowFlags flags) {
     if (m_data->SDLWindow) {
         // SDL3 doesn't have SDL_SetWindowFlags, use individual property setters
-        (void)flags; // Suppress unused parameter warning for now
         Logger::Warning("Window", "SetWindowFlags not implemented for SDL3");
     }
 }
-#endif
 #endif
 
 } // namespace AstralEngine

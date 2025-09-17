@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <functional>
 
 namespace AstralEngine {
 
@@ -65,6 +66,7 @@ public:
     VkQueue GetPresentQueue() const { return m_presentQueue; }
     VkQueue GetTransferQueue() const { return m_transferQueue; }
     const QueueFamilyIndices& GetQueueFamilyIndices() const { return m_queueFamilyIndices; }
+    uint32_t GetGraphicsQueueFamily() const { return m_queueFamilyIndices.graphicsFamily.value(); }
     
     // Device properties and features
     VkPhysicalDeviceProperties GetPhysicalDeviceProperties() const { return m_deviceProperties; }
@@ -80,6 +82,17 @@ public:
     
     // Memory management
     uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+    
+    // Buffer creation and memory allocation helper function
+    bool CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory);
+
+    // Helper function for submitting one-time commands (e.g., copying)
+    void SubmitSingleTimeCommands(std::function<void(VkCommandBuffer)> commandFunction);
+    
+    // Texture and image helper functions
+    void CopyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
+    VkImageView CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
+    void CreateImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory);
     
     // Device management
     void SetPhysicalDevice(VkPhysicalDevice physicalDevice) { m_physicalDevice = physicalDevice; }

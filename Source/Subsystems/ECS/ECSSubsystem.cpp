@@ -1,11 +1,8 @@
 #include "ECSSubsystem.h"
 #include "../../Core/Engine.h"
 #include "../../Core/Logger.h"
-#include "../Renderer/Buffers/VulkanMesh.h"
-#include "../Renderer/RendererTypes.h"
-#include "../Renderer/Core/VulkanDevice.h"
-#include "../Renderer/RenderSubsystem.h"
 #include <glm/glm.hpp>
+#include <algorithm> // For std::sort
 
 namespace AstralEngine {
 
@@ -21,94 +18,13 @@ ECSSubsystem::~ECSSubsystem() {
 void ECSSubsystem::OnInitialize(Engine* owner) {
     m_owner = owner;
     Logger::Info("ECSSubsystem", "Initializing ECS subsystem...");
-    
-    // Create test entity with Transform and Render components
-    uint32_t testEntity = CreateEntity();
-    
-    // Add Transform component
-    auto& transform = AddComponent<TransformComponent>(testEntity);
-    transform.position = glm::vec3(0.0f, 0.0f, 0.0f);
-    transform.rotation = glm::vec3(0.0f, 0.0f, 0.0f);
-    transform.scale = glm::vec3(1.0f, 1.0f, 1.0f);
-    
-    // Add Render component
-    auto& render = AddComponent<RenderComponent>(testEntity);
-    render.modelPath = "default_triangle";
-    render.materialPath = "default";
-    render.visible = true;
-    render.renderLayer = 0;
-    
-    // Add Name component for debugging
-    auto& name = AddComponent<NameComponent>(testEntity);
-    name.name = "TestTriangle";
-    
-    // Create default triangle mesh
-    Logger::Info("ECSSubsystem", "Creating default triangle mesh...");
-    
-    // Get Vulkan device from RenderSubsystem
-    auto renderSubsystem = m_owner->GetSubsystem<RenderSubsystem>();
-    if (!renderSubsystem) {
-        Logger::Error("ECSSubsystem", "RenderSubsystem not found - cannot create mesh");
-        return;
-    }
-    
-    auto graphicsDevice = renderSubsystem->GetGraphicsDevice();
-    if (!graphicsDevice) {
-        Logger::Error("ECSSubsystem", "GraphicsDevice not found - cannot create mesh");
-        return;
-    }
-    
-    auto vulkanDevice = graphicsDevice->GetVulkanDevice();
-    if (!vulkanDevice) {
-        Logger::Error("ECSSubsystem", "VulkanDevice not found - cannot create mesh");
-        return;
-    }
-    
-    // Create triangle vertices and indices
-    std::vector<Vertex> vertices = {
-        {{0.0f, -0.8f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.5f, 0.0f}},  // Bottom - white
-        {{0.8f, 0.8f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},   // Right top - white  
-        {{-0.8f, 0.8f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}   // Left top - white
-    };
-    
-    std::vector<uint32_t> indices = {0, 1, 2}; // Triangle indices
-    
-    // Create VulkanMesh
-    auto triangleMesh = std::make_shared<VulkanMesh>();
-    if (!triangleMesh->Initialize(vulkanDevice, vertices, indices)) {
-        Logger::Error("ECSSubsystem", "Failed to initialize triangle mesh: {}", triangleMesh->GetLastError());
-        return;
-    }
-    
-    Logger::Info("ECSSubsystem", "Triangle mesh created successfully with {} vertices and {} indices", 
-                 vertices.size(), indices.size());
-    
-    // Store the mesh in the render component for future reference
-    // Note: We'll pass it through the render packet in GetRenderData
-    
-    Logger::Info("ECSSubsystem", "Created test entity {} with Transform and Render components", testEntity);
+    // Test entity creation removed. This should be handled by a sandbox application.
     Logger::Info("ECSSubsystem", "ECS subsystem initialized successfully");
 }
 
 void ECSSubsystem::OnUpdate(float deltaTime) {
-    // Update all entities with Transform components
-    auto entitiesWithTransform = QueryEntities<TransformComponent>();
-    
-    for (uint32_t entity : entitiesWithTransform) {
-        if (HasComponent<TransformComponent>(entity)) {
-            auto& transform = GetComponent<TransformComponent>(entity);
-            
-            // Simple rotation animation for testing
-            transform.rotation.y += deltaTime * 0.5f; // Rotate 0.5 radians per second
-            
-            // Keep rotation in reasonable range
-            if (transform.rotation.y > glm::two_pi<float>()) {
-                transform.rotation.y -= glm::two_pi<float>();
-            }
-        }
-    }
-    
-    Logger::Debug("ECSSubsystem", "Updated {} entities with deltaTime: {}", entitiesWithTransform.size(), deltaTime);
+    // Test animation logic removed. Entity transformations should be handled by dedicated systems.
+    Logger::Debug("ECSSubsystem", "ECSSubsystem OnUpdate called with deltaTime: {}", deltaTime);
 }
 
 void ECSSubsystem::OnShutdown() {
@@ -210,57 +126,29 @@ ECSSubsystem::RenderPacket ECSSubsystem::GetRenderData() {
     // Query entities with both Transform and Render components
     auto renderableEntities = QueryEntities<TransformComponent, RenderComponent>();
     
-    // Create default triangle mesh for the default_triangle model
-    // This is a temporary solution - in a real implementation, we would load meshes from AssetManager
-    std::shared_ptr<VulkanMesh> defaultTriangleMesh = nullptr;
-    
     for (uint32_t entity : renderableEntities) {
         auto& transform = GetComponent<TransformComponent>(entity);
         auto& render = GetComponent<RenderComponent>(entity);
         
+        // Sadece visible olan entity'leri topla
         if (render.visible) {
             RenderPacket::RenderItem item;
             item.transform = transform.GetWorldMatrix();
-            item.modelPath = render.modelPath;
-            item.materialPath = render.materialPath;
+            
+            // AssetHandle'ları kullan (modern AssetHandle tabanlı sistem)
+            item.modelHandle = render.GetModelHandle();
+            item.materialHandle = render.GetMaterialHandle();
+            item.textureHandle = render.GetTextureHandle();
+            
             item.visible = render.visible;
             item.renderLayer = render.renderLayer;
             
-            // Create mesh for default_triangle model
-            if (render.modelPath == "default_triangle" && !defaultTriangleMesh) {
-                Logger::Debug("ECSSubsystem", "Creating default triangle mesh for entity {}", entity);
-                
-                // Get Vulkan device from RenderSubsystem
-                auto renderSubsystem = m_owner->GetSubsystem<RenderSubsystem>();
-                if (renderSubsystem && renderSubsystem->GetGraphicsDevice()) {
-                    auto vulkanDevice = renderSubsystem->GetGraphicsDevice()->GetVulkanDevice();
-                    if (vulkanDevice) {
-                        // Create triangle vertices and indices
-                        std::vector<Vertex> vertices = {
-                            {{0.0f, -0.8f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.5f, 0.0f}},  // Bottom - white
-                            {{0.8f, 0.8f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},   // Right top - white  
-                            {{-0.8f, 0.8f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}   // Left top - white
-                        };
-                        
-                        std::vector<uint32_t> indices = {0, 1, 2}; // Triangle indices
-                        
-                        // Create VulkanMesh
-                        defaultTriangleMesh = std::make_shared<VulkanMesh>();
-                        if (!defaultTriangleMesh->Initialize(vulkanDevice, vertices, indices)) {
-                            Logger::Error("ECSSubsystem", "Failed to initialize triangle mesh in GetRenderData: {}", 
-                                         defaultTriangleMesh->GetLastError());
-                            defaultTriangleMesh = nullptr;
-                        } else {
-                            Logger::Debug("ECSSubsystem", "Default triangle mesh created successfully");
-                        }
-                    }
-                }
-            }
-            
-            // Assign the mesh to the render item
-            item.mesh = defaultTriangleMesh;
-            
             packet.renderItems.push_back(item);
+            
+            Logger::Debug("ECSSubsystem", "Added entity {} to render packet (model: {}, material: {})", 
+                         entity, 
+                         item.modelHandle.IsValid() ? std::to_string(item.modelHandle.GetID()).c_str() : "invalid",
+                         item.materialHandle.IsValid() ? std::to_string(item.materialHandle.GetID()).c_str() : "invalid");
         }
     }
     
@@ -270,7 +158,8 @@ ECSSubsystem::RenderPacket ECSSubsystem::GetRenderData() {
             return a.renderLayer < b.renderLayer;
         });
     
-    Logger::Debug("ECSSubsystem", "Collected render data for {} items", packet.renderItems.size());
+    Logger::Debug("ECSSubsystem", "Collected render data for {} items (total entities: {})", 
+                 packet.renderItems.size(), renderableEntities.size());
     
     return packet;
 }

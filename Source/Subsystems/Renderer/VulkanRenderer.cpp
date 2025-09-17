@@ -4,6 +4,9 @@
 #include "Shaders/VulkanShader.h"
 #include "Commands/VulkanPipeline.h"
 #include "Buffers/VulkanBuffer.h"
+#include "Buffers/VulkanMesh.h"
+#include "Buffers/VulkanTexture.h"
+#include "Material/Material.h"
 #include "Subsystems/Platform/PlatformSubsystem.h"
 #include "Subsystems/Renderer/RenderSubsystem.h"
 #include "Subsystems/Asset/AssetSubsystem.h"
@@ -60,6 +63,24 @@ bool VulkanRenderer::Initialize(GraphicsDevice* device, void* owner) {
         m_graphicsDevice = device;
         m_owner = static_cast<Engine*>(owner);
         
+        // AssetManager'ı ayarla
+        if (m_owner) {
+            auto assetSubsystem = m_owner->GetSubsystem<AssetSubsystem>();
+            if (assetSubsystem) {
+                m_assetManager = assetSubsystem->GetAssetManager();
+                if (!m_assetManager) {
+                    Logger::Error("VulkanRenderer", "Failed to get AssetManager from AssetSubsystem");
+                    return false;
+                }
+            } else {
+                Logger::Error("VulkanRenderer", "AssetSubsystem not found");
+                return false;
+            }
+        } else {
+            Logger::Error("VulkanRenderer", "Engine owner is null");
+            return false;
+        }
+        
         // Initialize rendering components
         if (!InitializeRenderingComponents()) {
             Logger::Error("VulkanRenderer", "Failed to initialize rendering components");
@@ -78,6 +99,7 @@ bool VulkanRenderer::Initialize(GraphicsDevice* device, void* owner) {
 
 void VulkanRenderer::Shutdown() {
     // IRenderer interface - actual shutdown done in OnShutdown
+    // Vertex buffer shutdown is handled in ShutdownRenderingComponents
 }
 
 
@@ -141,14 +163,6 @@ bool VulkanRenderer::InitializeRenderingComponents() {
     try {
         Logger::Info("VulkanRenderer", "Initializing rendering components...");
         
-        // Initialize shaders
-        if (!InitializeShaders(m_owner)) {
-            Logger::Error("VulkanRenderer", "Failed to initialize shaders");
-            return false;
-        }
-        
-        Logger::Info("VulkanRenderer", "Shaders initialized successfully");
-        
         // Initialize pipeline - GraphicsDevice'dan descriptor set layout'ı al
         if (!InitializePipeline()) {
             Logger::Error("VulkanRenderer", "Failed to initialize pipeline");
@@ -157,18 +171,11 @@ bool VulkanRenderer::InitializeRenderingComponents() {
         
         Logger::Info("VulkanRenderer", "Pipeline initialized successfully");
         
-        // Initialize vertex buffer
-        if (!InitializeVertexBuffer()) {
-            Logger::Error("VulkanRenderer", "Failed to initialize vertex buffer");
-            return false;
+        // Create fallback texture once and cache it
+        m_fallbackTexture = CreateFallbackTexture();
+        if (!m_fallbackTexture) {
+            Logger::Warning("VulkanRenderer", "Failed to create fallback texture during initialization");
         }
-        
-        Logger::Info("VulkanRenderer", "Vertex buffer initialized successfully");
-        
-        // Set start time for animation
-        m_startTime = std::chrono::duration<float>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-        
-        Logger::Info("VulkanRenderer", "Start time set for animation");
         
         return true;
     }
@@ -187,108 +194,22 @@ void VulkanRenderer::ShutdownRenderingComponents() {
             vkDeviceWaitIdle(m_graphicsDevice->GetDevice());
         }
         
-        // Shutdown vertex buffer
-        if (m_vertexBuffer) {
-            m_vertexBuffer->Shutdown();
-            m_vertexBuffer.reset();
-        }
-        
         // Shutdown pipeline
         if (m_pipeline) {
             m_pipeline->Shutdown();
             m_pipeline.reset();
         }
         
-        // Shutdown shaders
-        if (m_vertexShader) {
-            m_vertexShader->Shutdown();
-            m_vertexShader.reset();
-        }
-        if (m_fragmentShader) {
-            m_fragmentShader->Shutdown();
-            m_fragmentShader.reset();
+        // Shutdown fallback texture
+        if (m_fallbackTexture) {
+            m_fallbackTexture->Shutdown();
+            m_fallbackTexture.reset();
         }
         
         Logger::Info("VulkanRenderer", "Rendering components shutdown completed");
     }
     catch (const std::exception& e) {
         Logger::Error("VulkanRenderer", "Rendering component shutdown failed: " + std::string(e.what()));
-    }
-}
-
-bool VulkanRenderer::InitializeShaders(Engine* owner) {
-    Logger::Info("VulkanRenderer", "Initializing shaders using AssetManager");
-    
-    try {
-        // Check if owner is valid
-        if (!owner) {
-            Logger::Error("VulkanRenderer", "Engine owner is null - cannot get AssetManager");
-            return false;
-        }
-        
-        // Get AssetSubsystem and AssetManager
-        auto assetSubsystem = owner->GetSubsystem<AssetSubsystem>();
-        if (!assetSubsystem) {
-            Logger::Error("VulkanRenderer", "AssetSubsystem not found");
-            return false;
-        }
-        
-        auto assetManager = assetSubsystem->GetAssetManager();
-        if (!assetManager) {
-            Logger::Error("VulkanRenderer", "AssetManager not found");
-            return false;
-        }
-        
-        Logger::Info("VulkanRenderer", "AssetManager obtained successfully, loading shaders");
-        
-        // Load shaders using AssetManager
-        Logger::Info("VulkanRenderer", "Loading shaders using AssetManager...");
-        
-        // AssetManager'dan shader'ları yükle
-        Logger::Info("VulkanRenderer", "Loading vertex shader 'triangle' from AssetManager...");
-        auto vertexShader = assetManager->LoadShader("triangle", m_graphicsDevice->GetVulkanDevice());
-        if (!vertexShader) {
-            Logger::Error("VulkanRenderer", "Failed to load vertex shader from AssetManager");
-            Logger::Error("VulkanRenderer", "This could indicate missing shader files or AssetManager initialization issues");
-            return false;
-        }
-        Logger::Info("VulkanRenderer", "Vertex shader loaded successfully");
-        
-        // Fragment shader'ı cache'den al
-        Logger::Info("VulkanRenderer", "Loading fragment shader 'triangle_fragment' from cache...");
-        auto fragmentShader = assetManager->GetAssetFromCache<VulkanShader>("triangle_fragment");
-        if (!fragmentShader) {
-            Logger::Error("VulkanRenderer", "Failed to get fragment shader from cache");
-            Logger::Error("VulkanRenderer", "This could indicate that the fragment shader was not properly cached");
-            return false;
-        }
-        Logger::Info("VulkanRenderer", "Fragment shader loaded successfully from cache");
-        
-        // Shader'ların geçerliliğini kontrol et
-        if (!vertexShader->IsInitialized() || !fragmentShader->IsInitialized()) {
-            Logger::Error("VulkanRenderer", "One or more shaders are not initialized");
-            if (!vertexShader->IsInitialized()) {
-                Logger::Error("VulkanRenderer", "Vertex shader is not initialized");
-            }
-            if (!fragmentShader->IsInitialized()) {
-                Logger::Error("VulkanRenderer", "Fragment shader is not initialized");
-            }
-            return false;
-        }
-        
-        // AssetManager'dan gelen shader'ları doğrudan kullan
-        // Not: Bu yaklaşımda shader'ların yaşam döngüsü AssetManager tarafından yönetilir
-        m_vertexShader = vertexShader;
-        m_fragmentShader = fragmentShader;
-        
-        Logger::Info("VulkanRenderer", "Both shaders loaded and validated successfully using AssetManager");
-        
-        Logger::Info("VulkanRenderer", "All shaders loaded successfully using AssetManager");
-        return true;
-        
-    } catch (const std::exception& e) {
-        Logger::Error("VulkanRenderer", "Shader initialization failed with exception: {}", e.what());
-        return false;
     }
 }
 
@@ -303,7 +224,9 @@ bool VulkanRenderer::InitializePipeline() {
         pipelineConfig.swapchain = m_graphicsDevice->GetSwapchain();
         pipelineConfig.extent = m_graphicsDevice->GetSwapchain()->GetExtent();
         
-        pipelineConfig.shaders = { m_vertexShader.get(), m_fragmentShader.get() };
+        // Note: Shader'lar artık materyallerden dinamik olarak yüklenecek
+        // Pipeline konfigürasyonu boş shader listesi ile başlatılacak
+        pipelineConfig.shaders = {}; // Boş olarak başlat, materyallerden doldurulacak
         pipelineConfig.descriptorSetLayout = m_graphicsDevice->GetDescriptorSetLayout();
         pipelineConfig.useMinimalVertexInput = false;
         
@@ -321,47 +244,7 @@ bool VulkanRenderer::InitializePipeline() {
     }
 }
 
-bool VulkanRenderer::InitializeVertexBuffer() {
-    Logger::Info("VulkanRenderer", "Initializing vertex buffer");
-    
-    try {
-        // Triangle vertex data - make it larger and more visible
-        std::vector<Vertex> vertices = {
-            {{0.0f, -0.8f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.5f, 0.0f}},  // Bottom - white
-            {{0.8f, 0.8f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},   // Right top - white  
-            {{-0.8f, 0.8f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}   // Left top - white
-        };
-        
-        // Create vertex buffer
-        m_vertexBuffer = std::make_unique<VulkanBuffer>();
-        VulkanBuffer::Config bufferConfig;
-        bufferConfig.size = sizeof(vertices[0]) * vertices.size();
-        bufferConfig.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-        bufferConfig.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-        
-        if (!m_vertexBuffer->Initialize(m_graphicsDevice->GetVulkanDevice(), bufferConfig)) {
-            Logger::Error("VulkanRenderer", "Failed to initialize vertex buffer: {}", m_vertexBuffer->GetLastError());
-            return false;
-        }
-        
-        // Copy vertex data to buffer
-        void* mappedData = m_vertexBuffer->Map();
-        if (!mappedData) {
-            Logger::Error("VulkanRenderer", "Failed to map vertex buffer");
-            return false;
-        }
-        
-        memcpy(mappedData, vertices.data(), bufferConfig.size);
-        m_vertexBuffer->Unmap();
-        
-        Logger::Debug("VulkanRenderer", "Vertex buffer initialized with {} vertices", vertices.size());
-        return true;
-        
-    } catch (const std::exception& e) {
-        Logger::Error("VulkanRenderer", "Vertex buffer initialization failed: {}", e.what());
-        return false;
-    }
-}
+
 
 void VulkanRenderer::RecordCommands(uint32_t frameIndex) {
     if (!m_isInitialized || !m_graphicsDevice) {
@@ -375,13 +258,9 @@ void VulkanRenderer::RecordCommands(uint32_t frameIndex) {
         // Update uniform buffer with current frame data
         UpdateUniformBuffer(frameIndex);
         
-        // GraphicsDevice'den mevcut frame bilgilerini al
-        uint32_t imageIndex = m_graphicsDevice->GetCurrentImageIndex();
-        
-        // Record command buffer for this frame
-        RecordCommandBuffer(imageIndex, frameIndex);
-        
-        Logger::Debug("VulkanRenderer", "Commands recorded successfully for frame {}", frameIndex);
+        // Note: Non-ECS command recording is no longer supported
+        // Renderer now only works with ECS data through RecordCommandBufferWithECS
+        Logger::Warning("VulkanRenderer", "Non-ECS command recording called - this is no longer supported");
         
     } catch (const std::exception& e) {
         Logger::Error("VulkanRenderer", "RecordCommands failed: {}", e.what());
@@ -401,7 +280,7 @@ void VulkanRenderer::RecordCommands(uint32_t frameIndex, const ECSSubsystem::Ren
         UpdateUniformBuffer(frameIndex);
         
         // GraphicsDevice'den mevcut frame bilgilerini al
-        uint32_t imageIndex = m_graphicsDevice->GetCurrentImageIndex();
+        uint32_t imageIndex = m_graphicsDevice->GetFrameManager()->GetCurrentImageIndex();
         
         // Record command buffer for this frame with ECS data
         RecordCommandBufferWithECS(imageIndex, frameIndex, renderPacket);
@@ -410,121 +289,6 @@ void VulkanRenderer::RecordCommands(uint32_t frameIndex, const ECSSubsystem::Ren
         
     } catch (const std::exception& e) {
         Logger::Error("VulkanRenderer", "RecordCommands with ECS failed: {}", e.what());
-    }
-}
-
-void VulkanRenderer::RecordCommandBuffer(uint32_t imageIndex, uint32_t frameIndex) {
-    Logger::Debug("VulkanRenderer", "Recording command buffer for image index: {}", imageIndex);
-    
-    try {
-        // Boundary check: imageIndex değerini doğrula
-        if (!m_graphicsDevice || !m_graphicsDevice->GetSwapchain()) {
-            Logger::Error("VulkanRenderer", "GraphicsDevice or swapchain is null");
-            return;
-        }
-        
-        if (imageIndex >= m_graphicsDevice->GetSwapchain()->GetImageCount()) {
-            Logger::Error("VulkanRenderer", "Image index {} out of range (swapchain has {} images)", 
-                        imageIndex, m_graphicsDevice->GetSwapchain()->GetImageCount());
-            return;
-        }
-        
-        // Boundary check: frameIndex değerini doğrula
-        if (frameIndex >= m_graphicsDevice->GetConfig().maxFramesInFlight) {
-            Logger::Error("VulkanRenderer", "Frame index {} out of range (max frames: {})", 
-                        frameIndex, m_graphicsDevice->GetConfig().maxFramesInFlight);
-            return;
-        }
-        
-        // GraphicsDevice'den mevcut command buffer'ı al
-        VkCommandBuffer commandBuffer = m_graphicsDevice->GetCurrentCommandBuffer();
-        if (!commandBuffer) {
-            Logger::Error("VulkanRenderer", "Failed to get command buffer from GraphicsDevice");
-            return;
-        }
-        
-        // Begin command buffer recording
-        VkCommandBufferBeginInfo beginInfo{};
-        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginInfo.flags = 0; // Optional
-        beginInfo.pInheritanceInfo = nullptr; // Optional
-        
-        VkResult result = vkBeginCommandBuffer(commandBuffer, &beginInfo);
-        if (result != VK_SUCCESS) {
-            Logger::Error("VulkanRenderer", "Failed to begin recording command buffer: {}", static_cast<int32_t>(result));
-            return;
-        }
-        
-        // Begin render pass
-        VkRenderPassBeginInfo renderPassInfo{};
-        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        renderPassInfo.renderPass = m_graphicsDevice->GetSwapchain()->GetRenderPass();
-        renderPassInfo.framebuffer = m_graphicsDevice->GetSwapchain()->GetFramebuffer(imageIndex);
-        renderPassInfo.renderArea.offset = {0, 0};
-        renderPassInfo.renderArea.extent = m_graphicsDevice->GetSwapchain()->GetExtent();
-        
-        // Set clear values (color + depth)
-        VkClearValue clearValues[2] = {};
-        clearValues[0].color = {{m_clearColor[0], m_clearColor[1], m_clearColor[2], m_clearColor[3]}};  // Color clear
-        clearValues[1].depthStencil = {1.0f, 0};  // Depth clear to 1.0 (farthest), stencil to 0
-        renderPassInfo.clearValueCount = 2;
-        renderPassInfo.pClearValues = clearValues;
-        
-        vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-        
-        // Bind graphics pipeline
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline->GetPipeline());
-        
-        // Set viewport and scissor
-        VkViewport viewport{};
-        viewport.x = 0.0f;
-        viewport.y = 0.0f;
-        viewport.width = static_cast<float>(m_graphicsDevice->GetSwapchain()->GetExtent().width);
-        viewport.height = static_cast<float>(m_graphicsDevice->GetSwapchain()->GetExtent().height);
-        viewport.minDepth = 0.0f;
-        viewport.maxDepth = 1.0f;
-        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-        
-        VkRect2D scissor{};
-        scissor.offset = {0, 0};
-        scissor.extent = m_graphicsDevice->GetSwapchain()->GetExtent();
-        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-        
-        // Bind vertex buffer
-        VkBuffer vertexBuffers[] = {m_vertexBuffer->GetBuffer()};
-        VkDeviceSize offsets[] = {0};
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-        
-        // Bind descriptor sets
-        VkDescriptorSet currentDescriptorSet = m_graphicsDevice->GetCurrentDescriptorSet(frameIndex);
-        vkCmdBindDescriptorSets(
-            commandBuffer,
-            VK_PIPELINE_BIND_POINT_GRAPHICS,
-            m_pipeline->GetLayout(),
-            0,
-            1,
-            &currentDescriptorSet,
-            0,
-            nullptr
-        );
-        
-        // Draw triangle
-        vkCmdDraw(commandBuffer, 3, 1, 0, 0);
-        
-        // End render pass
-        vkCmdEndRenderPass(commandBuffer);
-        
-        // End command buffer recording
-        result = vkEndCommandBuffer(commandBuffer);
-        if (result != VK_SUCCESS) {
-            Logger::Error("VulkanRenderer", "Failed to end recording command buffer: {}", static_cast<int32_t>(result));
-            return;
-        }
-        
-        Logger::Debug("VulkanRenderer", "Command buffer recorded successfully for image index: {}", imageIndex);
-        
-    } catch (const std::exception& e) {
-        Logger::Error("VulkanRenderer", "RecordCommandBuffer failed: {}", e.what());
     }
 }
 
@@ -587,10 +351,7 @@ void VulkanRenderer::RecordCommandBufferWithECS(uint32_t imageIndex, uint32_t fr
         
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         
-        // Bind graphics pipeline
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline->GetPipeline());
-        
-        // Set viewport and scissor
+        // Set viewport and scissor (tüm render item'lar için aynı)
         VkViewport viewport{};
         viewport.x = 0.0f;
         viewport.y = 0.0f;
@@ -605,35 +366,118 @@ void VulkanRenderer::RecordCommandBufferWithECS(uint32_t imageIndex, uint32_t fr
         scissor.extent = m_graphicsDevice->GetSwapchain()->GetExtent();
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
         
-        // Bind descriptor sets
-        VkDescriptorSet currentDescriptorSet = m_graphicsDevice->GetCurrentDescriptorSet(frameIndex);
-        vkCmdBindDescriptorSets(
-            commandBuffer,
-            VK_PIPELINE_BIND_POINT_GRAPHICS,
-            m_pipeline->GetLayout(),
-            0,
-            1,
-            &currentDescriptorSet,
-            0,
-            nullptr
-        );
+        // Process ECS render items with material-driven rendering
+        VkPipeline lastBoundPipeline = VK_NULL_HANDLE;
+        VkPipelineLayout lastBoundPipelineLayout = VK_NULL_HANDLE;
         
-        // Process ECS render items
         for (const auto& renderItem : renderPacket.renderItems) {
-            if (renderItem.visible && renderItem.mesh) {
-                // Update uniform buffer with ECS transform
-                UpdateUniformBufferWithECS(frameIndex, renderItem.transform);
+            if (!renderItem.visible) {
+                continue;
+            }
+            
+            // AssetHandle'ı al (önce AssetHandle, sonra legacy string path)
+            AssetHandle modelHandle = renderItem.modelHandle.IsValid() ? renderItem.modelHandle : 
+                                     (!renderItem.modelPath.empty() ? AssetHandle(renderItem.modelPath, AssetHandle::Type::Model) : AssetHandle());
+            
+            if (!modelHandle.IsValid()) {
+                Logger::Warning("VulkanRenderer", "Render item has invalid model handle");
+                continue;
+            }
+            
+            // Asset durumunu kontrol et
+            AssetLoadState modelState = m_assetManager ? m_assetManager->GetAssetState(modelHandle) : AssetLoadState::NotLoaded;
+            
+            if (modelState == AssetLoadState::Loaded) {
+                // Model yüklüyse render et
+                auto model = m_assetManager->GetAsset<Model>(modelHandle);
+                if (!model) {
+                    Logger::Error("VulkanRenderer", "Model marked as loaded but not found in cache: {}", modelHandle.GetID());
+                    continue;
+                }
                 
-                // Bind the mesh's vertex and index buffers
-                renderItem.mesh->Bind(commandBuffer);
+                // Materyal handle'ını al
+                AssetHandle materialHandle = renderItem.materialHandle.IsValid() ? renderItem.materialHandle : 
+                                          (!renderItem.materialPath.empty() ? AssetHandle(renderItem.materialPath, AssetHandle::Type::Material) : AssetHandle());
                 
-                // Draw using indexed drawing with the mesh's index count
-                vkCmdDrawIndexed(commandBuffer, renderItem.mesh->GetIndexCount(), 1, 0, 0, 0);
+                // Materyali al veya varsayılan materyal kullan
+                std::shared_ptr<Material> material = nullptr;
+                if (materialHandle.IsValid()) {
+                    AssetLoadState materialState = m_assetManager->GetAssetState(materialHandle);
+                    if (materialState == AssetLoadState::Loaded) {
+                        material = m_assetManager->GetAsset<Material>(materialHandle);
+                    }
+                }
                 
-                Logger::Debug("VulkanRenderer", "Drew ECS item with model path: {}, index count: {}", 
-                             renderItem.modelPath, renderItem.mesh->GetIndexCount());
-            } else if (renderItem.visible && !renderItem.mesh) {
-                Logger::Warning("VulkanRenderer", "Render item visible but has no mesh: {}", renderItem.modelPath);
+                // Eğer materyal yoksa, varsayılan PBR materyalini kullan
+                if (!material) {
+                    Logger::Warning("VulkanRenderer", "No valid material for render item, using default PBR material");
+                    // TODO: MaterialManager'dan varsayılan materyali al
+                    // material = m_materialManager->GetDefaultPBRMaterial();
+                    continue; // Geçici olarak atla
+                }
+                
+                // Materyalin pipeline'ını ve pipeline layout'ını al
+                VkPipeline materialPipeline = material->GetPipeline();
+                VkPipelineLayout materialPipelineLayout = material->GetPipelineLayout();
+                
+                if (materialPipeline == VK_NULL_HANDLE || materialPipelineLayout == VK_NULL_HANDLE) {
+                    Logger::Error("VulkanRenderer", "Material has invalid pipeline or pipeline layout");
+                    continue;
+                }
+                
+                // Pipeline değiştiyse yeni pipeline'ı bind et
+                if (materialPipeline != lastBoundPipeline) {
+                    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, materialPipeline);
+                    lastBoundPipeline = materialPipeline;
+                    lastBoundPipelineLayout = materialPipelineLayout;
+                    Logger::Debug("VulkanRenderer", "Bound new pipeline for material: {}", material->GetName());
+                }
+                
+                // Materyalin descriptor set'ini al
+                VkDescriptorSet materialDescriptorSet = material->GetDescriptorSet();
+                if (materialDescriptorSet != VK_NULL_HANDLE) {
+                    // Materyalin descriptor set'ini bind et
+                    vkCmdBindDescriptorSets(
+                        commandBuffer,
+                        VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        materialPipelineLayout,
+                        0,
+                        1,
+                        &materialDescriptorSet,
+                        0,
+                        nullptr
+                    );
+                }
+                
+                // Modelin içindeki her bir VulkanMesh için render et
+                const auto& meshes = model->GetMeshes();
+                for (const auto& mesh : meshes) {
+                    if (!mesh) {
+                        continue;
+                    }
+                    
+                    // Materyalin uniform buffer'ını güncelle
+                    material->UpdateUniformBuffer(frameIndex);
+                    
+                    // Mesh'in vertex ve index buffer'larını bind et
+                    mesh->Bind(commandBuffer);
+                    
+                    // Draw using indexed drawing with the mesh's index count
+                    vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(mesh->GetIndexCount()), 1, 0, 0, 0);
+                    
+                    Logger::Debug("VulkanRenderer", "Drew ECS item with model: {}, material: {}, index count: {}", 
+                                 modelHandle.GetID(), material->GetName(), mesh->GetIndexCount());
+                }
+                
+            } else if (modelState == AssetLoadState::Loading) {
+                // Model yükleniyorsa placeholder render et
+                Logger::Debug("VulkanRenderer", "Model still loading: {}, rendering placeholder", modelHandle.GetID());
+                RenderPlaceholder(commandBuffer, frameIndex, renderItem.transform);
+            } else {
+                // Model yüklenmediyse veya başarısız olduysa
+                Logger::Warning("VulkanRenderer", "Model not loaded (state: {}): {}", 
+                               static_cast<int>(modelState), modelHandle.GetID());
+                RenderPlaceholder(commandBuffer, frameIndex, renderItem.transform);
             }
         }
         
@@ -651,6 +495,85 @@ void VulkanRenderer::RecordCommandBufferWithECS(uint32_t imageIndex, uint32_t fr
         
     } catch (const std::exception& e) {
         Logger::Error("VulkanRenderer", "RecordCommandBufferWithECS failed: {}", e.what());
+    }
+}
+
+void VulkanRenderer::UpdateDescriptors(uint32_t frameIndex, const std::shared_ptr<VulkanTexture>& texture) {
+    try {
+        // Boundary check: frameIndex değerini doğrula
+        if (!m_graphicsDevice) {
+            Logger::Error("VulkanRenderer", "GraphicsDevice is null - cannot update descriptors");
+            return;
+        }
+        
+        if (frameIndex >= m_graphicsDevice->GetConfig().maxFramesInFlight) {
+            Logger::Error("VulkanRenderer", "Frame index {} out of range for descriptor update", frameIndex);
+            return;
+        }
+        
+        if (!texture || !texture->IsInitialized()) {
+            Logger::Error("VulkanRenderer", "Texture is null or not initialized - cannot update descriptors");
+            return;
+        }
+        
+        // Get current descriptor set
+        VkDescriptorSet descriptorSet = m_graphicsDevice->GetCurrentDescriptorSet(frameIndex);
+        if (descriptorSet == VK_NULL_HANDLE) {
+            Logger::Error("VulkanRenderer", "Failed to get descriptor set for frame {}", frameIndex);
+            return;
+        }
+        
+        // Get uniform buffer
+        VulkanBuffer* uniformBuffer = m_graphicsDevice->GetCurrentUniformBufferWrapper(frameIndex);
+        if (!uniformBuffer) {
+            Logger::Error("VulkanRenderer", "Failed to get uniform buffer for frame {}", frameIndex);
+            return;
+        }
+        
+        // Prepare descriptor writes
+        std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
+        
+        // UBO descriptor write
+        VkDescriptorBufferInfo bufferInfo{};
+        bufferInfo.buffer = uniformBuffer->GetBuffer();
+        bufferInfo.offset = 0;
+        bufferInfo.range = sizeof(UniformBufferObject);
+        
+        descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrites[0].dstSet = descriptorSet;
+        descriptorWrites[0].dstBinding = 0; // UBO binding
+        descriptorWrites[0].dstArrayElement = 0;
+        descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        descriptorWrites[0].descriptorCount = 1;
+        descriptorWrites[0].pBufferInfo = &bufferInfo;
+        descriptorWrites[0].pImageInfo = nullptr;
+        descriptorWrites[0].pTexelBufferView = nullptr;
+        
+        // Texture sampler descriptor write
+        VkDescriptorImageInfo imageInfo{};
+        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageInfo.imageView = texture->GetImageView();
+        imageInfo.sampler = texture->GetSampler();
+        
+        descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrites[1].dstSet = descriptorSet;
+        descriptorWrites[1].dstBinding = 1; // Texture sampler binding
+        descriptorWrites[1].dstArrayElement = 0;
+        descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        descriptorWrites[1].descriptorCount = 1;
+        descriptorWrites[1].pBufferInfo = nullptr;
+        descriptorWrites[1].pImageInfo = &imageInfo;
+        descriptorWrites[1].pTexelBufferView = nullptr;
+        
+        // Update descriptor sets
+        vkUpdateDescriptorSets(m_graphicsDevice->GetDevice(), 
+                              static_cast<uint32_t>(descriptorWrites.size()), 
+                              descriptorWrites.data(), 0, nullptr);
+        
+        Logger::Debug("VulkanRenderer", "Descriptors updated successfully for frame {} with texture", frameIndex);
+        
+    } catch (const std::exception& e) {
+        Logger::Error("VulkanRenderer", "UpdateDescriptors failed: {}", e.what());
     }
 }
 
@@ -680,7 +603,8 @@ void VulkanRenderer::UpdateUniformBufferWithECS(uint32_t frameIndex, const glm::
             Logger::Debug("VulkanRenderer", "Using camera matrices for ECS uniform buffer");
             
             // Camera matrislerini doğrula
-            if (glm::any(glm::isnan(ubo.view[0])) || glm::any(glm::isnan(ubo.proj[0]))) {
+            if (glm::isnan(ubo.view[0].x) || glm::isnan(ubo.view[0].y) || glm::isnan(ubo.view[0].z) || glm::isnan(ubo.view[0].w) ||
+                glm::isnan(ubo.proj[0].x) || glm::isnan(ubo.proj[0].y) || glm::isnan(ubo.proj[0].z) || glm::isnan(ubo.proj[0].w)) {
                 Logger::Error("VulkanRenderer", "Camera matrices contain NaN values - using fallback");
                 // Fallback matrisler kullan
                 ubo.view = glm::lookAt(glm::vec3(0.0f, 0.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
@@ -730,15 +654,12 @@ void VulkanRenderer::UpdateUniformBuffer(uint32_t frameIndex) {
             return;
         }
         
-        // Calculate current time for animation
-        float currentTime = std::chrono::duration<float>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-        float time = currentTime - m_startTime;
-        
-        // Create UBO data
+        // Uniform Buffer Object oluştur
         UniformBufferObject ubo{};
         
-        // Model matrix: rotate around Y axis over time
-        ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        // Model matrix'i birim matris olarak ayarla.
+        // Gerçek transform ECS'den gelen veri ile UpdateUniformBufferWithECS içinde ayarlanacak.
+        ubo.model = glm::mat4(1.0f);
         
         // View ve projection matrislerini kameradan al
         if (m_camera) {
@@ -747,7 +668,8 @@ void VulkanRenderer::UpdateUniformBuffer(uint32_t frameIndex) {
             Logger::Debug("VulkanRenderer", "Using camera matrices for uniform buffer");
             
             // Camera matrislerini doğrula
-            if (glm::any(glm::isnan(ubo.view[0])) || glm::any(glm::isnan(ubo.proj[0]))) {
+            if (glm::isnan(ubo.view[0].x) || glm::isnan(ubo.view[0].y) || glm::isnan(ubo.view[0].z) || glm::isnan(ubo.view[0].w) ||
+                glm::isnan(ubo.proj[0].x) || glm::isnan(ubo.proj[0].y) || glm::isnan(ubo.proj[0].z) || glm::isnan(ubo.proj[0].w)) {
                 Logger::Error("VulkanRenderer", "Camera matrices contain NaN values - using fallback");
                 // Fallback matrisler kullan
                 ubo.view = glm::lookAt(glm::vec3(0.0f, 0.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
@@ -781,6 +703,35 @@ void VulkanRenderer::UpdateUniformBuffer(uint32_t frameIndex) {
         
     } catch (const std::exception& e) {
         Logger::Error("VulkanRenderer", "UpdateUniformBuffer failed: {}", e.what());
+    }
+}
+
+std::shared_ptr<VulkanTexture> VulkanRenderer::CreateFallbackTexture() {
+    Logger::Info("VulkanRenderer", "Creating fallback white texture");
+    
+    try {
+        if (!m_graphicsDevice || !m_graphicsDevice->GetVulkanDevice()) {
+            Logger::Error("VulkanRenderer", "Cannot create fallback texture - VulkanDevice is null");
+            return nullptr;
+        }
+        
+        auto texture = std::make_shared<VulkanTexture>();
+        
+        // Create a 1x1 white texture
+        std::vector<uint32_t> whitePixel = {0xFFFFFFFF}; // RGBA white
+        
+        if (!texture->InitializeFromData(m_graphicsDevice->GetVulkanDevice(), 
+                                       whitePixel.data(), 1, 1, VK_FORMAT_R8G8B8A8_UNORM)) {
+            Logger::Error("VulkanRenderer", "Failed to create fallback texture: {}", texture->GetLastError());
+            return nullptr;
+        }
+        
+        Logger::Info("VulkanRenderer", "Fallback white texture created successfully");
+        return texture;
+        
+    } catch (const std::exception& e) {
+        Logger::Error("VulkanRenderer", "CreateFallbackTexture failed: {}", e.what());
+        return nullptr;
     }
 }
 
@@ -967,10 +918,7 @@ void VulkanRenderer::RecordDynamicRenderingCommands(uint32_t frameIndex, uint32_
         scissor.extent = m_graphicsDevice->GetSwapchain()->GetExtent();
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
         
-        // Bind vertex buffer
-        VkBuffer vertexBuffers[] = {m_vertexBuffer->GetBuffer()};
-        VkDeviceSize offsets[] = {0};
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+        // Note: Vertex buffer binding removed - now handled by ECS meshes
         
         // Bind descriptor sets
         VkDescriptorSet currentDescriptorSet = m_graphicsDevice->GetCurrentDescriptorSet(frameIndex);
@@ -1003,6 +951,108 @@ void VulkanRenderer::RecordDynamicRenderingCommands(uint32_t frameIndex, uint32_
     } catch (const std::exception& e) {
         Logger::Error("VulkanRenderer", "RecordDynamicRenderingCommands failed: {}", e.what());
     }
+}
+
+void VulkanRenderer::RenderModelWithAssetHandles(VkCommandBuffer commandBuffer, uint32_t frameIndex, 
+                                               const ECSSubsystem::RenderPacket::RenderItem& renderItem, 
+                                               const std::shared_ptr<Model>& model) {
+    if (!model || !m_assetManager) {
+        return;
+    }
+    
+    // Modelin içindeki her bir VulkanMesh için render et
+    const auto& meshes = model->GetMeshes();
+    for (const auto& mesh : meshes) {
+        if (!mesh) {
+            continue;
+        }
+        
+        // Texture handle'ını al - sadece AssetHandle kullan (yeni sistem)
+        AssetHandle textureHandle = renderItem.textureHandle;
+        
+        // Texture durumunu kontrol et - sadece Loaded durumunda render et
+        std::shared_ptr<VulkanTexture> texture = nullptr;
+        if (textureHandle.IsValid()) {
+            AssetLoadState textureState = m_assetManager->GetAssetState(textureHandle);
+            
+            if (textureState == AssetLoadState::Loaded) {
+                texture = m_assetManager->GetAsset<VulkanTexture>(textureHandle);
+                Logger::Debug("VulkanRenderer", "Using loaded texture: {}", textureHandle.GetID());
+            } else {
+                Logger::Warning("VulkanRenderer", "Texture not ready for rendering (state: {}): {}", 
+                               static_cast<int>(textureState), textureHandle.GetID());
+                texture = CreateFallbackTexture();
+            }
+        } else {
+            // Geçerli texture handle'ı yoksa fallback kullan
+            Logger::Debug("VulkanRenderer", "No valid texture handle, using fallback");
+            texture = CreateFallbackTexture();
+        }
+        
+        // Update descriptors with the texture
+        if (texture && texture->IsInitialized()) {
+            UpdateDescriptors(frameIndex, texture);
+        }
+        
+        // Update uniform buffer with ECS transform
+        UpdateUniformBufferWithECS(frameIndex, renderItem.transform);
+        
+        // Bind descriptor sets
+        VkDescriptorSet currentDescriptorSet = m_graphicsDevice->GetCurrentDescriptorSet(frameIndex);
+        vkCmdBindDescriptorSets(
+            commandBuffer,
+            VK_PIPELINE_BIND_POINT_GRAPHICS,
+            m_pipeline->GetLayout(),
+            0,
+            1,
+            &currentDescriptorSet,
+            0,
+            nullptr
+        );
+        
+        // Bind the mesh's vertex and index buffers
+        mesh->Bind(commandBuffer);
+        
+        // Draw using indexed drawing with the mesh's index count
+        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(mesh->GetIndexCount()), 1, 0, 0, 0);
+        
+        Logger::Debug("VulkanRenderer", "Drew ECS item with model ID: {}, index count: {}, texture: {}", 
+                     renderItem.modelHandle.GetID(), mesh->GetIndexCount(), texture ? "loaded" : "fallback");
+    }
+}
+
+void VulkanRenderer::RenderPlaceholder(VkCommandBuffer commandBuffer, uint32_t frameIndex, const glm::mat4& transform) {
+    // Placeholder rendering - basit bir küp veya üçgen render et
+    
+    // Update uniform buffer with ECS transform
+    UpdateUniformBufferWithECS(frameIndex, transform);
+    
+    // Use cached fallback texture instead of creating new one every frame
+    if (m_fallbackTexture && m_fallbackTexture->IsInitialized()) {
+        UpdateDescriptors(frameIndex, m_fallbackTexture);
+        Logger::Debug("VulkanRenderer", "Using cached fallback texture for placeholder rendering");
+    } else {
+        Logger::Warning("VulkanRenderer", "Fallback texture not available, skipping texture binding");
+    }
+    
+    // Bind descriptor sets
+    VkDescriptorSet currentDescriptorSet = m_graphicsDevice->GetCurrentDescriptorSet(frameIndex);
+    vkCmdBindDescriptorSets(
+        commandBuffer,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        m_pipeline->GetLayout(),
+        0,
+        1,
+        &currentDescriptorSet,
+        0,
+        nullptr
+    );
+    
+    // Placeholder olarak basit bir üçgen draw et
+    // Not: Gerçek implementasyonda burada bir placeholder mesh kullanılmalı
+    vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+    
+    Logger::Debug("VulkanRenderer", "Rendered placeholder for asset");
 }
 
 } // namespace AstralEngine

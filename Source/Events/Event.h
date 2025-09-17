@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Subsystems/Platform/KeyCode.h"
 #include <string>
 #include <memory>
 #include <typeindex>
@@ -21,8 +22,8 @@ public:
     virtual std::type_index GetType() const = 0;
     
     // Olay işlendi mi?
-    bool IsHandled() const { return m_handled; }
-    void SetHandled(bool handled = true) { m_handled = handled; }
+    bool IsHandled() const { return m_handled; } 
+    void SetHandled(bool handled = true) { m_handled = handled; } 
     
     // Olay kategorileri (bitwise operations için)
     enum Category {
@@ -90,17 +91,17 @@ public:
  */
 class KeyPressedEvent : public Event {
 public:
-    KeyPressedEvent(int keyCode, bool isRepeat = false)
+    KeyPressedEvent(KeyCode keyCode, bool isRepeat = false)
         : m_keyCode(keyCode), m_isRepeat(isRepeat) {}
     
-    int GetKeyCode() const { return m_keyCode; }
+    KeyCode GetKeyCode() const { return m_keyCode; }
     bool IsRepeat() const { return m_isRepeat; }
     
     EVENT_CLASS_TYPE(KeyPressedEvent)
     EVENT_CLASS_CATEGORY(Keyboard | Input)
 
 private:
-    int m_keyCode;
+    KeyCode m_keyCode;
     bool m_isRepeat;
 };
 
@@ -109,15 +110,15 @@ private:
  */
 class KeyReleasedEvent : public Event {
 public:
-    KeyReleasedEvent(int keyCode) : m_keyCode(keyCode) {}
+    KeyReleasedEvent(KeyCode keyCode) : m_keyCode(keyCode) {}
     
-    int GetKeyCode() const { return m_keyCode; }
+    KeyCode GetKeyCode() const { return m_keyCode; }
     
     EVENT_CLASS_TYPE(KeyReleasedEvent)
     EVENT_CLASS_CATEGORY(Keyboard | Input)
 
 private:
-    int m_keyCode;
+    KeyCode m_keyCode;
 };
 
 /**

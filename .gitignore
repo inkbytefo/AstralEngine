@@ -2,6 +2,7 @@
 build/
 cmake-build-*/
 out/
+External/
 
 # IDE files
 .vscode/

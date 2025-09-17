@@ -2,10 +2,11 @@
 #  * Astral Engine v0.1.0-alpha - Advanced 3D Game Engine
 #  *
 #  * CMake Configuration File
-#  * Purpose: Professional SDL3 integration with modern C++20 support
+#  * Purpose: Modern, modular CMake configuration for AstralEngine
 #  * Author: Astral Engine Development Team
 #  * Version: 0.1.0-alpha
-#  * Date: 2025-09-11
+#  * Date: 2025-09-17
+#  * Signature: inkbytefo
 #  **********************************************************************/
 
 cmake_minimum_required(VERSION 3.24)
@@ -16,24 +17,14 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Modern CMake practices
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Build type validation
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build" FORCE)
     set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "RelWithDebInfo" "MinSizeRel")
 endif()
-
-# Build options
-option(ASTRAL_BUILD_EXAMPLES "Build sample applications" OFF)
-option(ASTRAL_VENDOR_SDL3 "Fetch and build SDL3 from source if not found" OFF)
-option(ASTRAL_LINK_SDL3MAIN "Link SDL3main on Windows for WinMain wrapping" ON)
-option(ASTRAL_WARNINGS_AS_ERRORS "Treat warnings as errors in engine code" OFF)
-option(ASTRAL_ENABLE_PROFILING "Enable profiling support" OFF)
-option(ASTRAL_ENABLE_TESTS "Enable unit tests" OFF)
-option(ASTRAL_ENABLE_VULKAN "Enable Vulkan graphics API support" ON)
-option(ASTRAL_VULKAN_VALIDATION "Enable Vulkan validation layers in debug builds" ON)
-option(ASTRAL_VENDOR_VULKAN "Fetch and build Vulkan dependencies from source if not found" OFF)
-option(ASTRAL_VENDOR_ASSIMP "Fetch and build Assimp from source if not found" OFF)
-set(ASTRAL_ASSIMP_VERSION "5.2.5" CACHE STRING "Target Assimp version")
 
 # Output directories
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
@@ -47,6 +38,30 @@ set(EXTERNAL_DIR ${CMAKE_SOURCE_DIR}/External)
 include(FetchContent)
 
 # /**********************************************************************
+#  * Build Options
+#  **********************************************************************/
+# Core options
+option(ASTRAL_BUILD_EXAMPLES "Build example applications" ON)
+option(ASTRAL_BUILD_TESTS "Build unit tests" OFF)
+option(ASTRAL_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
+option(ASTRAL_ENABLE_PROFILING "Enable profiling support" OFF)
+
+# Vendor options
+option(ASTRAL_VENDOR_SDL3 "Fetch and build SDL3 from source if not found" OFF)
+option(ASTRAL_VENDOR_VULKAN "Fetch and build Vulkan dependencies from source if not found" OFF)
+option(ASTRAL_VENDOR_ASSIMP "Fetch and build Assimp from source if not found" ON)
+
+# Feature options
+option(ASTRAL_ENABLE_VULKAN "Enable Vulkan graphics API support" ON)
+option(ASTRAL_VULKAN_VALIDATION "Enable Vulkan validation layers in debug builds" ON)
+option(ASTRAL_LINK_SDL3MAIN "Link SDL3main on Windows for WinMain wrapping" ON)
+
+# Version configurations
+set(ASTRAL_SDL3_VERSION "3.2.22" CACHE STRING "Target SDL3 version")
+set(ASTRAL_ASSIMP_VERSION "6.0.2" CACHE STRING "Target Assimp version")
+set(ASTRAL_VULKAN_VERSION "1.4.0" CACHE STRING "Target Vulkan SDK version")
+
+# /**********************************************************************
 #  * Compiler Configuration
 #  **********************************************************************/
 if(MSVC)
@@ -57,7 +72,8 @@ if(MSVC)
         /Zc:preprocessor       # Standards-conforming preprocessor
         /Zc:__cplusplus        # Enable __cplusplus macro update
         /EHsc                  # Exception handling model
-        /utf-8                 # Use UTF-8 for source and execution character sets
+        /source-charset:utf-8  # Use UTF-8 for source character set
+        /execution-charset:utf-8 # Use UTF-8 for execution character set
         /MP                    # Multi-processor compilation
         /bigobj                # Large object files support
     )
@@ -107,71 +123,15 @@ else()
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 endif()
 
-# Vulkan-specific compiler optimizations and definitions
-if(ASTRAL_ENABLE_VULKAN)
-    # Platform-independent Vulkan optimizations
-    add_compile_definitions(
-        $<$<CONFIG:Release>:VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1>
-        $<$<CONFIG:Debug>:VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1>
-    )
-    
-    # Vulkan validation layers configuration
-    if(ASTRAL_VULKAN_VALIDATION)
-        add_compile_definitions(
-            $<$<CONFIG:Debug>:ASTRAL_VULKAN_VALIDATION_LAYERS>
-            $<$<CONFIG:Debug>:VULKAN_HPP_ENABLE_DYNAMIC_LOADER_TOOL=1>
-        )
-        
-        # Debug-specific Vulkan settings
-        if(MSVC)
-            add_compile_options($<$<CONFIG:Debug>:/DVK_ENABLE_BETA_EXTENSIONS>)
-        else()
-            add_compile_options($<$<CONFIG:Debug>:-DVK_ENABLE_BETA_EXTENSIONS>)
-        endif()
-    endif()
-    
-    # Platform-specific Vulkan optimizations
-    if(WIN32)
-        # Windows-specific Vulkan optimizations
-        add_compile_definitions(
-            $<$<CONFIG:Release>:VK_USE_PLATFORM_WIN32_KHR>
-            $<$<CONFIG:Debug>:VK_USE_PLATFORM_WIN32_KHR>
-        )
-        
-        # Enable Windows-specific Vulkan extensions
-        if(MSVC)
-            add_compile_options(
-                $<$<CONFIG:Release>:/arch:AVX2>
-                $<$<CONFIG:RelWithDebInfo>:/arch:AVX2>
-            )
-        endif()
-    elseif(UNIX AND NOT APPLE)
-        # Linux-specific Vulkan optimizations
-        add_compile_definitions(
-            $<$<CONFIG:Release>:VK_USE_PLATFORM_XCB_KHR>
-            $<$<CONFIG:Debug>:VK_USE_PLATFORM_XCB_KHR>
-        )
-        
-        # GCC/Clang specific optimizations for Vulkan
-        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-            add_compile_options(
-                $<$<CONFIG:Release>:-march=native>
-                $<$<CONFIG:Release>:-mtune=native>
-            )
-        endif()
-    endif()
-endif()
-
 # /**********************************************************************
-#  * SDL3 Detection and Configuration
+#  * Dependency Management
 #  **********************************************************************/
-set(SDL3_ROOT "" CACHE PATH "Path to SDL3 installation directory")
-set(ASTRAL_SDL3_VERSION "3.2.22" CACHE STRING "Target SDL3 version")
 
-# Enhanced SDL3 detection with multiple fallback strategies
-message(STATUS "Searching for SDL3...")
+# SDL3 Configuration
+set(SDL3_FOUND FALSE)
+set(ASTRAL_HAS_SDL3 FALSE)
 
-# Strategy 1: Check for pre-built SDL3 in External directory first
+# Strategy 1: Check for pre-built SDL3 in External directory
 if(EXISTS "${EXTERNAL_DIR}/SDL3/include/SDL3" AND EXISTS "${EXTERNAL_DIR}/SDL3/lib")
     message(STATUS "Found pre-built SDL3 in External/SDL3 directory")
     set(SDL3_FOUND TRUE)
@@ -183,25 +143,12 @@ elseif(EXISTS "${EXTERNAL_DIR}/SDL3/CMakeLists.txt")
 else()
     # Strategy 2: Try to find SDL3 via Config mode
     find_package(SDL3 CONFIG QUIET)
-endif()
-
-# Strategy 3: Try pkgconfig if available
-if(NOT SDL3_FOUND)
-    find_package(PkgConfig QUIET)
-    if(PkgConfig_FOUND)
-        pkg_check_modules(SDL3_PKG QUIET sdl3)
-        if(SDL3_PKG_FOUND)
-            set(SDL3_FOUND TRUE)
-            add_library(SDL3::SDL3 INTERFACE IMPORTED)
-            target_link_libraries(SDL3::SDL3 INTERFACE ${SDL3_PKG_LIBRARIES})
-            target_include_directories(SDL3::SDL3 INTERFACE ${SDL3_PKG_INCLUDE_DIRS})
-            target_compile_options(SDL3::SDL3 INTERFACE ${SDL3_PKG_CFLAGS_OTHER})
-            message(STATUS "SDL3 found via pkg-config")
-        endif()
+    if(SDL3_FOUND)
+        message(STATUS "SDL3 found via system installation")
     endif()
 endif()
 
-# Strategy 4: FetchContent from source if enabled
+# Strategy 3: FetchContent from source if enabled
 if(NOT SDL3_FOUND AND ASTRAL_VENDOR_SDL3)
     message(STATUS "Fetching SDL3 from source (version: ${ASTRAL_SDL3_VERSION})...")
     
@@ -213,7 +160,7 @@ if(NOT SDL3_FOUND AND ASTRAL_VENDOR_SDL3)
         GIT_PROGRESS TRUE
     )
     
-    # Configure SDL3 build options for optimal performance
+    # Configure SDL3 build options
     set(SDL_SHARED ON CACHE BOOL "Build SDL3 as shared library" FORCE)
     set(SDL_STATIC ON CACHE BOOL "Build SDL3 as static library" FORCE)
     set(SDL_TEST_LIBRARY OFF CACHE BOOL "Build SDL3 test library" FORCE)
@@ -221,8 +168,6 @@ if(NOT SDL3_FOUND AND ASTRAL_VENDOR_SDL3)
     set(SDL_EXAMPLES OFF CACHE BOOL "Build SDL3 examples" FORCE)
     set(SDL_INSTALL_TESTS OFF CACHE BOOL "Install SDL3 tests" FORCE)
     set(SDL_DISABLE_INSTALL ON CACHE BOOL "Disable SDL3 install" FORCE)
-    
-    # Performance optimizations
     set(SDL_ASSERTIONS disabled CACHE STRING "SDL assertion level" FORCE)
     
     FetchContent_MakeAvailable(SDL3)
@@ -230,35 +175,8 @@ if(NOT SDL3_FOUND AND ASTRAL_VENDOR_SDL3)
     message(STATUS "SDL3 successfully built from source")
 endif()
 
-# Final validation and error reporting
-if(NOT SDL3_FOUND)
-    message(FATAL_ERROR
-        "\n========================================\n"
-        "SDL3 Integration Failed!\n"
-        "\n"
-        "SDL3 ${ASTRAL_SDL3_VERSION} could not be found or built.\n"
-        "\n"
-        "Solutions:\n"
-        "  1. Install SDL3 development libraries:\n"
-        "     - Windows: Download from https://github.com/libsdl-org/SDL/releases\n"
-        "     - Linux: sudo apt install libsdl3-dev (when available)\n"
-        "     - macOS: brew install sdl3 (when available)\n"
-        "\n"
-        "  2. Set SDL3_ROOT to your SDL3 installation path\n"
-        "\n"
-        "  3. Enable source build: -DASTRAL_VENDOR_SDL3=ON\n"
-        "\n"
-        "  4. Use vcpkg: vcpkg install sdl3\n"
-        "\n"
-        "For detailed instructions, see SDL3_INTEGRATION_GUIDE.md\n"
-        "========================================\n"
-    )
-endif()
-
-# Handle pre-built SDL3 if detected
+# Handle pre-built SDL3
 if(ASTRAL_USE_PREBUILT_SDL3)
-    message(STATUS "Configuring pre-built SDL3 from External/SDL3...")
-    
     # Determine architecture-specific library path
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
         set(SDL3_ARCH_DIR "x64")
@@ -267,17 +185,15 @@ if(ASTRAL_USE_PREBUILT_SDL3)
     elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
         set(SDL3_ARCH_DIR "arm64")
     else()
-        set(SDL3_ARCH_DIR "x64")  # Default fallback
+        set(SDL3_ARCH_DIR "x64")
     endif()
     
     set(SDL3_LIB_DIR "${EXTERNAL_DIR}/SDL3/lib/${SDL3_ARCH_DIR}")
     
-    # Verify the library exists
     if(NOT EXISTS "${SDL3_LIB_DIR}/SDL3.lib")
         message(FATAL_ERROR "SDL3.lib not found at ${SDL3_LIB_DIR}")
     endif()
     
-    # Create imported target for SDL3
     add_library(SDL3::SDL3 SHARED IMPORTED)
     set_target_properties(SDL3::SDL3 PROPERTIES
         IMPORTED_LOCATION "${SDL3_LIB_DIR}/SDL3.dll"
@@ -285,17 +201,12 @@ if(ASTRAL_USE_PREBUILT_SDL3)
         INTERFACE_INCLUDE_DIRECTORIES "${EXTERNAL_DIR}/SDL3/include"
     )
     
-    # Store DLL path for copying
     set(SDL3_DLL_PATH "${SDL3_LIB_DIR}/SDL3.dll")
-    
     message(STATUS "Pre-built SDL3 configured successfully (${SDL3_ARCH_DIR})")
 endif()
 
-# Handle source SDL3 build if detected
+# Handle local SDL3 build
 if(ASTRAL_USE_LOCAL_SDL3)
-    message(STATUS "Building local SDL3 from External/SDL3...")
-    
-    # Configure SDL3 build options for optimal performance
     set(SDL_SHARED ON CACHE BOOL "Build SDL3 as shared library" FORCE)
     set(SDL_STATIC ON CACHE BOOL "Build SDL3 as static library" FORCE)
     set(SDL_TEST_LIBRARY OFF CACHE BOOL "Build SDL3 test library" FORCE)
@@ -303,78 +214,31 @@ if(ASTRAL_USE_LOCAL_SDL3)
     set(SDL_EXAMPLES OFF CACHE BOOL "Build SDL3 examples" FORCE)
     set(SDL_INSTALL_TESTS OFF CACHE BOOL "Install SDL3 tests" FORCE)
     set(SDL_DISABLE_INSTALL ON CACHE BOOL "Disable SDL3 install" FORCE)
-    
-    # Performance optimizations
     set(SDL_ASSERTIONS disabled CACHE STRING "SDL assertion level" FORCE)
     
-    # Add SDL3 subdirectory
     add_subdirectory(${EXTERNAL_DIR}/SDL3 EXCLUDE_FROM_ALL)
-    
     message(STATUS "Local SDL3 build configured successfully")
 endif()
 
-# SDL3 configuration logging and validation
-if(TARGET SDL3::SDL3)
-    get_target_property(SDL3_TYPE SDL3::SDL3 TYPE)
-    message(STATUS "SDL3 target type: ${SDL3_TYPE}")
-    
-    # Try to get version information
-    if(SDL3_VERSION)
-        message(STATUS "SDL3 version: ${SDL3_VERSION}")
-    elseif(SDL3_PKG_VERSION)
-        message(STATUS "SDL3 version: ${SDL3_PKG_VERSION}")
-    endif()
-elseif(ASTRAL_USE_PREBUILT_SDL3)
-    message(STATUS "SDL3 using pre-built libraries from External/SDL3")
-elseif(ASTRAL_USE_LOCAL_SDL3)
-    message(STATUS "SDL3 built from local source in External/SDL3")
+if(SDL3_FOUND)
+    set(ASTRAL_HAS_SDL3 TRUE)
+    message(STATUS "SDL3 integration completed successfully")
 else()
-    message(STATUS "SDL3 found via FetchContent (built from source)")
+    message(FATAL_ERROR 
+        "SDL3 not found. Please either:\n"
+        "  1. Install SDL3 development libraries\n"
+        "  2. Set SDL3_ROOT to your SDL3 installation path\n"
+        "  3. Enable source build: -DASTRAL_VENDOR_SDL3=ON\n"
+        "  4. Download SDL3 to ${EXTERNAL_DIR}/SDL3"
+    )
 endif()
 
-set(ASTRAL_HAS_SDL3 TRUE)
+# Vulkan Configuration
+set(VULKAN_FOUND FALSE)
+set(ASTRAL_HAS_VULKAN FALSE)
 
-# /**********************************************************************
-#  * GLM Mathematics Library
-#  **********************************************************************/
-find_path(GLM_INCLUDE_DIR
-    NAMES glm.hpp
-    PATHS ${EXTERNAL_DIR}/glm
-    NO_DEFAULT_PATH
-    DOC "GLM include directory"
-)
-
-if(NOT GLM_INCLUDE_DIR)
-    # Fallback: try system installation
-    find_package(glm QUIET)
-    if(NOT glm_FOUND)
-        message(WARNING 
-            "GLM library not found. Please either:\n"
-            "  1. Download GLM to ${EXTERNAL_DIR}/glm\n"
-            "  2. Install system-wide GLM package\n"
-            "Download from: https://github.com/g-truc/glm\n"
-            "\n"
-            "Continuing without GLM (some features may be limited)..."
-        )
-        set(ASTRAL_HAS_GLM FALSE)
-    else()
-        set(ASTRAL_HAS_GLM TRUE)
-        set(GLM_INCLUDE_DIR "${glm_INCLUDE_DIRS}")
-    endif()
-else()
-    message(STATUS "GLM found at: ${GLM_INCLUDE_DIR}")
-    set(ASTRAL_HAS_GLM TRUE)
-endif()
-
-# /**********************************************************************
-#  * Vulkan 1.4 Integration
-#  **********************************************************************/
 if(ASTRAL_ENABLE_VULKAN)
-    message(STATUS "Configuring Vulkan 1.4 support...")
-    
-    # Vulkan SDK version configuration
-    set(ASTRAL_VULKAN_VERSION "1.4" CACHE STRING "Target Vulkan SDK version")
-    set(ASTRAL_VULKAN_SDK_ROOT "" CACHE PATH "Path to Vulkan SDK installation directory")
+    message(STATUS "Configuring Vulkan ${ASTRAL_VULKAN_VERSION} support...")
     
     # Strategy 1: Check for pre-built Vulkan SDK in External directory
     if(EXISTS "${EXTERNAL_DIR}/Vulkan/include/vulkan" AND EXISTS "${EXTERNAL_DIR}/Vulkan/lib")
@@ -390,21 +254,19 @@ if(ASTRAL_ENABLE_VULKAN)
         elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
             set(VULKAN_ARCH_DIR "arm64")
         else()
-            set(VULKAN_ARCH_DIR "x64")  # Default fallback
+            set(VULKAN_ARCH_DIR "x64")
         endif()
         
         set(VULKAN_LIB_DIR "${EXTERNAL_DIR}/Vulkan/lib/${VULKAN_ARCH_DIR}")
         
-        # Create imported target for Vulkan
         add_library(Vulkan::Vulkan INTERFACE IMPORTED)
         target_include_directories(Vulkan::Vulkan INTERFACE "${EXTERNAL_DIR}/Vulkan/include")
         target_link_directories(Vulkan::Vulkan INTERFACE "${VULKAN_LIB_DIR}")
         
-        # Link Vulkan libraries
         if(WIN32)
-            target_link_libraries(Vulkan::Vulkan INTERFACE vulkan-1 shaderc_shared)
+            target_link_libraries(Vulkan::Vulkan INTERFACE vulkan-1)
         else()
-            target_link_libraries(Vulkan::Vulkan INTERFACE vulkan shaderc)
+            target_link_libraries(Vulkan::Vulkan INTERFACE vulkan)
         endif()
         
         message(STATUS "Pre-built Vulkan SDK configured successfully (${VULKAN_ARCH_DIR})")
@@ -414,7 +276,6 @@ if(ASTRAL_ENABLE_VULKAN)
     if(NOT VULKAN_FOUND)
         find_package(Vulkan QUIET)
         if(Vulkan_FOUND)
-            set(VULKAN_FOUND TRUE)
             message(STATUS "Vulkan SDK found via system installation")
         endif()
     endif()
@@ -426,15 +287,14 @@ if(ASTRAL_ENABLE_VULKAN)
             set(VULKAN_FOUND TRUE)
             set(ASTRAL_USE_SYSTEM_VULKAN TRUE)
             
-            # Create imported target for system Vulkan
             add_library(Vulkan::Vulkan INTERFACE IMPORTED)
             target_include_directories(Vulkan::Vulkan INTERFACE "${VULKAN_SDK_ROOT}/Include")
             target_link_directories(Vulkan::Vulkan INTERFACE "${VULKAN_SDK_ROOT}/Lib")
             
             if(WIN32)
-                target_link_libraries(Vulkan::Vulkan INTERFACE vulkan-1 shaderc_shared)
+                target_link_libraries(Vulkan::Vulkan INTERFACE vulkan-1)
             else()
-                target_link_libraries(Vulkan::Vulkan INTERFACE vulkan shaderc)
+                target_link_libraries(Vulkan::Vulkan INTERFACE vulkan)
             endif()
             
             message(STATUS "Vulkan SDK found via VULKAN_SDK environment variable")
@@ -445,16 +305,14 @@ if(ASTRAL_ENABLE_VULKAN)
     if(NOT VULKAN_FOUND AND ASTRAL_VENDOR_VULKAN)
         message(STATUS "Fetching Vulkan dependencies from source...")
         
-        # Vulkan Headers
         FetchContent_Declare(
             VulkanHeaders
             GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
-            GIT_TAG v1.4.0
+            GIT_TAG v${ASTRAL_VULKAN_VERSION}
             GIT_SHALLOW TRUE
             GIT_PROGRESS TRUE
         )
         
-        # Vulkan Memory Allocator (VMA)
         FetchContent_Declare(
             VulkanMemoryAllocator
             GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
@@ -463,96 +321,33 @@ if(ASTRAL_ENABLE_VULKAN)
             GIT_PROGRESS TRUE
         )
         
-        # GLM (if not already found)
-        if(NOT ASTRAL_HAS_GLM)
-            FetchContent_Declare(
-                glm
-                GIT_REPOSITORY https://github.com/g-truc/glm.git
-                GIT_TAG 0.9.9.8
-                GIT_SHALLOW TRUE
-                GIT_PROGRESS TRUE
-            )
-        endif()
-        
         FetchContent_MakeAvailable(VulkanHeaders VulkanMemoryAllocator)
-        if(NOT ASTRAL_HAS_GLM)
-            FetchContent_MakeAvailable(glm)
-        endif()
-        
         set(VULKAN_FOUND TRUE)
         message(STATUS "Vulkan dependencies fetched successfully")
     endif()
     
-    # Final validation and error reporting
-    if(NOT VULKAN_FOUND)
-        message(WARNING
-            "\n========================================\n"
-            "Vulkan 1.4 Integration Warning!\n"
-            "\n"
-            "Vulkan SDK could not be found or built.\n"
-            "\n"
-            "Solutions:\n"
-            "  1. Install Vulkan SDK:\n"
-            "     - Windows: Download from https://vulkan.lunarg.com/\n"
-            "     - Linux: sudo apt install vulkan-tools libvulkan-dev\n"
-            "     - macOS: brew install vulkan-headers vulkan-loader\n"
-            "\n"
+    if(VULKAN_FOUND)
+        set(ASTRAL_HAS_VULKAN TRUE)
+        message(STATUS "Vulkan ${ASTRAL_VULKAN_VERSION} support configured successfully")
+    else()
+        message(WARNING 
+            "Vulkan SDK not found. Vulkan support will be disabled.\n"
+            "Please either:\n"
+            "  1. Install Vulkan SDK\n"
             "  2. Set VULKAN_SDK environment variable\n"
-            "\n"
             "  3. Download Vulkan SDK to ${EXTERNAL_DIR}/Vulkan\n"
-            "\n"
-            "  4. Enable source build: -DASTRAL_VENDOR_VULKAN=ON\n"
-            "\n"
-            "Continuing without Vulkan support...\n"
-            "========================================\n"
+            "  4. Enable source build: -DASTRAL_VENDOR_VULKAN=ON"
         )
         set(ASTRAL_ENABLE_VULKAN FALSE)
-    else()
-        set(ASTRAL_HAS_VULKAN TRUE)
-        message(STATUS "Vulkan 1.4 support configured successfully")
     endif()
 endif()
 
-# /**********************************************************************
-#  * Assimp Integration
-#  **********************************************************************/
-message(STATUS "Configuring Assimp support...")
+# Assimp Configuration
+set(ASSIMP_FOUND FALSE)
+set(ASTRAL_HAS_ASSIMP FALSE)
 
-# Assimp version configuration
-set(ASTRAL_ASSIMP_ROOT "" CACHE PATH "Path to Assimp installation directory")
-
-# Strategy 1: Check for pre-built Assimp in External directory first
-if(EXISTS "${EXTERNAL_DIR}/Assimp/include/assimp" AND EXISTS "${EXTERNAL_DIR}/Assimp/lib")
-    message(STATUS "Found pre-built Assimp in External/Assimp directory")
-    set(ASSIMP_FOUND TRUE)
-    set(ASTRAL_USE_PREBUILT_ASSIMP TRUE)
-elseif(EXISTS "${EXTERNAL_DIR}/Assimp/CMakeLists.txt")
-    message(STATUS "Found source Assimp in External/Assimp directory")
-    set(ASSIMP_FOUND TRUE)
-    set(ASTRAL_USE_LOCAL_ASSIMP TRUE)
-else()
-    # Strategy 2: Try to find Assimp via Config mode
-    find_package(assimp CONFIG QUIET)
-endif()
-
-# Strategy 3: Try pkgconfig if available
-if(NOT ASSIMP_FOUND)
-    find_package(PkgConfig QUIET)
-    if(PkgConfig_FOUND)
-        pkg_check_modules(ASSIMP_PKG QUIET assimp)
-        if(ASSIMP_PKG_FOUND)
-            set(ASSIMP_FOUND TRUE)
-            add_library(assimp::assimp INTERFACE IMPORTED)
-            target_link_libraries(assimp::assimp INTERFACE ${ASSIMP_PKG_LIBRARIES})
-            target_include_directories(assimp::assimp INTERFACE ${ASSIMP_PKG_INCLUDE_DIRS})
-            target_compile_options(assimp::assimp INTERFACE ${ASSIMP_PKG_CFLAGS_OTHER})
-            message(STATUS "Assimp found via pkg-config")
-        endif()
-    endif()
-endif()
-
-# Strategy 4: FetchContent from source if enabled
-if(NOT ASSIMP_FOUND AND ASTRAL_VENDOR_ASSIMP)
+# Strategy: FetchContent for Assimp if enabled
+if(ASTRAL_VENDOR_ASSIMP)
     message(STATUS "Fetching Assimp from source (version: ${ASTRAL_ASSIMP_VERSION})...")
     
     FetchContent_Declare(
@@ -560,136 +355,63 @@ if(NOT ASSIMP_FOUND AND ASTRAL_VENDOR_ASSIMP)
         GIT_REPOSITORY https://github.com/assimp/assimp.git
         GIT_TAG v${ASTRAL_ASSIMP_VERSION}
         GIT_SHALLOW TRUE
-        GIT_PROGRESS TRUE 
+        GIT_PROGRESS TRUE
     )
     
-    # Configure Assimp build options for static library
-    set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build Assimp as static library" FORCE)
-    set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "Build Assimp tools" FORCE)
+    # Configure Assimp build options
     set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "Build Assimp tests" FORCE)
-    set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "Build Assimp samples" FORCE)
+    set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "Build Assimp tools" FORCE)
     set(ASSIMP_INSTALL OFF CACHE BOOL "Install Assimp" FORCE)
     set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "Build zlib" FORCE)
-    set(ASSIMP_BUILD_DOUBLE_SUPPORT OFF CACHE BOOL "Build double precision support" FORCE)
-    set(ASSIMP_BUILD_SINGLE_THREADED OFF CACHE BOOL "Build single-threaded" FORCE)
-    set(ASSIMP_NO_EXPORT ON CACHE BOOL "Disable export functionality" FORCE)
-    set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT ON CACHE BOOL "Build all importers" FORCE)
-    set(ASSIMP_BUILD_ALL_EXPORTERS_BY_DEFAULT OFF CACHE BOOL "Build all exporters" FORCE)
     
     FetchContent_MakeAvailable(Assimp)
     set(ASSIMP_FOUND TRUE)
     message(STATUS "Assimp successfully built from source")
 endif()
 
-# Final validation and error reporting
-if(NOT ASSIMP_FOUND)
-    message(WARNING
-        "\n========================================\n"
-        "Assimp Integration Warning!\n"
-        "\n"
-        "Assimp ${ASTRAL_ASSIMP_VERSION} could not be found or built.\n"
-        "\n"
-        "Solutions:\n"
-        "  1. Install Assimp development libraries:\n"
-        "     - Windows: Download from https://github.com/assimp/assimp/releases\n"
-        "     - Linux: sudo apt install libassimp-dev\n"
-        "     - macOS: brew install assimp\n"
-        "\n"
-        "  2. Set ASTRAL_ASSIMP_ROOT to your Assimp installation path\n"
-        "\n"
-        "  3. Enable source build: -DASTRAL_VENDOR_ASSIMP=ON\n"
-        "\n"
-        "  4. Use vcpkg: vcpkg install assimp\n"
-        "\n"
-        "Continuing without Assimp support (3D model loading will be limited)...\n"
-        "========================================\n"
-    )
-    set(ASTRAL_HAS_ASSIMP FALSE)
-else()
+if(ASSIMP_FOUND)
     set(ASTRAL_HAS_ASSIMP TRUE)
-    message(STATUS "Assimp support configured successfully")
-endif()
-
-# Handle pre-built Assimp if detected
-if(ASTRAL_USE_PREBUILT_ASSIMP)
-    message(STATUS "Configuring pre-built Assimp from External/Assimp...")
-    
-    # Determine architecture-specific library path
-    if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
-        set(ASSIMP_ARCH_DIR "x64")
-    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "i386|i686|x86")
-        set(ASSIMP_ARCH_DIR "x86")
-    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
-        set(ASSIMP_ARCH_DIR "arm64")
-    else()
-        set(ASSIMP_ARCH_DIR "x64")  # Default fallback
-    endif()
-    
-    set(ASSIMP_LIB_DIR "${EXTERNAL_DIR}/Assimp/lib/${ASSIMP_ARCH_DIR}")
-    
-    # Verify the library exists
-    if(NOT EXISTS "${ASSIMP_LIB_DIR}/assimp.lib")
-        message(FATAL_ERROR "assimp.lib not found at ${ASSIMP_LIB_DIR}")
-    endif()
-    
-    # Create imported target for Assimp
-    add_library(assimp::assimp STATIC IMPORTED)
-    set_target_properties(assimp::assimp PROPERTIES
-        IMPORTED_LOCATION "${ASSIMP_LIB_DIR}/assimp.lib"
-        INTERFACE_INCLUDE_DIRECTORIES "${EXTERNAL_DIR}/Assimp/include"
-    )
-    
-    message(STATUS "Pre-built Assimp configured successfully (${ASSIMP_ARCH_DIR})")
-endif()
-
-# Handle source Assimp build if detected
-if(ASTRAL_USE_LOCAL_ASSIMP)
-    message(STATUS "Building local Assimp from External/Assimp...")
-    
-    # Configure Assimp build options for static library
-    set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build Assimp as static library" FORCE)
-    set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "Build Assimp tools" FORCE)
-    set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "Build Assimp tests" FORCE)
-    set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "Build Assimp samples" FORCE)
-    set(ASSIMP_INSTALL OFF CACHE BOOL "Install Assimp" FORCE)
-    set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "Build zlib" FORCE)
-    set(ASSIMP_BUILD_DOUBLE_SUPPORT OFF CACHE BOOL "Build double precision support" FORCE)
-    set(ASSIMP_BUILD_SINGLE_THREADED OFF CACHE BOOL "Build single-threaded" FORCE)
-    set(ASSIMP_NO_EXPORT ON CACHE BOOL "Disable export functionality" FORCE)
-    set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT ON CACHE BOOL "Build all importers" FORCE)
-    set(ASSIMP_BUILD_ALL_EXPORTERS_BY_DEFAULT OFF CACHE BOOL "Build all exporters" FORCE)
-    
-    # Add Assimp subdirectory
-    add_subdirectory(${EXTERNAL_DIR}/Assimp EXCLUDE_FROM_ALL)
-    
-    message(STATUS "Local Assimp build configured successfully")
-endif()
-
-# Assimp configuration logging and validation
-if(TARGET assimp::assimp)
-    get_target_property(ASSIMP_TYPE assimp::assimp TYPE)
-    message(STATUS "Assimp target type: ${ASSIMP_TYPE}")
-    
-    # Try to get version information
-    if(ASSIMP_VERSION_STRING)
-        message(STATUS "Assimp version: ${ASSIMP_VERSION_STRING}")
-    elseif(ASSIMP_PKG_VERSION)
-        message(STATUS "Assimp version: ${ASSIMP_PKG_VERSION}")
-    else()
-        message(STATUS "Assimp version: ${ASTRAL_ASSIMP_VERSION}")
-    endif()
-elseif(ASTRAL_USE_PREBUILT_ASSIMP)
-    message(STATUS "Assimp using pre-built libraries from External/Assimp")
-elseif(ASTRAL_USE_LOCAL_ASSIMP)
-    message(STATUS "Assimp built from local source in External/Assimp")
+    message(STATUS "Assimp integration completed successfully")
 else()
-    message(STATUS "Assimp found via FetchContent (built from source)")
+    message(WARNING 
+        "Assimp not found. Model loading support will be disabled.\n"
+        "Please either:\n"
+        "  1. Install Assimp development libraries\n"
+        "  2. Download Assimp to ${EXTERNAL_DIR}/Assimp\n"
+        "  3. Enable source build: -DASTRAL_VENDOR_ASSIMP=ON"
+    )
 endif()
+
+# GLM Configuration
+find_path(GLM_INCLUDE_DIR
+    NAMES glm/glm.hpp
+    PATHS ${EXTERNAL_DIR}/glm
+    NO_DEFAULT_PATH
+    DOC "GLM include directory"
+)
+
+if(NOT GLM_INCLUDE_DIR)
+    find_package(glm QUIET)
+    if(glm_FOUND)
+        set(GLM_INCLUDE_DIR "${glm_INCLUDE_DIRS}")
+        set(ASTRAL_HAS_GLM TRUE)
+        message(STATUS "GLM found via system installation")
+    else()
+        message(WARNING "GLM not found. Some math functionality may be limited.")
+        set(ASTRAL_HAS_GLM FALSE)
+    endif()
+else()
+    set(ASTRAL_HAS_GLM TRUE)
+    message(STATUS "GLM found at: ${GLM_INCLUDE_DIR}")
+endif()
+
+# Threading library
+find_package(Threads REQUIRED)
 
 # /**********************************************************************
-#  * Engine Source Files
+#  * Astral Engine Library Target
 #  **********************************************************************/
-set(ENGINE_SOURCES
+set(ASTRAL_ENGINE_SOURCES
     # Core
     Source/Core/Engine.cpp
     Source/Core/Logger.cpp
@@ -704,79 +426,11 @@ set(ENGINE_SOURCES
     Source/Subsystems/Platform/Window.cpp
     Source/Subsystems/Platform/InputManager.cpp
     
-    # Asset Subsystem
-    Source/Subsystems/Asset/AssetSubsystem.cpp
-    Source/Subsystems/Asset/AssetManager.cpp
-    Source/Subsystems/Asset/Model.cpp
-    
     # ECS Subsystem
     Source/Subsystems/ECS/ECSSubsystem.cpp
-    
-    # Renderer Subsystem
-    Source/Subsystems/Renderer/VulkanRenderer.cpp
-    Source/Subsystems/Renderer/Camera.cpp
-    Source/Subsystems/Renderer/GraphicsDevice.cpp
-    Source/Subsystems/Renderer/RenderSubsystem.cpp
-    Source/Subsystems/Renderer/VulkanMemoryManager.cpp
-    Source/Subsystems/Renderer/VulkanSynchronization.cpp
-    Source/Subsystems/Renderer/VulkanUtils.cpp
-    Source/Subsystems/Renderer/Core/VulkanInstance.cpp
-    Source/Subsystems/Renderer/Core/VulkanDevice.cpp
-    Source/Subsystems/Renderer/Core/VulkanSwapchain.cpp
-    Source/Subsystems/Renderer/Shaders/VulkanShader.cpp
-    Source/Subsystems/Renderer/Shaders/ShaderValidator.cpp
-    Source/Subsystems/Renderer/Commands/VulkanCommandPool.cpp
-    Source/Subsystems/Renderer/Commands/VulkanPipeline.cpp
-    Source/Subsystems/Renderer/Buffers/VulkanBuffer.cpp
-    Source/Subsystems/Renderer/Buffers/VulkanMesh.cpp
-    
-    # Main entry point
-    Source/main.cpp
 )
 
-set(ENGINE_SOURCES_NO_MAIN
-    # Core
-    Source/Core/Engine.cpp
-    Source/Core/Logger.cpp
-    Source/Core/FileLogger.cpp
-    Source/Core/MemoryManager.cpp
-    
-    # Events
-    Source/Events/EventManager.cpp
-    
-    # Platform Subsystem
-    Source/Subsystems/Platform/PlatformSubsystem.cpp
-    Source/Subsystems/Platform/Window.cpp
-    Source/Subsystems/Platform/InputManager.cpp
-    
-    # Asset Subsystem
-    Source/Subsystems/Asset/AssetSubsystem.cpp
-    Source/Subsystems/Asset/AssetManager.cpp
-    Source/Subsystems/Asset/Model.cpp
-    
-    # ECS Subsystem
-    Source/Subsystems/ECS/ECSSubsystem.cpp
-    
-    # Renderer Subsystem
-    Source/Subsystems/Renderer/VulkanRenderer.cpp
-    Source/Subsystems/Renderer/Camera.cpp
-    Source/Subsystems/Renderer/GraphicsDevice.cpp
-    Source/Subsystems/Renderer/RenderSubsystem.cpp
-    Source/Subsystems/Renderer/VulkanMemoryManager.cpp
-    Source/Subsystems/Renderer/VulkanSynchronization.cpp
-    Source/Subsystems/Renderer/VulkanUtils.cpp
-    Source/Subsystems/Renderer/Core/VulkanInstance.cpp
-    Source/Subsystems/Renderer/Core/VulkanDevice.cpp
-    Source/Subsystems/Renderer/Core/VulkanSwapchain.cpp
-    Source/Subsystems/Renderer/Shaders/VulkanShader.cpp
-    Source/Subsystems/Renderer/Shaders/ShaderValidator.cpp
-    Source/Subsystems/Renderer/Commands/VulkanCommandPool.cpp
-    Source/Subsystems/Renderer/Commands/VulkanPipeline.cpp
-    Source/Subsystems/Renderer/Buffers/VulkanBuffer.cpp
-    Source/Subsystems/Renderer/Buffers/VulkanMesh.cpp
-)
-
-set(ENGINE_HEADERS
+set(ASTRAL_ENGINE_HEADERS
     # Core
     Source/Core/Engine.h
     Source/Core/ISubsystem.h
@@ -792,34 +446,93 @@ set(ENGINE_HEADERS
     Source/Subsystems/Platform/PlatformSubsystem.h
     Source/Subsystems/Platform/Window.h
     Source/Subsystems/Platform/InputManager.h
-    
-    # Asset Subsystem
-    Source/Subsystems/Asset/AssetSubsystem.h
-    Source/Subsystems/Asset/AssetManager.h
-    Source/Subsystems/Asset/Model.h
+    Source/Subsystems/Platform/KeyCode.h
     
     # ECS
     Source/ECS/Components.h
     Source/Subsystems/ECS/ECSSubsystem.h
-    
-    # Renderer Subsystem
-    Source/Subsystems/Renderer/RendererTypes.h
-    Source/Subsystems/Renderer/VulkanMemoryManager.h
-    Source/Subsystems/Renderer/VulkanSynchronization.h
-    Source/Subsystems/Renderer/VulkanUtils.h
-    Source/Subsystems/Renderer/Buffers/VulkanBuffer.h
-    Source/Subsystems/Renderer/Buffers/VulkanMesh.h
-    Source/Subsystems/Renderer/Commands/VulkanCommandPool.h
-    Source/Subsystems/Renderer/Commands/VulkanPipeline.h
-    Source/Subsystems/Renderer/Core/VulkanDevice.h
-    Source/Subsystems/Renderer/Core/VulkanInstance.h
-    Source/Subsystems/Renderer/Core/VulkanSwapchain.h
-    Source/Subsystems/Renderer/Shaders/ShaderValidator.h
-    Source/Subsystems/Renderer/Shaders/VulkanShader.h
 )
 
+# Asset Subsystem (conditional)
+if(ASTRAL_HAS_ASSIMP)
+    list(APPEND ASTRAL_ENGINE_SOURCES
+        Source/Subsystems/Asset/AssetSubsystem.cpp
+        Source/Subsystems/Asset/AssetManager.cpp
+        Source/Subsystems/Asset/AssetHandle.cpp
+        Source/Subsystems/Asset/AssetRegistry.cpp
+        Source/Subsystems/Asset/Model.cpp
+    )
+    
+    list(APPEND ASTRAL_ENGINE_HEADERS
+        Source/Subsystems/Asset/AssetSubsystem.h
+        Source/Subsystems/Asset/AssetManager.h
+        Source/Subsystems/Asset/AssetHandle.h
+        Source/Subsystems/Asset/AssetRegistry.h
+        Source/Subsystems/Asset/Model.h
+        Source/Subsystems/Asset/ShaderProgram.h
+    )
+endif()
+
+# Renderer Subsystem (conditional)
+if(ASTRAL_HAS_VULKAN)
+    list(APPEND ASTRAL_ENGINE_SOURCES
+        Source/Subsystems/Renderer/RenderSubsystem.cpp
+        Source/Subsystems/Renderer/VulkanRenderer.cpp
+        Source/Subsystems/Renderer/Camera.cpp
+        Source/Subsystems/Renderer/GraphicsDevice.cpp
+        Source/Subsystems/Renderer/VulkanMemoryManager.cpp
+        Source/Subsystems/Renderer/VulkanSynchronization.cpp
+        Source/Subsystems/Renderer/VulkanUtils.cpp
+        Source/Subsystems/Renderer/Core/VulkanInstance.cpp
+        Source/Subsystems/Renderer/Core/VulkanDevice.cpp
+        Source/Subsystems/Renderer/Core/VulkanSwapchain.cpp
+        Source/Subsystems/Renderer/Core/VulkanFrameManager.cpp
+        Source/Subsystems/Renderer/Shaders/VulkanShader.cpp
+        Source/Subsystems/Renderer/Shaders/ShaderValidator.cpp
+        Source/Subsystems/Renderer/Shaders/ShaderCompiler.cpp
+        Source/Subsystems/Renderer/Shader/ShaderManager.cpp
+        Source/Subsystems/Renderer/Commands/VulkanCommandPool.cpp
+        Source/Subsystems/Renderer/Commands/VulkanPipeline.cpp
+        Source/Subsystems/Renderer/Buffers/VulkanBuffer.cpp
+        Source/Subsystems/Renderer/Buffers/VulkanMesh.cpp
+        Source/Subsystems/Renderer/Buffers/VulkanTexture.cpp
+        Source/Subsystems/Renderer/Texture/TextureManager.cpp
+        Source/Subsystems/Renderer/Material/Material.cpp
+    )
+    
+    list(APPEND ASTRAL_ENGINE_HEADERS
+        Source/Subsystems/Renderer/RendererTypes.h
+        Source/Subsystems/Renderer/IRenderer.h
+        Source/Subsystems/Renderer/RenderSubsystem.h
+        Source/Subsystems/Renderer/VulkanRenderer.h
+        Source/Subsystems/Renderer/Camera.h
+        Source/Subsystems/Renderer/GraphicsDevice.h
+        Source/Subsystems/Renderer/VulkanMemoryManager.h
+        Source/Subsystems/Renderer/VulkanSynchronization.h
+        Source/Subsystems/Renderer/VulkanUtils.h
+        Source/Subsystems/Renderer/Core/VulkanDevice.h
+        Source/Subsystems/Renderer/Core/VulkanInstance.h
+        Source/Subsystems/Renderer/Core/VulkanSwapchain.h
+        Source/Subsystems/Renderer/Core/VulkanFrameManager.h
+        Source/Subsystems/Renderer/Shaders/ShaderValidator.h
+        Source/Subsystems/Renderer/Shaders/VulkanShader.h
+        Source/Subsystems/Renderer/Commands/VulkanCommandPool.h
+        Source/Subsystems/Renderer/Commands/VulkanPipeline.h
+        Source/Subsystems/Renderer/Buffers/VulkanBuffer.h
+        Source/Subsystems/Renderer/Buffers/VulkanMesh.h
+        Source/Subsystems/Renderer/Buffers/VulkanTexture.h
+        Source/Subsystems/Renderer/Shaders/ShaderCompiler.h
+        Source/Subsystems/Renderer/Shader/ShaderManager.h
+        Source/Subsystems/Renderer/Texture/TextureManager.h
+        Source/Subsystems/Renderer/Material/Material.h
+    )
+endif()
+
+# Create the main engine library
+add_library(AstralEngine STATIC ${ASTRAL_ENGINE_SOURCES} ${ASTRAL_ENGINE_HEADERS})
+
 # /**********************************************************************
-#  * Astral Target Configuration Function
+#  * Target Configuration Function
 #  **********************************************************************/
 function(configure_astral_target target_name)
     # Compiler features
@@ -828,11 +541,9 @@ function(configure_astral_target target_name)
     # Include directories
     target_include_directories(${target_name} PRIVATE
         ${CMAKE_SOURCE_DIR}/Source
+        ${CMAKE_SOURCE_DIR}/External
+        ${CMAKE_SOURCE_DIR}/External/stb
         $<$<BOOL:${GLM_INCLUDE_DIR}>:${GLM_INCLUDE_DIR}>
-        $<$<BOOL:${ASTRAL_HAS_VULKAN}>:${CMAKE_SOURCE_DIR}/External/vulkan/include>
-        $<$<BOOL:${ASTRAL_HAS_ASSIMP}>:${assimp_SOURCE_DIR}/include>
-        $<$<BOOL:${ASTRAL_USE_PREBUILT_ASSIMP}>:${EXTERNAL_DIR}/Assimp/include>
-        $<$<BOOL:${ASTRAL_USE_LOCAL_ASSIMP}>:${EXTERNAL_DIR}/Assimp/include>
     )
 
     # Compile definitions
@@ -849,6 +560,7 @@ function(configure_astral_target target_name)
         
         # Platform definitions
         $<$<PLATFORM_ID:Windows>:PLATFORM_WINDOWS>
+        $<$<PLATFORM_ID:Windows>:VK_USE_PLATFORM_WIN32_KHR>
         $<$<PLATFORM_ID:Linux>:PLATFORM_LINUX>
         $<$<PLATFORM_ID:Darwin>:PLATFORM_MACOS>
         
@@ -856,54 +568,65 @@ function(configure_astral_target target_name)
         $<$<PLATFORM_ID:Windows>:NOMINMAX>
         $<$<PLATFORM_ID:Windows>:WIN32_LEAN_AND_MEAN>
         
-        # SDL3 integration
+        # Feature flags
         ASTRAL_USE_SDL3
-        
-        # Vulkan integration
         $<$<BOOL:${ASTRAL_HAS_VULKAN}>:ASTRAL_USE_VULKAN>
-        $<$<BOOL:${ASTRAL_HAS_VULKAN}>:VULKAN_HPP_NO_EXCEPTIONS>
-        $<$<BOOL:${ASTRAL_HAS_VULKAN}>:VULKAN_HPP_TYPESAFE_CONVERSION>
-        
-        # Assimp integration
         $<$<BOOL:${ASTRAL_HAS_ASSIMP}>:ASTRAL_USE_ASSIMP>
+        $<$<BOOL:${ASTRAL_HAS_GLM}>:ASTRAL_USE_GLM>
     )
+
+    # Vulkan-specific definitions
+    if(ASTRAL_HAS_VULKAN)
+        target_compile_definitions(${target_name} PRIVATE
+            VULKAN_HPP_NO_EXCEPTIONS
+            VULKAN_HPP_TYPESAFE_CONVERSION
+            $<$<BOOL:${ASTRAL_VULKAN_VALIDATION}>:$<$<CONFIG:Debug>:ASTRAL_VULKAN_VALIDATION_LAYERS>>
+        )
+    endif()
 
     # Link libraries
     target_link_libraries(${target_name} PRIVATE
-        # Threading
         Threads::Threads
-        
-        # Vulkan libraries
-        $<$<TARGET_EXISTS:Vulkan::Vulkan>:Vulkan::Vulkan>
-        $<$<TARGET_EXISTS:vulkan>::vulkan>
-        
-        # Assimp libraries
-        $<$<TARGET_EXISTS:assimp::assimp>:assimp::assimp>
-        $<$<BOOL:${ASTRAL_USE_LOCAL_ASSIMP}>:assimp>
     )
 
     # SDL3 linking
     if(TARGET SDL3::SDL3)
         target_link_libraries(${target_name} PRIVATE SDL3::SDL3)
         
-        # Link SDL3main on Windows
         if(WIN32 AND ASTRAL_LINK_SDL3MAIN AND TARGET SDL3::SDL3main)
             target_link_libraries(${target_name} PRIVATE SDL3::SDL3main)
         endif()
     elseif(ASTRAL_USE_LOCAL_SDL3)
-        # Local SDL3 build
         target_link_libraries(${target_name} PRIVATE SDL3)
         
-        # Link SDL3main on Windows for local build
         if(WIN32 AND ASTRAL_LINK_SDL3MAIN AND TARGET SDL3main)
             target_link_libraries(${target_name} PRIVATE SDL3main)
         endif()
-    else()
-        # FetchContent SDL3
-        target_link_libraries(${target_name} PRIVATE SDL3)
     endif()
 
-    # Copy SDL3 DLL on Windows (if needed)
+    # Vulkan linking
+    if(ASTRAL_HAS_VULKAN)
+        if(TARGET Vulkan::Vulkan)
+            target_link_libraries(${target_name} PRIVATE Vulkan::Vulkan)
+        elseif(TARGET vulkan)
+            target_link_libraries(${target_name} PRIVATE vulkan)
+        endif()
+        
+        if(TARGET VulkanMemoryAllocator::VulkanMemoryAllocator)
+            target_link_libraries(${target_name} PRIVATE VulkanMemoryAllocator::VulkanMemoryAllocator)
+        endif()
+    endif()
+
+    # Assimp linking
+    if(ASTRAL_HAS_ASSIMP)
+        if(TARGET assimp::assimp)
+            target_link_libraries(${target_name} PRIVATE assimp::assimp)
+        elseif(TARGET assimp)
+            target_link_libraries(${target_name} PRIVATE assimp)
+        endif()
+    endif()
+
+    # Copy SDL3 DLL on Windows
     if(WIN32)
         if(ASTRAL_USE_PREBUILT_SDL3 AND DEFINED SDL3_DLL_PATH)
             add_custom_command(TARGET ${target_name} POST_BUILD
@@ -933,140 +656,43 @@ function(configure_astral_target target_name)
     endif()
 endfunction()
 
-# /**********************************************************************
-#  * Main Engine Target
-#  **********************************************************************/
-add_executable(AstralEngine ${ENGINE_SOURCES} ${ENGINE_HEADERS})
-
-# Configure the target using our common function
+# Configure the main engine library
 configure_astral_target(AstralEngine)
 
-# GLM is header-only, no linking required
-
-# Threading library
-find_package(Threads REQUIRED)
-
 # IDE organization
-source_group(TREE ${CMAKE_SOURCE_DIR}/Source PREFIX "Source" FILES ${ENGINE_SOURCES})
-source_group(TREE ${CMAKE_SOURCE_DIR}/Source PREFIX "Headers" FILES ${ENGINE_HEADERS})
-
-# Target properties
-set_target_properties(AstralEngine PROPERTIES
-    OUTPUT_NAME "AstralEngine$<$<CONFIG:Debug>:_Debug>"
-    DESCRIPTION "Astral Engine v${PROJECT_VERSION} - Advanced 3D Game Engine"
-    VERSION ${PROJECT_VERSION}
-    
-    # Windows specific properties
-    $<$<PLATFORM_ID:Windows>:WIN32_EXECUTABLE OFF>
-    
-    # Debug symbols
-    $<$<CONFIG:Debug>:DEBUG_POSTFIX "_d">
-    $<$<CONFIG:RelWithDebInfo>:RELWITHDEBINFO_POSTFIX "_rd">
-)
-
-# /**********************************************************************
-#  * Post-Build Steps
-#  **********************************************************************/
-# Copy assets
-add_custom_command(TARGET AstralEngine POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:AstralEngine>/Assets
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_SOURCE_DIR}/Assets
-        $<TARGET_FILE_DIR:AstralEngine>/Assets
-    COMMENT "Copying assets to output directory"
-)
-
-# Copy compiled shaders to output directory
-add_custom_command(TARGET AstralEngine POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:AstralEngine>/Assets/Shaders
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${CMAKE_BINARY_DIR}/shaders/triangle.vert.spv
-        $<TARGET_FILE_DIR:AstralEngine>/Assets/Shaders/
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${CMAKE_BINARY_DIR}/shaders/triangle.frag.spv
-        $<TARGET_FILE_DIR:AstralEngine>/Assets/Shaders/
-    COMMENT "Copying compiled shaders to output directory"
-)
-
-# /**********************************************************************
-#  * Optional: Sandbox Example Application
-#  **********************************************************************/
-if(ASTRAL_BUILD_EXAMPLES)
-    add_subdirectory(Examples OPTIONAL)
-endif()
-
-# /**********************************************************************
-#  * SDL3 Test Application
-#  **********************************************************************/
-if(EXISTS "${CMAKE_SOURCE_DIR}/Source/test_sdl3.cpp")
-    add_executable(AstralEngine_SDL3Test
-        Source/test_sdl3.cpp
-        ${ENGINE_SOURCES_NO_MAIN}
-    )
-    
-    # Configure the target using our common function
-    configure_astral_target(AstralEngine_SDL3Test)
-    
-    # Target properties
-    set_target_properties(AstralEngine_SDL3Test PROPERTIES
-        OUTPUT_NAME "AstralEngine_SDL3Test$<$<CONFIG:Debug>:_Debug>"
-        DESCRIPTION "Astral Engine SDL3 Test Application"
-        VERSION ${PROJECT_VERSION}
-        
-        # Windows specific properties
-        $<$<PLATFORM_ID:Windows>:WIN32_EXECUTABLE OFF>
-        
-        # Debug symbols
-        $<$<CONFIG:Debug>:DEBUG_POSTFIX "_d">
-        $<$<CONFIG:RelWithDebInfo>:RELWITHDEBINFO_POSTFIX "_rd">
-    )
-    
-    message(STATUS "SDL3 Test Application target created")
-endif()
-
-# /**********************************************************************
-#  * Optional: Unit Tests
-#  **********************************************************************/
-if(ASTRAL_ENABLE_TESTS)
-    enable_testing()
-    find_package(GTest QUIET)
-    if(GTest_FOUND)
-        add_subdirectory(Tests OPTIONAL)
-    endif()
-endif()
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+source_group(TREE ${CMAKE_SOURCE_DIR}/Source PREFIX "Source" FILES ${ASTRAL_ENGINE_SOURCES})
+source_group(TREE ${CMAKE_SOURCE_DIR}/Source PREFIX "Headers" FILES ${ASTRAL_ENGINE_HEADERS})
 
 # /**********************************************************************
 #  * Shader Compilation System
 #  **********************************************************************/
 if(ASTRAL_HAS_VULKAN)
-    # Find GLSLC executable
-    find_program(Vulkan_GLSLC_EXECUTABLE
-        NAMES glslc
+    # Find glslangValidator executable (better for #include support)
+    find_program(Vulkan_GLSLANG_VALIDATOR_EXECUTABLE
+        NAMES glslangValidator
         PATHS
             "$ENV{VULKAN_SDK}/Bin"
             "$ENV{VULKAN_SDK}/bin"
             "/usr/bin"
             "/usr/local/bin"
             "/opt/local/bin"
-        DOC "Path to GLSLC shader compiler"
+        DOC "Path to glslangValidator shader compiler"
     )
     
-    if(NOT Vulkan_GLSLC_EXECUTABLE)
+    if(NOT Vulkan_GLSLANG_VALIDATOR_EXECUTABLE)
         message(WARNING
-            "GLSLC shader compiler not found. Shaders won't be compiled.\n"
-            "Please install Vulkan SDK or ensure glslc is in PATH.\n"
-            "Windows: Install Vulkan SDK from https://vulkan.lunarg.com/\n"
-            "Linux: sudo apt install glslang-tools or install Vulkan SDK\n"
-            "macOS: brew install glslang or install Vulkan SDK"
+            "glslangValidator shader compiler not found. Shaders won't be compiled.\n"
+            "Please install Vulkan SDK or ensure glslangValidator is in PATH."
         )
     else()
-        message(STATUS "GLSLC found at: ${Vulkan_GLSLC_EXECUTABLE}")
+        message(STATUS "glslangValidator found at: ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE}")
     endif()
     
     # Shader compilation function
     function(compile_vulkan_shaders TARGET_NAME SHADER_DIR)
-        if(NOT Vulkan_GLSLC_EXECUTABLE)
-            message(WARNING "GLSLC not found, shaders won't be compiled")
+        if(NOT Vulkan_GLSLANG_VALIDATOR_EXECUTABLE)
+            message(WARNING "glslangValidator not found, shaders won't be compiled")
             return()
         endif()
         
@@ -1085,11 +711,17 @@ if(ASTRAL_HAS_VULKAN)
             get_filename_component(SHADER_NAME ${SHADER} NAME)
             set(SHADER_OUTPUT "${SHADER_OUTPUT_DIR}/${SHADER_NAME}.spv")
             
+            # glslangValidator automatically handles #include directives
+            # Set working directory to the shader's directory for relative includes
+            get_filename_component(SHADER_DIR_PATH ${SHADER} DIRECTORY)
             add_custom_command(
                 OUTPUT ${SHADER_OUTPUT}
-                COMMAND ${Vulkan_GLSLC_EXECUTABLE} ${SHADER} -o ${SHADER_OUTPUT}
+                COMMAND ${CMAKE_COMMAND} -E chdir ${SHADER_DIR_PATH} 
+                    ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} 
+                    -V ${SHADER} -o ${SHADER_OUTPUT}
                 DEPENDS ${SHADER}
                 COMMENT "Compiling shader ${SHADER_NAME}"
+                WORKING_DIRECTORY ${SHADER_DIR_PATH}
             )
             
             list(APPEND COMPILED_SHADERS ${SHADER_OUTPUT})
@@ -1099,8 +731,64 @@ if(ASTRAL_HAS_VULKAN)
         add_dependencies(${TARGET_NAME} ${TARGET_NAME}_shaders)
     endfunction()
 
-    # Shader'ları compile et
+    # Compile shaders for the engine
     compile_vulkan_shaders(AstralEngine "${CMAKE_SOURCE_DIR}/Assets/Shaders")
+endif()
+
+# /**********************************************************************
+#  * Examples and Tests
+#  **********************************************************************/
+if(ASTRAL_BUILD_EXAMPLES)
+    add_subdirectory(Examples)
+endif()
+
+if(ASTRAL_BUILD_TESTS)
+    enable_testing()
+    find_package(GTest QUIET)
+    if(GTest_FOUND)
+        add_subdirectory(Tests)
+    else()
+        message(WARNING "GTest not found. Tests will not be built.")
+    endif()
+endif()
+
+# /**********************************************************************
+#  * SDL3 Test Application
+#  **********************************************************************/
+if(EXISTS "${CMAKE_SOURCE_DIR}/Source/test_sdl3.cpp")
+    add_executable(AstralEngine_SDL3Test Source/test_sdl3.cpp)
+    target_link_libraries(AstralEngine_SDL3Test PRIVATE AstralEngine)
+    configure_astral_target(AstralEngine_SDL3Test)
+    
+    set_target_properties(AstralEngine_SDL3Test PROPERTIES
+        OUTPUT_NAME "AstralEngine_SDL3Test$<$<CONFIG:Debug>:_Debug>"
+        DESCRIPTION "Astral Engine SDL3 Test Application"
+        VERSION ${PROJECT_VERSION}
+        $<$<PLATFORM_ID:Windows>:WIN32_EXECUTABLE OFF>
+        $<$<CONFIG:Debug>:DEBUG_POSTFIX "_d">
+        $<$<CONFIG:RelWithDebInfo>:RELWITHDEBINFO_POSTFIX "_rd">
+    )
+    
+    # Copy assets for SDL3 Test
+    add_custom_command(TARGET AstralEngine_SDL3Test POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:AstralEngine_SDL3Test>/Assets
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/Assets
+            $<TARGET_FILE_DIR:AstralEngine_SDL3Test>/Assets
+        COMMENT "Copying assets to SDL3 Test output directory"
+    )
+    
+    # Copy compiled shaders
+    if(ASTRAL_HAS_VULKAN)
+        add_custom_command(TARGET AstralEngine_SDL3Test POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
+                "${CMAKE_BINARY_DIR}/shaders"
+                "$<TARGET_FILE_DIR:AstralEngine_SDL3Test>/Assets/Shaders"
+            COMMENT "Copying all compiled shaders to SDL3 Test output directory"
+        )
+    endif()
+    
+    message(STATUS "SDL3 Test Application target created")
 endif()
 
 # /**********************************************************************
@@ -1118,32 +806,19 @@ message(STATUS "Architecture: ${CMAKE_SYSTEM_PROCESSOR}")
 message(STATUS "")
 message(STATUS "Options:")
 message(STATUS "  Build Examples: ${ASTRAL_BUILD_EXAMPLES}")
+message(STATUS "  Build Tests: ${ASTRAL_BUILD_TESTS}")
 message(STATUS "  Vendor SDL3: ${ASTRAL_VENDOR_SDL3}")
-message(STATUS "  Link SDL3main: ${ASTRAL_LINK_SDL3MAIN}")
-message(STATUS "  Warnings as Errors: ${ASTRAL_WARNINGS_AS_ERRORS}")
-message(STATUS "  Profiling: ${ASTRAL_ENABLE_PROFILING}")
-message(STATUS "  Vulkan Support: ${ASTRAL_ENABLE_VULKAN}")
-message(STATUS "  Vulkan Validation: ${ASTRAL_VULKAN_VALIDATION}")
 message(STATUS "  Vendor Vulkan: ${ASTRAL_VENDOR_VULKAN}")
 message(STATUS "  Vendor Assimp: ${ASTRAL_VENDOR_ASSIMP}")
+message(STATUS "  Warnings as Errors: ${ASTRAL_WARNINGS_AS_ERRORS}")
+message(STATUS "  Vulkan Support: ${ASTRAL_ENABLE_VULKAN}")
+message(STATUS "  Vulkan Validation: ${ASTRAL_VULKAN_VALIDATION}")
 message(STATUS "")
 message(STATUS "Dependencies:")
-message(STATUS "  SDL3: Found")
-if(GLM_INCLUDE_DIR)
-    message(STATUS "  GLM: Found at ${GLM_INCLUDE_DIR}")
-elseif(TARGET glm::glm)
-    message(STATUS "  GLM: System installation")
-endif()
-if(ASTRAL_HAS_VULKAN)
-    message(STATUS "  Vulkan: Found (Version ${ASTRAL_VULKAN_VERSION})")
-else()
-    message(STATUS "  Vulkan: Not found (optional)")
-endif()
-if(ASTRAL_HAS_ASSIMP)
-    message(STATUS "  Assimp: Found (Version ${ASTRAL_ASSIMP_VERSION})")
-else()
-    message(STATUS "  Assimp: Not found (optional)")
-endif()
+message(STATUS "  SDL3: ${ASTRAL_HAS_SDL3}")
+message(STATUS "  Vulkan: ${ASTRAL_HAS_VULKAN}")
+message(STATUS "  Assimp: ${ASTRAL_HAS_ASSIMP}")
+message(STATUS "  GLM: ${ASTRAL_HAS_GLM}")
 message(STATUS "")
 message(STATUS "Output Directory: ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 message(STATUS "==========================================")

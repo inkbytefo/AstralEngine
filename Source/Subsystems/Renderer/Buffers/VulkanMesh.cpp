@@ -161,49 +161,33 @@ bool VulkanMesh::CopyDataToBuffer(VulkanBuffer* dstBuffer, VkDeviceSize bufferSi
         return false;
     }
 
-    // For simplicity and to avoid the complexity of command buffer-based transfers,
-    // let's create the destination buffer with host-visible memory for now
-    // This is less efficient but works for the initial implementation
-    
-    // Recreate the destination buffer with host-visible memory
-    VulkanBuffer::Config hostVisibleConfig{};
-    hostVisibleConfig.size = bufferSize;
-    hostVisibleConfig.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-    hostVisibleConfig.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    // 1. Geçici bir staging buffer oluştur (CPU'dan erişilebilir)
+    VkBuffer stagingBuffer;
+    VkDeviceMemory stagingBufferMemory;
+    m_device->CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                           stagingBuffer, stagingBufferMemory);
 
-    // Create a new buffer with host-visible memory
-    auto hostVisibleBuffer = std::make_unique<VulkanBuffer>();
-    if (!hostVisibleBuffer->Initialize(m_device, hostVisibleConfig)) {
-        SetError("Failed to create host-visible buffer: " + hostVisibleBuffer->GetLastError());
-        return false;
-    }
-
-    // Map the host-visible buffer and copy data
-    void* mappedData = hostVisibleBuffer->Map();
-    if (!mappedData) {
-        SetError("Failed to map host-visible buffer");
-        hostVisibleBuffer->Shutdown();
-        return false;
-    }
-
+    // 2. Staging buffer'ı map et ve veriyi kopyala
+    void* mappedData;
+    vkMapMemory(m_device->GetDevice(), stagingBufferMemory, 0, bufferSize, 0, &mappedData);
     memcpy(mappedData, data, static_cast<size_t>(bufferSize));
-    hostVisibleBuffer->Unmap();
+    vkUnmapMemory(m_device->GetDevice(), stagingBufferMemory);
 
-    // Replace the original buffer with the host-visible one
-    dstBuffer->Shutdown();
-    
-    // Move the new buffer into the unique_ptr
-    // Since we can't use swap, we'll use a different approach
-    // We'll create a new unique_ptr and replace the old one
-    if (dstBuffer == m_vertexBuffer.get()) {
-        m_vertexBuffer = std::move(hostVisibleBuffer);
-    } else if (dstBuffer == m_indexBuffer.get()) {
-        m_indexBuffer = std::move(hostVisibleBuffer);
-    } else {
-        SetError("Unknown destination buffer type");
-        return false;
-    }
-    
+    // 3. Kopyalama komutunu GPU'ya gönder
+    m_device->SubmitSingleTimeCommands([&](VkCommandBuffer commandBuffer) {
+        VkBufferCopy copyRegion{};
+        copyRegion.srcOffset = 0;
+        copyRegion.dstOffset = 0;
+        copyRegion.size = bufferSize;
+        vkCmdCopyBuffer(commandBuffer, stagingBuffer, dstBuffer->GetBuffer(), 1, &copyRegion);
+    });
+
+    // 4. Geçici staging buffer'ı temizle
+    vkDestroyBuffer(m_device->GetDevice(), stagingBuffer, nullptr);
+    vkFreeMemory(m_device->GetDevice(), stagingBufferMemory, nullptr);
+
+    AE_DEBUG("VulkanMesh", "Data successfully copied to device-local buffer via staging.");
     return true;
 }
 

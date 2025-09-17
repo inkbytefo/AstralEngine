@@ -14,6 +14,7 @@ void Model::AddMesh(std::shared_ptr<VulkanMesh> mesh) {
         m_meshes.push_back(mesh);
         Logger::Debug("Model", "Added mesh to model '{}'. Total meshes: {}", 
                      m_filePath, m_meshes.size());
+        m_isValid = true;
     } else {
         Logger::Warning("Model", "Attempted to add null mesh to model '{}'", m_filePath);
     }

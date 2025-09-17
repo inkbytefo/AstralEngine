@@ -17,50 +17,53 @@ Engine::~Engine() {
     Logger::Info("Engine", "Engine instance destroyed");
 }
 
-void Engine::Run() {
+void Engine::Run(IApplication* application) {
     if (m_isRunning) {
         Logger::Warning("Engine", "Engine is already running!");
+        return;
+    }
+
+    m_application = application;
+    if (!m_application) {
+        Logger::Critical("Engine", "Application instance is null!");
         return;
     }
 
     Logger::Info("Engine", "Starting engine...");
     Initialize();
     
+    Logger::Info("Engine", "Starting application...");
+    m_application->OnStart(this);
+
     m_isRunning = true;
     
-    // Ana döngü
     auto lastFrameTime = std::chrono::high_resolution_clock::now();
     
     while (m_isRunning) {
-        Logger::Debug("Engine", "New frame started");
         auto currentTime = std::chrono::high_resolution_clock::now();
         auto deltaTime = std::chrono::duration<float>(currentTime - lastFrameTime).count();
         lastFrameTime = currentTime;
         
-        // Frame'i güncelle
+        // 1. Update engine-level systems
         Update();
         
-        // Her frame'de tüm subsystem'leri güncelle
+        // 2. Update all registered subsystems
         for (auto& subsystem : m_subsystems) {
-            Logger::Debug("Engine", "Updating subsystem: {}", subsystem->GetName());
             subsystem->OnUpdate(deltaTime);
-            Logger::Debug("Engine", "Subsystem {} updated", subsystem->GetName());
         }
         
-        // PlatformSubsystem'den pencere durumunu kontrol et
+        // 3. Update application logic
+        m_application->OnUpdate(deltaTime);
+        
+        // 4. Check for shutdown requests (e.g., window close)
         auto* platformSubsystem = GetSubsystem<PlatformSubsystem>();
-        if (platformSubsystem) {
-            auto* window = platformSubsystem->GetWindow();
-            if (window && window->ShouldClose()) {
-                Logger::Info("Engine", "Window close requested, shutting down...");
-                m_isRunning = false;
-                break;
-            }
+        if (platformSubsystem && platformSubsystem->GetWindow()->ShouldClose()) {
+            RequestShutdown();
         }
-        
-        // CPU kullanımını azaltmak için minimal bir sleep
-        std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
+    
+    Logger::Info("Engine", "Shutting down application...");
+    m_application->OnShutdown();
     
     Shutdown();
     Logger::Info("Engine", "Engine shutdown complete");

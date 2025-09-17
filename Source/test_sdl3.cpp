@@ -1,5 +1,6 @@
 #include "Core/Engine.h"
 #include "Core/Logger.h"
+#include "Core/IApplication.h"
 #include "Subsystems/Platform/PlatformSubsystem.h"
 #include "Subsystems/Asset/AssetSubsystem.h"
 #include "Subsystems/Platform/Window.h"
@@ -18,54 +19,32 @@ using namespace AstralEngine;
  * Bu uygulama, SDL3 entegrasyonunun doğru çalıştığını doğrulamak için
  * temel pencere oluşturma, event handling ve input testleri yapar.
  */
-class SDL3TestApplication {
+class SDL3TestApplication : public IApplication {
 public:
     SDL3TestApplication() = default;
     ~SDL3TestApplication() = default;
 
-    bool Run() {
-        Logger::SetLogLevel(Logger::LogLevel::Info);
-        Logger::Info("SDL3Test", "Starting SDL3 integration test...");
+    // IApplication interface
+    void OnStart(Engine* owner) override {
+        Logger::Info("SDL3Test", "Application starting...");
+        m_engine = owner;
+        m_startTime = std::chrono::steady_clock::now();
+        SetupEventSubscriptions();
+    }
+
+    void OnUpdate(float deltaTime) override {
+        // Test süresini kontrol et
+        auto currentTime = std::chrono::steady_clock::now();
+        auto elapsedTime = std::chrono::duration<float>(currentTime - m_startTime).count();
         
-        try {
-            // Engine oluştur
-            Engine engine;
-            
-            // Subsystem'leri kaydet
-            Logger::Info("SDL3Test", "Registering subsystems...");
-            engine.RegisterSubsystem<PlatformSubsystem>();
-            engine.RegisterSubsystem<AssetSubsystem>();
-            
-            // Event subscription'ları ayarla
-            SetupEventSubscriptions();
-            
-            Logger::Info("SDL3Test", "Starting engine for 10 seconds...");
-            
-            // Test süresini ayarla
-            auto startTime = std::chrono::steady_clock::now();
-            bool testPassed = false;
-            
-            // Engine'i çalıştır
-            engine.Run();
-            
-            // Test sonuçlarını kontrol et
-            testPassed = ValidateTestResults();
-            
-            if (testPassed) {
-                Logger::Info("SDL3Test", "✅ SDL3 integration test PASSED!");
-                return true;
-            } else {
-                Logger::Error("SDL3Test", "❌ SDL3 integration test FAILED!");
-                return false;
-            }
-            
-        } catch (const std::exception& e) {
-            Logger::Error("SDL3Test", "Test failed with exception: {}", e.what());
-            return false;
-        } catch (...) {
-            Logger::Error("SDL3Test", "Test failed with unknown exception");
-            return false;
+        if (elapsedTime >= 10.0f || m_earlyExit) {
+            m_engine->RequestShutdown();
         }
+    }
+
+    void OnShutdown() override {
+        Logger::Info("SDL3Test", "Application shutting down...");
+        ValidateTestResults();
     }
 
 private:
@@ -73,7 +52,7 @@ private:
         auto& eventManager = EventManager::GetInstance();
         
         // Window event'lerini dinle
-        m_windowCloseSubscription = eventManager.Subscribe<WindowCloseEvent>([this](Event& event) {
+        m_windowCloseSubscription = eventManager.Subscribe<WindowCloseEvent>([this]([[maybe_unused]] Event& event) {
             Logger::Info("SDL3Test", "Window close event received");
             m_windowCloseReceived = true;
             return false;
@@ -89,11 +68,11 @@ private:
         // Keyboard event'lerini dinle
         m_keyPressedSubscription = eventManager.Subscribe<KeyPressedEvent>([this](Event& event) {
             auto& keyEvent = static_cast<KeyPressedEvent&>(event);
-            Logger::Info("SDL3Test", "Key pressed: {} (repeat: {})", keyEvent.GetKeyCode(), keyEvent.IsRepeat());
+            Logger::Info("SDL3Test", "Key pressed: {} (repeat: {})", static_cast<int>(keyEvent.GetKeyCode()), keyEvent.IsRepeat());
             m_keyPressedReceived = true;
             
             // ESC tuşuna basılırsa testi erken bitir
-            if (keyEvent.GetKeyCode() == static_cast<int>(KeyCode::Escape)) {
+            if (keyEvent.GetKeyCode() == KeyCode::Escape) {
                 Logger::Info("SDL3Test", "ESC key pressed - ending test early");
                 m_earlyExit = true;
             }
@@ -102,7 +81,7 @@ private:
         
         m_keyReleasedSubscription = eventManager.Subscribe<KeyReleasedEvent>([this](Event& event) {
             auto& keyEvent = static_cast<KeyReleasedEvent&>(event);
-            Logger::Info("SDL3Test", "Key released: {}", keyEvent.GetKeyCode());
+            Logger::Info("SDL3Test", "Key released: {}", static_cast<int>(keyEvent.GetKeyCode()));
             m_keyReleasedReceived = true;
             return false;
         });
@@ -177,6 +156,8 @@ private:
     }
     
     // Test durum değişkenleri
+    Engine* m_engine = nullptr;
+    std::chrono::steady_clock::time_point m_startTime;
     bool m_windowCloseReceived = false;
     bool m_windowResizeReceived = false;
     bool m_keyPressedReceived = false;
@@ -205,19 +186,30 @@ int main() {
     Logger::Info("SDL3Test", "Try interacting with the window (resize, press keys, click mouse)");
     Logger::Info("SDL3Test", "");
     
-    SDL3TestApplication testApp;
-    
-    bool success = testApp.Run();
-    
-    if (success) {
+    try {
+        Engine engine;
+        SDL3TestApplication testApp;
+        
+        // Subsystem'leri kaydet
+        Logger::Info("SDL3Test", "Registering subsystems...");
+        engine.RegisterSubsystem<PlatformSubsystem>();
+        engine.RegisterSubsystem<AssetSubsystem>();
+        
+        // Engine'i çalıştır
+        engine.Run(&testApp);
+        
         Logger::Info("SDL3Test", "");
         Logger::Info("SDL3Test", "🎉 All tests completed successfully!");
         Logger::Info("SDL3Test", "SDL3 integration is working properly.");
         return 0;
-    } else {
+        
+    } catch (const std::exception& e) {
         Logger::Error("SDL3Test", "");
-        Logger::Error("SDL3Test", "💥 Some tests failed!");
-        Logger::Error("SDL3Test", "Please check the logs above for details.");
+        Logger::Error("SDL3Test", "💥 Test failed with exception: {}", e.what());
+        return 1;
+    } catch (...) {
+        Logger::Error("SDL3Test", "");
+        Logger::Error("SDL3Test", "💥 Test failed with unknown exception");
         return 1;
     }
 }

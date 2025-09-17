@@ -4,6 +4,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <string>
 #include <vector>
+#include <memory>
+#include "../Subsystems/Asset/AssetHandle.h"
 
 namespace AstralEngine {
 
@@ -31,8 +33,9 @@ struct TransformComponent {
  * @brief Render bileşeni - Görsellik ile ilgili bilgiler
  */
 struct RenderComponent {
-    std::string modelPath;
-    std::string materialPath;
+    AssetHandle modelHandle;
+    AssetHandle materialHandle;
+    AssetHandle textureHandle;
     bool visible = true;
     int renderLayer = 0; // Lower values render first
     
@@ -40,9 +43,38 @@ struct RenderComponent {
     bool castsShadows = true;
     bool receivesShadows = true;
     
+    // Asset yükleme durumu ve pointer'ları
+    bool isReady = false;  // Asset'ler yüklendi ve GPU'ya hazır mı?
+    std::shared_ptr<class Model> model;      // Yüklenmiş model pointer'ı
+    std::shared_ptr<class VulkanTexture> texture; // Yüklenmiş texture pointer'ı
+    
     RenderComponent() = default;
-    RenderComponent(const std::string& model, const std::string& material)
-        : modelPath(model), materialPath(material) {}
+    
+    // Constructor'lar - AssetHandle tabanlı
+    RenderComponent(const AssetHandle& model, const AssetHandle& material)
+        : modelHandle(model), materialHandle(material) {}
+    RenderComponent(const AssetHandle& model, const AssetHandle& material, const AssetHandle& texture)
+        : modelHandle(model), materialHandle(material), textureHandle(texture) {}
+    
+    // AssetHandle'ların geçerliliğini kontrol et
+    bool HasValidHandles() const {
+        return modelHandle.IsValid();
+    }
+    
+    // Model asset handle'ını al
+    AssetHandle GetModelHandle() const {
+        return modelHandle;
+    }
+    
+    // Material asset handle'ını al
+    AssetHandle GetMaterialHandle() const {
+        return materialHandle;
+    }
+    
+    // Texture asset handle'ını al
+    AssetHandle GetTextureHandle() const {
+        return textureHandle;
+    }
 };
 
 /**

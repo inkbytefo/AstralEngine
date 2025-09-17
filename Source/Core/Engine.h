@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ISubsystem.h"
+#include "IApplication.h"
 #include <vector>
 #include <memory>
 #include <unordered_map>
@@ -22,7 +23,7 @@ public:
     ~Engine();
 
     // Motorun ana yaşam döngüsünü başlatır.
-    void Run();
+    void Run(IApplication* application);
 
     // Bir alt sistemi kaydeder. Initialize sırasında çağrılır.
     template<typename T, typename... Args>
@@ -56,6 +57,7 @@ private:
     std::filesystem::path m_basePath;
     bool m_isRunning = false;
     bool m_initialized = false;
+    IApplication* m_application = nullptr;
 };
 
 // Template implementations

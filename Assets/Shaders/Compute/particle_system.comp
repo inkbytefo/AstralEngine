@@ -1,0 +1,261 @@
+#version 450
+
+// Particle System Compute Shader
+// Author: inkbytefo
+// Project: AstralEngine
+
+// Constants
+const float PI = 3.14159265359;
+const float TWO_PI = 2.0 * PI;
+
+// Workgroup size
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+// Particle structure
+struct Particle {
+    vec3 position;
+    float lifetime;
+    vec3 velocity;
+    float age;
+    vec4 color;
+    float size;
+    int flags; // bit 0: active, bit 1: affected by gravity, etc.
+    float padding[2];
+};
+
+// Emitter structure
+struct Emitter {
+    vec3 position;
+    float emissionRate;
+    vec3 direction;
+    float spreadAngle;
+    vec4 startColor;
+    vec4 endColor;
+    float startSize;
+    float endSize;
+    float startLifetime;
+    float endLifetime;
+    float startSpeed;
+    float endSpeed;
+    int particleCount;
+    int maxParticles;
+    float time;
+    float deltaTime;
+};
+
+// Uniform buffer objects
+layout(std140, binding = 0) uniform SimulationUBO {
+    vec3 gravity;
+    float globalTime;
+    vec3 wind;
+    float deltaTime;
+    int simulationMode; // 0: emit, 1: update, 2: both
+    int padding[3];
+} simulation;
+
+layout(std140, binding = 1) uniform EmitterUBO {
+    Emitter emitter;
+} emitterData;
+
+// Storage buffers
+layout(std430, binding = 0) restrict buffer ParticleBuffer {
+    Particle particles[];
+} particleBuffer;
+
+layout(std430, binding = 1) restrict readonly buffer IndirectBuffer {
+    uint particleCount;
+    uint maxParticles;
+    uint emitCount;
+    uint padding;
+} indirectData;
+
+// Textures
+layout(binding = 0) uniform sampler2D noiseTexture;
+
+// Random number generation
+uint RandomUint(uint state)
+{
+    state = state * 1103515245 + 12345;
+    return state;
+}
+
+float RandomFloat(uint state)
+{
+    return float(RandomUint(state)) / float(0xFFFFFFFFu);
+}
+
+vec3 RandomSphere(uint state)
+{
+    float theta = RandomFloat(state) * TWO_PI;
+    float phi = acos(2.0 * RandomFloat(state + 1) - 1.0);
+    float r = pow(RandomFloat(state + 2), 1.0 / 3.0);
+    
+    float x = r * sin(phi) * cos(theta);
+    float y = r * sin(phi) * sin(theta);
+    float z = r * cos(phi);
+    
+    return vec3(x, y, z);
+}
+
+// Emit new particles
+void EmitParticles(uint globalID, uint localID)
+{
+    Emitter emitter = emitterData.emitter;
+    
+    // Calculate how many particles to emit this frame
+    uint particlesToEmit = uint(emitter.emissionRate * simulation.deltaTime);
+    
+    if (globalID >= particlesToEmit) {
+        return;
+    }
+    
+    // Find a dead particle to reuse
+    uint particleIndex = indirectData.particleCount + globalID;
+    if (particleIndex >= indirectData.maxParticles) {
+        return;
+    }
+    
+    // Initialize particle
+    Particle particle;
+    
+    // Position
+    particle.position = emitter.position;
+    
+    // Velocity with spread
+    vec3 randomDir = RandomSphere(globalID * 3 + localID);
+    vec3 spread = normalize(mix(emitter.direction, randomDir, emitter.spreadAngle));
+    float speed = mix(emitter.startSpeed, emitter.endSpeed, RandomFloat(globalID * 5 + localID));
+    particle.velocity = spread * speed;
+    
+    // Lifetime
+    particle.lifetime = mix(emitter.startLifetime, emitter.endLifetime, RandomFloat(globalID * 7 + localID));
+    particle.age = 0.0;
+    
+    // Color
+    particle.color = mix(emitter.startColor, emitter.endColor, RandomFloat(globalID * 11 + localID));
+    
+    // Size
+    particle.size = mix(emitter.startSize, emitter.endSize, RandomFloat(globalID * 13 + localID));
+    
+    // Flags
+    particle.flags = 1; // Active
+    
+    // Write to buffer
+    particleBuffer.particles[particleIndex] = particle;
+}
+
+// Update existing particles
+void UpdateParticles(uint globalID, uint localID)
+{
+    if (globalID >= indirectData.particleCount) {
+        return;
+    }
+    
+    Particle particle = particleBuffer.particles[globalID];
+    
+    // Check if particle is active
+    if ((particle.flags & 1) == 0) {
+        return;
+    }
+    
+    // Update age
+    particle.age += simulation.deltaTime;
+    
+    // Check if particle should die
+    if (particle.age >= particle.lifetime) {
+        particle.flags = 0; // Deactivate
+        particleBuffer.particles[globalID] = particle;
+        return;
+    }
+    
+    // Update position
+    particle.position += particle.velocity * simulation.deltaTime;
+    
+    // Apply forces
+    if ((particle.flags & 2) != 0) { // Affected by gravity
+        particle.velocity += simulation.gravity * simulation.deltaTime;
+    }
+    
+    // Apply wind
+    particle.velocity += simulation.wind * simulation.deltaTime * 0.1;
+    
+    // Apply drag
+    float drag = 0.99;
+    particle.velocity *= drag;
+    
+    // Update color based on age
+    float ageFactor = particle.age / particle.lifetime;
+    // Color interpolation would be done with emitter colors in a real implementation
+    
+    // Update size based on age
+    // Size interpolation would be done with emitter sizes in a real implementation
+    
+    // Add some noise for natural movement
+    vec3 noiseOffset = texture(noiseTexture, vec2(globalID * 0.01, simulation.globalTime * 0.1)).xyz * 2.0 - 1.0;
+    particle.position += noiseOffset * simulation.deltaTime * 0.5;
+    
+    // Write back to buffer
+    particleBuffer.particles[globalID] = particle;
+}
+
+// Collision detection with simple ground plane
+void HandleCollisions(uint globalID)
+{
+    if (globalID >= indirectData.particleCount) {
+        return;
+    }
+    
+    Particle particle = particleBuffer.particles[globalID];
+    
+    // Check if particle is active
+    if ((particle.flags & 1) == 0) {
+        return;
+    }
+    
+    // Simple ground collision at y = 0
+    float groundY = 0.0;
+    float restitution = 0.6; // Bounce factor
+    
+    if (particle.position.y <= groundY) {
+        particle.position.y = groundY;
+        particle.velocity.y = -particle.velocity.y * restitution;
+        
+        // Reduce horizontal velocity on bounce (friction)
+        particle.velocity.x *= 0.8;
+        particle.velocity.z *= 0.8;
+        
+        // Kill particle if velocity is too low
+        if (length(particle.velocity) < 0.1) {
+            particle.flags = 0; // Deactivate
+        }
+    }
+    
+    particleBuffer.particles[globalID] = particle;
+}
+
+// Main compute shader entry point
+void main() {
+    uint globalID = gl_GlobalInvocationID.x;
+    uint localID = gl_LocalInvocationID.x;
+    
+    switch (simulation.simulationMode) {
+        case 0: // Emit only
+            EmitParticles(globalID, localID);
+            break;
+            
+        case 1: // Update only
+            UpdateParticles(globalID, localID);
+            HandleCollisions(globalID);
+            break;
+            
+        case 2: // Both emit and update
+            // First half of workgroup emits, second half updates
+            if (localID < 128) {
+                EmitParticles(globalID, localID);
+            } else {
+                UpdateParticles(globalID - 128, localID - 128);
+                HandleCollisions(globalID - 128);
+            }
+            break;
+    }
+}

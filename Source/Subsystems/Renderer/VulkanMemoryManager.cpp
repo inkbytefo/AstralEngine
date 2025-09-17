@@ -291,7 +291,7 @@ void VulkanMemoryManager::Shutdown() {
 
 std::unique_ptr<MemoryAllocation> VulkanMemoryManager::AllocateBuffer(
     VkDeviceSize size, 
-    VkBufferUsageFlags usage, 
+    [[maybe_unused]] VkBufferUsageFlags usage, 
     MemoryType type,
     const std::string& debugName) {
     
@@ -360,7 +360,7 @@ std::unique_ptr<MemoryAllocation> VulkanMemoryManager::AllocateBuffer(
 
 std::unique_ptr<MemoryAllocation> VulkanMemoryManager::AllocateImage(
     VkDeviceSize size, 
-    VkImageUsageFlags usage, 
+    [[maybe_unused]] VkImageUsageFlags usage, 
     MemoryType type,
     const std::string& debugName) {
     
@@ -485,7 +485,7 @@ std::unique_ptr<MemoryPool> VulkanMemoryManager::CreatePool(
     }
     
     VkDevice device = m_device->GetDevice();
-    VkPhysicalDevice physicalDevice = m_device->GetPhysicalDevice();
+    [[maybe_unused]] VkPhysicalDevice physicalDevice = m_device->GetPhysicalDevice();
     
     // Bellek tipi indeksini bul
     uint32_t memoryTypeIndex = FindMemoryTypeIndex(0xFFFFFFFF, type);
@@ -1004,4 +1004,3 @@ std::string MemoryPropertyFlagsToString(VkMemoryPropertyFlags flags) {
 } // namespace MemoryUtils
 
 } // namespace AstralEngine
-

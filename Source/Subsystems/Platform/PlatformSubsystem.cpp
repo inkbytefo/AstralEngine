@@ -54,13 +54,7 @@ void PlatformSubsystem::OnInitialize(Engine* owner) {
     // KeyPressedEvent handler
     auto keyPressedHandler = [this](Event& event) -> bool {
         KeyPressedEvent& keyEvent = static_cast<KeyPressedEvent&>(event);
-#ifdef ASTRAL_USE_SDL3
-        // SDL keycode'ı Astral Engine KeyCode'ına çevir
-        KeyCode engineKey = static_cast<KeyCode>(keyEvent.GetKeyCode());
-        if (engineKey != KeyCode::Unknown) {
-            m_inputManager->OnKeyEvent(engineKey, true);
-        }
-#endif
+        m_inputManager->OnKeyEvent(keyEvent.GetKeyCode(), true);
         return false; // Event'i diğer sistemlere de gönder
     };
     m_eventSubscriptions.push_back(eventManager.Subscribe<KeyPressedEvent>(keyPressedHandler));
@@ -68,13 +62,7 @@ void PlatformSubsystem::OnInitialize(Engine* owner) {
     // KeyReleasedEvent handler
     auto keyReleasedHandler = [this](Event& event) -> bool {
         KeyReleasedEvent& keyEvent = static_cast<KeyReleasedEvent&>(event);
-#ifdef ASTRAL_USE_SDL3
-        // SDL keycode'ı Astral Engine KeyCode'ına çevir
-        KeyCode engineKey = static_cast<KeyCode>(keyEvent.GetKeyCode());
-        if (engineKey != KeyCode::Unknown) {
-            m_inputManager->OnKeyEvent(engineKey, false);
-        }
-#endif
+        m_inputManager->OnKeyEvent(keyEvent.GetKeyCode(), false);
         return false; // Event'i diğer sistemlere de gönder
     };
     m_eventSubscriptions.push_back(eventManager.Subscribe<KeyReleasedEvent>(keyReleasedHandler));
@@ -90,7 +78,7 @@ void PlatformSubsystem::OnInitialize(Engine* owner) {
         }
 #endif
         return false; // Event'i diğer sistemlere de gönder
-    };
+    }; 
     m_eventSubscriptions.push_back(eventManager.Subscribe<MouseButtonPressedEvent>(mouseButtonPressedHandler));
     
     // MouseButtonReleasedEvent handler
@@ -120,7 +108,7 @@ void PlatformSubsystem::OnInitialize(Engine* owner) {
                m_window->GetWidth(), m_window->GetHeight());
 }
 
-void PlatformSubsystem::OnUpdate(float deltaTime) {
+void PlatformSubsystem::OnUpdate([[maybe_unused]] float deltaTime) {
     // Pencere olaylarını işle
     if (m_window) {
         m_window->PollEvents();

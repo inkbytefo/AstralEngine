@@ -567,7 +567,7 @@ bool VulkanSynchronization::QueueSubmit2(
 bool VulkanSynchronization::WaitSemaphores(
     const std::vector<VkSemaphore>& semaphores,
     const std::vector<uint64_t>& values,
-    uint64_t timeout) {
+    [[maybe_unused]] uint64_t timeout) {
     
     if (!m_initialized) {
         SetError("Synchronization manager not initialized");

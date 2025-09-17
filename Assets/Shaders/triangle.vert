@@ -1,7 +1,8 @@
 #version 450
 
-layout(location = 0) in vec2 inPosition;
-layout(location = 1) in vec3 inColor;
+layout(location = 0) in vec3 inPosition;
+// layout(location = 1) in vec3 inColor;    // Modelimizde color verisi YOK
+layout(location = 2) in vec2 inTexCoord;
 
 layout(binding = 0) uniform UniformBufferObject {
     mat4 model;
@@ -10,11 +11,12 @@ layout(binding = 0) uniform UniformBufferObject {
 } ubo;
 
 layout(location = 0) out vec3 fragColor;
+layout(location = 2) out vec2 outTexCoord;
 
 void main() {
-    // DEBUG: Direct screen space rendering - bypass all matrices
-    // This should definitely show a triangle if the pipeline works
-    vec2 screenPos = inPosition * 0.8; // Scale down a bit to ensure visibility
-    gl_Position = vec4(screenPos, 0.5, 1.0);  // Z = 0.5 for proper depth testing
-    fragColor = inColor;
+    gl_Position = ubo.proj * ubo.view * ubo.model * vec4(inPosition, 1.0);
+    
+    // Model color verisi içermediği için sabit beyaz renk kullan
+    fragColor = vec3(1.0, 1.0, 1.0);  // Beyaz renk
+    outTexCoord = inTexCoord;
 }

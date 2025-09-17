@@ -1,0 +1,313 @@
+#version 450
+
+// Ocean Simulation Compute Shader
+// Author: inkbytefo
+// Project: AstralEngine
+
+// Constants
+const float PI = 3.14159265359;
+const float TWO_PI = 2.0 * PI;
+
+// Workgroup size
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+// Ocean simulation parameters
+struct OceanParams {
+    vec2 windDirection;
+    float windSpeed;
+    float waveHeight;
+    float choppiness;
+    float damping;
+    float time;
+    float deltaTime;
+    int gridSize;
+    float padding[3];
+};
+
+// Wave spectrum data
+struct WaveSpectrum {
+    float amplitude;
+    float frequency;
+    float direction;
+    float phase;
+};
+
+// Uniform buffer objects
+layout(std140, binding = 0) uniform OceanUBO {
+    OceanParams params;
+} ocean;
+
+layout(std140, binding = 1) uniform SpectrumUBO {
+    WaveSpectrum spectrum[64];
+} waveData;
+
+// Storage buffers
+layout(std430, binding = 0) restrict buffer HeightBuffer {
+    vec2 heights[];
+} heightBuffer;
+
+layout(std430, binding = 1) restrict buffer DisplacementBuffer {
+    vec3 displacements[];
+} displacementBuffer;
+
+layout(std430, binding = 2) restrict buffer NormalBuffer {
+    vec3 normals[];
+} normalBuffer;
+
+layout(std430, binding = 3) restrict buffer PreviousHeightBuffer {
+    vec2 previousHeights[];
+} previousHeightBuffer;
+
+// Textures
+layout(binding = 0) uniform sampler2D noiseTexture;
+
+// Random number generation using hash function
+float RandomFloat(uint seed)
+{
+    // Simple hash function for random number generation
+    uint state = seed;
+    state = (state ^ 61u) ^ (state >> 16u);
+    state *= 9u;
+    state = state ^ (state >> 4u);
+    state *= 0x27d4eb2du;
+    state = state ^ (state >> 15u);
+    
+    // Convert to float in range [0, 1]
+    return float(state) / 4294967296.0;
+}
+
+// Complex number operations
+vec2 ComplexAdd(vec2 a, vec2 b)
+{
+    return vec2(a.x + b.x, a.y + b.y);
+}
+
+vec2 ComplexMultiply(vec2 a, vec2 b)
+{
+    return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+}
+
+vec2 ComplexExp(vec2 z)
+{
+    float exp_x = exp(z.x);
+    return vec2(exp_x * cos(z.y), exp_x * sin(z.y));
+}
+
+// Phillips spectrum for ocean waves
+float PhillipsSpectrum(vec2 k, float windSpeed, vec2 windDir)
+{
+    float kLength = length(k);
+    if (kLength < 0.0001) return 0.0;
+    
+    float kLength2 = kLength * kLength;
+    float kLength4 = kLength2 * kLength2;
+    
+    float windSpeed2 = windSpeed * windSpeed;
+    float g = 9.81; // Gravity
+    
+    float kDotW = dot(normalize(k), normalize(windDir));
+    float kDotW2 = kDotW * kDotW;
+    
+    float L = windSpeed2 / g;
+    float L2 = L * L;
+    
+    float dampingFactor = exp(-kLength2 * L2 * 0.001);
+    float spectrumValue = (windSpeed2 / g) * exp(-1.0 / (kLength2 * L2)) * kDotW2 / kLength4;
+    
+    return spectrumValue * dampingFactor;
+}
+
+// Generate initial wave spectrum
+vec2 GenerateWaveSpectrum(vec2 k, uint seed)
+{
+    float amplitude = sqrt(PhillipsSpectrum(k, ocean.params.windSpeed, ocean.params.windDirection));
+    
+    // Random phase
+    float phase = RandomFloat(seed * 2) * TWO_PI;
+    
+    // Gaussian random number
+    float u1 = RandomFloat(seed * 3);
+    float u2 = RandomFloat(seed * 5);
+    float gaussian = sqrt(-2.0 * log(u1)) * cos(2.0 * PI * u2);
+    
+    return vec2(gaussian * amplitude * cos(phase), gaussian * amplitude * sin(phase));
+}
+
+// FFT butterfly operation
+void FFTButterfly(inout vec2 data[16], uint stride, bool inverse)
+{
+    float angle = -2.0 * PI / float(stride * 2);
+    if (inverse) angle = -angle;
+    
+    vec2 w = vec2(cos(angle), sin(angle));
+    
+    for (uint i = 0; i < 8; i++) {
+        uint index1 = i;
+        uint index2 = i + 8;
+        
+        vec2 temp = ComplexMultiply(w, data[index2]);
+        data[index2] = ComplexAdd(data[index1], vec2(-temp.x, -temp.y));
+        data[index1] = ComplexAdd(data[index1], temp);
+    }
+}
+
+// Bit reversal for FFT
+uint BitReverse(uint x, uint bits)
+{
+    uint result = 0;
+    for (uint i = 0; i < bits; i++) {
+        result = (result << 1) | (x & 1);
+        x >>= 1;
+    }
+    return result;
+}
+
+// 1D FFT
+void FFT1D(inout vec2 data[16], bool inverse)
+{
+    // Bit-reverse permutation
+    uint bits = 4; // log2(16)
+    for (uint i = 0; i < 16; i++) {
+        uint j = BitReverse(i, bits);
+        if (i < j) {
+            vec2 temp = data[i];
+            data[i] = data[j];
+            data[j] = temp;
+        }
+    }
+    
+    // FFT butterfly operations
+    for (uint stride = 2; stride <= 16; stride *= 2) {
+        FFTButterfly(data, stride, inverse);
+    }
+}
+
+// 2D FFT (simplified for ocean simulation)
+vec2 FFT2D(vec2 grid[16][16], uint x, uint y, bool inverse)
+{
+    // This is a simplified version - real implementation would need full 2D FFT
+    vec2 row[16];
+    vec2 col[16];
+    
+    // Extract row
+    for (uint i = 0; i < 16; i++) {
+        row[i] = grid[x][i];
+    }
+    
+    // FFT on row
+    FFT1D(row, inverse);
+    
+    // Extract column
+    for (uint i = 0; i < 16; i++) {
+        col[i] = grid[i][y];
+    }
+    
+    // FFT on column
+    FFT1D(col, inverse);
+    
+    // Combine results (simplified)
+    return ComplexMultiply(row[y], col[x]);
+}
+
+// Calculate wave height at position
+vec2 CalculateWaveHeight(vec2 position, float time)
+{
+    vec2 height = vec2(0.0);
+    
+    // Sum contributions from all wave components
+    for (int i = 0; i < 64; i++) {
+        WaveSpectrum wave = waveData.spectrum[i];
+        
+        vec2 k = vec2(cos(wave.direction), sin(wave.direction)) * wave.frequency;
+        float kLength = length(k);
+        
+        float phase = kLength * dot(k, position) - wave.frequency * time + wave.phase;
+        
+        height.x += wave.amplitude * cos(phase);
+        height.y += wave.amplitude * sin(phase);
+    }
+    
+    return height;
+}
+
+// Calculate wave displacement
+vec3 CalculateDisplacement(vec2 position, float time)
+{
+    vec3 displacement = vec3(0.0);
+    
+    for (int i = 0; i < 64; i++) {
+        WaveSpectrum wave = waveData.spectrum[i];
+        
+        vec2 k = vec2(cos(wave.direction), sin(wave.direction)) * wave.frequency;
+        float kLength = length(k);
+        
+        if (kLength < 0.0001) continue;
+        
+        float phase = kLength * dot(k, position) - wave.frequency * time + wave.phase;
+        float amplitude = wave.amplitude / kLength;
+        
+        displacement.x += amplitude * k.x * sin(phase) * ocean.params.choppiness;
+        displacement.z += amplitude * k.y * sin(phase) * ocean.params.choppiness;
+        displacement.y += amplitude * cos(phase);
+    }
+    
+    return displacement;
+}
+
+// Calculate wave normal
+vec3 CalculateNormal(vec2 position, float time)
+{
+    float epsilon = 0.01;
+    
+    // Calculate height differences
+    float hL = CalculateWaveHeight(position - vec2(epsilon, 0.0), time).x;
+    float hR = CalculateWaveHeight(position + vec2(epsilon, 0.0), time).x;
+    float hD = CalculateWaveHeight(position - vec2(0.0, epsilon), time).x;
+    float hU = CalculateWaveHeight(position + vec2(0.0, epsilon), time).x;
+    
+    // Calculate normal using central differences
+    vec3 normal = normalize(vec3(hL - hR, 2.0 * epsilon, hD - hU));
+    
+    return normal;
+}
+
+// Update ocean simulation
+void main() {
+    uint globalX = gl_GlobalInvocationID.x;
+    uint globalY = gl_GlobalInvocationID.y;
+    uint localX = gl_LocalInvocationID.x;
+    uint localY = gl_LocalInvocationID.y;
+    
+    uint gridSize = ocean.params.gridSize;
+    
+    if (globalX >= gridSize || globalY >= gridSize) {
+        return;
+    }
+    
+    uint index = globalY * gridSize + globalX;
+    
+    // Calculate grid position
+    vec2 gridPos = vec2(float(globalX), float(globalY)) / float(gridSize);
+    gridPos = (gridPos - 0.5) * 100.0; // Scale to world space
+    
+    // Calculate wave height
+    vec2 height = CalculateWaveHeight(gridPos, ocean.params.time);
+    
+    // Calculate displacement
+    vec3 displacement = CalculateDisplacement(gridPos, ocean.params.time);
+    
+    // Calculate normal
+    vec3 normal = CalculateNormal(gridPos, ocean.params.time);
+    
+    // Apply damping
+    height *= ocean.params.damping;
+    displacement *= ocean.params.damping;
+    
+    // Store results
+    heightBuffer.heights[index] = height;
+    displacementBuffer.displacements[index] = displacement;
+    normalBuffer.normals[index] = normal;
+    
+    // Store previous height for next frame
+    previousHeightBuffer.previousHeights[index] = height;
+}

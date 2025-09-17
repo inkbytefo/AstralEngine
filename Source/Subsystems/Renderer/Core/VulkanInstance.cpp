@@ -4,6 +4,12 @@
 #include <set>
 #include <cstring>
 #include <algorithm>
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+// Ensure Vulkan platform-specific headers are included
+#include <vulkan/vulkan.h>
 
 // Vulkan debug callback
 static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
@@ -64,7 +70,7 @@ VulkanInstance::VulkanInstance()
         VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
         VK_KHR_SURFACE_EXTENSION_NAME
 #ifdef _WIN32
-        ,VK_KHR_WIN32_SURFACE_EXTENSION_NAME
+        ,"VK_KHR_win32_surface"
 #else
         ,VK_KHR_XCB_SURFACE_EXTENSION_NAME
 #endif
@@ -381,12 +387,19 @@ VkResult VulkanInstance::CreateSurface(void* windowHandle, VkSurfaceKHR* surface
     }
     
 #ifdef _WIN32
+    // Get the function pointer for vkCreateWin32SurfaceKHR
+    typedef VkResult (VKAPI_PTR *PFN_vkCreateWin32SurfaceKHR)(VkInstance, const VkWin32SurfaceCreateInfoKHR*, const VkAllocationCallbacks*, VkSurfaceKHR*);
+    auto func = (PFN_vkCreateWin32SurfaceKHR)vkGetInstanceProcAddr(m_instance, "vkCreateWin32SurfaceKHR");
+    if (!func) {
+        return VK_ERROR_EXTENSION_NOT_PRESENT;
+    }
+    
     VkWin32SurfaceCreateInfoKHR createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
     createInfo.hwnd = static_cast<HWND>(windowHandle);
     createInfo.hinstance = GetModuleHandle(nullptr);
     
-    return vkCreateWin32SurfaceKHR(m_instance, &createInfo, nullptr, surface);
+    return func(m_instance, &createInfo, nullptr, surface);
 #else
     // Linux implementation would go here
     return VK_ERROR_INITIALIZATION_FAILED;

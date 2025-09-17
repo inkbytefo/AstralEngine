@@ -2,7 +2,7 @@
 
 #include "../../Core/ISubsystem.h"
 #include "../../ECS/Components.h"
-#include "../Renderer/Buffers/VulkanMesh.h"
+#include "../Asset/AssetHandle.h"
 #include <unordered_map>
 #include <vector>
 #include <typeindex>
@@ -58,11 +58,30 @@ public:
     struct RenderPacket {
         struct RenderItem {
             glm::mat4 transform;
-            std::string modelPath;
-            std::string materialPath;
+            AssetHandle modelHandle;
+            AssetHandle materialHandle;
+            AssetHandle textureHandle;
             bool visible;
             int renderLayer;
-            std::shared_ptr<VulkanMesh> mesh;
+            
+            // Legacy support - geçici olarak string path'ler de tutuluyor
+            std::string modelPath;
+            std::string materialPath;
+            std::string texturePath;
+            
+            RenderItem() : visible(true), renderLayer(0) {}
+            
+            // AssetHandle tabanlı constructor
+            RenderItem(const glm::mat4& trans, const AssetHandle& model, const AssetHandle& material, 
+                      const AssetHandle& texture, bool vis = true, int layer = 0)
+                : transform(trans), modelHandle(model), materialHandle(material), textureHandle(texture)
+                , visible(vis), renderLayer(layer) {}
+                
+            // Legacy constructor - string tabanlı
+            RenderItem(const glm::mat4& trans, const std::string& model, const std::string& material, 
+                      const std::string& texture, bool vis = true, int layer = 0)
+                : transform(trans), modelPath(model), materialPath(material), texturePath(texture)
+                , visible(vis), renderLayer(layer) {}
         };
         std::vector<RenderItem> renderItems;
     };

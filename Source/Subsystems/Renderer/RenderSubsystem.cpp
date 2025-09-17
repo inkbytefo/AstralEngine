@@ -3,6 +3,10 @@
 #include "../../Core/Logger.h"
 #include "../Platform/PlatformSubsystem.h"
 #include "../ECS/ECSSubsystem.h"
+#include "../Asset/AssetManager.h"
+#include "../Material/Material.h"
+#include "../Texture/TextureManager.h"
+#include "../Shader/ShaderManager.h"
 
 namespace AstralEngine {
 
@@ -46,6 +50,34 @@ void RenderSubsystem::OnInitialize(Engine* owner) {
         return;
     }
     
+    // Asset Manager oluştur
+    m_assetManager = std::make_unique<AssetManager>();
+    if (!m_assetManager->Initialize("Assets")) {
+        Logger::Error("RenderSubsystem", "Failed to initialize AssetManager!");
+        return;
+    }
+    
+    // Texture Manager oluştur
+    m_textureManager = std::make_unique<TextureManager>();
+    if (!m_textureManager->Initialize(m_graphicsDevice->GetVulkanDevice(), m_assetManager.get())) {
+        Logger::Error("RenderSubsystem", "Failed to initialize TextureManager!");
+        return;
+    }
+    
+    // Material Manager oluştur
+    m_materialManager = std::make_unique<MaterialManager>();
+    if (!m_materialManager->Initialize(m_graphicsDevice->GetVulkanDevice(), m_assetManager.get())) {
+        Logger::Error("RenderSubsystem", "Failed to initialize MaterialManager!");
+        return;
+    }
+    
+    // Shader Manager oluştur
+    m_shaderManager = std::make_unique<ShaderManager>();
+    if (!m_shaderManager->Initialize(m_graphicsDevice->GetVulkanDevice(), m_assetManager.get(), m_textureManager.get())) {
+        Logger::Error("RenderSubsystem", "Failed to initialize ShaderManager!");
+        return;
+    }
+    
     // Kamera oluştur ve yapılandır
     m_camera = std::make_unique<Camera>();
     Camera::Config cameraConfig;
@@ -75,6 +107,26 @@ void RenderSubsystem::OnUpdate(float deltaTime) {
         if (currentAspectRatio != m_camera->GetAspectRatio()) {
             m_camera->SetAspectRatio(currentAspectRatio);
         }
+    }
+
+    // Asset Manager'ı güncelle
+    if (m_assetManager) {
+        m_assetManager->Update();
+    }
+    
+    // Texture Manager'ı güncelle
+    if (m_textureManager) {
+        m_textureManager->Update();
+    }
+    
+    // Material Manager'ı güncelle
+    if (m_materialManager) {
+        m_materialManager->Update();
+    }
+    
+    // Shader Manager'ı güncelle
+    if (m_shaderManager) {
+        m_shaderManager->Update();
     }
 
     // ECS'den render verilerini al
@@ -107,6 +159,26 @@ void RenderSubsystem::OnUpdate(float deltaTime) {
 
 void RenderSubsystem::OnShutdown() {
     Logger::Info("RenderSubsystem", "Shutting down render subsystem...");
+    
+    if (m_shaderManager) {
+        m_shaderManager->Shutdown();
+        m_shaderManager.reset();
+    }
+    
+    if (m_materialManager) {
+        m_materialManager->Shutdown();
+        m_materialManager.reset();
+    }
+    
+    if (m_textureManager) {
+        m_textureManager->Shutdown();
+        m_textureManager.reset();
+    }
+    
+    if (m_assetManager) {
+        m_assetManager->Shutdown();
+        m_assetManager.reset();
+    }
     
     if (m_camera) {
         m_camera->Shutdown();

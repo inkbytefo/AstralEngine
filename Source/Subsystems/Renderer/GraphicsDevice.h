@@ -14,6 +14,7 @@
     #include "VulkanSynchronization.h"
     #include "VulkanRenderer.h"
     #include "Buffers/VulkanBuffer.h"
+    #include "Core/VulkanFrameManager.h"
 #endif
 
 namespace AstralEngine {
@@ -127,27 +128,31 @@ public:
     uint32_t GetMaxFramesInFlight() const { return m_config.maxFramesInFlight; }
     
     // Frame bilgileri için getter'lar (VulkanRenderer tarafından kullanılacak)
-    uint32_t GetCurrentImageIndex() const { return m_imageIndex; }
+    uint32_t GetCurrentImageIndex() const { return m_frameManager ? m_frameManager->GetCurrentImageIndex() : 0; }
     VkCommandBuffer GetCurrentCommandBuffer() const { 
-        return m_currentFrameIndex < m_commandBuffers.size() ? m_commandBuffers[m_currentFrameIndex] : VK_NULL_HANDLE; 
+        return m_frameManager ? m_frameManager->GetCurrentCommandBuffer() : VK_NULL_HANDLE; 
     }
     VkDescriptorSetLayout GetDescriptorSetLayout() const { return m_descriptorSetLayout; }
-    VkDescriptorPool GetDescriptorPool() const { return m_descriptorPool; }
+    VkDescriptorPool GetDescriptorPool() const { return m_frameManager ? m_frameManager->GetDescriptorPool() : VK_NULL_HANDLE; }
     VkDescriptorSet GetCurrentDescriptorSet(uint32_t frameIndex) const { 
-        return frameIndex < m_descriptorSets.size() ? m_descriptorSets[frameIndex] : VK_NULL_HANDLE; 
+        return m_frameManager ? m_frameManager->GetCurrentDescriptorSet(frameIndex) : VK_NULL_HANDLE; 
     }
     VkBuffer GetCurrentUniformBuffer(uint32_t frameIndex) const {
-        return frameIndex < m_uniformBuffers.size() ? m_uniformBuffers[frameIndex]->GetBuffer() : VK_NULL_HANDLE;
+        return m_frameManager ? m_frameManager->GetCurrentUniformBuffer(frameIndex) : VK_NULL_HANDLE;
     }
     VulkanBuffer* GetCurrentUniformBufferWrapper(uint32_t frameIndex) const {
-        return frameIndex < m_uniformBuffers.size() ? m_uniformBuffers[frameIndex].get() : nullptr;
+        return m_frameManager ? m_frameManager->GetCurrentUniformBufferWrapper(frameIndex) : nullptr;
     }
     VkBuffer GetCurrentUniformBuffer() const {
-        return m_currentFrameIndex < m_uniformBuffers.size() ? m_uniformBuffers[m_currentFrameIndex]->GetBuffer() : VK_NULL_HANDLE;
+        return m_frameManager ? m_frameManager->GetCurrentUniformBuffer(m_currentFrameIndex) : VK_NULL_HANDLE;
     }
     VulkanBuffer* GetCurrentUniformBufferWrapper() const {
-        return m_currentFrameIndex < m_uniformBuffers.size() ? m_uniformBuffers[m_currentFrameIndex].get() : nullptr;
+        return m_frameManager ? m_frameManager->GetCurrentUniformBufferWrapper(m_currentFrameIndex) : nullptr;
     }
+    
+    // Frame manager erişimi
+    VulkanFrameManager* GetFrameManager() { return m_frameManager.get(); }
+    const VulkanFrameManager* GetFrameManager() const { return m_frameManager.get(); }
     
     // Konfigürasyon erişimi
     const GraphicsDeviceConfig& GetConfig() const { return m_config; }
@@ -193,14 +198,6 @@ private:
     // Swapchain recreation
     void CleanupSwapchain();
     
-    // Yeni: Frame kaynak yönetimi metotları
-    bool CreateCommandBuffers();
-    bool CreateDescriptorPool();
-    bool CreateDescriptorSetLayout();
-    bool CreateDescriptorSets();
-    bool CreateUniformBuffers();
-    bool UpdateDescriptorSets();
-    void CleanupFrameResources();
     
 #ifdef ASTRAL_USE_VULKAN
     // Core Vulkan objects
@@ -231,20 +228,10 @@ private:
     std::unique_ptr<VulkanMemoryManager> m_memoryManager;
     std::unique_ptr<VulkanSynchronization> m_synchronization;
     std::unique_ptr<VulkanRenderer> m_vulkanRenderer;
+    std::unique_ptr<VulkanFrameManager> m_frameManager;
     
-    // Frame senkronizasyon nesneleri
-    std::vector<VkSemaphore> m_imageAvailableSemaphores;
-    std::vector<VkSemaphore> m_renderFinishedSemaphores;
-    std::vector<VkFence> m_inFlightFences;
-    std::vector<VkFence> m_imagesInFlight;
-    
-    // Command buffer ve descriptor yönetimi
-    VkCommandPool m_commandPool = VK_NULL_HANDLE;
-    std::vector<VkCommandBuffer> m_commandBuffers;
-    VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
-    std::vector<VkDescriptorSet> m_descriptorSets;
+    // Descriptor set layout (frame'den bağımsız, pipeline tarafından kullanılır)
     VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;
-    std::vector<std::unique_ptr<VulkanBuffer>> m_uniformBuffers;
 #endif
     
     // Validation layers

@@ -39,9 +39,10 @@ public:
      * @param format Kontrol edilecek format
      * @param tiling Image tiling tipi
      * @param features Gerekli format özellikleri
+     * @param physicalDevice Fiziksel cihaz
      * @return true if format is supported
      */
-    static bool IsFormatSupported(VkFormat format, VkImageTiling tiling, VkFormatFeatureFlags features);
+    static bool IsFormatSupported(VkFormat format, VkImageTiling tiling, VkFormatFeatureFlags features, VkPhysicalDevice physicalDevice);
     
     /**
      * @brief Desteklenen formatı bul
