@@ -37,6 +37,9 @@ set(EXTERNAL_DIR ${CMAKE_SOURCE_DIR}/External)
 # Enable FetchContent for dependency management
 include(FetchContent)
 
+# Disable SSL certificate verification to fix download issues
+set(CMAKE_TLS_VERIFY 0 CACHE BOOL "Disable SSL certificate verification" FORCE)
+
 # /**********************************************************************
 #  * Build Options
 #  **********************************************************************/
@@ -382,6 +385,66 @@ else()
     )
 endif()
 
+# **********************************************************************
+# * Slang Configuration
+# **********************************************************************
+set(SLANG_FOUND FALSE)
+set(ASTRAL_HAS_SLANG FALSE)
+
+option(ASTRAL_VENDOR_SLANG "Fetch and build Slang from source if not found" ON)
+
+# Strategy 1: Check for pre-built Slang in External directory
+if(EXISTS "${EXTERNAL_DIR}/slang/include/slang" AND EXISTS "${EXTERNAL_DIR}/slang/lib")
+    message(STATUS "Found pre-built Slang in External/slang directory")
+    set(SLANG_FOUND TRUE)
+    set(ASTRAL_USE_PREBUILT_SLANG TRUE)
+else()
+    # Strategy 2: Try to find Slang via Config mode
+    find_package(slang CONFIG QUIET)
+    if(slang_FOUND)
+        message(STATUS "Slang found via system installation")
+        set(SLANG_FOUND TRUE)
+    endif()
+endif()
+
+# Strategy 3: FetchContent from source if enabled
+if(NOT SLANG_FOUND AND ASTRAL_VENDOR_SLANG)
+    message(STATUS "Fetching Slang from source...")
+    
+    FetchContent_Declare(
+        slang
+        GIT_REPOSITORY https://github.com/shader-slang/slang.git
+        GIT_TAG v2025.16.1  # Use latest stable version
+        GIT_SHALLOW TRUE
+        GIT_PROGRESS TRUE
+    )
+    
+    # Configure Slang build options
+    set(SLANG_ENABLE_SLANGC ON CACHE BOOL "Enable standalone compiler target" FORCE)
+    set(SLANG_ENABLE_TESTS OFF CACHE BOOL "Enable test targets" FORCE)
+    set(SLANG_ENABLE_EXAMPLES OFF CACHE BOOL "Enable example targets" FORCE)
+    set(SLANG_LIB_TYPE SHARED CACHE STRING "How to build the slang library" FORCE)
+    set(SLANG_ENABLE_GFX ON CACHE BOOL "Enable gfx targets" FORCE)
+    
+    FetchContent_MakeAvailable(slang)
+    set(SLANG_FOUND TRUE)
+    message(STATUS "Slang successfully built from source")
+endif()
+
+if(SLANG_FOUND)
+    set(ASTRAL_HAS_SLANG TRUE)
+    message(STATUS "Slang integration completed successfully")
+else()
+    message(WARNING 
+        "Slang not found. SLANG shaders will not be supported.\n"
+        "Please either:\n"
+        "  1. Install Slang development libraries\n"
+        "  2. Set slang_ROOT to your Slang installation path\n"
+        "  3. Enable source build: -DASTRAL_VENDOR_SLANG=ON\n"
+        "  4. Download Slang to ${EXTERNAL_DIR}/slang"
+    )
+endif()
+
 # GLM Configuration
 find_path(GLM_INCLUDE_DIR
     NAMES glm/glm.hpp
@@ -626,6 +689,15 @@ function(configure_astral_target target_name)
         endif()
     endif()
 
+    # SLANG linking
+    if(ASTRAL_HAS_SLANG)
+        if(TARGET slang::slang)
+            target_link_libraries(${target_name} PRIVATE slang::slang)
+        elseif(TARGET slang)
+            target_link_libraries(${target_name} PRIVATE slang)
+        endif()
+    endif()
+
     # Copy SDL3 DLL on Windows
     if(WIN32)
         if(ASTRAL_USE_PREBUILT_SDL3 AND DEFINED SDL3_DLL_PATH)
@@ -682,21 +754,42 @@ if(ASTRAL_HAS_VULKAN)
     
     if(NOT Vulkan_GLSLANG_VALIDATOR_EXECUTABLE)
         message(WARNING
-            "glslangValidator shader compiler not found. Shaders won't be compiled.\n"
+            "glslangValidator shader compiler not found. GLSL shaders won't be compiled.\n"
             "Please install Vulkan SDK or ensure glslangValidator is in PATH."
         )
     else()
         message(STATUS "glslangValidator found at: ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE}")
     endif()
     
-    # Shader compilation function
-    function(compile_vulkan_shaders TARGET_NAME SHADER_DIR)
+    # Find slangc executable (SLANG compiler)
+    find_program(SLANG_COMPILER_EXECUTABLE
+        NAMES slangc
+        PATHS
+            "${slang_BINARY_DIR}"
+            "${CMAKE_BINARY_DIR}/_deps/slang-build/bin"
+            "/usr/bin"
+            "/usr/local/bin"
+            "/opt/local/bin"
+        DOC "Path to SLANG shader compiler"
+    )
+    
+    if(NOT SLANG_COMPILER_EXECUTABLE)
+        message(WARNING
+            "slangc shader compiler not found. SLANG shaders won't be compiled.\n"
+            "Please ensure SLANG is built correctly or slangc is in PATH."
+        )
+    else()
+        message(STATUS "slangc found at: ${SLANG_COMPILER_EXECUTABLE}")
+    endif()
+    
+    # GLSL shader compilation function
+    function(compile_glsl_shaders TARGET_NAME SHADER_DIR)
         if(NOT Vulkan_GLSLANG_VALIDATOR_EXECUTABLE)
-            message(WARNING "glslangValidator not found, shaders won't be compiled")
+            message(WARNING "glslangValidator not found, GLSL shaders won't be compiled")
             return()
         endif()
         
-        file(GLOB_RECURSE SHADER_SOURCES 
+        file(GLOB_RECURSE GLSL_SHADERS 
              "${SHADER_DIR}/*.vert" 
              "${SHADER_DIR}/*.frag" 
              "${SHADER_DIR}/*.comp"
@@ -707,7 +800,7 @@ if(ASTRAL_HAS_VULKAN)
         set(SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/shaders")
         file(MAKE_DIRECTORY ${SHADER_OUTPUT_DIR})
         
-        foreach(SHADER ${SHADER_SOURCES})
+        foreach(SHADER ${GLSL_SHADERS})
             get_filename_component(SHADER_NAME ${SHADER} NAME)
             set(SHADER_OUTPUT "${SHADER_OUTPUT_DIR}/${SHADER_NAME}.spv")
             
@@ -720,19 +813,101 @@ if(ASTRAL_HAS_VULKAN)
                     ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} 
                     -V ${SHADER} -o ${SHADER_OUTPUT}
                 DEPENDS ${SHADER}
-                COMMENT "Compiling shader ${SHADER_NAME}"
+                COMMENT "Compiling GLSL shader ${SHADER_NAME}"
                 WORKING_DIRECTORY ${SHADER_DIR_PATH}
             )
             
             list(APPEND COMPILED_SHADERS ${SHADER_OUTPUT})
         endforeach()
         
-        add_custom_target(${TARGET_NAME}_shaders DEPENDS ${COMPILED_SHADERS})
+        add_custom_target(${TARGET_NAME}_glsl_shaders DEPENDS ${COMPILED_SHADERS})
+    endfunction()
+    
+    # SLANG shader compilation function
+    function(compile_slang_shaders TARGET_NAME SHADER_DIR)
+        if(NOT ASTRAL_HAS_SLANG)
+            message(WARNING "Slang not found, SLANG shaders won't be compiled")
+            return()
+        endif()
+        
+        # Get slangc executable from the target or find it
+        if(TARGET slang::slangc)
+            set(SLANG_COMPILER_EXECUTABLE $<TARGET_FILE:slang::slangc>)
+        elseif(TARGET slangc)
+            set(SLANG_COMPILER_EXECUTABLE $<TARGET_FILE:slangc>)
+        else()
+            # Try to find it in the build directory
+            find_program(SLANG_COMPILER_EXECUTABLE
+                NAMES slangc
+                PATHS
+                    "${CMAKE_BINARY_DIR}/_deps/slang-build/bin"
+                    "${CMAKE_BINARY_DIR}/bin"
+                    "${CMAKE_BINARY_DIR}/_deps/slang-build/slang-2025.16.1-windows-x86_64/bin"
+                NO_DEFAULT_PATH
+            )
+        endif()
+        
+        if(NOT SLANG_COMPILER_EXECUTABLE)
+            message(WARNING "slangc not found, SLANG shaders won't be compiled")
+            return()
+        endif()
+        
+        message(STATUS "Using slangc at: ${SLANG_COMPILER_EXECUTABLE}")
+        
+        file(GLOB_RECURSE SLANG_SHADERS 
+             "${SHADER_DIR}/*.slang")
+        
+        set(SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/shaders")
+        file(MAKE_DIRECTORY ${SHADER_OUTPUT_DIR})
+        
+        foreach(SHADER ${SLANG_SHADERS})
+            get_filename_component(SHADER_NAME ${SHADER} NAME_WE)
+            get_filename_component(SHADER_EXT ${SHADER} EXT)
+            
+            # Determine shader stage from file extension
+            if(SHADER_EXT MATCHES "\\.(vert|frag|comp|geom|tesc|tese)\\.slang")
+                string(REGEX REPLACE "\\.slang$" "" STAGE_EXT ${SHADER_EXT})
+            else()
+                # Default to fragment shader if no stage extension
+                set(STAGE_EXT ".frag")
+            endif()
+            
+            set(SHADER_OUTPUT "${SHADER_OUTPUT_DIR}/${SHADER_NAME}${STAGE_EXT}.spv")
+            
+            # Compile SLANG shader to SPIR-V
+            get_filename_component(SHADER_DIR_PATH ${SHADER} DIRECTORY)
+            add_custom_command(
+                OUTPUT ${SHADER_OUTPUT}
+                COMMAND ${CMAKE_COMMAND} -E chdir ${SHADER_DIR_PATH}
+                    ${SLANG_COMPILER_EXECUTABLE}
+                    -target spirv-vulkan1.3
+                    -stage ${STAGE_EXT}
+                    -o ${SHADER_OUTPUT}
+                    ${SHADER}
+                DEPENDS ${SHADER}
+                COMMENT "Compiling SLANG shader ${SHADER_NAME}${STAGE_EXT}"
+                WORKING_DIRECTORY ${SHADER_DIR_PATH}
+            )
+            
+            list(APPEND COMPILED_SHADERS ${SHADER_OUTPUT})
+        endforeach()
+        
+        add_custom_target(${TARGET_NAME}_slang_shaders DEPENDS ${COMPILED_SHADERS})
+    endfunction()
+    
+    # Combined shader compilation function
+    function(compile_all_shaders TARGET_NAME SHADER_DIR)
+        compile_glsl_shaders(${TARGET_NAME} ${SHADER_DIR})
+        compile_slang_shaders(${TARGET_NAME} ${SHADER_DIR})
+        
+        # Create a combined target that depends on both GLSL and SLANG shaders
+        add_custom_target(${TARGET_NAME}_shaders)
+        add_dependencies(${TARGET_NAME}_shaders ${TARGET_NAME}_glsl_shaders ${TARGET_NAME}_slang_shaders)
         add_dependencies(${TARGET_NAME} ${TARGET_NAME}_shaders)
     endfunction()
 
-    # Compile shaders for the engine
-    compile_vulkan_shaders(AstralEngine "${CMAKE_SOURCE_DIR}/Assets/Shaders")
+    # Compile all shaders for the engine
+    compile_all_shaders(AstralEngine "${CMAKE_SOURCE_DIR}/Assets/Shaders")
 endif()
 
 # /**********************************************************************

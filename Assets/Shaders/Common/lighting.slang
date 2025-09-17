@@ -1,26 +1,22 @@
 // Lighting calculations and utilities
 // Author: inkbytefo
 // Project: AstralEngine
-
-#ifndef LIGHTING_GLSL
-#define LIGHTING_GLSL
-
-#include "common.glsl"
+// Description: Lighting calculations for SLANG shaders
 
 // Light structures
 struct DirectionalLight
 {
-    vec3 direction;
-    vec3 color;
+    float3 direction;
+    float3 color;
     float intensity;
-    vec4 shadowCascadeSplits;
-    mat4 shadowMatrices[MAX_SHADOW_CASCADES];
+    float4 shadowCascadeSplits;
+    float4x4 shadowMatrices[4];
 };
 
 struct PointLight
 {
-    vec3 position;
-    vec3 color;
+    float3 position;
+    float3 color;
     float intensity;
     float radius;
     float attenuation;
@@ -28,9 +24,9 @@ struct PointLight
 
 struct SpotLight
 {
-    vec3 position;
-    vec3 direction;
-    vec3 color;
+    float3 position;
+    float3 direction;
+    float3 color;
     float intensity;
     float radius;
     float innerCutoff;
@@ -47,48 +43,48 @@ float CalculateAttenuation(float distance, float radius, float attenuation)
 }
 
 // Spot light falloff
-float CalculateSpotFalloff(vec3 lightDir, vec3 spotDir, float innerCutoff, float outerCutoff)
+float CalculateSpotFalloff(float3 lightDir, float3 spotDir, float innerCutoff, float outerCutoff)
 {
     float theta = dot(lightDir, normalize(-spotDir));
     float epsilon = innerCutoff - outerCutoff;
-    float falloff = clamp((theta - outerCutoff) / epsilon, 0.0, 1.0);
+    float falloff = saturate((theta - outerCutoff) / epsilon);
     return falloff * falloff;
 }
 
 // Diffuse lighting (Lambert)
-vec3 CalculateDiffuse(vec3 normal, vec3 lightDir, vec3 lightColor)
+float3 CalculateDiffuse(float3 normal, float3 lightDir, float3 lightColor)
 {
     float NdotL = max(dot(normal, lightDir), 0.0);
     return lightColor * NdotL;
 }
 
 // Specular lighting (Blinn-Phong)
-vec3 CalculateSpecularBlinnPhong(vec3 normal, vec3 lightDir, vec3 viewDir, vec3 lightColor, float shininess)
+float3 CalculateSpecularBlinnPhong(float3 normal, float3 lightDir, float3 viewDir, float3 lightColor, float shininess)
 {
-    vec3 halfwayDir = normalize(lightDir + viewDir);
+    float3 halfwayDir = normalize(lightDir + viewDir);
     float NdotH = max(dot(normal, halfwayDir), 0.0);
     float specular = pow(NdotH, shininess);
     return lightColor * specular;
 }
 
 // Specular lighting (Phong)
-vec3 CalculateSpecularPhong(vec3 normal, vec3 lightDir, vec3 viewDir, vec3 lightColor, float shininess)
+float3 CalculateSpecularPhong(float3 normal, float3 lightDir, float3 viewDir, float3 lightColor, float shininess)
 {
-    vec3 reflectDir = reflect(-lightDir, normal);
+    float3 reflectDir = reflect(-lightDir, normal);
     float VdotR = max(dot(viewDir, reflectDir), 0.0);
     float specular = pow(VdotR, shininess);
     return lightColor * specular;
 }
 
 // Fresnel effect (Schlick's approximation)
-vec3 CalculateFresnel(vec3 F0, vec3 viewDir, vec3 normal)
+float3 CalculateFresnel(float3 F0, float3 viewDir, float3 normal)
 {
     float VdotH = max(dot(viewDir, normal), 0.0);
     return F0 + (1.0 - F0) * pow(1.0 - VdotH, 5.0);
 }
 
 // Normal distribution function (Trowbridge-Reitz GGX)
-float DistributionGGX(vec3 normal, vec3 halfway, float roughness)
+float DistributionGGX(float3 normal, float3 halfway, float roughness)
 {
     float a = roughness * roughness;
     float a2 = a * a;
@@ -115,7 +111,7 @@ float GeometrySchlickGGX(float NdotV, float roughness)
 }
 
 // Geometry function (Smith)
-float GeometrySmith(vec3 normal, vec3 viewDir, vec3 lightDir, float roughness)
+float GeometrySmith(float3 normal, float3 viewDir, float3 lightDir, float roughness)
 {
     float NdotV = max(dot(normal, viewDir), 0.0);
     float NdotL = max(dot(normal, lightDir), 0.0);
@@ -126,40 +122,40 @@ float GeometrySmith(vec3 normal, vec3 viewDir, vec3 lightDir, float roughness)
 }
 
 // Directional light calculation
-vec3 CalculateDirectionalLight(DirectionalLight light, vec3 normal, vec3 viewDir, vec3 albedo, float metallic, float roughness, vec3 F0)
+float3 CalculateDirectionalLight(DirectionalLight light, float3 normal, float3 viewDir, float3 albedo, float metallic, float roughness, float3 F0)
 {
-    vec3 lightDir = normalize(-light.direction);
-    vec3 halfwayDir = normalize(lightDir + viewDir);
+    float3 lightDir = normalize(-light.direction);
+    float3 halfwayDir = normalize(lightDir + viewDir);
     
     // Attenuation
     float attenuation = light.intensity;
     
     // Diffuse
     float NdotL = max(dot(normal, lightDir), 0.0);
-    vec3 diffuse = CalculateDiffuse(normal, lightDir, light.color) * attenuation;
+    float3 diffuse = CalculateDiffuse(normal, lightDir, light.color) * attenuation;
     
     // Specular
     float NDF = DistributionGGX(normal, halfwayDir, roughness);
     float G = GeometrySmith(normal, viewDir, lightDir, roughness);
-    vec3 F = CalculateFresnel(F0, viewDir, halfwayDir);
+    float3 F = CalculateFresnel(F0, viewDir, halfwayDir);
     
-    vec3 numerator = NDF * G * F;
+    float3 numerator = NDF * G * F;
     float denominator = 4.0 * max(dot(normal, viewDir), 0.0) * NdotL + EPSILON;
-    vec3 specular = numerator / denominator;
+    float3 specular = numerator / denominator;
     
     // Energy conservation
-    vec3 kS = F;
-    vec3 kD = vec3(1.0) - kS;
+    float3 kS = F;
+    float3 kD = float3(1.0, 1.0, 1.0) - kS;
     kD *= 1.0 - metallic;
     
     return (kD * albedo / PI + specular) * light.color * NdotL * attenuation;
 }
 
 // Point light calculation
-vec3 CalculatePointLight(PointLight light, vec3 worldPos, vec3 normal, vec3 viewDir, vec3 albedo, float metallic, float roughness, vec3 F0)
+float3 CalculatePointLight(PointLight light, float3 worldPos, float3 normal, float3 viewDir, float3 albedo, float metallic, float roughness, float3 F0)
 {
-    vec3 lightDir = normalize(light.position - worldPos);
-    vec3 halfwayDir = normalize(lightDir + viewDir);
+    float3 lightDir = normalize(light.position - worldPos);
+    float3 halfwayDir = normalize(lightDir + viewDir);
     
     // Distance and attenuation
     float distance = length(light.position - worldPos);
@@ -167,30 +163,30 @@ vec3 CalculatePointLight(PointLight light, vec3 worldPos, vec3 normal, vec3 view
     
     // Diffuse
     float NdotL = max(dot(normal, lightDir), 0.0);
-    vec3 diffuse = CalculateDiffuse(normal, lightDir, light.color) * attenuation;
+    float3 diffuse = CalculateDiffuse(normal, lightDir, light.color) * attenuation;
     
     // Specular
     float NDF = DistributionGGX(normal, halfwayDir, roughness);
     float G = GeometrySmith(normal, viewDir, lightDir, roughness);
-    vec3 F = CalculateFresnel(F0, viewDir, halfwayDir);
+    float3 F = CalculateFresnel(F0, viewDir, halfwayDir);
     
-    vec3 numerator = NDF * G * F;
+    float3 numerator = NDF * G * F;
     float denominator = 4.0 * max(dot(normal, viewDir), 0.0) * NdotL + EPSILON;
-    vec3 specular = numerator / denominator;
+    float3 specular = numerator / denominator;
     
     // Energy conservation
-    vec3 kS = F;
-    vec3 kD = vec3(1.0) - kS;
+    float3 kS = F;
+    float3 kD = float3(1.0, 1.0, 1.0) - kS;
     kD *= 1.0 - metallic;
     
     return (kD * albedo / PI + specular) * light.color * NdotL * attenuation;
 }
 
 // Spot light calculation
-vec3 CalculateSpotLight(SpotLight light, vec3 worldPos, vec3 normal, vec3 viewDir, vec3 albedo, float metallic, float roughness, vec3 F0)
+float3 CalculateSpotLight(SpotLight light, float3 worldPos, float3 normal, float3 viewDir, float3 albedo, float metallic, float roughness, float3 F0)
 {
-    vec3 lightDir = normalize(light.position - worldPos);
-    vec3 halfwayDir = normalize(lightDir + viewDir);
+    float3 lightDir = normalize(light.position - worldPos);
+    float3 halfwayDir = normalize(lightDir + viewDir);
     
     // Distance and attenuation
     float distance = length(light.position - worldPos);
@@ -202,58 +198,57 @@ vec3 CalculateSpotLight(SpotLight light, vec3 worldPos, vec3 normal, vec3 viewDi
     
     // Diffuse
     float NdotL = max(dot(normal, lightDir), 0.0);
-    vec3 diffuse = CalculateDiffuse(normal, lightDir, light.color) * attenuation;
+    float3 diffuse = CalculateDiffuse(normal, lightDir, light.color) * attenuation;
     
     // Specular
     float NDF = DistributionGGX(normal, halfwayDir, roughness);
     float G = GeometrySmith(normal, viewDir, lightDir, roughness);
-    vec3 F = CalculateFresnel(F0, viewDir, halfwayDir);
+    float3 F = CalculateFresnel(F0, viewDir, halfwayDir);
     
-    vec3 numerator = NDF * G * F;
+    float3 numerator = NDF * G * F;
     float denominator = 4.0 * max(dot(normal, viewDir), 0.0) * NdotL + EPSILON;
-    vec3 specular = numerator / denominator;
+    float3 specular = numerator / denominator;
     
     // Energy conservation
-    vec3 kS = F;
-    vec3 kD = vec3(1.0) - kS;
+    float3 kS = F;
+    float3 kD = float3(1.0, 1.0, 1.0) - kS;
     kD *= 1.0 - metallic;
     
     return (kD * albedo / PI + specular) * light.color * NdotL * attenuation;
 }
 
 // Ambient lighting
-vec3 CalculateAmbient(vec3 albedo, vec3 ambientLight, float ao, float metallic)
+float3 CalculateAmbient(float3 albedo, float3 ambientLight, float ao, float metallic)
 {
-    vec3 ambient = albedo * ambientLight * ao;
+    float3 ambient = albedo * ambientLight * ao;
     ambient *= (1.0 - metallic) * 0.1; // Metals have less ambient
     return ambient;
 }
 
 // Image Based Lighting (IBL) - Simplified
-vec3 CalculateIBL(vec3 normal, vec3 viewDir, vec3 albedo, float metallic, float roughness, vec3 F0, sampler2D brdfLUT, samplerCube irradianceMap, samplerCube prefilterMap)
+float3 CalculateIBL(float3 normal, float3 viewDir, float3 albedo, float metallic, float roughness, float3 F0, 
+                    Texture2D brdfLUT, TextureCube irradianceMap, TextureCube prefilterMap, SamplerState samp)
 {
-    vec3 N = normal;
-    vec3 V = viewDir;
-    vec3 R = reflect(-V, N);
+    float3 N = normal;
+    float3 V = viewDir;
+    float3 R = reflect(-V, N);
     
     float NdotV = max(dot(N, V), 0.0);
     
     // Indirect diffuse
-    vec3 F = CalculateFresnel(F0, V, N);
-    vec3 kS = F;
-    vec3 kD = 1.0 - kS;
+    float3 F = CalculateFresnel(F0, V, N);
+    float3 kS = F;
+    float3 kD = float3(1.0, 1.0, 1.0) - kS;
     kD *= 1.0 - metallic;
     
-    vec3 irradiance = texture(irradianceMap, N).rgb;
-    vec3 diffuse = irradiance * albedo;
+    float3 irradiance = irradianceMap.Sample(samp, N).rgb;
+    float3 diffuse = irradiance * albedo;
     
     // Indirect specular
     const float MAX_REFLECTION_LOD = 4.0;
-    vec3 prefilteredColor = textureLod(prefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
-    vec2 brdf = texture(brdfLUT, vec2(NdotV, roughness)).rg;
-    vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
+    float3 prefilteredColor = prefilterMap.SampleLevel(samp, R, roughness * MAX_REFLECTION_LOD).rgb;
+    float2 brdf = brdfLUT.Sample(samp, float2(NdotV, roughness)).rg;
+    float3 specular = prefilteredColor * (F * brdf.x + brdf.y);
     
     return kD * diffuse + specular;
 }
-
-#endif // LIGHTING_GLSL

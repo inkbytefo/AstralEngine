@@ -31,6 +31,7 @@ enum class ShaderStage {
 enum class ShaderLanguage {
     GLSL = 0,           ///< OpenGL Shading Language
     HLSL,              ///< High-Level Shading Language
+    SLANG,             ///< Slang Shading Language
     SPIRV              ///< SPIR-V (derlenmiş)
 };
 
@@ -161,6 +162,9 @@ private:
     ShaderCompileResult CompileWithShaderc(const std::string& sourceCode, ShaderStage stage,
                                            const std::string& filePath,
                                            const ShaderCompileOptions& options);
+    ShaderCompileResult CompileWithSlang(const std::string& sourceCode, ShaderStage stage,
+                                          const std::string& filePath,
+                                          const ShaderCompileOptions& options);
     ShaderCompileResult LoadFromCache(const std::string& cacheKey);
     void SaveToCache(const std::string& cacheKey, const ShaderCompileResult& result);
     std::string GenerateCacheKey(const std::string& filePath, const ShaderCompileOptions& options) const;

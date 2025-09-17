@@ -5,7 +5,7 @@
 #ifndef MATERIAL_PROPERTIES_GLSL
 #define MATERIAL_PROPERTIES_GLSL
 
-#include "common.glsl"
+#include "../Common/common.glsl"
 
 // Material types
 const int MATERIAL_TYPE_PBR = 0;
@@ -169,4 +169,56 @@ PBRParameters SamplePBRMaterial(
     
     // Sample metallic and roughness
     if (flags.usePackedTextures > 0) {
-        // Packed texture (metallic in R
+        // Packed texture (metallic in R, roughness in G, AO in B)
+        vec3 mraSample = texture(metallicMap, uv).rgb;
+        pbr.metallic = mraSample.r * material.metallicFactor;
+        pbr.roughness = mraSample.g * material.roughnessFactor;
+        pbr.ao = mraSample.b * material.occlusionStrength;
+    } else {
+        // Separate textures
+        if (flags.hasMetallicMap > 0) {
+            pbr.metallic = texture(metallicMap, uv).r * material.metallicFactor;
+        } else {
+            pbr.metallic = material.metallicFactor;
+        }
+        
+        if (flags.hasRoughnessMap > 0) {
+            pbr.roughness = texture(roughnessMap, uv).r * material.roughnessFactor;
+        } else {
+            pbr.roughness = material.roughnessFactor;
+        }
+        
+        if (flags.hasAOMap > 0) {
+            pbr.ao = texture(aoMap, uv).r * material.occlusionStrength;
+        } else {
+            pbr.ao = material.occlusionStrength;
+        }
+    }
+    
+    // Sample emissive
+    if (flags.hasEmissiveMap > 0) {
+        pbr.emissive = SRGBToLinear(texture(emissiveMap, uv).rgb) * material.emissiveFactor;
+    } else {
+        pbr.emissive = material.emissiveFactor;
+    }
+    
+    // Validate parameters
+    ValidatePBRParameters(pbr);
+    
+    return pbr;
+}
+
+// Material blending function
+PBRParameters BlendPBRParameters(PBRParameters pbr1, PBRParameters pbr2, float t) {
+    PBRParameters result;
+    result.albedo = mix(pbr1.albedo, pbr2.albedo, t);
+    result.metallic = mix(pbr1.metallic, pbr2.metallic, t);
+    result.roughness = mix(pbr1.roughness, pbr2.roughness, t);
+    result.ao = mix(pbr1.ao, pbr2.ao, t);
+    result.normal = normalize(mix(pbr1.normal, pbr2.normal, t));
+    result.emissive = mix(pbr1.emissive, pbr2.emissive, t);
+    result.alpha = mix(pbr1.alpha, pbr2.alpha, t);
+    return result;
+}
+
+#endif // MATERIAL_PROPERTIES_GLSL
