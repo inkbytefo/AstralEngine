@@ -27,4 +27,5 @@ struct PBSurface
     float ao;
     float3 emissive;
     float alpha;
+    float3 worldPos;
 };

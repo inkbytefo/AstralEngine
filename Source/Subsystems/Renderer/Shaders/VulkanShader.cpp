@@ -1,6 +1,5 @@
 #include "VulkanShader.h"
 #include "../../../Core/Logger.h"
-#include <fstream>
 #include <stdexcept>
 
 namespace AstralEngine {
@@ -21,7 +20,7 @@ VulkanShader::~VulkanShader() {
     Logger::Debug("VulkanShader", "VulkanShader destroyed");
 }
 
-bool VulkanShader::Initialize(VulkanDevice* device, const Config& config) {
+bool VulkanShader::Initialize(VulkanDevice* device, const std::vector<uint32_t>& spirvCode, VkShaderStageFlagBits stage) {
     if (m_isInitialized) {
         Logger::Warning("VulkanShader", "VulkanShader already initialized");
         return true;
@@ -32,36 +31,28 @@ bool VulkanShader::Initialize(VulkanDevice* device, const Config& config) {
         return false;
     }
     
-    if (config.filePath.empty()) {
-        SetError("Empty shader file path");
+    if (spirvCode.empty()) {
+        SetError("Empty SPIR-V code");
         return false;
     }
     
     m_device = device;
-    m_filePath = config.filePath;
-    m_stage = config.stage;
+    m_stage = stage;
     
-    Logger::Info("VulkanShader", "Initializing shader: {} (stage: {})", 
-                m_filePath, static_cast<uint32_t>(m_stage));
+    Logger::Info("VulkanShader", "Initializing shader from SPIR-V code (stage: {})",
+                static_cast<uint32_t>(m_stage));
     
     try {
-        // Shader dosyasını oku
-        auto shaderCode = ReadShaderFile(m_filePath);
-        if (shaderCode.empty()) {
-            SetError("Failed to read shader file: " + m_filePath);
-            return false;
-        }
-        
-        Logger::Debug("VulkanShader", "Shader file read successfully, size: {} bytes", 
-                     shaderCode.size());
+        Logger::Debug("VulkanShader", "SPIR-V code size: {} words",
+                     spirvCode.size());
         
         // Shader module oluştur
-        if (!CreateShaderModule(shaderCode)) {
+        if (!CreateShaderModule(spirvCode)) {
             return false;
         }
         
         m_isInitialized = true;
-        Logger::Info("VulkanShader", "Shader initialized successfully: {}", m_filePath);
+        Logger::Info("VulkanShader", "Shader initialized successfully from SPIR-V code");
         return true;
         
     } catch (const std::exception& e) {
@@ -76,7 +67,7 @@ void VulkanShader::Shutdown() {
         return;
     }
     
-    Logger::Info("VulkanShader", "Shutting down shader: {}", m_filePath);
+    Logger::Info("VulkanShader", "Shutting down shader");
     
     if (m_shaderModule != VK_NULL_HANDLE) {
         vkDestroyShaderModule(m_device->GetDevice(), m_shaderModule, nullptr);
@@ -85,59 +76,20 @@ void VulkanShader::Shutdown() {
     }
     
     m_device = nullptr;
-    m_filePath.clear();
     m_lastError.clear();
     m_isInitialized = false;
     
     Logger::Info("VulkanShader", "Shader shutdown completed");
 }
 
-std::vector<char> VulkanShader::ReadShaderFile(const std::string& filePath) {
-    Logger::Debug("VulkanShader", "Reading shader file: {}", filePath);
-    
-    // Binary modda dosyayı aç
-    std::ifstream file(filePath, std::ios::ate | std::ios::binary);
-    
-    if (!file.is_open()) {
-        SetError("Failed to open shader file: " + filePath);
-        Logger::Error("VulkanShader", "Failed to open shader file: {}", filePath);
-        return {};
-    }
-    
-    // Dosya boyutunu al
-    size_t fileSize = static_cast<size_t>(file.tellg());
-    Logger::Debug("VulkanShader", "Shader file size: {} bytes", fileSize);
-    
-    // Dosya başına geri dön
-    file.seekg(0);
-    
-    // Buffer oluştur
-    std::vector<char> buffer(fileSize);
-    
-    // Dosyayı buffer'a oku
-    file.read(buffer.data(), static_cast<std::streamsize>(fileSize));
-    
-    // Okuma başarılı mı kontrol et
-    if (!file) {
-        SetError("Failed to read entire shader file: " + filePath);
-        Logger::Error("VulkanShader", "Failed to read entire shader file: {}", filePath);
-        return {};
-    }
-    
-    file.close();
-    
-    Logger::Debug("VulkanShader", "Shader file read successfully");
-    return buffer;
-}
-
-bool VulkanShader::CreateShaderModule(const std::vector<char>& shaderCode) {
+bool VulkanShader::CreateShaderModule(const std::vector<uint32_t>& spirvCode) {
     Logger::Debug("VulkanShader", "Creating shader module");
     
     // Shader module create info yapısı
     VkShaderModuleCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    createInfo.codeSize = shaderCode.size();
-    createInfo.pCode = reinterpret_cast<const uint32_t*>(shaderCode.data());
+    createInfo.codeSize = spirvCode.size() * sizeof(uint32_t);
+    createInfo.pCode = spirvCode.data();
     
     // Shader module oluştur
     VkResult result = vkCreateShaderModule(m_device->GetDevice(), &createInfo, nullptr, &m_shaderModule);

@@ -682,4 +682,96 @@ void VulkanDevice::CreateImage(uint32_t width, uint32_t height, VkFormat format,
     vkBindImageMemory(m_device, image, imageMemory, 0);
 }
 
+VkFence VulkanDevice::SubmitToTransferQueue(std::function<void(VkCommandBuffer)> commandFunction) {
+    if (!m_device || !m_transferQueue) {
+        SetError("Device or transfer queue not initialized");
+        return VK_NULL_HANDLE;
+    }
+
+    // Create fence for synchronization
+    VkFence fence;
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fenceInfo.flags = 0; // Not signaled
+    
+    if (vkCreateFence(m_device, &fenceInfo, nullptr, &fence) != VK_SUCCESS) {
+        SetError("Failed to create fence for transfer operation");
+        return VK_NULL_HANDLE;
+    }
+
+    // Create temporary command pool for transfer operations
+    VkCommandPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.queueFamilyIndex = m_queueFamilyIndices.transferFamily.value();
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+
+    VkCommandPool commandPool;
+    if (vkCreateCommandPool(m_device, &poolInfo, nullptr, &commandPool) != VK_SUCCESS) {
+        SetError("Failed to create transfer command pool");
+        vkDestroyFence(m_device, fence, nullptr);
+        return VK_NULL_HANDLE;
+    }
+
+    // Allocate command buffer
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandPool = commandPool;
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer;
+    if (vkAllocateCommandBuffers(m_device, &allocInfo, &commandBuffer) != VK_SUCCESS) {
+        SetError("Failed to allocate transfer command buffer");
+        vkDestroyCommandPool(m_device, commandPool, nullptr);
+        vkDestroyFence(m_device, fence, nullptr);
+        return VK_NULL_HANDLE;
+    }
+
+    // Begin command buffer
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
+        SetError("Failed to begin transfer command buffer");
+        vkFreeCommandBuffers(m_device, commandPool, 1, &commandBuffer);
+        vkDestroyCommandPool(m_device, commandPool, nullptr);
+        vkDestroyFence(m_device, fence, nullptr);
+        return VK_NULL_HANDLE;
+    }
+
+    // Record user commands
+    commandFunction(commandBuffer);
+
+    // End command buffer
+    if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
+        SetError("Failed to end transfer command buffer");
+        vkFreeCommandBuffers(m_device, commandPool, 1, &commandBuffer);
+        vkDestroyCommandPool(m_device, commandPool, nullptr);
+        vkDestroyFence(m_device, fence, nullptr);
+        return VK_NULL_HANDLE;
+    }
+
+    // Submit to transfer queue
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    if (vkQueueSubmit(m_transferQueue, 1, &submitInfo, fence) != VK_SUCCESS) {
+        SetError("Failed to submit transfer commands");
+        vkFreeCommandBuffers(m_device, commandPool, 1, &commandBuffer);
+        vkDestroyCommandPool(m_device, commandPool, nullptr);
+        vkDestroyFence(m_device, fence, nullptr);
+        return VK_NULL_HANDLE;
+    }
+
+    // Clean up command buffer and pool (fence is returned to caller)
+    vkFreeCommandBuffers(m_device, commandPool, 1, &commandBuffer);
+    vkDestroyCommandPool(m_device, commandPool, nullptr);
+
+    Logger::Debug("VulkanDevice", "Transfer commands submitted successfully with fence");
+    return fence;
+}
+
 } // namespace AstralEngine

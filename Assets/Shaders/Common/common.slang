@@ -87,7 +87,7 @@ float2 NormalizeSafe(float2 v)
 // Matrix utilities
 float3x3 CreateNormalMatrix(float4x4 modelMatrix)
 {
-    return transpose(inverse(float3x3(modelMatrix[0].xyz, modelMatrix[1].xyz, modelMatrix[2].xyz)));
+    return transpose(float3x3(modelMatrix[0].xyz, modelMatrix[1].xyz, modelMatrix[2].xyz));
 }
 
 // Interpolation utilities
@@ -278,6 +278,68 @@ float FractionalBrownianMotion(float2 st, int octaves, float lacunarity, float g
     }
     
     return value;
+}
+
+// Matrix inverse functions
+float4x4 inverse4x4(float4x4 m)
+{
+    float4x4 inv;
+    
+    // Calculate the cofactor matrix
+    inv[0].x =  m[1].y * (m[2].z * m[3].w - m[2].w * m[3].z) - m[1].z * (m[2].y * m[3].w - m[2].w * m[3].y) + m[1].w * (m[2].y * m[3].z - m[2].z * m[3].y);
+    inv[0].y = -m[0].y * (m[2].z * m[3].w - m[2].w * m[3].z) + m[0].z * (m[2].y * m[3].w - m[2].w * m[3].y) - m[0].w * (m[2].y * m[3].z - m[2].z * m[3].y);
+    inv[0].z =  m[0].y * (m[1].z * m[3].w - m[1].w * m[3].z) - m[0].z * (m[1].y * m[3].w - m[1].w * m[3].y) + m[0].w * (m[1].y * m[3].z - m[1].z * m[3].y);
+    inv[0].w = -m[0].y * (m[1].z * m[2].w - m[1].w * m[2].z) + m[0].z * (m[1].y * m[2].w - m[1].w * m[2].y) - m[0].w * (m[1].y * m[2].z - m[1].z * m[2].y);
+    
+    inv[1].x = -m[1].x * (m[2].z * m[3].w - m[2].w * m[3].z) + m[1].z * (m[2].x * m[3].w - m[2].w * m[3].x) - m[1].w * (m[2].x * m[3].z - m[2].z * m[3].x);
+    inv[1].y =  m[0].x * (m[2].z * m[3].w - m[2].w * m[3].z) - m[0].z * (m[2].x * m[3].w - m[2].w * m[3].x) + m[0].w * (m[2].x * m[3].z - m[2].z * m[3].x);
+    inv[1].z = -m[0].x * (m[1].z * m[3].w - m[1].w * m[3].z) + m[0].z * (m[1].x * m[3].w - m[1].w * m[3].x) - m[0].w * (m[1].x * m[3].z - m[1].z * m[3].x);
+    inv[1].w =  m[0].x * (m[1].z * m[2].w - m[1].w * m[2].z) - m[0].z * (m[1].x * m[2].w - m[1].w * m[2].x) + m[0].w * (m[1].x * m[2].z - m[1].z * m[2].x);
+    
+    inv[2].x =  m[1].x * (m[2].y * m[3].w - m[2].w * m[3].y) - m[1].y * (m[2].x * m[3].w - m[2].w * m[3].x) + m[1].w * (m[2].x * m[3].y - m[2].y * m[3].x);
+    inv[2].y = -m[0].x * (m[2].y * m[3].w - m[2].w * m[3].y) + m[0].y * (m[2].x * m[3].w - m[2].w * m[3].x) - m[0].w * (m[2].x * m[3].y - m[2].y * m[3].x);
+    inv[2].z =  m[0].x * (m[1].y * m[3].w - m[1].w * m[3].y) - m[0].y * (m[1].x * m[3].w - m[1].w * m[3].x) + m[0].w * (m[1].x * m[3].y - m[1].y * m[3].x);
+    inv[2].w = -m[0].x * (m[1].y * m[2].w - m[1].w * m[2].y) + m[0].y * (m[1].x * m[2].w - m[1].w * m[2].x) - m[0].w * (m[1].x * m[2].y - m[1].y * m[2].x);
+    
+    inv[3].x = -m[1].x * (m[2].y * m[3].z - m[2].z * m[3].y) + m[1].y * (m[2].x * m[3].z - m[2].z * m[3].x) - m[1].z * (m[2].x * m[3].y - m[2].y * m[3].x);
+    inv[3].y =  m[0].x * (m[2].y * m[3].z - m[2].z * m[3].y) - m[0].y * (m[2].x * m[3].z - m[2].z * m[3].x) + m[0].z * (m[2].x * m[3].y - m[2].y * m[3].x);
+    inv[3].z = -m[0].x * (m[1].y * m[3].z - m[1].z * m[3].y) + m[0].y * (m[1].x * m[3].z - m[1].z * m[3].x) - m[0].z * (m[1].x * m[3].y - m[1].y * m[3].x);
+    inv[3].w =  m[0].x * (m[1].y * m[2].z - m[1].z * m[2].y) - m[0].y * (m[1].x * m[2].z - m[1].z * m[2].x) + m[0].z * (m[1].x * m[2].y - m[1].y * m[2].x);
+    
+    // Calculate determinant
+    float det = m[0].x * inv[0].x + m[0].y * inv[1].x + m[0].z * inv[2].x + m[0].w * inv[3].x;
+    
+    // Check for singular matrix
+    if (abs(det) < EPSILON) {
+        return float4x4(1.0, 0.0, 0.0, 0.0,
+                       0.0, 1.0, 0.0, 0.0,
+                       0.0, 0.0, 1.0, 0.0,
+                       0.0, 0.0, 0.0, 1.0); // Return identity if singular
+    }
+    
+    // Divide by determinant to get the inverse
+    float invDet = 1.0 / det;
+    inv[0].x *= invDet;
+    inv[0].y *= invDet;
+    inv[0].z *= invDet;
+    inv[0].w *= invDet;
+    
+    inv[1].x *= invDet;
+    inv[1].y *= invDet;
+    inv[1].z *= invDet;
+    inv[1].w *= invDet;
+    
+    inv[2].x *= invDet;
+    inv[2].y *= invDet;
+    inv[2].z *= invDet;
+    inv[2].w *= invDet;
+    
+    inv[3].x *= invDet;
+    inv[3].y *= invDet;
+    inv[3].z *= invDet;
+    inv[3].w *= invDet;
+    
+    return inv;
 }
 
 // Utility functions for SLANG compatibility

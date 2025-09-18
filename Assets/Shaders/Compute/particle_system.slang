@@ -43,7 +43,8 @@ struct SimulationUBO {
     float3 wind;
     float deltaTime;
     int simulationMode; // 0: emit, 1: update, 2: both
-    int padding[3];
+    int particleCount;
+    int padding[2];
 };
 
 struct EmitterUBO {

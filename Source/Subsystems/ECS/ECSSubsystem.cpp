@@ -132,16 +132,14 @@ ECSSubsystem::RenderPacket ECSSubsystem::GetRenderData() {
         
         // Sadece visible olan entity'leri topla
         if (render.visible) {
-            RenderPacket::RenderItem item;
-            item.transform = transform.GetWorldMatrix();
-            
-            // AssetHandle'ları kullan (modern AssetHandle tabanlı sistem)
-            item.modelHandle = render.GetModelHandle();
-            item.materialHandle = render.GetMaterialHandle();
-            item.textureHandle = render.GetTextureHandle();
-            
-            item.visible = render.visible;
-            item.renderLayer = render.renderLayer;
+            // Material-driven rendering: RenderItem sadece gerekli bilgileri içerir
+            RenderPacket::RenderItem item(
+                transform.GetWorldMatrix(),
+                render.GetModelHandle(),
+                render.GetMaterialHandle(),
+                render.visible,
+                render.renderLayer
+            );
             
             packet.renderItems.push_back(item);
             

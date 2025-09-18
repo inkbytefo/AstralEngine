@@ -19,6 +19,7 @@ struct VertexOutput {
     int bloomPass; // 0: bright pass, 1: horizontal blur, 2: vertical blur, 3: composite
 };
 
+[shader("vertex")]
 VertexOutput main() {
     VertexOutput output;
     

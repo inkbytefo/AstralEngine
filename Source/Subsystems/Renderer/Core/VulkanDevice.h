@@ -89,6 +89,9 @@ public:
     // Helper function for submitting one-time commands (e.g., copying)
     void SubmitSingleTimeCommands(std::function<void(VkCommandBuffer)> commandFunction);
     
+    // Asynchronous transfer submission using transfer queue
+    VkFence SubmitToTransferQueue(std::function<void(VkCommandBuffer)> commandFunction);
+    
     // Texture and image helper functions
     void CopyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
     VkImageView CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);

@@ -31,11 +31,13 @@ struct TransformComponent {
 
 /**
  * @brief Render bileşeni - Görsellik ile ilgili bilgiler
+ * 
+ * Material-driven rendering architecture için tasarlanmıştır.
+ * Sadece veri (handle'lar) içerir, runtime state içermez.
  */
 struct RenderComponent {
-    AssetHandle modelHandle;
     AssetHandle materialHandle;
-    AssetHandle textureHandle;
+    AssetHandle modelHandle;
     bool visible = true;
     int renderLayer = 0; // Lower values render first
     
@@ -43,27 +45,15 @@ struct RenderComponent {
     bool castsShadows = true;
     bool receivesShadows = true;
     
-    // Asset yükleme durumu ve pointer'ları
-    bool isReady = false;  // Asset'ler yüklendi ve GPU'ya hazır mı?
-    std::shared_ptr<class Model> model;      // Yüklenmiş model pointer'ı
-    std::shared_ptr<class VulkanTexture> texture; // Yüklenmiş texture pointer'ı
-    
     RenderComponent() = default;
     
-    // Constructor'lar - AssetHandle tabanlı
-    RenderComponent(const AssetHandle& model, const AssetHandle& material)
-        : modelHandle(model), materialHandle(material) {}
-    RenderComponent(const AssetHandle& model, const AssetHandle& material, const AssetHandle& texture)
-        : modelHandle(model), materialHandle(material), textureHandle(texture) {}
+    // Constructor - Material ve model handle tabanlı
+    RenderComponent(const AssetHandle& material, const AssetHandle& model)
+        : materialHandle(material), modelHandle(model) {}
     
     // AssetHandle'ların geçerliliğini kontrol et
     bool HasValidHandles() const {
-        return modelHandle.IsValid();
-    }
-    
-    // Model asset handle'ını al
-    AssetHandle GetModelHandle() const {
-        return modelHandle;
+        return materialHandle.IsValid() && modelHandle.IsValid();
     }
     
     // Material asset handle'ını al
@@ -71,9 +61,9 @@ struct RenderComponent {
         return materialHandle;
     }
     
-    // Texture asset handle'ını al
-    AssetHandle GetTextureHandle() const {
-        return textureHandle;
+    // Model asset handle'ını al
+    AssetHandle GetModelHandle() const {
+        return modelHandle;
     }
 };
 

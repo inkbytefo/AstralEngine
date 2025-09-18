@@ -52,10 +52,6 @@ public:
 
 private:
     // Yardımcı metotlar
-    bool CreateBuffer();
-    bool AllocateMemory();
-    void BindMemory();
-    uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
     void SetError(const std::string& error);
 
     // Member değişkenler

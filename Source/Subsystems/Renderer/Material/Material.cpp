@@ -41,18 +41,16 @@ bool Material::Initialize(const Config& config) {
     
     m_device = config.device;
     m_assetManager = config.assetManager;
+    m_renderSubsystem = config.renderSubsystem; // Store RenderSubsystem
     m_type = config.type;
     m_name = config.name;
+    m_vertexShaderHandle = config.vertexShaderHandle; // Store vertex shader handle
+    m_fragmentShaderHandle = config.fragmentShaderHandle; // Store fragment shader handle
     
     Logger::Info("Material", "Initializing material: {} (type: {})", 
                 m_name, static_cast<int>(m_type));
     
     try {
-        // Shader'ları yükle
-        if (!config.vertexShaderPath.empty() && !config.fragmentShaderPath.empty()) {
-            SetShaders(config.vertexShaderPath, config.fragmentShaderPath);
-        }
-        
         // Descriptor set layout oluştur
         if (!CreateDescriptorSetLayout()) {
             return false;
@@ -74,28 +72,11 @@ bool Material::Initialize(const Config& config) {
         }
         
         // Uniform buffer'lar oluştur
-        m_uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-        m_uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
-        m_uniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
-        
-        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            VkDeviceSize bufferSize = sizeof(MaterialProperties);
-            
-            if (!VulkanBuffer::CreateBuffer(
-                m_device,
-                bufferSize,
-                VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                m_uniformBuffers[i],
-                m_uniformBuffersMemory[i]
-            )) {
-                SetError("Failed to create uniform buffer");
-                return false;
-            }
-            
-            // Buffer'ı map et
-            vkMapMemory(m_device->GetDevice(), m_uniformBuffersMemory[i], 0, bufferSize, 0, &m_uniformBuffersMapped[i]);
-        }
+        // TODO: Implement uniform buffer creation using m_device->CreateBuffer()
+        // This should be implemented when the material system is fully functional
+        Logger::Warning("Material", "Uniform buffer creation is not yet implemented.");
+
+        // Pipeline creation is deferred to GetPipeline() when shaders are ready.
         
         m_isInitialized = true;
         Logger::Info("Material", "Material initialized successfully: {}", m_name);
@@ -114,6 +95,8 @@ void Material::Shutdown() {
     }
     
     Logger::Info("Material", "Shutting down material: {}", m_name);
+
+    m_graphicsPipeline.reset(); // Destroy the graphics pipeline
     
     // Uniform buffer'ları temizle
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
@@ -152,14 +135,30 @@ void Material::Shutdown() {
     m_textureSlots.clear();
     m_textureMap.clear();
     
-    m_vertexShader.reset();
-    m_fragmentShader.reset();
+    // m_vertexShader and m_fragmentShader members have been removed.
     
     m_device = nullptr;
     m_assetManager = nullptr;
+    m_renderSubsystem = nullptr; // Reset RenderSubsystem
     m_isInitialized = false;
     
     Logger::Info("Material", "Material shutdown completed: {}", m_name);
+}
+
+VkPipeline Material::GetPipeline() const {
+    // If pipeline already exists, return it
+    if (m_graphicsPipeline) {
+        return m_graphicsPipeline->GetPipeline();
+    }
+
+    // If pipeline doesn't exist, try to build it
+    if (!const_cast<Material*>(this)->BuildPipeline()) {
+        // Pipeline creation failed (shaders not ready or other error)
+        return VK_NULL_HANDLE;
+    }
+    
+    // Return the newly created pipeline
+    return m_graphicsPipeline->GetPipeline();
 }
 
 void Material::SetProperties(const MaterialProperties& props) {
@@ -172,6 +171,10 @@ void Material::SetProperties(const MaterialProperties& props) {
 }
 
 void Material::SetTexture(TextureType type, const std::string& texturePath) {
+    // TODO: This method relies on AssetManager::LoadVulkanTexture which is not implemented.
+    // Textures should also be managed via AssetHandles in the future.
+    Logger::Warning("Material", "SetTexture with path is deprecated or AssetManager::LoadVulkanTexture is missing.");
+    /*
     if (!m_assetManager) {
         Logger::Warning("Material", "AssetManager not available for texture loading: {}", texturePath);
         return;
@@ -184,6 +187,7 @@ void Material::SetTexture(TextureType type, const std::string& texturePath) {
     } else {
         Logger::Error("Material", "Failed to load texture: {}", texturePath);
     }
+    */
 }
 
 void Material::SetTexture(TextureType type, std::shared_ptr<VulkanTexture> texture) {
@@ -260,6 +264,10 @@ const TextureSlot* Material::GetTextureSlot(TextureType type) const {
 }
 
 void Material::SetShaders(const std::string& vertexPath, const std::string& fragmentPath) {
+    // TODO: This method is deprecated with the new AssetHandle-based approach.
+    // Shaders should be managed via AssetHandles and resolved by RenderSubsystem.
+    Logger::Warning("Material", "SetShaders with paths is deprecated. Use AssetHandles.");
+    /*
     if (!m_assetManager) {
         Logger::Warning("Material", "AssetManager not available for shader loading");
         return;
@@ -278,6 +286,7 @@ void Material::SetShaders(const std::string& vertexPath, const std::string& frag
     }
     
     Logger::Info("Material", "Shaders loaded for material: {}", m_name);
+    */
 }
 
 void Material::UpdateDescriptorSet() {
@@ -505,6 +514,80 @@ std::string Material::GetTextureName(TextureType type) const {
     }
 }
 
+bool Material::ResolveShaders(std::shared_ptr<VulkanShader>& vertexShader, std::shared_ptr<VulkanShader>& fragmentShader) const {
+    // Get the shaders from the asset manager using the stored handles
+    if (!m_assetManager) {
+        Logger::Error("Material", "AssetManager not available for shader resolution in material: {}", m_name);
+        return false;
+    }
+
+    // Get vertex shader
+    vertexShader = m_assetManager->GetAsset<VulkanShader>(m_vertexShaderHandle);
+    if (!vertexShader || !vertexShader->IsInitialized()) {
+        Logger::Debug("Material", "Vertex shader for material {} is not yet ready.", m_name);
+        return false;
+    }
+
+    // Get fragment shader
+    fragmentShader = m_assetManager->GetAsset<VulkanShader>(m_fragmentShaderHandle);
+    if (!fragmentShader || !fragmentShader->IsInitialized()) {
+        Logger::Debug("Material", "Fragment shader for material {} is not yet ready.", m_name);
+        return false;
+    }
+
+    Logger::Debug("Material", "Shaders resolved successfully for material: {}", m_name);
+    return true;
+}
+
+bool Material::IsReady() const {
+    return m_graphicsPipeline != nullptr;
+}
+
+bool Material::BuildPipeline() {
+    // If pipeline already exists, no need to rebuild
+    if (m_graphicsPipeline) {
+        return true;
+    }
+
+    // Resolve shaders first
+    std::shared_ptr<VulkanShader> vertexShader;
+    std::shared_ptr<VulkanShader> fragmentShader;
+    
+    if (!ResolveShaders(vertexShader, fragmentShader)) {
+        Logger::Debug("Material", "Cannot build pipeline - shaders not ready for material: {}", m_name);
+        return false;
+    }
+
+    // Create the graphics pipeline
+    m_graphicsPipeline = std::make_unique<VulkanPipeline>();
+    
+    VulkanPipeline::Config pipelineConfig;
+    pipelineConfig.shaders = { vertexShader.get(), fragmentShader.get() };
+    
+    // Get swapchain info from render subsystem if available
+    if (m_renderSubsystem) {
+        // This assumes RenderSubsystem has a method to get the graphics device or swapchain
+        // For now, we'll use placeholder values
+        pipelineConfig.extent = { 800, 600 }; // Placeholder - should get from swapchain
+        pipelineConfig.swapchain = nullptr; // Should get from render subsystem
+    } else {
+        // Fallback to placeholder values
+        pipelineConfig.extent = { 800, 600 };
+        pipelineConfig.swapchain = nullptr;
+    }
+    
+    pipelineConfig.descriptorSetLayout = m_descriptorSetLayout;
+    
+    if (!m_graphicsPipeline->Initialize(m_device, pipelineConfig)) {
+        Logger::Error("Material", "Failed to create graphics pipeline for material: {}", m_name);
+        m_graphicsPipeline.reset();
+        return false;
+    }
+    
+    Logger::Info("Material", "Graphics pipeline built successfully for material: {}", m_name);
+    return true;
+}
+
 void Material::SetError(const std::string& error) {
     m_lastError = error;
     Logger::Error("Material", "Error in material {}: {}", m_name, error);
@@ -609,92 +692,6 @@ std::shared_ptr<Material> MaterialManager::CreateMaterial(const Material::Config
     }
 }
 
-std::shared_ptr<Material> MaterialManager::LoadMaterial(const std::string& materialPath) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    
-    // Önce cache'te ara
-    auto it = m_materials.find(materialPath);
-    if (it != m_materials.end()) {
-        return it->second;
-    }
-    
-    try {
-        // JSON dosyasını oku
-        std::ifstream file(materialPath);
-        if (!file.is_open()) {
-            Logger::Error("MaterialManager", "Failed to open material file: {}", materialPath);
-            return nullptr;
-        }
-        
-        json materialJson;
-        file >> materialJson;
-        
-        // Materyal config'ini oluştur
-        Material::Config config;
-        config.name = materialJson.value("name", "UnnamedMaterial");
-        config.type = static_cast<MaterialType>(materialJson.value("type", 0));
-        config.vertexShaderPath = materialJson.value("vertexShader", "");
-        config.fragmentShaderPath = materialJson.value("fragmentShader", "");
-        config.device = m_device;
-        config.assetManager = m_assetManager;
-        
-        // Materyali oluştur
-        auto material = std::make_shared<Material>();
-        if (!material->Initialize(config)) {
-            Logger::Error("MaterialManager", "Failed to initialize material from file: {}", materialPath);
-            return nullptr;
-        }
-        
-        // Properties'leri yükle
-        if (materialJson.contains("properties")) {
-            const auto& props = materialJson["properties"];
-            MaterialProperties materialProps;
-            
-            if (props.contains("baseColor")) {
-                const auto& color = props["baseColor"];
-                materialProps.baseColor = glm::vec3(color[0], color[1], color[2]);
-            }
-            materialProps.metallic = props.value("metallic", 0.0f);
-            materialProps.roughness = props.value("roughness", 0.5f);
-            materialProps.ao = props.value("ao", 1.0f);
-            materialProps.opacity = props.value("opacity", 1.0f);
-            materialProps.transparent = props.value("transparent", false);
-            
-            material->SetProperties(materialProps);
-        }
-        
-        // Texture'ları yükle
-        if (materialJson.contains("textures")) {
-            const auto& textures = materialJson["textures"];
-            for (const auto& texture : textures.items()) {
-                std::string typeStr = texture.key();
-                std::string path = texture.value();
-                
-                TextureType type = TextureType::Albedo; // Default
-                if (typeStr == "albedo") type = TextureType::Albedo;
-                else if (typeStr == "normal") type = TextureType::Normal;
-                else if (typeStr == "metallic") type = TextureType::Metallic;
-                else if (typeStr == "roughness") type = TextureType::Roughness;
-                else if (typeStr == "ao") type = TextureType::AO;
-                else if (typeStr == "emissive") type = TextureType::Emissive;
-                else if (typeStr == "opacity") type = TextureType::Opacity;
-                
-                material->SetTexture(type, path);
-            }
-        }
-        
-        // Materyali kaydet
-        m_materials[config.name] = material;
-        
-        Logger::Info("MaterialManager", "Material loaded from file: {}", materialPath);
-        return material;
-        
-    } catch (const std::exception& e) {
-        Logger::Error("MaterialManager", "Exception loading material: {}", e.what());
-        return nullptr;
-    }
-}
-
 std::shared_ptr<Material> MaterialManager::GetMaterial(const std::string& materialName) const {
     std::lock_guard<std::mutex> lock(m_mutex);
     
@@ -705,6 +702,103 @@ std::shared_ptr<Material> MaterialManager::GetMaterial(const std::string& materi
     
     Logger::Warning("MaterialManager", "Material not found: {}", materialName);
     return nullptr;
+}
+
+std::shared_ptr<Material> MaterialManager::GetMaterial(const AssetHandle& materialHandle) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    // Use handle's path as the key for the cache
+    std::string materialKey = materialHandle.GetPath();
+    
+    // Check if a Material instance for the given handle already exists in the cache
+    auto it = m_materials.find(materialKey);
+    if (it != m_materials.end() && it->second->IsInitialized()) {
+        return it->second;
+    }
+    
+    // If not in the cache or not initialized, use AssetManager to asynchronously fetch the CPU-side data
+    if (!m_assetManager) {
+        Logger::Error("MaterialManager", "AssetManager not available for material loading");
+        return nullptr;
+    }
+    
+    // Get MaterialData from AssetManager
+    auto materialData = m_assetManager->GetAsset<MaterialData>(materialHandle);
+    
+    // If GetAsset returns nullptr (because the data is still loading), return nullptr
+    // The RenderSubsystem will retry on the next frame
+    if (!materialData) {
+        Logger::Debug("MaterialManager", "Material data for handle {} is not yet loaded.", materialHandle.GetID());
+        return nullptr;
+    }
+    
+    // If GetAsset returns valid MaterialData, create a new Material instance
+    // Create a Material::Config struct from the MaterialData
+    Material::Config config;
+    config.name = materialData->name.empty() ? materialKey : materialData->name;
+    // MaterialData does not have a 'type' field, defaulting to PBR.
+    // This could be made more sophisticated in the future if needed.
+    config.type = MaterialType::PBR;
+    
+    // Register shader assets to get their handles
+    AssetHandle vsHandle = m_assetManager->RegisterAsset(materialData->vertexShaderPath, AssetHandle::Type::Shader);
+    AssetHandle fsHandle = m_assetManager->RegisterAsset(materialData->fragmentShaderPath, AssetHandle::Type::Shader);
+    
+    config.vertexShaderHandle = vsHandle;
+    config.fragmentShaderHandle = fsHandle;
+    config.device = m_device;
+    config.assetManager = m_assetManager;
+    // RenderSubsystem will be set by the caller or during Material::Initialize if needed from a higher context.
+    // For now, assuming RenderSubsystem is accessible or not strictly needed for Material initialization itself.
+    // If it is needed, it should be passed down or Material needs a way to get it.
+    // config.renderSubsystem = m_renderSubsystem; // Assuming MaterialManager has access to RenderSubsystem
+    
+    // Create a new Material instance
+    auto material = std::make_shared<Material>();
+    if (!material->Initialize(config)) {
+        Logger::Error("MaterialManager", "Failed to initialize material from data: {}", materialKey);
+        return nullptr;
+    }
+    
+    // Set the material's properties using the information from MaterialData
+    // Note: Properties are nested in MaterialData
+    MaterialProperties materialProps;
+    materialProps.baseColor = materialData->properties.baseColor;
+    materialProps.metallic = materialData->properties.metallic;
+    materialProps.roughness = materialData->properties.roughness;
+    materialProps.ao = materialData->properties.ao;
+    materialProps.opacity = materialData->properties.opacity;
+    materialProps.transparent = materialData->properties.transparent;
+    materialProps.emissiveColor = materialData->properties.emissiveColor;
+    materialProps.emissiveIntensity = materialData->properties.emissiveIntensity;
+    // Note: doubleSided, wireframe, tilingX/Y, offsetX/Y are not in MaterialData::Properties
+    // Using default values for these.
+    materialProps.doubleSided = false; 
+    materialProps.wireframe = false;
+    materialProps.tilingX = 1.0f;
+    materialProps.tilingY = 1.0f;
+    materialProps.offsetX = 0.0f;
+    materialProps.offsetY = 0.0f;
+
+    material->SetProperties(materialProps);
+    
+    // Set textures using the information from MaterialData
+    // MaterialData stores texture paths in a vector. We assume a specific order for PBR materials.
+    // This mapping should be robustified, e.g., by having a more structured format in MaterialData.
+    const std::vector<std::string>& texturePaths = materialData->texturePaths;
+    if (texturePaths.size() > 0) material->SetTexture(TextureType::Albedo, texturePaths[0]);
+    if (texturePaths.size() > 1) material->SetTexture(TextureType::Normal, texturePaths[1]);
+    if (texturePaths.size() > 2) material->SetTexture(TextureType::Metallic, texturePaths[2]);
+    if (texturePaths.size() > 3) material->SetTexture(TextureType::Roughness, texturePaths[3]);
+    if (texturePaths.size() > 4) material->SetTexture(TextureType::AO, texturePaths[4]);
+    if (texturePaths.size() > 5) material->SetTexture(TextureType::Emissive, texturePaths[5]);
+    if (texturePaths.size() > 6) material->SetTexture(TextureType::Opacity, texturePaths[6]);
+    
+    // Store the newly created material in the m_materials cache using its path as the key
+    m_materials[materialKey] = material;
+    
+    Logger::Info("MaterialManager", "Material loaded and cached from asset handle: {}", materialKey);
+    return material;
 }
 
 void MaterialManager::RegisterMaterial(const std::string& name, std::shared_ptr<Material> material) {
@@ -747,14 +841,24 @@ void MaterialManager::ClearUnusedMaterials() {
 }
 
 bool MaterialManager::CreateDefaultMaterials() {
+    // Register shader assets to get their handles for default materials
+    AssetHandle pbrVsHandle = m_assetManager->RegisterAsset("Assets/Shaders/Materials/pbr_material.vert", AssetHandle::Type::Shader);
+    AssetHandle pbrFsHandle = m_assetManager->RegisterAsset("Assets/Shaders/Materials/pbr_material.frag", AssetHandle::Type::Shader);
+    AssetHandle unlitVsHandle = m_assetManager->RegisterAsset("Assets/Shaders/Materials/unlit.vert", AssetHandle::Type::Shader);
+    AssetHandle unlitFsHandle = m_assetManager->RegisterAsset("Assets/Shaders/Materials/unlit.frag", AssetHandle::Type::Shader);
+
     // Default PBR Material
     Material::Config pbrConfig;
     pbrConfig.name = "DefaultPBR";
     pbrConfig.type = MaterialType::PBR;
-    pbrConfig.vertexShaderPath = "Assets/Shaders/Materials/pbr_material.vert";
-    pbrConfig.fragmentShaderPath = "Assets/Shaders/Materials/pbr_material.frag";
+    pbrConfig.vertexShaderHandle = pbrVsHandle;
+    pbrConfig.fragmentShaderHandle = pbrFsHandle;
     pbrConfig.device = m_device;
     pbrConfig.assetManager = m_assetManager;
+    // RenderSubsystem needs to be passed here if Material requires it for initialization.
+    // This assumes MaterialManager either has a reference to RenderSubsystem or default materials
+    // are initialized in a context where RenderSubsystem can be provided.
+    // pbrConfig.renderSubsystem = m_renderSubsystem; 
     
     m_defaultPBRMaterial = std::make_shared<Material>();
     if (!m_defaultPBRMaterial->Initialize(pbrConfig)) {
@@ -766,10 +870,11 @@ bool MaterialManager::CreateDefaultMaterials() {
     Material::Config unlitConfig;
     unlitConfig.name = "DefaultUnlit";
     unlitConfig.type = MaterialType::Unlit;
-    unlitConfig.vertexShaderPath = "Assets/Shaders/Materials/unlit.vert";
-    unlitConfig.fragmentShaderPath = "Assets/Shaders/Materials/unlit.frag";
+    unlitConfig.vertexShaderHandle = unlitVsHandle;
+    unlitConfig.fragmentShaderHandle = unlitFsHandle;
     unlitConfig.device = m_device;
     unlitConfig.assetManager = m_assetManager;
+    // unlitConfig.renderSubsystem = m_renderSubsystem;
     
     m_defaultUnlitMaterial = std::make_shared<Material>();
     if (!m_defaultUnlitMaterial->Initialize(unlitConfig)) {

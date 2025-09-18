@@ -3,10 +3,10 @@
 #include "../../Core/ISubsystem.h"
 #include "GraphicsDevice.h"
 #include "Camera.h"
-#include "../Asset/AssetManager.h"
+#include "../Asset/AssetSubsystem.h"
+#include "VulkanMeshManager.h"
+#include "VulkanTextureManager.h"
 #include "../Material/Material.h"
-#include "../Texture/TextureManager.h"
-#include "../Shader/ShaderManager.h"
 #include <memory>
 #include <unordered_map>
 
@@ -14,6 +14,9 @@ namespace AstralEngine {
 
 class Window;
 class ECSSubsystem;
+class AssetSubsystem;
+class VulkanMeshManager;
+class VulkanTextureManager;
 
 /**
  * @brief Vulkan tabanlı render alt sistemi
@@ -40,21 +43,40 @@ public:
     // Getters
     GraphicsDevice* GetGraphicsDevice() const { return m_graphicsDevice.get(); }
     Camera* GetCamera() const { return m_camera.get(); }
-    AssetManager* GetAssetManager() const { return m_assetManager.get(); }
     MaterialManager* GetMaterialManager() const { return m_materialManager.get(); }
-    TextureManager* GetTextureManager() const { return m_textureManager.get(); }
-    ShaderManager* GetShaderManager() const { return m_shaderManager.get(); }
+    VulkanMeshManager* GetVulkanMeshManager() const { return m_vulkanMeshManager.get(); }
+    VulkanTextureManager* GetVulkanTextureManager() const { return m_vulkanTextureManager.get(); }
+    AssetSubsystem* GetAssetSubsystem() const { return m_assetSubsystem; }
+
+    // Material readiness check
+    bool IsMaterialReady(const std::shared_ptr<Material>& material) const;
+
+    // Asset readiness check for async loading
+    bool CheckAssetReadiness(const AssetHandle& modelHandle, const AssetHandle& materialHandle) const;
+    
+    // Debug logging for asset status
+    void LogAssetStatus() const;
 
 private:
     std::unique_ptr<GraphicsDevice> m_graphicsDevice;
     std::unique_ptr<Camera> m_camera;
-    std::unique_ptr<AssetManager> m_assetManager;
     std::unique_ptr<MaterialManager> m_materialManager;
-    std::unique_ptr<TextureManager> m_textureManager;
-    std::unique_ptr<ShaderManager> m_shaderManager;
+    std::unique_ptr<VulkanMeshManager> m_vulkanMeshManager;
+    std::unique_ptr<VulkanTextureManager> m_vulkanTextureManager;
     Engine* m_owner = nullptr;
     Window* m_window = nullptr;
     ECSSubsystem* m_ecsSubsystem = nullptr;
+    AssetSubsystem* m_assetSubsystem = nullptr;
+    
+    // Async loading configuration
+    bool m_enableAsyncLoading = true;
+    
+    // Debug statistics
+    mutable uint32_t m_framesProcessed = 0;
+    mutable uint32_t m_meshesReady = 0;
+    mutable uint32_t m_texturesReady = 0;
+    mutable uint32_t m_meshesPending = 0;
+    mutable uint32_t m_texturesPending = 0;
 };
 
 } // namespace AstralEngine

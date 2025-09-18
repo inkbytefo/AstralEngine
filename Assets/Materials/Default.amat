@@ -1,0 +1,21 @@
+{
+  "name": "DefaultPBR",
+  "type": 0,
+  "vertexShader": "Assets/Shaders/Materials/pbr_material.slang",
+  "fragmentShader": "Assets/Shaders/Materials/pbr_material_frag.slang",
+  "properties": {
+    "baseColor": [1.0, 1.0, 1.0],
+    "metallic": 0.0,
+    "roughness": 0.5,
+    "ao": 1.0,
+    "opacity": 1.0,
+    "transparent": false
+  },
+  "textures": {
+    "albedo": "Models/testobject/VAZ2101_Body_BaseColor.png",
+    "normal": "Models/testobject/VAZ2101_Body_Normal.png",
+    "metallic": "Models/testobject/VAZ2101_Body_Metallic.png",
+    "roughness": "Models/testobject/VAZ2101_Body_Roughness.png",
+    "ao": "Models/testobject/VAZ2101_Body_AO.png"
+  }
+}

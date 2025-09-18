@@ -46,11 +46,11 @@ private:
 
         // 1. Asset'leri kaydet
         AssetHandle modelHandle = assets->RegisterAsset("Models/testobject/_VAZ2101_OBJ.obj", AssetHandle::Type::Model);
-        AssetHandle textureHandle = assets->RegisterAsset("Models/testobject/VAZ2101_Body_BaseColor.png", AssetHandle::Type::Texture);
+        AssetHandle materialHandle = assets->RegisterAsset("Materials/Default.amat", AssetHandle::Type::Material);
 
-        if (!modelHandle.IsValid() || !textureHandle.IsValid()) {
-            Logger::Error("SandboxApp", "Failed to register assets. Model valid: {}, Texture valid: {}", 
-                         modelHandle.IsValid(), textureHandle.IsValid());
+        if (!modelHandle.IsValid() || !materialHandle.IsValid()) {
+            Logger::Error("SandboxApp", "Failed to register assets. Model valid: {}, Material valid: {}", 
+                         modelHandle.IsValid(), materialHandle.IsValid());
             return;
         }
         
@@ -65,19 +65,15 @@ private:
 
         auto& render = ecs->AddComponent<RenderComponent>(testEntity);
         render.modelHandle = modelHandle;
-        render.textureHandle = textureHandle;
+        render.materialHandle = materialHandle;
         render.visible = true;
-        
-        // Legacy string path'leri temizle (artık kullanılmıyor)
-        render.modelPath.clear();
-        render.texturePath.clear();
         
         // Add Name component for debugging
         auto& name = ecs->AddComponent<NameComponent>(testEntity);
         name.name = "VAZ2101";
 
-        Logger::Info("SandboxApp", "Test entity created with model and texture handles. Model ID: {}, Texture ID: {}", 
-                     modelHandle.GetID(), textureHandle.GetID());
+        Logger::Info("SandboxApp", "Test entity created with model and material handles. Model ID: {}, Material ID: {}", 
+                     modelHandle.GetID(), materialHandle.GetID());
     }
 
     Engine* m_engine = nullptr;

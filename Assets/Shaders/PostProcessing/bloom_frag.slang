@@ -225,6 +225,7 @@ float3 AnamorphicFlare(float3 color, float2 uv, float time)
     return color + flareColor;
 }
 
+[shader("fragment")]
 FragmentOutput main(VertexOutput input) {
     FragmentOutput output;
     

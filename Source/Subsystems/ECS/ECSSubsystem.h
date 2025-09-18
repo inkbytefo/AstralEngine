@@ -60,27 +60,15 @@ public:
             glm::mat4 transform;
             AssetHandle modelHandle;
             AssetHandle materialHandle;
-            AssetHandle textureHandle;
             bool visible;
             int renderLayer;
             
-            // Legacy support - geçici olarak string path'ler de tutuluyor
-            std::string modelPath;
-            std::string materialPath;
-            std::string texturePath;
-            
             RenderItem() : visible(true), renderLayer(0) {}
             
-            // AssetHandle tabanlı constructor
+            // Constructor - Material-driven rendering için tasarlanmıştır
             RenderItem(const glm::mat4& trans, const AssetHandle& model, const AssetHandle& material, 
-                      const AssetHandle& texture, bool vis = true, int layer = 0)
-                : transform(trans), modelHandle(model), materialHandle(material), textureHandle(texture)
-                , visible(vis), renderLayer(layer) {}
-                
-            // Legacy constructor - string tabanlı
-            RenderItem(const glm::mat4& trans, const std::string& model, const std::string& material, 
-                      const std::string& texture, bool vis = true, int layer = 0)
-                : transform(trans), modelPath(model), materialPath(material), texturePath(texture)
+                      bool vis = true, int layer = 0)
+                : transform(trans), modelHandle(model), materialHandle(material)
                 , visible(vis), renderLayer(layer) {}
         };
         std::vector<RenderItem> renderItems;

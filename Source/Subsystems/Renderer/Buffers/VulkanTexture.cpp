@@ -17,11 +17,10 @@ bool VulkanTexture::Initialize(VulkanDevice* device, const std::string& textureP
 
     try {
         CreateTextureImage(texturePath);
-        CreateTextureImageView();
-        CreateTextureSampler();
+        // Not: CreateTextureImageView ve CreateTextureSampler asenkron upload tamamlandığında çağrılacak
 
         m_isInitialized = true;
-        Logger::Info("VulkanTexture", "Texture initialized successfully: '{}'", texturePath);
+        Logger::Info("VulkanTexture", "Texture initialization started successfully: '{}'", texturePath);
         return true;
     } catch (const std::exception& e) {
         SetError(std::string("Failed to initialize texture: ") + e.what());
@@ -36,11 +35,10 @@ bool VulkanTexture::InitializeFromData(VulkanDevice* device, const void* data, u
 
     try {
         CreateTextureImageFromData(data, width, height, format);
-        CreateTextureImageView();
-        CreateTextureSampler();
+        // Not: CreateTextureImageView ve CreateTextureSampler asenkron upload tamamlandığında çağrılacak
 
         m_isInitialized = true;
-        Logger::Info("VulkanTexture", "Texture initialized from data: {}x{}, format: {}", width, height, static_cast<int>(format));
+        Logger::Info("VulkanTexture", "Texture initialization from data started: {}x{}, format: {}", width, height, static_cast<int>(format));
         return true;
     } catch (const std::exception& e) {
         SetError(std::string("Failed to initialize texture from data: ") + e.what());
@@ -51,6 +49,9 @@ bool VulkanTexture::InitializeFromData(VulkanDevice* device, const void* data, u
 
 void VulkanTexture::Shutdown() {
     if (!m_isInitialized) return;
+
+    // Önce staging kaynaklarını temizle
+    CleanupStagingResources();
 
     if (m_textureSampler != VK_NULL_HANDLE) {
         vkDestroySampler(m_device->GetDevice(), m_textureSampler, nullptr);
@@ -73,6 +74,7 @@ void VulkanTexture::Shutdown() {
     }
 
     m_isInitialized = false;
+    m_state = GpuResourceState::Unloaded;
     Logger::Debug("VulkanTexture", "Texture shutdown complete");
 }
 
@@ -87,41 +89,64 @@ void VulkanTexture::CreateTextureImage(const std::string& path) {
 
     Logger::Debug("VulkanTexture", "Loaded image: {}x{}, {} channels", m_texWidth, m_texHeight, m_texChannels);
 
-    // Staging buffer oluştur
-    VulkanBuffer stagingBuffer;
-    VulkanBuffer::Config stagingConfig;
-    stagingConfig.size = imageSize;
-    stagingConfig.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-    stagingConfig.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-    
-    if (!stagingBuffer.Initialize(m_device, stagingConfig)) {
-        stbi_image_free(pixels);
-        SetError("Failed to create staging buffer");
-        throw std::runtime_error(m_lastError);
-    }
+    // Önceki staging kaynaklarını temizle (eğer varsa)
+    CleanupStagingResources();
 
-    // Veriyi staging buffer'a kopyala
-    void* data = stagingBuffer.Map();
-    memcpy(data, pixels, static_cast<size_t>(imageSize));
-    stagingBuffer.Unmap();
+    // Boyut ve format bilgilerini sakla
+    m_width = static_cast<uint32_t>(m_texWidth);
+    m_height = static_cast<uint32_t>(m_texHeight);
+    m_format = VK_FORMAT_R8G8B8A8_SRGB;
+
+    // 1. Geçici bir staging buffer oluştur (CPU'dan erişilebilir)
+    m_device->CreateBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                           m_stagingBuffer, m_stagingMemory);
+
+    // 2. Staging buffer'ı map et ve veriyi kopyala
+    void* mappedData;
+    vkMapMemory(m_device->GetDevice(), m_stagingMemory, 0, imageSize, 0, &mappedData);
+    memcpy(mappedData, pixels, static_cast<size_t>(imageSize));
+    vkUnmapMemory(m_device->GetDevice(), m_stagingMemory);
 
     stbi_image_free(pixels);
 
-    // Texture image oluştur
-    m_device->CreateImage(m_texWidth, m_texHeight, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, 
-                          VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 
+    // 3. Texture image oluştur
+    m_device->CreateImage(m_width, m_height, m_format, VK_IMAGE_TILING_OPTIMAL,
+                          VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                           VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_textureImage, m_textureImageMemory);
-    
-    // Image layout'ını transfer için hazırla
-    TransitionImageLayout(m_textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    
-    // Staging buffer'dan image'e kopyala
-    m_device->CopyBufferToImage(stagingBuffer.GetBuffer(), m_textureImage, static_cast<uint32_t>(m_texWidth), static_cast<uint32_t>(m_texHeight));
-    
-    // Image layout'ını shader okuma için hazırla
-    TransitionImageLayout(m_textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-    stagingBuffer.Shutdown();
+    // 4. Image layout'ını transfer için hazırla (undefined -> transfer_dst_optimal)
+    TransitionImageLayout(m_textureImage, m_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+    // 5. Asenkron kopyalama komutunu transfer queue'ya gönder
+    m_uploadFence = m_device->SubmitToTransferQueue([&](VkCommandBuffer commandBuffer) {
+        VkBufferImageCopy region{};
+        region.bufferOffset = 0;
+        region.bufferRowLength = 0;
+        region.bufferImageHeight = 0;
+        
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.mipLevel = 0;
+        region.imageSubresource.baseArrayLayer = 0;
+        region.imageSubresource.layerCount = 1;
+        
+        region.imageOffset = {0, 0, 0};
+        region.imageExtent = {m_width, m_height, 1};
+        
+        vkCmdCopyBufferToImage(commandBuffer, m_stagingBuffer, m_textureImage,
+                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    });
+
+    if (m_uploadFence == VK_NULL_HANDLE) {
+        SetError("Failed to submit transfer command to queue");
+        CleanupStagingResources();
+        throw std::runtime_error(m_lastError);
+    }
+
+    // 6. Texture durumunu "Uploading" olarak ayarla
+    m_state = GpuResourceState::Uploading;
+
+    Logger::Debug("VulkanTexture", "Texture image transfer submitted to transfer queue asynchronously.");
 }
 
 void VulkanTexture::CreateTextureImageFromData(const void* data, uint32_t width, uint32_t height, VkFormat format) {
@@ -157,42 +182,66 @@ void VulkanTexture::CreateTextureImageFromData(const void* data, uint32_t width,
 
     Logger::Debug("VulkanTexture", "Creating texture from data: {}x{}, format: {}", width, height, static_cast<int>(format));
 
-    // Staging buffer oluştur
-    VulkanBuffer stagingBuffer;
-    VulkanBuffer::Config stagingConfig;
-    stagingConfig.size = imageSize;
-    stagingConfig.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-    stagingConfig.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-    
-    if (!stagingBuffer.Initialize(m_device, stagingConfig)) {
-        SetError("Failed to create staging buffer for CreateTextureImageFromData");
+    // Önceki staging kaynaklarını temizle (eğer varsa)
+    CleanupStagingResources();
+
+    // Boyut ve format bilgilerini sakla
+    m_width = width;
+    m_height = height;
+    m_format = format;
+
+    // 1. Geçici bir staging buffer oluştur (CPU'dan erişilebilir)
+    m_device->CreateBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                           m_stagingBuffer, m_stagingMemory);
+
+    // 2. Staging buffer'ı map et ve veriyi kopyala
+    void* mappedData;
+    vkMapMemory(m_device->GetDevice(), m_stagingMemory, 0, imageSize, 0, &mappedData);
+    memcpy(mappedData, data, static_cast<size_t>(imageSize));
+    vkUnmapMemory(m_device->GetDevice(), m_stagingMemory);
+
+    // 3. Texture image oluştur
+    m_device->CreateImage(width, height, format, VK_IMAGE_TILING_OPTIMAL,
+                          VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_textureImage, m_textureImageMemory);
+
+    // 4. Image layout'ını transfer için hazırla (undefined -> transfer_dst_optimal)
+    TransitionImageLayout(m_textureImage, format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+    // 5. Asenkron kopyalama komutunu transfer queue'ya gönder
+    m_uploadFence = m_device->SubmitToTransferQueue([&](VkCommandBuffer commandBuffer) {
+        VkBufferImageCopy region{};
+        region.bufferOffset = 0;
+        region.bufferRowLength = 0;
+        region.bufferImageHeight = 0;
+        
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.mipLevel = 0;
+        region.imageSubresource.baseArrayLayer = 0;
+        region.imageSubresource.layerCount = 1;
+        
+        region.imageOffset = {0, 0, 0};
+        region.imageExtent = {width, height, 1};
+        
+        vkCmdCopyBufferToImage(commandBuffer, m_stagingBuffer, m_textureImage,
+                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    });
+
+    if (m_uploadFence == VK_NULL_HANDLE) {
+        SetError("Failed to submit transfer command to queue");
+        CleanupStagingResources();
         throw std::runtime_error(m_lastError);
     }
 
-    // Veriyi staging buffer'a kopyala
-    void* mappedData = stagingBuffer.Map();
-    memcpy(mappedData, data, static_cast<size_t>(imageSize));
-    stagingBuffer.Unmap();
+    // 6. Texture durumunu "Uploading" olarak ayarla
+    m_state = GpuResourceState::Uploading;
 
-    // Texture image oluştur
-    m_device->CreateImage(width, height, format, VK_IMAGE_TILING_OPTIMAL, 
-                          VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 
-                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_textureImage, m_textureImageMemory);
-    
-    // Image layout'ını transfer için hazırla
-    TransitionImageLayout(m_textureImage, format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    
-    // Staging buffer'dan image'e kopyala
-    m_device->CopyBufferToImage(stagingBuffer.GetBuffer(), m_textureImage, width, height);
-    
-    // Image layout'ını shader okuma için hazırla
-    TransitionImageLayout(m_textureImage, format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-    stagingBuffer.Shutdown();
+    Logger::Debug("VulkanTexture", "Texture image from data transfer submitted to transfer queue asynchronously.");
 }
 
 void VulkanTexture::CreateTextureImageView() {
-    m_textureImageView = m_device->CreateImageView(m_textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT);
+    m_textureImageView = m_device->CreateImageView(m_textureImage, m_format, VK_IMAGE_ASPECT_COLOR_BIT);
     Logger::Debug("VulkanTexture", "Texture image view created");
 }
 
@@ -265,8 +314,91 @@ void VulkanTexture::TransitionImageLayout(VkImage image, VkFormat format, VkImag
     });
 }
 
-void VulkanTexture::SetError(const std::string& error) { 
-    m_lastError = error; 
+bool VulkanTexture::IsReady() const {
+    if (!m_isInitialized) {
+        return false;
+    }
+    
+    // Eğer fence varsa, durumunu kontrol et
+    if (m_uploadFence != VK_NULL_HANDLE) {
+        VkResult result = vkGetFenceStatus(m_device->GetDevice(), m_uploadFence);
+        if (result == VK_SUCCESS) {
+            // Fence sinyal verdi, upload tamamlandı
+            // Const metod olduğu için state'i değiştiremiyoruz, bu yüzden sadece true döndürüyoruz
+            // State güncellemesi için CompleteImageInitialization() çağrılmalı
+            return true;
+        } else if (result == VK_NOT_READY) {
+            // Henüz tamamlanmadı
+            return false;
+        } else {
+            // Hata durumu
+            Logger::Error("VulkanTexture", "Fence status check failed: %d", result);
+            return false;
+        }
+    }
+    
+    // Fence yoksa, state'e göre kontrol et
+    return m_state == GpuResourceState::Ready;
+}
+
+void VulkanTexture::CleanupStagingResources() {
+    if (m_stagingBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(m_device->GetDevice(), m_stagingBuffer, nullptr);
+        m_stagingBuffer = VK_NULL_HANDLE;
+        Logger::Debug("VulkanTexture", "Staging buffer destroyed");
+    }
+
+    if (m_stagingMemory != VK_NULL_HANDLE) {
+        vkFreeMemory(m_device->GetDevice(), m_stagingMemory, nullptr);
+        m_stagingMemory = VK_NULL_HANDLE;
+        Logger::Debug("VulkanTexture", "Staging memory freed");
+    }
+
+    if (m_uploadFence != VK_NULL_HANDLE) {
+        vkDestroyFence(m_device->GetDevice(), m_uploadFence, nullptr);
+        m_uploadFence = VK_NULL_HANDLE;
+        Logger::Debug("VulkanTexture", "Upload fence destroyed");
+    }
+}
+
+void VulkanTexture::CompleteImageInitialization() {
+    if (!m_isInitialized || m_state != GpuResourceState::Uploading) {
+        Logger::Warning("VulkanTexture", "CompleteImageInitialization called but texture is not in uploading state");
+        return;
+    }
+
+    // Fence durumunu kontrol et
+    if (m_uploadFence != VK_NULL_HANDLE) {
+        VkResult result = vkGetFenceStatus(m_device->GetDevice(), m_uploadFence);
+        if (result == VK_SUCCESS) {
+            // Upload tamamlandı, staging kaynaklarını temizle
+            CleanupStagingResources();
+            
+            // Image layout'ını shader okuma için hazırla
+            TransitionImageLayout(m_textureImage, m_format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            
+            // Image view ve sampler oluştur
+            CreateTextureImageView();
+            CreateTextureSampler();
+            
+            // Texture durumunu "Ready" olarak ayarla
+            m_state = GpuResourceState::Ready;
+            
+            Logger::Info("VulkanTexture", "Texture initialization completed successfully: {}x{}", m_width, m_height);
+        } else if (result == VK_NOT_READY) {
+            // Henüz tamamlanmadı, bekle
+            Logger::Trace("VulkanTexture", "Texture upload still in progress");
+        } else {
+            // Hata durumu
+            Logger::Error("VulkanTexture", "Fence status check failed: %d", result);
+            m_state = GpuResourceState::Failed;
+            CleanupStagingResources();
+        }
+    }
+}
+
+void VulkanTexture::SetError(const std::string& error) {
+    m_lastError = error;
 }
 
 } // namespace AstralEngine

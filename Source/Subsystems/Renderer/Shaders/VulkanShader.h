@@ -17,14 +17,6 @@ namespace AstralEngine {
  */
 class VulkanShader {
 public:
-    /**
-     * @brief Shader yapılandırma parametreleri
-     */
-    struct Config {
-        std::string filePath;           ///< Shader dosyasının yolu (.spv)
-        VkShaderStageFlagBits stage;    ///< Shader aşaması (vertex, fragment vb.)
-    };
-
     VulkanShader();
     ~VulkanShader();
 
@@ -33,13 +25,12 @@ public:
     VulkanShader& operator=(const VulkanShader&) = delete;
 
     // Yaşam döngüsü
-    bool Initialize(VulkanDevice* device, const Config& config);
+    bool Initialize(VulkanDevice* device, const std::vector<uint32_t>& spirvCode, VkShaderStageFlagBits stage);
     void Shutdown();
 
     // Getter'lar
     VkShaderModule GetModule() const { return m_shaderModule; }
     VkShaderStageFlagBits GetStage() const { return m_stage; }
-    const std::string& GetFilePath() const { return m_filePath; }
     bool IsInitialized() const { return m_isInitialized; }
 
     // Hata yönetimi
@@ -47,15 +38,13 @@ public:
 
 private:
     // Yardımcı metotlar
-    std::vector<char> ReadShaderFile(const std::string& filePath);
-    bool CreateShaderModule(const std::vector<char>& shaderCode);
+    bool CreateShaderModule(const std::vector<uint32_t>& spirvCode);
     void SetError(const std::string& error);
 
     // Member değişkenler
     VulkanDevice* m_device = nullptr;
     VkShaderModule m_shaderModule = VK_NULL_HANDLE;
     VkShaderStageFlagBits m_stage;
-    std::string m_filePath;
     std::string m_lastError;
     bool m_isInitialized = false;
 };

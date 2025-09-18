@@ -10,6 +10,7 @@
 #include "Subsystems/Platform/PlatformSubsystem.h"
 #include "Subsystems/Renderer/RenderSubsystem.h"
 #include "Subsystems/Asset/AssetSubsystem.h"
+#include "Subsystems/Asset/Model.h"
 #include "Subsystems/ECS/ECSSubsystem.h"
 #include <iostream>
 #include <vector>
@@ -62,24 +63,6 @@ bool VulkanRenderer::Initialize(GraphicsDevice* device, void* owner) {
         
         m_graphicsDevice = device;
         m_owner = static_cast<Engine*>(owner);
-        
-        // AssetManager'ı ayarla
-        if (m_owner) {
-            auto assetSubsystem = m_owner->GetSubsystem<AssetSubsystem>();
-            if (assetSubsystem) {
-                m_assetManager = assetSubsystem->GetAssetManager();
-                if (!m_assetManager) {
-                    Logger::Error("VulkanRenderer", "Failed to get AssetManager from AssetSubsystem");
-                    return false;
-                }
-            } else {
-                Logger::Error("VulkanRenderer", "AssetSubsystem not found");
-                return false;
-            }
-        } else {
-            Logger::Error("VulkanRenderer", "Engine owner is null");
-            return false;
-        }
         
         // Initialize rendering components
         if (!InitializeRenderingComponents()) {
@@ -190,15 +173,11 @@ void VulkanRenderer::ShutdownRenderingComponents() {
         Logger::Info("VulkanRenderer", "Shutting down rendering components...");
         
         // Wait for device to finish operations
-        if (m_graphicsDevice && m_graphicsDevice->GetDevice() != VK_NULL_HANDLE) {
-            vkDeviceWaitIdle(m_graphicsDevice->GetDevice());
+        if (m_graphicsDevice && m_graphicsDevice->GetVulkanDevice() && m_graphicsDevice->GetVulkanDevice()->GetDevice() != VK_NULL_HANDLE) {
+            vkDeviceWaitIdle(m_graphicsDevice->GetVulkanDevice()->GetDevice());
         }
         
-        // Shutdown pipeline
-        if (m_pipeline) {
-            m_pipeline->Shutdown();
-            m_pipeline.reset();
-        }
+        // m_pipeline is removed, no shutdown needed for it.
         
         // Shutdown fallback texture
         if (m_fallbackTexture) {
@@ -214,287 +193,102 @@ void VulkanRenderer::ShutdownRenderingComponents() {
 }
 
 bool VulkanRenderer::InitializePipeline() {
-    Logger::Info("VulkanRenderer", "Initializing graphics pipeline");
-    
-    try {
-        m_pipeline = std::make_unique<VulkanPipeline>();
-        VulkanPipeline::Config pipelineConfig;
-        
-        // CRITICAL FIX: Eksik swapchain atamasını ekle
-        pipelineConfig.swapchain = m_graphicsDevice->GetSwapchain();
-        pipelineConfig.extent = m_graphicsDevice->GetSwapchain()->GetExtent();
-        
-        // Note: Shader'lar artık materyallerden dinamik olarak yüklenecek
-        // Pipeline konfigürasyonu boş shader listesi ile başlatılacak
-        pipelineConfig.shaders = {}; // Boş olarak başlat, materyallerden doldurulacak
-        pipelineConfig.descriptorSetLayout = m_graphicsDevice->GetDescriptorSetLayout();
-        pipelineConfig.useMinimalVertexInput = false;
-        
-        if (!m_pipeline->Initialize(m_graphicsDevice->GetVulkanDevice(), pipelineConfig)) {
-            Logger::Error("VulkanRenderer", "Failed to initialize pipeline: {}", m_pipeline->GetLastError());
-            return false;
-        }
-        
-        Logger::Info("VulkanRenderer", "Graphics pipeline initialized successfully");
-        return true;
-        
-    } catch (const std::exception& e) {
-        Logger::Error("VulkanRenderer", "Pipeline initialization failed: {}", e.what());
-        return false;
-    }
+    Logger::Info("VulkanRenderer", "Pipeline creation is now material-driven. This method is deprecated.");
+    return true;
 }
 
 
 
-void VulkanRenderer::RecordCommands(uint32_t frameIndex) {
+void VulkanRenderer::RecordCommands(uint32_t frameIndex, const std::map<VkPipeline, std::vector<ResolvedRenderItem>>& renderQueue) {
     if (!m_isInitialized || !m_graphicsDevice) {
         Logger::Error("VulkanRenderer", "Cannot record commands - renderer not properly initialized");
         return;
     }
-    
-    Logger::Debug("VulkanRenderer", "Starting command recording - frame index: {}", frameIndex);
-    
-    try {
-        // Update uniform buffer with current frame data
-        UpdateUniformBuffer(frameIndex);
-        
-        // Note: Non-ECS command recording is no longer supported
-        // Renderer now only works with ECS data through RecordCommandBufferWithECS
-        Logger::Warning("VulkanRenderer", "Non-ECS command recording called - this is no longer supported");
-        
-    } catch (const std::exception& e) {
-        Logger::Error("VulkanRenderer", "RecordCommands failed: {}", e.what());
-    }
-}
 
-void VulkanRenderer::RecordCommands(uint32_t frameIndex, const ECSSubsystem::RenderPacket& renderPacket) {
-    if (!m_isInitialized || !m_graphicsDevice) {
-        Logger::Error("VulkanRenderer", "Cannot record commands - renderer not properly initialized");
-        return;
-    }
-    
-    Logger::Debug("VulkanRenderer", "Starting command recording with ECS data - frame index: {}, items: {}", frameIndex, renderPacket.renderItems.size());
-    
     try {
-        // Update uniform buffer with current frame data
+        // Update the global uniform buffer with camera data for this frame
         UpdateUniformBuffer(frameIndex);
-        
-        // GraphicsDevice'den mevcut frame bilgilerini al
+
         uint32_t imageIndex = m_graphicsDevice->GetFrameManager()->GetCurrentImageIndex();
-        
-        // Record command buffer for this frame with ECS data
-        RecordCommandBufferWithECS(imageIndex, frameIndex, renderPacket);
-        
-        Logger::Debug("VulkanRenderer", "Commands recorded successfully for frame {} with {} ECS items", frameIndex, renderPacket.renderItems.size());
-        
-    } catch (const std::exception& e) {
-        Logger::Error("VulkanRenderer", "RecordCommands with ECS failed: {}", e.what());
-    }
-}
-
-void VulkanRenderer::RecordCommandBufferWithECS(uint32_t imageIndex, uint32_t frameIndex, const ECSSubsystem::RenderPacket& renderPacket) {
-    Logger::Debug("VulkanRenderer", "Recording command buffer with ECS data for image index: {}, items: {}", imageIndex, renderPacket.renderItems.size());
-    
-    try {
-        // Boundary check: imageIndex değerini doğrula
-        if (!m_graphicsDevice || !m_graphicsDevice->GetSwapchain()) {
-            Logger::Error("VulkanRenderer", "GraphicsDevice or swapchain is null in ECS recording");
-            return;
-        }
-        
-        if (imageIndex >= m_graphicsDevice->GetSwapchain()->GetImageCount()) {
-            Logger::Error("VulkanRenderer", "Image index {} out of range (swapchain has {} images) in ECS recording", 
-                        imageIndex, m_graphicsDevice->GetSwapchain()->GetImageCount());
-            return;
-        }
-        
-        // Boundary check: frameIndex değerini doğrula
-        if (frameIndex >= m_graphicsDevice->GetConfig().maxFramesInFlight) {
-            Logger::Error("VulkanRenderer", "Frame index {} out of range (max frames: {}) in ECS recording", 
-                        frameIndex, m_graphicsDevice->GetConfig().maxFramesInFlight);
-            return;
-        }
-        
-        // GraphicsDevice'den mevcut command buffer'ı al
         VkCommandBuffer commandBuffer = m_graphicsDevice->GetCurrentCommandBuffer();
+
         if (!commandBuffer) {
-            Logger::Error("VulkanRenderer", "Failed to get command buffer from GraphicsDevice in ECS recording");
+            Logger::Error("VulkanRenderer", "Failed to get command buffer from GraphicsDevice");
             return;
         }
-        
-        // Begin command buffer recording
+
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginInfo.flags = 0; // Optional
-        beginInfo.pInheritanceInfo = nullptr; // Optional
-        
-        VkResult result = vkBeginCommandBuffer(commandBuffer, &beginInfo);
-        if (result != VK_SUCCESS) {
-            Logger::Error("VulkanRenderer", "Failed to begin recording command buffer in ECS recording: {}", static_cast<int32_t>(result));
+        if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
+            Logger::Error("VulkanRenderer", "Failed to begin recording command buffer");
             return;
         }
-        
-        // Begin render pass
+
         VkRenderPassBeginInfo renderPassInfo{};
         renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         renderPassInfo.renderPass = m_graphicsDevice->GetSwapchain()->GetRenderPass();
         renderPassInfo.framebuffer = m_graphicsDevice->GetSwapchain()->GetFramebuffer(imageIndex);
         renderPassInfo.renderArea.offset = {0, 0};
         renderPassInfo.renderArea.extent = m_graphicsDevice->GetSwapchain()->GetExtent();
-        
-        // Set clear values (color + depth) - same as non-ECS version
-        VkClearValue clearValues[2] = {};
-        clearValues[0].color = {{m_clearColor[0], m_clearColor[1], m_clearColor[2], m_clearColor[3]}};  // Color clear
-        clearValues[1].depthStencil = {1.0f, 0};  // Depth clear to 1.0 (farthest), stencil to 0
+
+        VkClearValue clearValues[2];
+        clearValues[0].color = {{m_clearColor[0], m_clearColor[1], m_clearColor[2], m_clearColor[3]}};
+        clearValues[1].depthStencil = {1.0f, 0};
         renderPassInfo.clearValueCount = 2;
         renderPassInfo.pClearValues = clearValues;
-        
+
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-        
-        // Set viewport and scissor (tüm render item'lar için aynı)
+
         VkViewport viewport{};
-        viewport.x = 0.0f;
-        viewport.y = 0.0f;
         viewport.width = static_cast<float>(m_graphicsDevice->GetSwapchain()->GetExtent().width);
         viewport.height = static_cast<float>(m_graphicsDevice->GetSwapchain()->GetExtent().height);
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
         vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-        
+
         VkRect2D scissor{};
-        scissor.offset = {0, 0};
         scissor.extent = m_graphicsDevice->GetSwapchain()->GetExtent();
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-        
-        // Process ECS render items with material-driven rendering
-        VkPipeline lastBoundPipeline = VK_NULL_HANDLE;
-        VkPipelineLayout lastBoundPipelineLayout = VK_NULL_HANDLE;
-        
-        for (const auto& renderItem : renderPacket.renderItems) {
-            if (!renderItem.visible) {
+
+        for (const auto& [pipeline, items] : renderQueue) {
+            if (items.empty()) continue;
+
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+            // Get the pipeline layout from the material of the first item in the batch
+            VkPipelineLayout pipelineLayout = items[0].material->GetPipelineLayout();
+            if (pipelineLayout == VK_NULL_HANDLE) {
+                Logger::Warning("VulkanRenderer", "Skipping batch for material '{}' due to null pipeline layout.", items[0].material->GetName());
                 continue;
             }
-            
-            // AssetHandle'ı al (önce AssetHandle, sonra legacy string path)
-            AssetHandle modelHandle = renderItem.modelHandle.IsValid() ? renderItem.modelHandle : 
-                                     (!renderItem.modelPath.empty() ? AssetHandle(renderItem.modelPath, AssetHandle::Type::Model) : AssetHandle());
-            
-            if (!modelHandle.IsValid()) {
-                Logger::Warning("VulkanRenderer", "Render item has invalid model handle");
-                continue;
-            }
-            
-            // Asset durumunu kontrol et
-            AssetLoadState modelState = m_assetManager ? m_assetManager->GetAssetState(modelHandle) : AssetLoadState::NotLoaded;
-            
-            if (modelState == AssetLoadState::Loaded) {
-                // Model yüklüyse render et
-                auto model = m_assetManager->GetAsset<Model>(modelHandle);
-                if (!model) {
-                    Logger::Error("VulkanRenderer", "Model marked as loaded but not found in cache: {}", modelHandle.GetID());
+
+            for (const auto& item : items) {
+                if (!item.mesh || !item.material) {
+                    Logger::Warning("VulkanRenderer", "Skipping render item with missing mesh or material.");
                     continue;
                 }
-                
-                // Materyal handle'ını al
-                AssetHandle materialHandle = renderItem.materialHandle.IsValid() ? renderItem.materialHandle : 
-                                          (!renderItem.materialPath.empty() ? AssetHandle(renderItem.materialPath, AssetHandle::Type::Material) : AssetHandle());
-                
-                // Materyali al veya varsayılan materyal kullan
-                std::shared_ptr<Material> material = nullptr;
-                if (materialHandle.IsValid()) {
-                    AssetLoadState materialState = m_assetManager->GetAssetState(materialHandle);
-                    if (materialState == AssetLoadState::Loaded) {
-                        material = m_assetManager->GetAsset<Material>(materialHandle);
-                    }
+
+                VkDescriptorSet descriptorSet = item.material->GetDescriptorSet();
+                if (descriptorSet != VK_NULL_HANDLE) {
+                    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
                 }
+
+                vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &item.transform);
                 
-                // Eğer materyal yoksa, varsayılan PBR materyalini kullan
-                if (!material) {
-                    Logger::Warning("VulkanRenderer", "No valid material for render item, using default PBR material");
-                    // TODO: MaterialManager'dan varsayılan materyali al
-                    // material = m_materialManager->GetDefaultPBRMaterial();
-                    continue; // Geçici olarak atla
-                }
-                
-                // Materyalin pipeline'ını ve pipeline layout'ını al
-                VkPipeline materialPipeline = material->GetPipeline();
-                VkPipelineLayout materialPipelineLayout = material->GetPipelineLayout();
-                
-                if (materialPipeline == VK_NULL_HANDLE || materialPipelineLayout == VK_NULL_HANDLE) {
-                    Logger::Error("VulkanRenderer", "Material has invalid pipeline or pipeline layout");
-                    continue;
-                }
-                
-                // Pipeline değiştiyse yeni pipeline'ı bind et
-                if (materialPipeline != lastBoundPipeline) {
-                    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, materialPipeline);
-                    lastBoundPipeline = materialPipeline;
-                    lastBoundPipelineLayout = materialPipelineLayout;
-                    Logger::Debug("VulkanRenderer", "Bound new pipeline for material: {}", material->GetName());
-                }
-                
-                // Materyalin descriptor set'ini al
-                VkDescriptorSet materialDescriptorSet = material->GetDescriptorSet();
-                if (materialDescriptorSet != VK_NULL_HANDLE) {
-                    // Materyalin descriptor set'ini bind et
-                    vkCmdBindDescriptorSets(
-                        commandBuffer,
-                        VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        materialPipelineLayout,
-                        0,
-                        1,
-                        &materialDescriptorSet,
-                        0,
-                        nullptr
-                    );
-                }
-                
-                // Modelin içindeki her bir VulkanMesh için render et
-                const auto& meshes = model->GetMeshes();
-                for (const auto& mesh : meshes) {
-                    if (!mesh) {
-                        continue;
-                    }
-                    
-                    // Materyalin uniform buffer'ını güncelle
-                    material->UpdateUniformBuffer(frameIndex);
-                    
-                    // Mesh'in vertex ve index buffer'larını bind et
-                    mesh->Bind(commandBuffer);
-                    
-                    // Draw using indexed drawing with the mesh's index count
-                    vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(mesh->GetIndexCount()), 1, 0, 0, 0);
-                    
-                    Logger::Debug("VulkanRenderer", "Drew ECS item with model: {}, material: {}, index count: {}", 
-                                 modelHandle.GetID(), material->GetName(), mesh->GetIndexCount());
-                }
-                
-            } else if (modelState == AssetLoadState::Loading) {
-                // Model yükleniyorsa placeholder render et
-                Logger::Debug("VulkanRenderer", "Model still loading: {}, rendering placeholder", modelHandle.GetID());
-                RenderPlaceholder(commandBuffer, frameIndex, renderItem.transform);
-            } else {
-                // Model yüklenmediyse veya başarısız olduysa
-                Logger::Warning("VulkanRenderer", "Model not loaded (state: {}): {}", 
-                               static_cast<int>(modelState), modelHandle.GetID());
-                RenderPlaceholder(commandBuffer, frameIndex, renderItem.transform);
+                item.material->UpdateUniformBuffer(frameIndex);
+                item.mesh->Bind(commandBuffer);
+                vkCmdDrawIndexed(commandBuffer, item.mesh->GetIndexCount(), 1, 0, 0, 0);
             }
         }
-        
-        // End render pass
+
         vkCmdEndRenderPass(commandBuffer);
-        
-        // End command buffer recording
-        result = vkEndCommandBuffer(commandBuffer);
-        if (result != VK_SUCCESS) {
-            Logger::Error("VulkanRenderer", "Failed to end recording command buffer in ECS recording: {}", static_cast<int32_t>(result));
-            return;
+
+        if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
+            Logger::Error("VulkanRenderer", "Failed to end recording command buffer");
         }
-        
-        Logger::Debug("VulkanRenderer", "ECS command buffer recorded successfully for image index: {}", imageIndex);
-        
+
     } catch (const std::exception& e) {
-        Logger::Error("VulkanRenderer", "RecordCommandBufferWithECS failed: {}", e.what());
+        Logger::Error("VulkanRenderer", "RecordCommands failed: {}", e.what());
     }
 }
 
@@ -566,7 +360,7 @@ void VulkanRenderer::UpdateDescriptors(uint32_t frameIndex, const std::shared_pt
         descriptorWrites[1].pTexelBufferView = nullptr;
         
         // Update descriptor sets
-        vkUpdateDescriptorSets(m_graphicsDevice->GetDevice(), 
+        vkUpdateDescriptorSets(m_graphicsDevice->GetVulkanDevice()->GetDevice(), 
                               static_cast<uint32_t>(descriptorWrites.size()), 
                               descriptorWrites.data(), 0, nullptr);
         
@@ -720,7 +514,7 @@ std::shared_ptr<VulkanTexture> VulkanRenderer::CreateFallbackTexture() {
         // Create a 1x1 white texture
         std::vector<uint32_t> whitePixel = {0xFFFFFFFF}; // RGBA white
         
-        if (!texture->InitializeFromData(m_graphicsDevice->GetVulkanDevice(), 
+        if (!texture->InitializeFromData(m_graphicsDevice->GetVulkanDevice()->GetDevice(), 
                                        whitePixel.data(), 1, 1, VK_FORMAT_R8G8B8A8_UNORM)) {
             Logger::Error("VulkanRenderer", "Failed to create fallback texture: {}", texture->GetLastError());
             return nullptr;
@@ -953,71 +747,34 @@ void VulkanRenderer::RecordDynamicRenderingCommands(uint32_t frameIndex, uint32_
     }
 }
 
-void VulkanRenderer::RenderModelWithAssetHandles(VkCommandBuffer commandBuffer, uint32_t frameIndex, 
-                                               const ECSSubsystem::RenderPacket::RenderItem& renderItem, 
-                                               const std::shared_ptr<Model>& model) {
-    if (!model || !m_assetManager) {
-        return;
-    }
+
+
+void VulkanRenderer::UpdatePushConstants(VkCommandBuffer commandBuffer, VkPipelineLayout pipelineLayout, const glm::mat4& transform) {
+    // Push constants ile transform matrisini GPU'ya gönder
+    // Bu, uniform buffer güncellemelerinden daha hızlıdır
+    // Not: Pipeline layout'da push constant range tanımlı olmalı
     
-    // Modelin içindeki her bir VulkanMesh için render et
-    const auto& meshes = model->GetMeshes();
-    for (const auto& mesh : meshes) {
-        if (!mesh) {
-            continue;
+    try {
+        if (pipelineLayout == VK_NULL_HANDLE) {
+            Logger::Warning("VulkanRenderer", "Cannot update push constants - pipeline layout is null");
+            return;
         }
-        
-        // Texture handle'ını al - sadece AssetHandle kullan (yeni sistem)
-        AssetHandle textureHandle = renderItem.textureHandle;
-        
-        // Texture durumunu kontrol et - sadece Loaded durumunda render et
-        std::shared_ptr<VulkanTexture> texture = nullptr;
-        if (textureHandle.IsValid()) {
-            AssetLoadState textureState = m_assetManager->GetAssetState(textureHandle);
-            
-            if (textureState == AssetLoadState::Loaded) {
-                texture = m_assetManager->GetAsset<VulkanTexture>(textureHandle);
-                Logger::Debug("VulkanRenderer", "Using loaded texture: {}", textureHandle.GetID());
-            } else {
-                Logger::Warning("VulkanRenderer", "Texture not ready for rendering (state: {}): {}", 
-                               static_cast<int>(textureState), textureHandle.GetID());
-                texture = CreateFallbackTexture();
-            }
-        } else {
-            // Geçerli texture handle'ı yoksa fallback kullan
-            Logger::Debug("VulkanRenderer", "No valid texture handle, using fallback");
-            texture = CreateFallbackTexture();
-        }
-        
-        // Update descriptors with the texture
-        if (texture && texture->IsInitialized()) {
-            UpdateDescriptors(frameIndex, texture);
-        }
-        
-        // Update uniform buffer with ECS transform
-        UpdateUniformBufferWithECS(frameIndex, renderItem.transform);
-        
-        // Bind descriptor sets
-        VkDescriptorSet currentDescriptorSet = m_graphicsDevice->GetCurrentDescriptorSet(frameIndex);
-        vkCmdBindDescriptorSets(
+
+        // Transform matrisini push constant olarak gönder
+        // Shader'da layout(push_constant, std430) uniform Transform { mat4 model; } şeklinde tanımlı olmalı
+        vkCmdPushConstants(
             commandBuffer,
-            VK_PIPELINE_BIND_POINT_GRAPHICS,
-            m_pipeline->GetLayout(),
-            0,
-            1,
-            &currentDescriptorSet,
-            0,
-            nullptr
+            pipelineLayout,
+            VK_SHADER_STAGE_VERTEX_BIT, // Vertex shader'da kullanılacak
+            0, // offset
+            sizeof(glm::mat4), // size
+            glm::value_ptr(transform) // data
         );
-        
-        // Bind the mesh's vertex and index buffers
-        mesh->Bind(commandBuffer);
-        
-        // Draw using indexed drawing with the mesh's index count
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(mesh->GetIndexCount()), 1, 0, 0, 0);
-        
-        Logger::Debug("VulkanRenderer", "Drew ECS item with model ID: {}, index count: {}, texture: {}", 
-                     renderItem.modelHandle.GetID(), mesh->GetIndexCount(), texture ? "loaded" : "fallback");
+
+        Logger::Debug("VulkanRenderer", "Push constants updated with transform matrix");
+
+    } catch (const std::exception& e) {
+        Logger::Error("VulkanRenderer", "UpdatePushConstants failed: {}", e.what());
     }
 }
 

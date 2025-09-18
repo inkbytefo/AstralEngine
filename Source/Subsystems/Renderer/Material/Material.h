@@ -4,6 +4,7 @@
 #include "../../Asset/AssetManager.h"
 #include "../Buffers/VulkanTexture.h"
 #include "../Shaders/VulkanShader.h"
+#include "../Commands/VulkanPipeline.h" // Added for VulkanPipeline
 #include "../RendererTypes.h"
 #include <vulkan/vulkan.h>
 #include <string>
@@ -13,6 +14,8 @@
 #include <glm/glm.hpp>
 
 namespace AstralEngine {
+    // Forward declaration to avoid circular dependency
+    class RenderSubsystem;
 
 /**
  * @enum MaterialType
@@ -98,10 +101,11 @@ public:
     struct Config {
         MaterialType type = MaterialType::PBR;  ///< Materyal tipi
         std::string name = "UnnamedMaterial";    ///< Materyal adı
-        std::string vertexShaderPath;            ///< Vertex shader yolu
-        std::string fragmentShaderPath;          ///< Fragment shader yolu
+        AssetHandle vertexShaderHandle;          ///< Vertex shader handle
+        AssetHandle fragmentShaderHandle;        ///< Fragment shader handle
         VulkanDevice* device = nullptr;          ///< Vulkan device
         AssetManager* assetManager = nullptr;    ///< Asset manager
+        RenderSubsystem* renderSubsystem = nullptr; ///< Render subsystem for shader resolution
     };
 
     Material();
@@ -133,18 +137,18 @@ public:
 
     // Shader yönetimi
     void SetShaders(const std::string& vertexPath, const std::string& fragmentPath);
-    std::shared_ptr<VulkanShader> GetVertexShader() const { return m_vertexShader; }
-    std::shared_ptr<VulkanShader> GetFragmentShader() const { return m_fragmentShader; }
 
     // Vulkan kaynakları
     VkDescriptorSetLayout GetDescriptorSetLayout() const { return m_descriptorSetLayout; }
     VkDescriptorSet GetDescriptorSet() const { return m_descriptorSet; }
     VkPipelineLayout GetPipelineLayout() const { return m_pipelineLayout; }
+    VkPipeline GetPipeline() const;
 
     // Materyal bilgileri
     MaterialType GetType() const { return m_type; }
     const std::string& GetName() const { return m_name; }
     bool IsInitialized() const { return m_isInitialized; }
+    bool IsReady() const;
     bool IsTransparent() const { return m_properties.transparent; }
 
     // Frame güncellemeleri
@@ -160,6 +164,8 @@ private:
     bool CreateDescriptorPool();
     bool CreateDescriptorSets();
     bool CreatePipelineLayout();
+    bool BuildPipeline();
+    bool ResolveShaders(std::shared_ptr<VulkanShader>& vertexShader, std::shared_ptr<VulkanShader>& fragmentShader) const;
     void UpdateTextureBindings();
     uint32_t GetTextureBinding(TextureType type) const;
     std::string GetTextureName(TextureType type) const;
@@ -168,15 +174,16 @@ private:
     // Member değişkenler
     VulkanDevice* m_device = nullptr;
     AssetManager* m_assetManager = nullptr;
+    RenderSubsystem* m_renderSubsystem = nullptr; // For shader resolution
     
     // Materyal özellikleri
     MaterialType m_type;
     std::string m_name;
     MaterialProperties m_properties;
     
-    // Shader'lar
-    std::shared_ptr<VulkanShader> m_vertexShader;
-    std::shared_ptr<VulkanShader> m_fragmentShader;
+    // Shader Handles
+    AssetHandle m_vertexShaderHandle;
+    AssetHandle m_fragmentShaderHandle;
     
     // Texture'lar
     std::vector<TextureSlot> m_textureSlots;
@@ -188,6 +195,7 @@ private:
     std::vector<VkDescriptorSet> m_descriptorSets;
     VkDescriptorSet m_descriptorSet = VK_NULL_HANDLE;
     VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
+    std::unique_ptr<VulkanPipeline> m_graphicsPipeline; // Added for pipeline ownership
     
     // Uniform buffer
     std::vector<VkBuffer> m_uniformBuffers;
@@ -225,8 +233,8 @@ public:
 
     // Materyal oluşturma ve yükleme
     std::shared_ptr<Material> CreateMaterial(const Material::Config& config);
-    std::shared_ptr<Material> LoadMaterial(const std::string& materialPath);
     std::shared_ptr<Material> GetMaterial(const std::string& materialName) const;
+    std::shared_ptr<Material> GetMaterial(const AssetHandle& materialHandle);
     
     // Materyal yönetimi
     void RegisterMaterial(const std::string& name, std::shared_ptr<Material> material);

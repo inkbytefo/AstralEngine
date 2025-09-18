@@ -11,9 +11,13 @@
 
 namespace AstralEngine {
 
-VulkanMesh::VulkanMesh() 
+VulkanMesh::VulkanMesh()
     : m_device(nullptr)
-    , m_isInitialized(false) {
+    , m_isInitialized(false)
+    , m_uploadFence(VK_NULL_HANDLE)
+    , m_stagingBuffer(VK_NULL_HANDLE)
+    , m_stagingMemory(VK_NULL_HANDLE)
+    , m_state(GpuResourceState::Unloaded) {
 }
 
 VulkanMesh::~VulkanMesh() {
@@ -63,6 +67,9 @@ bool VulkanMesh::Initialize(VulkanDevice* device, const std::vector<Vertex>& ver
 }
 
 void VulkanMesh::Shutdown() {
+    // Önce staging kaynaklarını temizle
+    CleanupStagingResources();
+
     if (m_vertexBuffer) {
         m_vertexBuffer->Shutdown();
         m_vertexBuffer.reset();
@@ -77,6 +84,7 @@ void VulkanMesh::Shutdown() {
     m_indices.clear();
     m_device = nullptr;
     m_isInitialized = false;
+    m_state = GpuResourceState::Unloaded;
     m_lastError.clear();
 }
 
@@ -105,6 +113,33 @@ void VulkanMesh::Bind(VkCommandBuffer commandBuffer) const {
     if (m_indexBuffer && m_indexBuffer->IsInitialized()) {
         vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer->GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
     }
+}
+
+bool VulkanMesh::IsReady() const {
+    if (!m_isInitialized) {
+        return false;
+    }
+    
+    // Eğer fence varsa, durumunu kontrol et
+    if (m_uploadFence != VK_NULL_HANDLE) {
+        VkResult result = vkGetFenceStatus(m_device->GetDevice(), m_uploadFence);
+        if (result == VK_SUCCESS) {
+            // Fence sinyal verdi, upload tamamlandı
+            // Const metod olduğu için state'i değiştiremiyoruz, bu yüzden sadece true döndürüyoruz
+            // State güncellemesi için CheckUploadCompletions() çağrılmalı
+            return true;
+        } else if (result == VK_NOT_READY) {
+            // Henüz tamamlanmadı
+            return false;
+        } else {
+            // Hata durumu
+            AE_ERROR("VulkanMesh", "Fence status check failed: %d", result);
+            return false;
+        }
+    }
+    
+    // Fence yoksa, state'e göre kontrol et
+    return m_state == GpuResourceState::Ready;
 }
 
 bool VulkanMesh::CreateVertexBuffer(const std::vector<Vertex>& vertices) {
@@ -161,39 +196,65 @@ bool VulkanMesh::CopyDataToBuffer(VulkanBuffer* dstBuffer, VkDeviceSize bufferSi
         return false;
     }
 
+    // Önceki staging kaynaklarını temizle (eğer varsa)
+    CleanupStagingResources();
+
     // 1. Geçici bir staging buffer oluştur (CPU'dan erişilebilir)
-    VkBuffer stagingBuffer;
-    VkDeviceMemory stagingBufferMemory;
     m_device->CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                           stagingBuffer, stagingBufferMemory);
+                           m_stagingBuffer, m_stagingMemory);
 
     // 2. Staging buffer'ı map et ve veriyi kopyala
     void* mappedData;
-    vkMapMemory(m_device->GetDevice(), stagingBufferMemory, 0, bufferSize, 0, &mappedData);
+    vkMapMemory(m_device->GetDevice(), m_stagingMemory, 0, bufferSize, 0, &mappedData);
     memcpy(mappedData, data, static_cast<size_t>(bufferSize));
-    vkUnmapMemory(m_device->GetDevice(), stagingBufferMemory);
+    vkUnmapMemory(m_device->GetDevice(), m_stagingMemory);
 
-    // 3. Kopyalama komutunu GPU'ya gönder
-    m_device->SubmitSingleTimeCommands([&](VkCommandBuffer commandBuffer) {
+    // 3. Asenkron kopyalama komutunu transfer queue'ya gönder
+    m_uploadFence = m_device->SubmitToTransferQueue([&](VkCommandBuffer commandBuffer) {
         VkBufferCopy copyRegion{};
         copyRegion.srcOffset = 0;
         copyRegion.dstOffset = 0;
         copyRegion.size = bufferSize;
-        vkCmdCopyBuffer(commandBuffer, stagingBuffer, dstBuffer->GetBuffer(), 1, &copyRegion);
+        vkCmdCopyBuffer(commandBuffer, m_stagingBuffer, dstBuffer->GetBuffer(), 1, &copyRegion);
     });
 
-    // 4. Geçici staging buffer'ı temizle
-    vkDestroyBuffer(m_device->GetDevice(), stagingBuffer, nullptr);
-    vkFreeMemory(m_device->GetDevice(), stagingBufferMemory, nullptr);
+    if (m_uploadFence == VK_NULL_HANDLE) {
+        SetError("Failed to submit transfer command to queue");
+        CleanupStagingResources();
+        return false;
+    }
 
-    AE_DEBUG("VulkanMesh", "Data successfully copied to device-local buffer via staging.");
+    // 4. Mesh durumunu "Uploading" olarak ayarla
+    m_state = GpuResourceState::Uploading;
+
+    AE_DEBUG("VulkanMesh", "Data transfer submitted to transfer queue asynchronously.");
     return true;
 }
 
 void VulkanMesh::SetError(const std::string& error) {
     m_lastError = error;
     AE_ERROR("VulkanMesh", "VulkanMesh error: %s", error.c_str());
+}
+
+void VulkanMesh::CleanupStagingResources() {
+    if (m_stagingBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(m_device->GetDevice(), m_stagingBuffer, nullptr);
+        m_stagingBuffer = VK_NULL_HANDLE;
+        AE_DEBUG("VulkanMesh", "Staging buffer destroyed");
+    }
+
+    if (m_stagingMemory != VK_NULL_HANDLE) {
+        vkFreeMemory(m_device->GetDevice(), m_stagingMemory, nullptr);
+        m_stagingMemory = VK_NULL_HANDLE;
+        AE_DEBUG("VulkanMesh", "Staging memory freed");
+    }
+
+    if (m_uploadFence != VK_NULL_HANDLE) {
+        vkDestroyFence(m_device->GetDevice(), m_uploadFence, nullptr);
+        m_uploadFence = VK_NULL_HANDLE;
+        AE_DEBUG("VulkanMesh", "Upload fence destroyed");
+    }
 }
 
 } // namespace AstralEngine

@@ -2,6 +2,8 @@
 // Author: inkbytefo
 // Project: AstralEngine
 
+#include "../Common/common.slang"
+
 // Vertex shader inputs for full-screen quad
 [[vk::location(0)]] float3 inPosition : POSITION;
 [[vk::location(1)]] float2 inTexCoord : TEXCOORD0;
@@ -29,6 +31,7 @@ cbuffer UniformBufferObject : register(b0) {
     int useChromaticAberration;
 };
 
+[[shader("vertex")]]
 VertexOutput main() {
     VertexOutput output;
     
@@ -38,11 +41,11 @@ VertexOutput main() {
     // Calculate view ray for effects like depth of field
     // This creates rays from camera through each pixel
     float4 clipPos = float4(inPosition.xy, 1.0, 1.0);
-    float4 viewPos = mul(inverse(projection), clipPos);
+    float4 viewPos = mul(inverse4x4(projection), clipPos);
     viewPos = float4(viewPos.xy, -1.0, 0.0); // Point towards negative Z
     
     // Transform to world space
-    float4x4 invView = inverse(view);
+    float4x4 invView = inverse4x4(view);
     float4 worldPos = mul(invView, viewPos);
     output.viewRay = normalize(worldPos.xyz);
     

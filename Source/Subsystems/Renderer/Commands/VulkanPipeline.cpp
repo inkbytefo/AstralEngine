@@ -118,8 +118,14 @@ bool VulkanPipeline::CreatePipelineLayout() {
         Logger::Debug("VulkanPipeline", "Creating pipeline layout without descriptor sets");
     }
     
-    layoutInfo.pushConstantRangeCount = 0;   // Push constants
-    layoutInfo.pPushConstantRanges = nullptr; // Push constants
+    // Define push constant range for the model matrix
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT; // Accessible in vertex shader
+    pushConstantRange.offset = 0; // Start at the beginning of the push constant block
+    pushConstantRange.size = sizeof(glm::mat4); // Size for the model matrix
+
+    layoutInfo.pushConstantRangeCount = 1;   // Enable push constants
+    layoutInfo.pPushConstantRanges = &pushConstantRange; // Point to the defined range
     
     VkResult result = vkCreatePipelineLayout(m_device->GetDevice(), &layoutInfo, nullptr, &m_pipelineLayout);
     

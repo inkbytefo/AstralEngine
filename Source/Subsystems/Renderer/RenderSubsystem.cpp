@@ -3,10 +3,11 @@
 #include "../../Core/Logger.h"
 #include "../Platform/PlatformSubsystem.h"
 #include "../ECS/ECSSubsystem.h"
-#include "../Asset/AssetManager.h"
+#include "../Asset/AssetSubsystem.h"
 #include "../Material/Material.h"
-#include "../Texture/TextureManager.h"
-#include "../Shader/ShaderManager.h"
+#include "VulkanMeshManager.h"
+#include "VulkanTextureManager.h"
+#include <map>
 
 namespace AstralEngine {
 
@@ -50,33 +51,36 @@ void RenderSubsystem::OnInitialize(Engine* owner) {
         return;
     }
     
-    // Asset Manager oluştur
-    m_assetManager = std::make_unique<AssetManager>();
-    if (!m_assetManager->Initialize("Assets")) {
-        Logger::Error("RenderSubsystem", "Failed to initialize AssetManager!");
+    // AssetSubsystem'i al
+    m_assetSubsystem = m_owner->GetSubsystem<AssetSubsystem>();
+    if (!m_assetSubsystem) {
+        Logger::Error("RenderSubsystem", "AssetSubsystem not found!");
         return;
     }
     
-    // Texture Manager oluştur
-    m_textureManager = std::make_unique<TextureManager>();
-    if (!m_textureManager->Initialize(m_graphicsDevice->GetVulkanDevice(), m_assetManager.get())) {
-        Logger::Error("RenderSubsystem", "Failed to initialize TextureManager!");
+    // Vulkan Mesh Manager oluştur
+    m_vulkanMeshManager = std::make_unique<VulkanMeshManager>();
+    if (!m_vulkanMeshManager->Initialize(m_graphicsDevice->GetVulkanDevice(), m_assetSubsystem)) {
+        Logger::Error("RenderSubsystem", "Failed to initialize VulkanMeshManager!");
         return;
     }
     
-    // Material Manager oluştur
+    // Vulkan Texture Manager oluştur
+    m_vulkanTextureManager = std::make_unique<VulkanTextureManager>();
+    if (!m_vulkanTextureManager->Initialize(m_graphicsDevice->GetVulkanDevice(), m_assetSubsystem)) {
+        Logger::Error("RenderSubsystem", "Failed to initialize VulkanTextureManager!");
+        return;
+    }
+    
+    // Material Manager oluştur (AssetSubsystem kullanarak)
     m_materialManager = std::make_unique<MaterialManager>();
-    if (!m_materialManager->Initialize(m_graphicsDevice->GetVulkanDevice(), m_assetManager.get())) {
+    if (!m_materialManager->Initialize(m_graphicsDevice->GetVulkanDevice(), m_assetSubsystem->GetAssetManager())) {
         Logger::Error("RenderSubsystem", "Failed to initialize MaterialManager!");
         return;
     }
     
-    // Shader Manager oluştur
-    m_shaderManager = std::make_unique<ShaderManager>();
-    if (!m_shaderManager->Initialize(m_graphicsDevice->GetVulkanDevice(), m_assetManager.get(), m_textureManager.get())) {
-        Logger::Error("RenderSubsystem", "Failed to initialize ShaderManager!");
-        return;
-    }
+    // Note: ShaderManager is now handled by MaterialManager in the new architecture
+    // Shaders are loaded and managed through materials
     
     // Kamera oluştur ve yapılandır
     m_camera = std::make_unique<Camera>();
@@ -101,6 +105,9 @@ void RenderSubsystem::OnUpdate(float deltaTime) {
         return;
     }
 
+    // Frame sayaçlarını güncelle
+    m_framesProcessed++;
+
     // Kamera aspect ratio değerini dinamik olarak güncelle
     if (m_camera && m_window) {
         float currentAspectRatio = static_cast<float>(m_window->GetWidth()) / static_cast<float>(m_window->GetHeight());
@@ -109,30 +116,116 @@ void RenderSubsystem::OnUpdate(float deltaTime) {
         }
     }
 
-    // Asset Manager'ı güncelle
-    if (m_assetManager) {
-        m_assetManager->Update();
+    // Asenkron yükleme aktifse upload tamamlamalarını kontrol et
+    if (m_enableAsyncLoading) {
+        if (m_vulkanMeshManager) {
+            m_vulkanMeshManager->CheckUploadCompletions();
+        }
+        if (m_vulkanTextureManager) {
+            m_vulkanTextureManager->CheckUploadCompletions();
+        }
     }
-    
-    // Texture Manager'ı güncelle
-    if (m_textureManager) {
-        m_textureManager->Update();
-    }
-    
+
     // Material Manager'ı güncelle
     if (m_materialManager) {
         m_materialManager->Update();
     }
     
-    // Shader Manager'ı güncelle
-    if (m_shaderManager) {
-        m_shaderManager->Update();
+    // Note: Shader updates are now handled by MaterialManager
+
+    // Debug loglama için asset durumlarını logla (her 60 frame'de bir)
+    if (m_framesProcessed % 60 == 0) {
+        LogAssetStatus();
     }
 
     // ECS'den render verilerini al
     if (m_ecsSubsystem) {
         auto renderPacket = m_ecsSubsystem->GetRenderData();
         
+        // RenderQueue oluştur ve doldur - GPU kaynakları çözülmüş olarak
+        using RenderQueue = std::map<VkPipeline, std::vector<VulkanRenderer::ResolvedRenderItem>>;
+        RenderQueue sortedRenderQueue;
+
+        // Debug sayaçlarını sıfırla
+        m_meshesReady = 0;
+        m_texturesReady = 0;
+        m_meshesPending = 0;
+        m_texturesPending = 0;
+
+        for (const auto& item : renderPacket.renderItems) {
+            if (!item.visible) {
+                continue; // Görünür olmayan öğeleri atla
+            }
+
+            AssetHandle materialHandle = item.materialHandle;
+            AssetHandle modelHandle = item.modelHandle;
+            
+            if (!materialHandle.IsValid() || !modelHandle.IsValid()) {
+                Logger::Warning("RenderSubsystem", "RenderItem has invalid handles (material: {}, model: {}). Skipping.",
+                               materialHandle.IsValid() ? materialHandle.GetID() : 0,
+                               modelHandle.IsValid() ? modelHandle.GetID() : 0);
+                continue;
+            }
+
+            // Asset readiness kontrolü yap
+            if (!CheckAssetReadiness(modelHandle, materialHandle)) {
+                continue; // Asset'ler hazır değilse atla
+            }
+
+            // Material objesini MaterialManager'dan al
+            auto material = m_materialManager->GetMaterial(materialHandle);
+            if (!material) {
+                Logger::Warning("RenderSubsystem", "Material not found for handle: {}. Skipping item.", materialHandle.GetID());
+                continue;
+            }
+
+            // Material'dan VkPipeline'ı al
+            VkPipeline pipeline = material->GetPipeline();
+            if (pipeline == VK_NULL_HANDLE) {
+                Logger::Debug("RenderSubsystem", "Material '{}' is not yet ready for rendering (shaders still loading). Skipping item.", material->GetName());
+                continue;
+            }
+
+            // GPU mesh kaynağını al veya oluştur
+            auto mesh = m_vulkanMeshManager->GetOrCreateMesh(modelHandle);
+            if (!mesh) {
+                // Bu, mesh verisinin hala yükleniyor olduğu veya bir hata oluştuğu anlamına gelebilir.
+                // Her iki durumda da bu karede çizimini atlamak doğru bir yaklaşımdır.
+                Logger::Debug("RenderSubsystem", "Mesh data for model handle {} is not yet ready. Skipping render for this item.", modelHandle.GetID());
+                m_meshesPending++;
+                continue;
+            }
+
+            // Mesh'in hazır olduğunu kontrol et (asenkron yükleme için)
+            if (m_enableAsyncLoading && !mesh->IsReady()) {
+                Logger::Debug("RenderSubsystem", "Mesh for model handle {} is still uploading. Skipping render for this item.", modelHandle.GetID());
+                m_meshesPending++;
+                continue;
+            }
+
+            // Material'in texture'larının hazır olduğunu kontrol et
+            if (m_enableAsyncLoading && !material->AreTexturesReady()) {
+                Logger::Debug("RenderSubsystem", "Textures for material '{}' are still uploading. Skipping render for this item.", material->GetName());
+                m_texturesPending++;
+                continue;
+            }
+
+            // Debug sayaçlarını güncelle
+            m_meshesReady++;
+            m_texturesReady++;
+
+            // Çözülmüş render item'ı kuyruğa ekle
+            // Material zaten texture'ları yönettiği için ek texture çözümlemesi gerekmiyor
+            sortedRenderQueue[pipeline].push_back({
+                item.transform,
+                mesh,
+                material
+            });
+        }
+        
+        Logger::Debug("RenderSubsystem", "Sorted {} render items into {} pipelines. Ready meshes: {}, Pending meshes: {}, Ready textures: {}, Pending textures: {}",
+                     renderPacket.renderItems.size(), sortedRenderQueue.size(), m_meshesReady, m_meshesPending, m_texturesReady, m_texturesPending);
+
         // GraphicsDevice frame'i başlatsın (fence bekleme ve image alma)
         if (m_graphicsDevice->BeginFrame()) {
             // VulkanRenderer sadece komutları kaydetsin
@@ -142,16 +235,14 @@ void RenderSubsystem::OnUpdate(float deltaTime) {
                 vulkanRenderer->SetCamera(m_camera.get());
                 // GraphicsDevice'den güncel frame indeksini al
                 uint32_t currentFrameIndex = m_graphicsDevice->GetCurrentFrameIndex();
-                // Render verilerini VulkanRenderer'a gönder
-                vulkanRenderer->RecordCommands(currentFrameIndex, renderPacket); // Sadece komut kaydı, submit/present yapma
+                // Sıralanmış render verilerini VulkanRenderer'a gönder
+                vulkanRenderer->RecordCommands(currentFrameIndex, sortedRenderQueue); // Sadece komut kaydı, submit/present yapma
             }
             
             // GraphicsDevice frame'i bitirsin (submit ve present)
             m_graphicsDevice->EndFrame();
         }
         
-        Logger::Debug("RenderSubsystem", "Rendering {} items from ECS with deltaTime: {}", 
-                     renderPacket.renderItems.size(), deltaTime);
     } else {
         Logger::Error("RenderSubsystem", "ECSSubsystem not available for render data");
     }
@@ -160,24 +251,21 @@ void RenderSubsystem::OnUpdate(float deltaTime) {
 void RenderSubsystem::OnShutdown() {
     Logger::Info("RenderSubsystem", "Shutting down render subsystem...");
     
-    if (m_shaderManager) {
-        m_shaderManager->Shutdown();
-        m_shaderManager.reset();
-    }
+    // Note: ShaderManager is now handled by MaterialManager
     
     if (m_materialManager) {
         m_materialManager->Shutdown();
         m_materialManager.reset();
     }
     
-    if (m_textureManager) {
-        m_textureManager->Shutdown();
-        m_textureManager.reset();
+    if (m_vulkanTextureManager) {
+        m_vulkanTextureManager->Shutdown();
+        m_vulkanTextureManager.reset();
     }
     
-    if (m_assetManager) {
-        m_assetManager->Shutdown();
-        m_assetManager.reset();
+    if (m_vulkanMeshManager) {
+        m_vulkanMeshManager->Shutdown();
+        m_vulkanMeshManager.reset();
     }
     
     if (m_camera) {
@@ -225,6 +313,86 @@ void RenderSubsystem::EndFrame() {
     // - Present
     
     // Şimdilik sadece loglama yapıyoruz, gerçek implementasyon VulkanRenderer'da
+}
+
+bool RenderSubsystem::IsMaterialReady(const std::shared_ptr<Material>& material) const {
+    if (!material) {
+        return false;
+    }
+    
+    // Check if the material has a valid pipeline
+    return material->GetPipeline() != VK_NULL_HANDLE;
+}
+
+bool RenderSubsystem::CheckAssetReadiness(const AssetHandle& modelHandle, const AssetHandle& materialHandle) const {
+    if (!modelHandle.IsValid() || !materialHandle.IsValid()) {
+        return false;
+    }
+
+    // Material objesini MaterialManager'dan al
+    auto material = m_materialManager->GetMaterial(materialHandle);
+    if (!material) {
+        Logger::Warning("RenderSubsystem", "Material not found for handle: {}", materialHandle.GetID());
+        return false;
+    }
+
+    // Material'in pipeline'ının hazır olduğunu kontrol et
+    if (material->GetPipeline() == VK_NULL_HANDLE) {
+        Logger::Debug("RenderSubsystem", "Material '{}' pipeline is not ready", material->GetName());
+        return false;
+    }
+
+    // Asenkron yükleme aktifse mesh ve texture durumlarını kontrol et
+    if (m_enableAsyncLoading) {
+        // GPU mesh kaynağını al veya oluştur
+        auto mesh = m_vulkanMeshManager->GetOrCreateMesh(modelHandle);
+        if (!mesh) {
+            Logger::Debug("RenderSubsystem", "Mesh for model handle {} is not available", modelHandle.GetID());
+            return false;
+        }
+
+        // Mesh'in hazır olduğunu kontrol et
+        if (!mesh->IsReady()) {
+            Logger::Debug("RenderSubsystem", "Mesh for model handle {} is not ready (still uploading)", modelHandle.GetID());
+            return false;
+        }
+
+        // Material'in texture'larının hazır olduğunu kontrol et
+        if (!material->AreTexturesReady()) {
+            Logger::Debug("RenderSubsystem", "Textures for material '{}' are not ready (still uploading)", material->GetName());
+            return false;
+        }
+    }
+
+    return true;
+}
+
+void RenderSubsystem::LogAssetStatus() const {
+    if (!m_enableAsyncLoading) {
+        return; // Asenkron yükleme kapalıysa loglama yapma
+    }
+
+    Logger::Debug("RenderSubsystem", "=== Asset Status Report (Frame {}) ===", m_framesProcessed);
+    Logger::Debug("RenderSubsystem", "Ready Meshes: {}, Pending Meshes: {}", m_meshesReady, m_meshesPending);
+    Logger::Debug("RenderSubsystem", "Ready Textures: {}, Pending Textures: {}", m_texturesReady, m_texturesPending);
+    
+    // Mesh manager'dan genel durum bilgisi al
+    if (m_vulkanMeshManager) {
+        uint32_t totalMeshes = m_vulkanMeshManager->GetTotalMeshCount();
+        uint32_t readyMeshes = m_vulkanMeshManager->GetReadyMeshCount();
+        Logger::Debug("RenderSubsystem", "Mesh Manager - Total: {}, Ready: {}, Uploading: {}",
+                     totalMeshes, readyMeshes, totalMeshes - readyMeshes);
+    }
+    
+    // Texture manager'dan genel durum bilgisi al
+    if (m_vulkanTextureManager) {
+        uint32_t totalTextures = m_vulkanTextureManager->GetTotalTextureCount();
+        uint32_t readyTextures = m_vulkanTextureManager->GetReadyTextureCount();
+        Logger::Debug("RenderSubsystem", "Texture Manager - Total: {}, Ready: {}, Uploading: {}",
+                     totalTextures, readyTextures, totalTextures - readyTextures);
+    }
+    
+    Logger::Debug("RenderSubsystem", "=========================================");
 }
 
 } // namespace AstralEngine

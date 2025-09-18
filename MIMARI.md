@@ -1,104 +1,106 @@
 # Astral Engine - Mimari Tasarım Belgesi
 
-## 1. Felsefe ve Temel Prensipler
+**Sürüm:** 0.1.0-alpha  
+**Tarih:** 17 Eylül 2025  
+**Yazar:** Astral Engine Geliştirme Ekibi
 
-Bu mimarinin temel amacı, **modüler, ölçeklenebilir, veri odaklı ve bakımı kolay** bir oyun motoru oluşturmaktır. Her bir parça net bir sorumluluğa sahip olacak ve diğer parçalarla olan bağımlılığı minimumda tutulacaktır.
+## 1. Giriş ve Felsefe
 
--   **Modülerlik:** Motor, "alt sistemler" (subsystems) adı verilen bağımsız modüllerden oluşur. Yeni bir özellik (örneğin, fizik motoru) eklemek, yeni bir alt sistem oluşturmak kadar kolay olmalıdır.
--   **Soyutlama (Abstraction):** Her alt sistem, kendi iç karmaşıklığını gizler ve dışarıya temiz bir arayüz sunar. Örneğin, `RenderSubsystem`, Vulkan mı yoksa DirectX mi kullandığını diğer sistemlerden gizler.
--   **Veri Odaklı Tasarım (Data-Oriented Design):** Motorun merkezinde, verilerin kendisi ve bu verilerin nasıl işlendiği yer alır. ECS (Entity Component System), bu prensibin temelini oluşturur. Sistemler, bileşen verileri üzerinde çalışır.
--   **Gevşek Bağlılık (Loose Coupling):** Alt sistemler birbirine doğrudan bağımlı olmamalıdır. İletişim, kontrollü arayüzler (olaylar, mesajlar, merkezi veri havuzları) üzerinden sağlanmalıdır. Bu, bir sistemi değiştirmenin diğerlerini bozmamasını sağlar.
--   **Paralellik:** Bağımsız alt sistemler, modern çok çekirdekli işlemcilerden en iyi şekilde faydalanmak için potansiyel olarak ayrı iş parçacıklarında (threads) çalıştırılabilir.
+Astral Engine, modern C++20 standartları üzerine inşa edilmiş, yüksek performanslı, modüler ve platformdan bağımsız bir 3D oyun motorudur. Temel felsefesi, karmaşık sistemleri yönetilebilir, bakımı kolay ve genişletilebilir modüller halinde soyutlamaktır.
 
-## 2. Çekirdek Mimari: `Engine` ve `ISubsystem`
+-   **Modülerlik:** Motor, her biri belirli bir sorumluluğa sahip olan **Alt Sistemler (Subsystems)** etrafında tasarlanmıştır. Bu yapı, yeni özelliklerin (örneğin fizik, yapay zeka) mevcut sisteme entegrasyonunu kolaylaştırır.
+-   **Veri Odaklı Tasarım (Data-Oriented Design):** Motorun kalbinde, oyun dünyasının durumunu verimli bir şekilde yöneten bir **Entity Component System (ECS)** bulunur. Mantık, veriler üzerinde çalışan sistemler tarafından işlenir, bu da önbellek dostu ve performanslı operasyonlar sağlar.
+-   **Soyutlama ve Gevşek Bağlılık (Abstraction & Loose Coupling):** Alt sistemler, iç uygulama detaylarını (örneğin, Vulkan API'si, SDL3 pencere yönetimi) gizler ve birbirleriyle temiz, iyi tanımlanmış arayüzler üzerinden iletişim kurar. Bu, bir alt sistemdeki değişikliğin diğerlerini etkileme riskini en aza indirir.
+-   **Açık Genişletilebilirlik:** Motor, yeni render teknikleri, varlık türleri veya oyun mantığı sistemleri eklemeye olanak tanıyan esnek bir yapı sunar.
 
-Motorun kalbinde, tüm alt sistemlerin yaşam döngüsünü yöneten bir **`Engine`** sınıfı ve tüm alt sistemlerin uyması gereken bir **`ISubsystem`** arayüzü bulunur.
+## 2. Teknoloji Stack
 
-### 2.1. `ISubsystem` Arayüzü
+Astral Engine, endüstri standardı ve modern teknolojilerden yararlanır:
 
-Bu, her alt sistemin uyması gereken sözleşmedir. Motorun tüm modülleri tek tip olarak yönetmesini sağlar.
+| Bileşen                  | Teknoloji                                       | Amaç                                                    |
+| ------------------------- | ----------------------------------------------- | ------------------------------------------------------- |
+| **Dil**                   | C++20                                           | Modern, performanslı ve güvenli kod yazımı.             |
+| **Derleme Sistemi**       | CMake                                           | Platformlar arası tutarlı ve esnek proje yönetimi.      |
+| **Grafik API'si**         | Vulkan                                          | Düşük seviyeli, yüksek performanslı ve modern grafikler. |
+| **Pencere ve Girdi**      | SDL3                                            | Platformdan bağımsız pencere, girdi ve olay yönetimi.   |
+| **Shader Dili**           | Slang                                           | Modern, esnek ve SPIR-V'ye derlenebilen shader dili.    |
+| **3D Matematik**          | GLM (OpenGL Mathematics)                        | Vektör ve matris operasyonları için endüstri standardı.  |
+| **Model Yükleme**         | Assimp (Open Asset Import Library)              | Çeşitli 3D model formatlarını yükleme ve işleme.        |
+| **Veri Serileştirme**     | nlohmann/json                                   | Yapılandırılmış veriler ve ayarlar için JSON desteği.   |
+| **Grafik Bellek Yönetimi**| VMA (Vulkan Memory Allocator)                   | Verimli ve güvenli Vulkan bellek tahsisi.               |
 
-```cpp
-class ISubsystem {
-public:
-    virtual ~ISubsystem() = default;
+## 3. Çekirdek Mimari: `Engine` ve `ISubsystem`
 
-    // Motor başlatıldığında bir kez çağrılır.
-    virtual void OnInitialize(Engine* owner) = 0;
+Motorun mimari omurgası, `Engine` sınıfı ve `ISubsystem` arayüzü tarafından oluşturulur.
 
-    // Her frame'de ana döngü tarafından çağrılır.
-    virtual void OnUpdate(float deltaTime) = 0;
+-   **`ISubsystem` Arayüzü:** Tüm alt sistemlerin uyması gereken temel sözleşmedir. Her alt sistemin `OnInitialize`, `OnUpdate` ve `OnShutdown` gibi yaşam döngüsü metodlarını içermesini zorunlu kılar.
+-   **`Engine` Sınıfı:** Motorun ana orkestratörüdür. Alt sistemleri kaydeder, başlatır, ana döngü boyunca günceller ve motor kapatıldığında güvenli bir şekilde sonlandırır. Ayrıca alt sistemler arasında kontrollü bir erişim noktası görevi görür.
 
-    // Motor kapatıldığında bir kez çağrılır.
-    virtual void OnShutdown() = 0;
+## 4. Mevcut Alt Sistemler
 
-    // Hata ayıklama ve tanılama için sistemin adını döndürür.
-    virtual const char* GetName() const = 0;
-};
-```
+Astral Engine'in mevcut kararlı sürümü aşağıdaki alt sistemleri içermektedir:
 
-### 2.2. `Engine` Çekirdek Sınıfı
+### 4.1. `PlatformSubsystem`
+-   **Sorumluluk:** İşletim sistemi ile ilgili tüm işlemleri soyutlar.
+-   **Bileşenler:**
+    -   `Window`: SDL3 kullanarak pencere oluşturma, boyutlandırma ve yönetme.
+    -   `InputManager`: Klavye, fare ve diğer girdi cihazlarından gelen verileri işleme.
+-   **İşleyiş:** İşletim sistemi olaylarını yakalar ve motorun `EventManager`'ına iletir.
 
-`Engine` sınıfı, motorun orkestra şefidir. Alt sistemleri kaydeder, yaşam döngülerini (initialize, update, shutdown) yönetir ve ana döngüyü çalıştırır.
+### 4.2. `RenderSubsystem`
+-   **Sorumluluk:** Tüm çizim (rendering) işlemlerini yönetir ve grafik API'sini (Vulkan) soyutlar.
+-   **Bileşenler:**
+    -   `GraphicsDevice`: Vulkan instance, device ve kuyruklarını yönetir.
+    -   `VulkanSwapchain`: Görüntüyü ekrana sunmak için swapchain'i yönetir.
+    -   `VulkanMeshManager`: Model verilerini (vertex/index buffer) GPU'ya yükler ve yönetir.
+    -   `VulkanTextureManager`: Doku (texture) verilerini GPU'ya yükler ve yönetir.
+    -   `ShaderManager`: Slang ile derlenmiş SPIR-V shader'larını yükler ve Vulkan pipeline'larını oluşturur.
+    -   `MaterialManager`: Malzeme verilerini (PBR parametreleri, doku haritaları) yönetir.
+-   **İşleyiş:** `ECSSubsystem`'den aldığı `RenderPacket` verisini kullanarak sahneyi çizer.
 
-## 3. Alt Sistemlerin Detaylı Açıklaması
+### 4.3. `ECSSubsystem`
+-   **Sorumluluk:** Oyun dünyasının durumunu veri odaklı bir yaklaşımla yönetir.
+-   **Bileşenler:**
+    -   **Entity:** Oyun dünyasındaki bir nesneyi temsil eden basit bir ID.
+    -   **Component:** Bir entity'ye eklenen veri bloğu (örn: `TransformComponent`, `RenderComponent`).
+    -   **System:** Belirli bileşenlere sahip entity'ler üzerinde çalışan mantık (henüz tam olarak uygulanmadı, mantık `ECSSubsystem` içinde).
+-   **İşleyiş:** Her frame'de, render edilebilir entity'leri sorgular ve bu entity'lerin verilerinden (`Transform`, `Model`, `Material`) bir `RenderPacket` oluşturarak `RenderSubsystem`'e sunar.
 
-### 3.1. `PlatformSubsystem`
--   **Sorumlulukları:** İşletim sistemi ile ilgili tüm işlemleri soyutlamak. Pencere oluşturma, kullanıcı girdilerini (klavye, fare) işleme ve olay döngüsünü yönetme.
--   **Yönettiği Sınıflar:** `Window`, `InputManager`.
--   **Çıktısı:** `OnUpdate` içinde `window.pollEvents()` çağrısı yaparak `Event` sistemine olayları gönderir.
+### 4.4. `AssetSubsystem`
+-   **Sorumluluk:** Oyun varlıklarının (modeller, dokular, materyaller) diskten yüklenmesini, önbelleğe alınmasını ve yönetilmesini sağlar.
+-   **Bileşenler:**
+    -   `AssetManager`: Varlıkların yaşam döngüsünü yönetir ve `AssetHandle`'lar aracılığıyla güvenli erişim sağlar.
+    -   `AssetRegistry`: Varlıkların meta verilerini ve disk üzerindeki konumlarını takip eder.
+-   **İşleyiş:** Diğer alt sistemler, ihtiyaç duydukları varlıkları bu sistem üzerinden talep eder. `RenderSubsystem`, çizim için gerekli olan model ve doku verilerini bu sistem aracılığıyla alır.
 
-### 3.2. `AssetSubsystem`
--   **Sorumlulukları:** Varlıkların (modeller, dokular, materyaller) diskten yüklenmesi, yönetilmesi ve bellekte tutulması.
--   **Yönettiği Sınıflar:** `AssetManager`, `AssetLocator`.
--   **İşleyişi:** Diğer sistemler, ihtiyaç duydukları varlıkları bu alt sistem üzerinden asenkron olarak talep eder.
+## 5. Veri Akışı: Bir Frame'in Anatomisi
 
-### 3.3. `ECSSubsystem`
--   **Sorumlulukları:** Oyun dünyasının durumunu yönetmek. Entity, Component ve System'lerin yaşam döngüsünden sorumludur.
--   **İşleyişi:** `OnUpdate` içinde, tüm mantık sistemlerini günceller ve render verilerini toplayıp `RenderSubsystem`'e gönderir.
+Bir oyun döngüsü (frame) boyunca verinin sistemler arasındaki akışı şu şekildedir:
 
-### 3.4. `RenderSubsystem`
--   **Sorumlulukları:** Grafik API'sini (Vulkan) soyutlamak ve sahneyi ekrana çizmek.
--   **Yönettiği Sınıflar:** `GraphicsDevice`, `RenderScene`, `FrameRenderer`.
--   **İşleyişi:** Diğer sistemlerden tamamen soyutlanmıştır. Sadece kendisine gönderilen render verisi ile çalışır.
+1.  **Girdi ve Olaylar:** `PlatformSubsystem`, kullanıcı girdilerini ve pencere olaylarını işler.
+2.  **Oyun Mantığı:** `ECSSubsystem`, oyun mantığını günceller (örneğin, bir karakterin `TransformComponent`'ini değiştirir).
+3.  **Render Verisi Toplama:** `ECSSubsystem`, `RenderComponent` ve `TransformComponent` gibi bileşenlere sahip tüm entity'leri sorgular. Bu verilerden bir `RenderPacket` (çizim komut listesi) oluşturur.
+4.  **Render Komutları:** `RenderPacket`, `RenderSubsystem`'e gönderilir.
+5.  **Çizim:** `RenderSubsystem`, bu paketi işler. `AssetSubsystem`'den aldığı GPU'daki kaynakları (mesh, texture) kullanarak Vulkan çizim komutlarını oluşturur ve yürütür.
+6.  **Sunum:** `GraphicsDevice`, tamamlanan görüntüyü `Window`'a sunar.
 
-## 4. Sistemler Arası İletişim ve Veri Akışı
+## 6. Varlık (Asset) Pipeline'ı
 
-Gevşek bağlılığı korumak için sistemler arası iletişim kritik öneme sahiptir. Üç ana iletişim yöntemi kullanılacaktır:
+-   **Shader'lar:** `Assets/Shaders/` altındaki `.slang` dosyaları, CMake derleme süreci sırasında `slangc` derleyicisi kullanılarak platformdan bağımsız SPIR-V formatına (`.spv`) dönüştürülür ve çalışma zamanında `ShaderManager` tarafından yüklenir.
+-   **Modeller ve Dokular:** `Assets/` dizinindeki 3D modeller (örn: `.obj`, `.gltf`) ve dokular (örn: `.png`, `.jpg`), `AssetSubsystem` tarafından çalışma zamanında `Assimp` ve `stb_image` gibi kütüphaneler aracılığıyla yüklenir.
 
-1.  **ECS (Merkezi Veri Havuzu):** Sistemler arası dolaylı iletişimin ana yöntemidir.
+## 7. Planlanan Özellikler ve Yol Haritası
 
-2.  **Olay Sistemi (Event System):** Anlık ve asenkron olaylar için kullanılır.
+Astral Engine'in geliştirme yol haritası, aşağıdaki temel özelliklerin entegrasyonunu içermektedir:
 
-3.  **Servis Konumlandırıcı (Service Locator):** Bir alt sistemin, başka bir alt sistemin sunduğu bir servise doğrudan erişmesi gerektiğinde kullanılır.
+-   **Fizik Motoru (`PhysicsSubsystem`):**
+    -   **Teknoloji:** **Jolt Physics**
+    -   **Amaç:** Gerçek zamanlı rigid body simülasyonu, çarpışma tespiti ve fizik tabanlı oyun mekanikleri için bir fizik alt sistemi entegre etmek. Bu, oyuna dinamizm ve etkileşim katacaktır.
 
-### Örnek Veri Akışı: ECS'den Renderer'a
+-   **Geliştirici Arayüzü (`UISubsystem`):**
+    -   **Teknoloji:** **Dear ImGui**
+    -   **Amaç:** Hata ayıklama (debugging), performans profili oluşturma (profiling) ve oyun içi düzenleyici (editor) araçları için bir kullanıcı arayüzü alt sistemi eklemek. Bu, geliştirme sürecini önemli ölçüde hızlandıracaktır.
 
-1.  **Frame Başlangıcı:** `ECSSubsystem::OnUpdate()` çağrılır.
-2.  **Mantık Güncellemesi:** ECS içindeki sistemler çalışarak bileşenleri günceller.
-3.  **Render Verisi Toplama:** `ECSSubsystem`, render bileşenlerine sahip entity'leri sorgular.
-4.  **Veri Gönderimi:** Toplanan verilerden oluşan bir liste `RenderSubsystem`'e gönderilir.
-5.  **Render İşlemi:** `RenderSubsystem` bu veriyi kullanarak sahneyi çizer.
+## 8. Örnek Uygulama: `Sandbox`
 
-## 5. Ana Döngü (Frame Yaşam Döngüsü)
-
-`Engine::Run()` metodu içindeki bir frame'in tipik akışı:
-
-1.  **Zaman Yönetimi:** Delta time hesaplama
-2.  **Platform Güncellemesi:** `PlatformSubsystem::OnUpdate()`
-3.  **Asset Yönetimi:** `AssetSubsystem::OnUpdate()` (isteğe bağlı)
-4.  **Oyun Mantığı:** `ECSSubsystem::OnUpdate()`
-5.  **Render Verisi Gönderimi:** ECS'den render sistemine veri aktarımı
-6.  **Çizim:** `RenderSubsystem::OnUpdate()`
-7.  **Frame Sonu:** Bellek yöneticisi sıfırlama, performans sayaçları
-
-## 6. Uygulama Planı ve İlk Adımlar
-
-1.  **Çekirdek Yapıyı Oluşturun:** `Engine` ve `ISubsystem` sınıfları
-2.  **İlk Subsystem: `PlatformSubsystem`:** Boş pencere açma
-3.  **Temel Alt Sistemleri Entegre Edin:** Logger, MemoryManager
-4.  **`ECSSubsystem`'i Oluşturun:** Mevcut ECS kodunu entegre etme
-5.  **`RenderSubsystem`'i Oluşturun:** Temel render işlevi
-6.  **Veri Akışını Kurun:** ECS'den renderer'a veri gönderimi
-
-Bu belge, Astral Engine'in temelini sağlam ve geleceğe dönük bir şekilde atmak için bir başlangıç noktasıdır.
+Proje, `AstralEngine`'i bir kütüphane olarak nasıl kullanacağını gösteren bir `Sandbox` yürütülebilir dosyası içerir. Bu uygulama, motorun yeteneklerini test etmek ve yeni özellikleri denemek için birincil geliştirme ve test ortamıdır.
