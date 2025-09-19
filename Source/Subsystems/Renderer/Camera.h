@@ -2,6 +2,9 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include "Bounds.h"
+
+namespace AstralEngine {
 
 namespace AstralEngine {
 
@@ -42,6 +45,7 @@ public:
     // Getter'lar
     const glm::mat4& GetViewMatrix() const { return m_viewMatrix; }
     const glm::mat4& GetProjectionMatrix() const { return m_projectionMatrix; }
+    const Frustum& GetFrustum() const { return m_frustum; }
     const glm::vec3& GetPosition() const { return m_config.position; }
     const glm::vec3& GetTarget() const { return m_config.target; }
     const glm::vec3& GetUp() const { return m_config.up; }
@@ -70,9 +74,12 @@ public:
     void SetPerspective(float fov, float aspectRatio, float nearPlane, float farPlane);
 
 private:
+    void ExtractFrustumPlanes();
+
     Config m_config;
     glm::mat4 m_viewMatrix;
     glm::mat4 m_projectionMatrix;
+    Frustum m_frustum;
     bool m_isInitialized;
 };
 

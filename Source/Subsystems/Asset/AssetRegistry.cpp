@@ -80,8 +80,8 @@ bool AssetRegistry::SetAssetState(const AssetHandle& handle, AssetLoadState stat
         return false;
     }
     
-    AssetLoadState oldState = metadata->state;
-    metadata->state = state;
+    AssetLoadState oldState = metadata->state.load(std::memory_order_relaxed);
+    metadata->state.store(state, std::memory_order_relaxed);
     
     // State değişimini logla
     const char* stateNames[] = {"NotLoaded", "Queued", "Loading", "Loaded", "Failed", "Unloaded"};
@@ -99,7 +99,7 @@ AssetLoadState AssetRegistry::GetAssetState(const AssetHandle& handle) const {
         return AssetLoadState::NotLoaded;
     }
     
-    return metadata->state;
+    return metadata->state.load(std::memory_order_relaxed);
 }
 
 bool AssetRegistry::SetLoadProgress(const AssetHandle& handle, float progress) {

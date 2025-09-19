@@ -1,6 +1,7 @@
 #include "Engine.h"
 #include "Logger.h"
 #include "Subsystems/Platform/PlatformSubsystem.h"
+#include "Events/EventManager.h"
 #include <chrono>
 #include <thread>
 
@@ -47,16 +48,27 @@ void Engine::Run(IApplication* application) {
         // 1. Update engine-level systems
         Update();
         
-        // 2. Update all registered subsystems
-        for (auto& subsystem : m_subsystems) {
-            subsystem->OnUpdate(deltaTime);
+        // 2. Update platform subsystem (polls for events)
+        auto* platformSubsystem = GetSubsystem<PlatformSubsystem>();
+        if (platformSubsystem) {
+            platformSubsystem->OnUpdate(deltaTime);
         }
         
-        // 3. Update application logic
+        // 3. Process all queued events from the previous frame
+        EventManager::GetInstance().ProcessEvents();
+        
+        // 4. Update all other registered subsystems
+        for (auto& subsystem : m_subsystems) {
+            // Skip platform subsystem as it was already updated
+            if (subsystem.get() != platformSubsystem) {
+                subsystem->OnUpdate(deltaTime);
+            }
+        }
+        
+        // 5. Update application logic
         m_application->OnUpdate(deltaTime);
         
-        // 4. Check for shutdown requests (e.g., window close)
-        auto* platformSubsystem = GetSubsystem<PlatformSubsystem>();
+        // 6. Check for shutdown requests (e.g., window close)
         if (platformSubsystem && platformSubsystem->GetWindow()->ShouldClose()) {
             RequestShutdown();
         }

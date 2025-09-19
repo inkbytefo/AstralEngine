@@ -29,6 +29,30 @@ bool VulkanTexture::Initialize(VulkanDevice* device, const std::string& textureP
     }
 }
 
+bool VulkanTexture::Initialize(VulkanDevice* device, const Config& config) {
+    if (m_isInitialized) return true;
+    m_device = device;
+
+    try {
+        // Config bilgilerini sakla
+        m_width = config.width;
+        m_height = config.height;
+        m_format = config.format;
+
+        // Boş bir texture oluştur (post-processing framebuffer'ları için)
+        CreateEmptyTexture(config);
+
+        m_isInitialized = true;
+        Logger::Info("VulkanTexture", "Empty texture initialization started: {}x{}, format: {}, name: '{}'",
+                    config.width, config.height, static_cast<int>(config.format), config.name);
+        return true;
+    } catch (const std::exception& e) {
+        SetError(std::string("Failed to initialize empty texture: ") + e.what());
+        Logger::Error("VulkanTexture", "Empty texture initialization failed: {}", m_lastError);
+        return false;
+    }
+}
+
 bool VulkanTexture::InitializeFromData(VulkanDevice* device, const void* data, uint32_t width, uint32_t height, VkFormat format) {
     if (m_isInitialized) return true;
     m_device = device;
@@ -399,6 +423,29 @@ void VulkanTexture::CompleteImageInitialization() {
 
 void VulkanTexture::SetError(const std::string& error) {
     m_lastError = error;
+}
+
+void VulkanTexture::CreateEmptyTexture(const Config& config) {
+    // Önceki staging kaynaklarını temizle (eğer varsa)
+    CleanupStagingResources();
+
+    // Texture image oluştur (boş data ile)
+    m_device->CreateImage(config.width, config.height, config.format, VK_IMAGE_TILING_OPTIMAL,
+                          config.usage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                          m_textureImage, m_textureImageMemory);
+
+    // Image layout'ını general olarak ayarla
+    TransitionImageLayout(m_textureImage, config.format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+
+    // Image view ve sampler oluştur
+    CreateTextureImageView();
+    CreateTextureSampler();
+
+    // Texture durumunu "Ready" olarak ayarla (asenkron upload gerekmiyor)
+    m_state = GpuResourceState::Ready;
+
+    Logger::Debug("VulkanTexture", "Empty texture created: {}x{}, format: {}, usage: {}",
+                 config.width, config.height, static_cast<int>(config.format), static_cast<uint32_t>(config.usage));
 }
 
 } // namespace AstralEngine

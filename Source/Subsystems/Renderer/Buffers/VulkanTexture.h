@@ -8,10 +8,23 @@ namespace AstralEngine {
 
 class VulkanTexture {
 public:
+    /**
+     * @brief Texture yapılandırması için ayarlar
+     */
+    struct Config {
+        uint32_t width = 0;                          ///< Texture genişliği
+        uint32_t height = 0;                         ///< Texture yüksekliği
+        VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;   ///< Texture formatı
+        VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT; ///< Kullanım amaçları
+        VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_COLOR_BIT; ///< Aspect mask
+        std::string name = "UnnamedTexture";         ///< Texture adı (debug için)
+    };
+
     VulkanTexture();
     ~VulkanTexture();
 
     bool Initialize(VulkanDevice* device, const std::string& texturePath);
+    bool Initialize(VulkanDevice* device, const Config& config);
     bool InitializeFromData(VulkanDevice* device, const void* data, uint32_t width, uint32_t height, VkFormat format);
     void Shutdown();
 
@@ -39,6 +52,7 @@ public:
 private:
     void CreateTextureImage(const std::string& path);
     void CreateTextureImageFromData(const void* data, uint32_t width, uint32_t height, VkFormat format);
+    void CreateEmptyTexture(const Config& config);
     void CreateTextureImageView();
     void CreateTextureSampler();
     void TransitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);

@@ -124,11 +124,11 @@ bool VulkanSwapchain::Recreate() {
 }
 
 VkFramebuffer VulkanSwapchain::GetFramebuffer(uint32_t index) const {
-    if (index >= m_swapchainFramebuffers.size()) {
+    if (index >= m_framebuffers.size()) {
         Logger::Error("VulkanSwapchain", "Framebuffer index out of range: " + std::to_string(index));
         return VK_NULL_HANDLE;
     }
-    return m_swapchainFramebuffers[index];
+    return m_framebuffers[index]->GetFramebuffer();
 }
 
 VkImageView VulkanSwapchain::GetImageView(uint32_t index) const {
@@ -337,7 +337,8 @@ bool VulkanSwapchain::CreateImageViews() {
 
 bool VulkanSwapchain::CreateDepthResources() {
     // Find supported depth format
-    m_depthFormat = FindSupportedFormat(
+    m_depthFormat = VulkanUtils::FindSupportedFormat(
+        m_device->GetPhysicalDevice(),
         {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
         VK_IMAGE_TILING_OPTIMAL,
         VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
@@ -368,20 +369,6 @@ bool VulkanSwapchain::CreateDepthResources() {
     return true;
 }
 
-VkFormat VulkanSwapchain::FindSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features) {
-    for (VkFormat format : candidates) {
-        VkFormatProperties props;
-        vkGetPhysicalDeviceFormatProperties(m_device->GetPhysicalDevice(), format, &props);
-
-        if (tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features) {
-            return format;
-        } else if (tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures & features) == features) {
-            return format;
-        }
-    }
-
-    return VK_FORMAT_UNDEFINED;
-}
 
 bool VulkanSwapchain::CreateRenderPass() {
     // Color attachment
@@ -454,32 +441,32 @@ bool VulkanSwapchain::CreateRenderPass() {
 }
 
 bool VulkanSwapchain::CreateFramebuffers() {
-    m_swapchainFramebuffers.resize(m_swapchainImageViews.size());
+    m_framebuffers.resize(m_swapchainImageViews.size());
 
     for (size_t i = 0; i < m_swapchainImageViews.size(); i++) {
-        std::array<VkImageView, 2> attachments = {
-            m_swapchainImageViews[i],
-            m_depthImageView
-        };
-
-        VkFramebufferCreateInfo framebufferInfo{};
-        framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        framebufferInfo.renderPass = m_renderPass;
-        framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
-        framebufferInfo.pAttachments = attachments.data();
-        framebufferInfo.width = m_swapchainExtent.width;
-        framebufferInfo.height = m_swapchainExtent.height;
-        framebufferInfo.layers = 1;
-
-        VkResult result = vkCreateFramebuffer(m_device->GetDevice(), &framebufferInfo, nullptr, &m_swapchainFramebuffers[i]);
-        if (result != VK_SUCCESS) {
-            HandleVulkanError(result, "vkCreateFramebuffer");
-            Logger::Error("VulkanSwapchain", "Failed to create framebuffer for index " + std::to_string(i));
+        // Create VulkanFramebuffer instance
+        auto framebuffer = std::make_unique<VulkanFramebuffer>();
+        
+        // Configure framebuffer
+        VulkanFramebuffer::Config config;
+        config.device = m_device;
+        config.renderPass = m_renderPass;
+        config.attachments = { m_swapchainImageViews[i], m_depthImageView };
+        config.width = m_swapchainExtent.width;
+        config.height = m_swapchainExtent.height;
+        config.layers = 1;
+        
+        // Initialize framebuffer
+        if (!framebuffer->Initialize(config)) {
+            Logger::Error("VulkanSwapchain", "Failed to create framebuffer for index " + std::to_string(i) + ": " + framebuffer->GetLastError());
             return false;
         }
+        
+        // Store framebuffer
+        m_framebuffers[i] = std::move(framebuffer);
     }
 
-    Logger::Info("VulkanSwapchain", "Created " + std::to_string(m_swapchainFramebuffers.size()) + " framebuffers");
+    Logger::Info("VulkanSwapchain", "Created " + std::to_string(m_framebuffers.size()) + " framebuffers");
     return true;
 }
 
@@ -487,12 +474,12 @@ void VulkanSwapchain::Cleanup() {
     Logger::Info("VulkanSwapchain", "Cleaning up VulkanSwapchain resources...");
 
     // Cleanup framebuffers
-    for (auto framebuffer : m_swapchainFramebuffers) {
-        if (framebuffer != VK_NULL_HANDLE) {
-            vkDestroyFramebuffer(m_device->GetDevice(), framebuffer, nullptr);
+    for (auto& framebuffer : m_framebuffers) {
+        if (framebuffer && framebuffer->IsInitialized()) {
+            framebuffer->Shutdown();
         }
     }
-    m_swapchainFramebuffers.clear();
+    m_framebuffers.clear();
 
     // Cleanup render pass
     if (m_renderPass != VK_NULL_HANDLE) {
@@ -534,18 +521,6 @@ void VulkanSwapchain::Cleanup() {
     Logger::Info("VulkanSwapchain", "VulkanSwapchain resources cleaned up");
 }
 
-uint32_t VulkanSwapchain::FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
-    VkPhysicalDeviceMemoryProperties memProperties = m_device->GetMemoryProperties();
-
-    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
-        if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-            return i;
-        }
-    }
-
-    SetError("Failed to find suitable memory type");
-    return std::numeric_limits<uint32_t>::max();
-}
 
 bool VulkanSwapchain::CreateImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, 
                                  VkImageUsageFlags usage, VkMemoryPropertyFlags properties, 
@@ -578,7 +553,7 @@ bool VulkanSwapchain::CreateImage(uint32_t width, uint32_t height, VkFormat form
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = FindMemoryType(memRequirements.memoryTypeBits, properties);
+    allocInfo.memoryTypeIndex = m_device->FindMemoryType(memRequirements.memoryTypeBits, properties);
 
     if (allocInfo.memoryTypeIndex == std::numeric_limits<uint32_t>::max()) {
         return false;

@@ -51,16 +51,17 @@ public:
     // Mouse pozisyonu ve hareketi
     void GetMousePosition(int& x, int& y) const;
     void GetMouseDelta(int& dx, int& dy) const;
-    int GetMouseWheelDelta() const { return m_mouseWheelDelta; }
+    float GetMouseWheelDeltaY() const { return m_mouseWheelDeltaY; }
+    float GetMouseWheelDeltaX() const { return m_mouseWheelDeltaX; }
 
     // Internal event handling (Platform tarafından çağrılır)
-    void OnKeyEvent(KeyCode key, bool pressed);
+    void OnKeyEvent(KeyCode key, bool pressed, bool isRepeat);
     void OnMouseButtonEvent(MouseButton button, bool pressed);
     void OnMouseMoveEvent(int x, int y);
-    void OnMouseWheelEvent(int delta);
+    void OnMouseWheelEvent(float xOffset, float yOffset);
     
     // SDL3 event handlers (PlatformSubsystem tarafından çağrılır)
-    void HandleSDLKeyEvent(int sdlKeycode, bool pressed);
+    void HandleSDLKeyEvent(int sdlKeycode, bool pressed, bool isRepeat);
     void HandleSDLMouseButtonEvent(uint8_t sdlButton, bool pressed, float x, float y);
     
 
@@ -78,7 +79,8 @@ private:
     // Mouse position and movement
     int m_mouseX = 0, m_mouseY = 0;
     int m_mouseDeltaX = 0, m_mouseDeltaY = 0;
-    int m_mouseWheelDelta = 0;
+    float m_mouseWheelDeltaX = 0.0f;
+    float m_mouseWheelDeltaY = 0.0f;
     
     Window* m_window = nullptr;
     bool m_initialized = false;

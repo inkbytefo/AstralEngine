@@ -63,7 +63,18 @@ bool AssetManager::Initialize(const std::string& assetDirectory) {
 }
 
 void AssetManager::Update() {
-    // Async operations are handled by GetAsset calls.
+    if (!m_initialized) return;
+
+    ProcessGpuUploadQueue();
+}
+
+void AssetManager::ProcessGpuUploadQueue() {
+    std::lock_guard<std::mutex> lock(m_queueMutex);
+    while (!m_gpuUploadQueue.empty()) {
+        auto& uploadTask = m_gpuUploadQueue.front();
+        uploadTask();
+        m_gpuUploadQueue.pop();
+    }
 }
 
 void AssetManager::Shutdown() {
@@ -140,6 +151,15 @@ std::shared_ptr<ModelData> AssetManager::LoadModel(const std::string& filePath) 
         Logger::Error("AssetManager", "No valid geometry found in model '{}'", fullPath);
         return nullptr;
     }
+
+    // Modelin sınırlayıcı kutusunu (AABB) hesapla
+    AABB boundingBox;
+    for (const auto& vertex : modelData->vertices) {
+        boundingBox.Extend(vertex.position);
+    }
+    modelData->boundingBox = boundingBox;
+    Logger::Info("AssetManager", "Calculated bounding box for model '{}': Min({:.2f}, {:.2f}, {:.2f}), Max({:.2f}, {:.2f}, {:.2f})", 
+        fullPath, boundingBox.min.x, boundingBox.min.y, boundingBox.min.z, boundingBox.max.x, boundingBox.max.y, boundingBox.max.z);
     
     modelData->isValid = true;
     modelData->name = std::filesystem::path(fullPath).filename().string();
@@ -282,6 +302,76 @@ bool AssetManager::UnloadAsset(const AssetHandle& handle) {
     return false;
 }
 
+void AssetManager::LoadAssetAsync(const AssetHandle& handle) {
+    if (!m_initialized || !m_threadPool || !handle.IsValid()) {
+        return;
+    }
+
+    const AssetMetadata* metadata = m_registry.GetMetadata(handle);
+    if (!metadata) {
+        Logger::Error("AssetManager", "RequestLoad failed: Asset metadata not found for handle {}", handle.GetID());
+        return;
+    }
+
+    m_registry.SetAssetState(handle, AssetLoadState::Queued);
+
+    m_threadPool->Submit([this, handle, filePath = metadata->filePath, type = metadata->type]() {
+        m_registry.SetAssetState(handle, AssetLoadState::Loading);
+
+        std::shared_ptr<void> cpuData;
+        switch (type) {
+            case AssetHandle::Type::Model:
+                cpuData = LoadModel(filePath);
+                break;
+            case AssetHandle::Type::Texture:
+                cpuData = LoadTexture(filePath);
+                break;
+            case AssetHandle::Type::Shader:
+                cpuData = LoadShader(filePath);
+                break;
+            case AssetHandle::Type::Material:
+                cpuData = LoadMaterial(filePath);
+                break;
+            default:
+                Logger::Error("AssetManager", "Unsupported asset type for async load: {}", static_cast<int>(type));
+                m_registry.SetAssetError(handle, "Unsupported asset type");
+                m_registry.SetAssetState(handle, AssetLoadState::Failed);
+                return;
+        }
+
+        if (!cpuData) {
+            m_registry.SetAssetError(handle, "Failed to load asset from disk");
+            m_registry.SetAssetState(handle, AssetLoadState::Failed);
+            return;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(m_queueMutex);
+            m_gpuUploadQueue.push([this, handle, cpuData, type]() {
+                // This part runs on the main thread
+                std::shared_ptr<void> gpuResource;
+
+                // TODO: Replace with actual GPU resource creation
+                // For now, we'll just store the CPU data in the cache
+                gpuResource = cpuData;
+
+                if (gpuResource) {
+                    std::lock_guard<std::mutex> cacheLock(m_cacheMutex);
+                    // Create a promise, set its value, and store the shared_future in the cache
+                    std::promise<std::shared_ptr<void>> promise;
+                    promise.set_value(gpuResource);
+                    m_assetHandleCache[handle] = promise.get_future().share();
+                    m_registry.SetAssetState(handle, AssetLoadState::Loaded);
+                    Logger::Info("AssetManager", "Asset {} is loaded and ready.", handle.GetID());
+                } else {
+                    m_registry.SetAssetError(handle, "Failed to create GPU resource");
+                    m_registry.SetAssetState(handle, AssetLoadState::Failed);
+                }
+            });
+        }
+    });
+}
+
 template<typename T>
 bool AssetManager::IsAssetLoaded(const AssetHandle& handle) const {
     if (!handle.IsValid()) {
@@ -320,16 +410,6 @@ size_t AssetManager::GetLoadedAssetCountByType([[maybe_unused]] AssetHandle::Typ
     return m_registry.GetAssetCountByState(AssetLoadState::Loaded);
 }
 
-void AssetManager::LoadModelAsync(const std::string& filePath, LoadCallback callback) {
-    (void)callback; // Suppress unused parameter warning
-    Logger::Warning("AssetManager", "Async model loading not implemented yet: '{}'", filePath);
-}
-
-void AssetManager::LoadTextureAsync(const std::string& filePath, LoadCallback callback) {
-    (void)callback; // Suppress unused parameter warning
-    Logger::Warning("AssetManager", "Async texture loading not implemented yet: '{}'", filePath);
-}
-
 size_t AssetManager::GetLoadedAssetCount() const {
     return m_registry.GetAssetCountByState(AssetLoadState::Loaded);
 }
@@ -353,64 +433,13 @@ void AssetManager::RequestLoad(const AssetHandle& handle) {
         return;
     }
 
-    std::lock_guard<std::mutex> lock(m_cacheMutex);
-
-    if (m_assetHandleCache.find(handle) != m_assetHandleCache.end()) {
+    // Check if already loaded or loading
+    AssetLoadState currentState = m_registry.GetAssetState(handle);
+    if (currentState == AssetLoadState::Loaded || currentState == AssetLoadState::Loading || currentState == AssetLoadState::Queued) {
         return;
     }
 
-    if (m_registry.GetAssetState(handle) != AssetLoadState::Loading) {
-        m_registry.SetAssetState(handle, AssetLoadState::Loading);
-        m_registry.SetLoadProgress(handle, 0.0f);
-    }
-    
-    Logger::Debug("AssetManager", "Requesting async load for asset: {} (Type: {})", metadata->filePath, static_cast<int>(metadata->type));
-
-    std::future<std::shared_ptr<void>> future = m_threadPool->Submit([this, handle, metadata]() -> std::shared_ptr<void> {
-        auto startTime = std::chrono::high_resolution_clock::now();
-        std::shared_ptr<AssetData> assetData = nullptr;
-        bool success = false;
-
-        try {
-            switch (metadata->type) {
-                case AssetHandle::Type::Model:
-                    assetData = std::static_pointer_cast<AssetData>(this->LoadModel(metadata->filePath));
-                    break;
-                case AssetHandle::Type::Texture:
-                    assetData = std::static_pointer_cast<AssetData>(this->LoadTexture(metadata->filePath));
-                    break;
-                case AssetHandle::Type::Shader:
-                    assetData = std::static_pointer_cast<AssetData>(this->LoadShader(metadata->filePath));
-                    break;
-                case AssetHandle::Type::Material:
-                    assetData = std::static_pointer_cast<AssetData>(this->LoadMaterial(metadata->filePath));
-                    break;
-                default:
-                    Logger::Error("AssetManager", "Unsupported asset type for async load: {}", static_cast<int>(metadata->type));
-                    break;
-            }
-            success = (assetData != nullptr);
-        } catch (const std::exception& e) {
-            Logger::Error("AssetManager", "Exception while async loading asset {}: {}", metadata->filePath, e.what());
-            success = false;
-        }
-
-        auto endTime = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration<double, std::milli>(endTime - startTime).count();
-        m_registry.SetLoadTime(handle, duration);
-
-        if (success) {
-            m_registry.SetMemorySize(handle, assetData->GetMemoryUsage());
-            Logger::Info("AssetManager", "Async load successful: {} ({:.2f} ms)", metadata->filePath, duration);
-        } else {
-            m_registry.SetAssetError(handle, "Async loading failed");
-            Logger::Error("AssetManager", "Async load failed: {} ({:.2f} ms)", metadata->filePath, duration);
-        }
-
-        return assetData;
-    });
-
-    m_assetHandleCache[handle] = future.share();
+    LoadAssetAsync(handle);
 }
 
 std::string AssetManager::NormalizePath(const std::string& path) const {

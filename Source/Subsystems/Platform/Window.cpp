@@ -549,6 +549,13 @@ void Window::SetEventManager(EventManager* eventMgr) {
     }
 }
 
+void Window::SetInputManager(InputManager* inputManager) {
+    if (m_data) {
+        m_data->inputManager = inputManager;
+        Logger::Debug("Window", "Input manager set");
+    }
+}
+
 /**
  * @brief Window lifecycle events handling
  */
@@ -640,32 +647,23 @@ void Window::HandleWindowResizeEvent(const void* event) {
  * @brief Keyboard events handling
  */
 void Window::HandleKeyboardEvent(const void* event) {
+    if (!m_data->inputManager) return;
+
     const SDL_Event* sdlEvent = static_cast<const SDL_Event*>(event);
-    auto& eventManager = EventManager::GetInstance();
     
     switch (sdlEvent->type) {
         case SDL_EVENT_KEY_DOWN: {
-            SDL_Keycode keycode = sdlEvent->key.key;
-            KeyCode astralKey = SDLKeyToAstralKey(keycode);
-            if (astralKey != KeyCode::Unknown) {
-                eventManager.PublishEvent<KeyPressedEvent>(astralKey, sdlEvent->key.repeat != 0);
-            }
-            
+            m_data->inputManager->HandleSDLKeyEvent(sdlEvent->key.key, true, sdlEvent->key.repeat != 0);
             if (!sdlEvent->key.repeat) {
                 Logger::Trace("Window", "Key pressed: {} (scancode: {})", 
-                            SDL_GetKeyName(keycode), static_cast<int>(sdlEvent->key.scancode));
+                            SDL_GetKeyName(sdlEvent->key.key), static_cast<int>(sdlEvent->key.scancode));
             }
             break;
         }
         
         case SDL_EVENT_KEY_UP: {
-            SDL_Keycode keycode = sdlEvent->key.key;
-            KeyCode astralKey = SDLKeyToAstralKey(keycode);
-            if (astralKey != KeyCode::Unknown) {
-                eventManager.PublishEvent<KeyReleasedEvent>(astralKey);
-            }
-            
-            Logger::Trace("Window", "Key released: {}", SDL_GetKeyName(keycode));
+            m_data->inputManager->HandleSDLKeyEvent(sdlEvent->key.key, false, false);
+            Logger::Trace("Window", "Key released: {}", SDL_GetKeyName(sdlEvent->key.key));
             break;
         }
         
@@ -678,47 +676,35 @@ void Window::HandleKeyboardEvent(const void* event) {
  * @brief Mouse events handling
  */
 void Window::HandleMouseEvent(const void* event) {
+    if (!m_data->inputManager) return;
+
     const SDL_Event* sdlEvent = static_cast<const SDL_Event*>(event);
-    auto& eventManager = EventManager::GetInstance();
     
     switch (sdlEvent->type) {
         case SDL_EVENT_MOUSE_BUTTON_DOWN: {
-            uint8_t button = sdlEvent->button.button;
-            eventManager.PublishEvent<MouseButtonPressedEvent>(static_cast<int>(button));
-            
+            m_data->inputManager->HandleSDLMouseButtonEvent(sdlEvent->button.button, true, sdlEvent->button.x, sdlEvent->button.y);
             Logger::Trace("Window", "Mouse button {} pressed at ({}, {})", 
-                        button, sdlEvent->button.x, sdlEvent->button.y);
+                        sdlEvent->button.button, sdlEvent->button.x, sdlEvent->button.y);
             break;
         }
         
         case SDL_EVENT_MOUSE_BUTTON_UP: {
-            uint8_t button = sdlEvent->button.button;
-            eventManager.PublishEvent<MouseButtonReleasedEvent>(static_cast<int>(button));
-            
+            m_data->inputManager->HandleSDLMouseButtonEvent(sdlEvent->button.button, false, sdlEvent->button.x, sdlEvent->button.y);
             Logger::Trace("Window", "Mouse button {} released at ({}, {})", 
-                        button, sdlEvent->button.x, sdlEvent->button.y);
+                        sdlEvent->button.button, sdlEvent->button.x, sdlEvent->button.y);
             break;
         }
         
         case SDL_EVENT_MOUSE_MOTION: {
-            float mouseX = sdlEvent->motion.x;
-            float mouseY = sdlEvent->motion.y;
-            eventManager.PublishEvent<MouseMovedEvent>(static_cast<int>(mouseX), static_cast<int>(mouseY));
-            
-            // Yüksek frekanslı olaylar için trace yerine debug
+            m_data->inputManager->OnMouseMoveEvent(static_cast<int>(sdlEvent->motion.x), static_cast<int>(sdlEvent->motion.y));
             Logger::Trace("Window", "Mouse moved to ({:.1f}, {:.1f}), delta: ({:.1f}, {:.1f})", 
-                        mouseX, mouseY, sdlEvent->motion.xrel, sdlEvent->motion.yrel);
+                        sdlEvent->motion.x, sdlEvent->motion.y, sdlEvent->motion.xrel, sdlEvent->motion.yrel);
             break;
         }
         
         case SDL_EVENT_MOUSE_WHEEL: {
-            float wheelY = sdlEvent->wheel.y;
-            float wheelX = sdlEvent->wheel.x;
-            
-            // Mouse wheel için özel event (şimdilik KeyPressed olarak)
-            // TODO: Gelecekte MouseWheelEvent oluşturulabilir
-            
-            Logger::Debug("Window", "Mouse wheel: Y={:.1f}, X={:.1f}", wheelY, wheelX);
+            m_data->inputManager->OnMouseWheelEvent(sdlEvent->wheel.x, sdlEvent->wheel.y);
+            Logger::Debug("Window", "Mouse wheel: Y={:.1f}, X={:.1f}", sdlEvent->wheel.y, sdlEvent->wheel.x);
             break;
         }
         

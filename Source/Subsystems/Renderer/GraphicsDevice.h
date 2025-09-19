@@ -10,6 +10,7 @@
     #include "Core/VulkanInstance.h"
     #include "Core/VulkanDevice.h"
     #include "Core/VulkanSwapchain.h"
+    #include "Core/VulkanFramebuffer.h"
     #include "VulkanMemoryManager.h"
     #include "VulkanSynchronization.h"
     #include "VulkanRenderer.h"
@@ -165,6 +166,9 @@ public:
     void DumpMemoryMap() const;
     void CheckForLeaks() const;
 
+    // Geçici kaynakları temizlemek için
+    void QueueBufferForDeletion(VkBuffer buffer, VkDeviceMemory memory);
+
 private:
     // Vulkan başlatma adımları
     bool CreateInstance();
@@ -203,6 +207,9 @@ private:
     // Core Vulkan objects
     VkSurfaceKHR m_surface = VK_NULL_HANDLE;
     
+    // Deletion queue for temporary resources
+    std::vector<std::vector<std::pair<VkBuffer, VkDeviceMemory>>> m_deletionQueue;
+
     // Debug
     VkDebugUtilsMessengerEXT m_debugMessenger = VK_NULL_HANDLE;
 #endif

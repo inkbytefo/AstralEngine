@@ -4,7 +4,7 @@
 #include <string>
 #include <memory>
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
+#include "../Renderer/Bounds.h"
 
 namespace AstralEngine {
 
@@ -37,6 +37,7 @@ struct Vertex {
                tangent == other.tangent &&
                bitangent == other.bitangent;
     }
+
 };
 
 /**
@@ -49,6 +50,7 @@ struct Vertex {
 struct ModelData {
     std::vector<Vertex> vertices;      ///< Vertex verileri
     std::vector<uint32_t> indices;     ///< Index verileri
+    AABB boundingBox;                  ///< Modelin sınırlayıcı kutusu
     std::string filePath;              ///< Model dosyasının yolu
     std::string name;                  ///< Model adı
     bool isValid = false;              ///< Veri geçerli mi?

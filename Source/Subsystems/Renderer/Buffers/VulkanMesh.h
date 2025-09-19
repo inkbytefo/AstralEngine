@@ -4,6 +4,7 @@
 #include "VulkanBuffer.h"
 #include "../RendererTypes.h"
 #include "../VulkanMeshManager.h"
+#include "../Bounds.h"
 #include <vulkan/vulkan.h>
 #include <vector>
 #include <memory>
@@ -45,10 +46,11 @@ public:
      * @param device Vulkan cihazı
      * @param vertices Vertex verileri listesi
      * @param indices Index verileri listesi
+     * @param boundingBox Mesh'in sınırlayıcı kutusu
      * @return true Başarılı olursa
      * @return false Hata oluşursa
      */
-    bool Initialize(VulkanDevice* device, const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
+    bool Initialize(VulkanDevice* device, const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices, const AABB& boundingBox);
 
     /**
      * @brief Mesh kaynaklarını temizler
@@ -71,6 +73,13 @@ public:
      * @return uint32_t Index sayısı
      */
     uint32_t GetIndexCount() const { return static_cast<uint32_t>(m_indices.size()); }
+
+    /**
+     * @brief Sınırlayıcı kutuyu döndürür
+     * 
+     * @return const AABB& Sınırlayıcı kutu referansı
+     */
+    const AABB& GetBoundingBox() const { return m_boundingBox; }
 
     /**
      * @brief Vertex sayısını döndürür
@@ -129,15 +138,15 @@ private:
     bool CreateIndexBuffer(const std::vector<uint32_t>& indices);
 
     /**
-     * @brief Buffer'a veri kopyalamak için staging buffer kullanır
-     * 
-     * @param dstBuffer Hedef buffer
-     * @param bufferSize Buffer boyutu
-     * @param data Kopyalanacak veri
+     * @brief Vertex ve index verilerini GPU'ya yükler
+     *
+     * Bu metod, hem vertex hem de index verilerini tek bir staging buffer kullanarak
+     * GPU'ya asenkron olarak yükler.
+     *
      * @return true Başarılı olursa
      * @return false Hata oluşursa
      */
-    bool CopyDataToBuffer(VulkanBuffer* dstBuffer, VkDeviceSize bufferSize, const void* data);
+    bool UploadGpuData();
 
     /**
      * @brief Hata mesajını ayarlar
@@ -146,15 +155,8 @@ private:
      */
     void SetError(const std::string& error);
 
-    /**
-     * @brief Staging buffer ve fence kaynaklarını temizler
-     *
-     * Bu metod, asenkron upload işlemi tamamlandığında staging buffer
-     * ve fence kaynaklarını temizlemek için kullanılır.
-     */
-    void CleanupStagingResources();
-
     // Member değişkenler
+    AABB m_boundingBox;                                // Mesh'in sınırlayıcı kutusu
     std::vector<Vertex> m_vertices;                    // Vertex verileri listesi
     std::vector<uint32_t> m_indices;                   // Index verileri listesi
     std::unique_ptr<VulkanBuffer> m_vertexBuffer;      // Vertex buffer için
@@ -162,12 +164,10 @@ private:
     VulkanDevice* m_device;                            // Vulkan cihaz referansı
     std::string m_lastError;                           // Son hata mesajı
     bool m_isInitialized;                              // Başlatma durumu
-    
-    // Asenkron upload için üye değişkenler
-    VkFence m_uploadFence;                             // Upload işlemini senkronize etmek için fence
-    VkBuffer m_stagingBuffer;                          // Geçici staging buffer
-    VkDeviceMemory m_stagingMemory;                    // Staging buffer için bellek
-    GpuResourceState m_state;                          // Mesh'in yükleme durumu
+    mutable GpuResourceState m_state;                  // Mesh'in yükleme durumu
+    VkFence m_uploadFence = VK_NULL_HANDLE;            // Upload fence takibi
+    VkBuffer m_stagingBuffer = VK_NULL_HANDLE;         // Staging buffer
+    VkDeviceMemory m_stagingMemory = VK_NULL_HANDLE;   // Staging buffer için bellek
 };
 
 } // namespace AstralEngine

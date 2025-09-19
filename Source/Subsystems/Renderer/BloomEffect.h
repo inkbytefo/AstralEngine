@@ -1,0 +1,164 @@
+#pragma once
+
+#include "IPostProcessingEffect.h"
+#include "../Core/Logger.h"
+#include "Shaders/VulkanShader.h"
+#include "Commands/VulkanPipeline.h"
+#include "Buffers/VulkanBuffer.h"
+#include "Core/VulkanDevice.h"
+#include "Core/VulkanFramebuffer.h"
+#include "Buffers/VulkanTexture.h"
+#include <glm/glm.hpp>
+#include <memory>
+#include <vector>
+
+namespace AstralEngine {
+
+/**
+ * @class BloomEffect
+ * @brief Bloom post-processing efekti implementasyonu
+ * 
+ * Bu sınıf, IPostProcessingEffect arayüzünden türetilmiş olup
+ * bloom efektini gerçekleştirir. Bright pass, horizontal blur, vertical blur
+ * ve composite adımlarını içerir. Farklı blur kaliteleri ve parametrelerle
+ * yapılandırılabilir.
+ */
+class BloomEffect : public IPostProcessingEffect {
+public:
+    /**
+     * @brief Bloom parametreleri için uniform buffer yapısı
+     */
+    struct BloomUBO {
+        float threshold;           ///< Bright pass threshold değeri
+        float knee;               ///< Soft knee threshold değeri
+        float intensity;          ///< Bloom intensity değeri
+        float radius;             ///< Blur radius değeri
+        int quality;             ///< Blur kalitesi (0: low, 1: medium, 2: high)
+        int useDirt;            ///< Lens dirt kullanımı
+        float dirtIntensity;     ///< Lens dirt yoğunluğu
+        glm::vec2 padding;          ///< Padding (16 byte alignment için)
+    };
+
+    /**
+     * @brief Push constants yapısı
+     */
+    struct PushConstants {
+        glm::vec2 texelSize;       ///< Texture boyutu bilgisi
+        int bloomPass;          ///< Bloom pass tipi (0: bright pass, 1: horizontal blur, 2: vertical blur, 3: composite)
+    };
+
+    /**
+     * @brief Bloom pass tipleri
+     */
+    enum class BloomPass {
+        BrightPass = 0,        ///< Parlak alanları çıkarma
+        HorizontalBlur = 1,    ///< Yatay blur
+        VerticalBlur = 2,      ///< Dikey blur
+        Composite = 3          ///< Orijinal sahne ile birleştirme
+    };
+
+    BloomEffect();
+    virtual ~BloomEffect();
+
+    // IPostProcessingEffect arayüz metodları
+    bool Initialize(VulkanRenderer* renderer) override;
+    void Shutdown() override;
+    void RecordCommands(VkCommandBuffer commandBuffer, 
+                       VulkanTexture* inputTexture,
+                       VulkanFramebuffer* outputFramebuffer,
+                       uint32_t frameIndex) override;
+    const std::string& GetName() const override;
+    bool IsEnabled() const override;
+    void SetEnabled(bool enabled) override;
+
+    // Bloom parametreleri için getter/setter metodları
+    float GetThreshold() const { return m_uboData.threshold; }
+    void SetThreshold(float threshold) { m_uboData.threshold = threshold; }
+    
+    float GetKnee() const { return m_uboData.knee; }
+    void SetKnee(float knee) { m_uboData.knee = knee; }
+    
+    float GetIntensity() const { return m_uboData.intensity; }
+    void SetIntensity(float intensity) { m_uboData.intensity = intensity; }
+    
+    float GetRadius() const { return m_uboData.radius; }
+    void SetRadius(float radius) { m_uboData.radius = radius; }
+    
+    int GetQuality() const { return m_uboData.quality; }
+    void SetQuality(int quality) { m_uboData.quality = quality; }
+    
+    bool GetUseDirt() const { return m_uboData.useDirt != 0; }
+    void SetUseDirt(bool use) { m_uboData.useDirt = use ? 1 : 0; }
+    
+    float GetDirtIntensity() const { return m_uboData.dirtIntensity; }
+    void SetDirtIntensity(float intensity) { m_uboData.dirtIntensity = intensity; }
+
+private:
+    // Yardımcı metodlar
+    bool CreateDescriptorSetLayouts();
+    bool CreatePipelines();
+    bool CreateUniformBuffers();
+    bool CreateDescriptorSets();
+    bool CreateIntermediateTextures();
+    bool CreateIntermediateFramebuffers();
+    void UpdateDescriptorSets(VulkanTexture* inputTexture, uint32_t frameIndex);
+    void CreateFullScreenQuad();
+    void RecordBrightPass(VkCommandBuffer commandBuffer, VulkanTexture* inputTexture, uint32_t frameIndex);
+    void RecordHorizontalBlur(VkCommandBuffer commandBuffer, uint32_t frameIndex);
+    void RecordVerticalBlur(VkCommandBuffer commandBuffer, uint32_t frameIndex);
+    void RecordComposite(VkCommandBuffer commandBuffer, VulkanTexture* inputTexture, 
+                        VulkanFramebuffer* outputFramebuffer, uint32_t frameIndex);
+    
+    // Hata yönetimi
+    void SetError(const std::string& error);
+
+    // Member değişkenler
+    VulkanRenderer* m_renderer = nullptr;
+    VulkanDevice* m_device = nullptr;
+    std::string m_name = "BloomEffect";
+    bool m_isEnabled = true;
+    std::string m_lastError;
+
+    // Vulkan kaynakları
+    std::unique_ptr<VulkanShader> m_vertexShader;
+    std::unique_ptr<VulkanShader> m_fragmentShader;
+    std::unique_ptr<VulkanPipeline> m_pipeline;
+    
+    // Descriptor set layout'lar
+    VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;
+    VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
+    std::vector<VkDescriptorSet> m_descriptorSets;
+    
+    // Uniform buffer'lar
+    std::vector<std::unique_ptr<VulkanBuffer>> m_uniformBuffers;
+    
+    // Tam ekran quad için vertex buffer
+    std::unique_ptr<VulkanBuffer> m_vertexBuffer;
+    uint32_t m_vertexCount = 0;
+    
+    // Uniform buffer verisi
+    BloomUBO m_uboData{};
+    
+    // Push constants verisi
+    PushConstants m_pushConstants{};
+    
+    // Ara texture'lar (bright pass ve blur için)
+    std::vector<std::unique_ptr<VulkanTexture>> m_brightPassTextures;
+    std::vector<std::unique_ptr<VulkanTexture>> m_blurTextures;
+    
+    // Ara framebuffer'lar
+    std::vector<std::unique_ptr<VulkanFramebuffer>> m_brightPassFramebuffers;
+    std::vector<std::unique_ptr<VulkanFramebuffer>> m_blurFramebuffers;
+    
+    // Render pass'ler
+    VkRenderPass m_brightPassRenderPass = VK_NULL_HANDLE;
+    VkRenderPass m_blurRenderPass = VK_NULL_HANDLE;
+    
+    // Durum yönetimi
+    bool m_isInitialized = false;
+    uint32_t m_frameCount = 3; // Swapchain frame sayısı
+    uint32_t m_width = 1920;    // Varsayılan genişlik
+    uint32_t m_height = 1080;   // Varsayılan yükseklik
+};
+
+} // namespace AstralEngine

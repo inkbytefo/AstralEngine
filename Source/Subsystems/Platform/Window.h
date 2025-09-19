@@ -43,6 +43,7 @@ namespace AstralEngine {
 
 // Forward declaration
 class EventManager;
+class InputManager;
 
 /**
  * @class Window
@@ -72,6 +73,7 @@ private:
         
         // Event yönetici referansı (dependency injection)
         EventManager* EventMgr = nullptr;
+        InputManager* inputManager = nullptr;
         
         // Platform pencere verileri
 #ifdef ASTRAL_USE_SDL3
@@ -290,6 +292,8 @@ public:
      * Ekrana tam kaplama.
      */
     void Maximize();
+
+    void SetInputManager(InputManager* inputManager);
 
     /**********************************************************************
      * Platform Özel API'ler

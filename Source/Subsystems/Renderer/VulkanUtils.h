@@ -42,7 +42,7 @@ public:
      * @param physicalDevice Fiziksel cihaz
      * @return true if format is supported
      */
-    static bool IsFormatSupported(VkFormat format, VkImageTiling tiling, VkFormatFeatureFlags features, VkPhysicalDevice physicalDevice);
+    static bool IsFormatSupported(VkPhysicalDevice physicalDevice, VkFormat format, VkImageTiling tiling, VkFormatFeatureFlags features);
     
     /**
      * @brief Desteklenen formatı bul
@@ -51,7 +51,7 @@ public:
      * @param features Gerekli format özellikleri
      * @return Desteklenen format veya VK_FORMAT_UNDEFINED
      */
-    static VkFormat FindSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
+    static VkFormat FindSupportedFormat(VkPhysicalDevice physicalDevice, const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
     
     /**
      * @brief Derinlik formatını otomatik seç

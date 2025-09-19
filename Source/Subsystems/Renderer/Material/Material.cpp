@@ -2,6 +2,8 @@
 #include "../../../Core/Logger.h"
 #include "../Core/VulkanDevice.h"
 #include "../Buffers/VulkanBuffer.h"
+#include "../../Asset/AssetData.h"
+#include "../VulkanRenderer.h"
 #include <fstream>
 #include <sstream>
 #include <nlohmann/json.hpp>
@@ -75,8 +77,6 @@ bool Material::Initialize(const Config& config) {
         // TODO: Implement uniform buffer creation using m_device->CreateBuffer()
         // This should be implemented when the material system is fully functional
         Logger::Warning("Material", "Uniform buffer creation is not yet implemented.");
-
-        // Pipeline creation is deferred to GetPipeline() when shaders are ready.
         
         m_isInitialized = true;
         Logger::Info("Material", "Material initialized successfully: {}", m_name);
@@ -95,8 +95,6 @@ void Material::Shutdown() {
     }
     
     Logger::Info("Material", "Shutting down material: {}", m_name);
-
-    m_graphicsPipeline.reset(); // Destroy the graphics pipeline
     
     // Uniform buffer'ları temizle
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
@@ -135,8 +133,6 @@ void Material::Shutdown() {
     m_textureSlots.clear();
     m_textureMap.clear();
     
-    // m_vertexShader and m_fragmentShader members have been removed.
-    
     m_device = nullptr;
     m_assetManager = nullptr;
     m_renderSubsystem = nullptr; // Reset RenderSubsystem
@@ -145,21 +141,6 @@ void Material::Shutdown() {
     Logger::Info("Material", "Material shutdown completed: {}", m_name);
 }
 
-VkPipeline Material::GetPipeline() const {
-    // If pipeline already exists, return it
-    if (m_graphicsPipeline) {
-        return m_graphicsPipeline->GetPipeline();
-    }
-
-    // If pipeline doesn't exist, try to build it
-    if (!const_cast<Material*>(this)->BuildPipeline()) {
-        // Pipeline creation failed (shaders not ready or other error)
-        return VK_NULL_HANDLE;
-    }
-    
-    // Return the newly created pipeline
-    return m_graphicsPipeline->GetPipeline();
-}
 
 void Material::SetProperties(const MaterialProperties& props) {
     m_properties = props;
@@ -514,79 +495,8 @@ std::string Material::GetTextureName(TextureType type) const {
     }
 }
 
-bool Material::ResolveShaders(std::shared_ptr<VulkanShader>& vertexShader, std::shared_ptr<VulkanShader>& fragmentShader) const {
-    // Get the shaders from the asset manager using the stored handles
-    if (!m_assetManager) {
-        Logger::Error("Material", "AssetManager not available for shader resolution in material: {}", m_name);
-        return false;
-    }
 
-    // Get vertex shader
-    vertexShader = m_assetManager->GetAsset<VulkanShader>(m_vertexShaderHandle);
-    if (!vertexShader || !vertexShader->IsInitialized()) {
-        Logger::Debug("Material", "Vertex shader for material {} is not yet ready.", m_name);
-        return false;
-    }
 
-    // Get fragment shader
-    fragmentShader = m_assetManager->GetAsset<VulkanShader>(m_fragmentShaderHandle);
-    if (!fragmentShader || !fragmentShader->IsInitialized()) {
-        Logger::Debug("Material", "Fragment shader for material {} is not yet ready.", m_name);
-        return false;
-    }
-
-    Logger::Debug("Material", "Shaders resolved successfully for material: {}", m_name);
-    return true;
-}
-
-bool Material::IsReady() const {
-    return m_graphicsPipeline != nullptr;
-}
-
-bool Material::BuildPipeline() {
-    // If pipeline already exists, no need to rebuild
-    if (m_graphicsPipeline) {
-        return true;
-    }
-
-    // Resolve shaders first
-    std::shared_ptr<VulkanShader> vertexShader;
-    std::shared_ptr<VulkanShader> fragmentShader;
-    
-    if (!ResolveShaders(vertexShader, fragmentShader)) {
-        Logger::Debug("Material", "Cannot build pipeline - shaders not ready for material: {}", m_name);
-        return false;
-    }
-
-    // Create the graphics pipeline
-    m_graphicsPipeline = std::make_unique<VulkanPipeline>();
-    
-    VulkanPipeline::Config pipelineConfig;
-    pipelineConfig.shaders = { vertexShader.get(), fragmentShader.get() };
-    
-    // Get swapchain info from render subsystem if available
-    if (m_renderSubsystem) {
-        // This assumes RenderSubsystem has a method to get the graphics device or swapchain
-        // For now, we'll use placeholder values
-        pipelineConfig.extent = { 800, 600 }; // Placeholder - should get from swapchain
-        pipelineConfig.swapchain = nullptr; // Should get from render subsystem
-    } else {
-        // Fallback to placeholder values
-        pipelineConfig.extent = { 800, 600 };
-        pipelineConfig.swapchain = nullptr;
-    }
-    
-    pipelineConfig.descriptorSetLayout = m_descriptorSetLayout;
-    
-    if (!m_graphicsPipeline->Initialize(m_device, pipelineConfig)) {
-        Logger::Error("Material", "Failed to create graphics pipeline for material: {}", m_name);
-        m_graphicsPipeline.reset();
-        return false;
-    }
-    
-    Logger::Info("Material", "Graphics pipeline built successfully for material: {}", m_name);
-    return true;
-}
 
 void Material::SetError(const std::string& error) {
     m_lastError = error;

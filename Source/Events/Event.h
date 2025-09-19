@@ -171,6 +171,24 @@ private:
 };
 
 /**
+ * @brief Mouse tekerleği kaydırma olayı
+ */
+class MouseScrolledEvent : public Event {
+public:
+    MouseScrolledEvent(float xOffset, float yOffset)
+        : m_xOffset(xOffset), m_yOffset(yOffset) {}
+
+    float GetXOffset() const { return m_xOffset; }
+    float GetYOffset() const { return m_yOffset; }
+
+    EVENT_CLASS_TYPE(MouseScrolledEvent)
+    EVENT_CLASS_CATEGORY(Mouse | Input)
+
+private:
+    float m_xOffset, m_yOffset;
+};
+
+/**
  * @brief Asset yükleme tamamlanma olayı
  */
 class AssetLoadedEvent : public Event {

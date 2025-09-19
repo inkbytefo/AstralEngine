@@ -59,31 +59,35 @@ void* MemoryManager::Allocate(size_t size, size_t alignment) {
         throw std::bad_alloc();
     }
     
-    // Calculate aligned address
-    char* aligned_ptr = reinterpret_cast<char*>(raw_ptr) + sizeof(void*);
-    aligned_ptr += alignment - (reinterpret_cast<uintptr_t>(aligned_ptr) % alignment);
+    // The aligned pointer will be calculated from the raw pointer.
+    // We leave space for the original pointer at the beginning.
+    void* aligned_ptr = static_cast<char*>(raw_ptr) + sizeof(void*);
     
-    // Store original pointer before aligned memory
-    *(reinterpret_cast<void**>(aligned_ptr) - 1) = raw_ptr;
+    // Align the pointer.
+    aligned_ptr = reinterpret_cast<void*>((reinterpret_cast<uintptr_t>(aligned_ptr) + alignment - 1) & ~(alignment - 1));
     
-    m_totalAllocated += size;
+    // Store the original raw pointer just before the aligned address.
+    *(static_cast<void**>(aligned_ptr) - 1) = raw_ptr;
+    
+    m_totalAllocated += size; // Note: This only tracks requested size, not total overhead.
     return aligned_ptr;
 }
 
-void MemoryManager::Deallocate(void* ptr) {
-    if (ptr) {
-        // Check if this was an aligned allocation
-        void* original_ptr = *(reinterpret_cast<void**>(ptr) - 1);
-        if (original_ptr && original_ptr != ptr) {
-            // This was an aligned allocation, free the original pointer
-            std::free(original_ptr);
-        } else {
-            // Regular allocation
-            std::free(ptr);
-        }
-        // Not: Size tracking için ek metadata gerekiyor
-        // Şimdilik basit implementasyon
+void MemoryManager::Deallocate(void* ptr, size_t alignment) {
+    if (!ptr) {
+        return;
     }
+    
+    if (alignment > alignof(std::max_align_t)) {
+        // This was an aligned allocation. Retrieve the original pointer.
+        void* raw_ptr = *(static_cast<void**>(ptr) - 1);
+        std::free(raw_ptr);
+    } else {
+        // This was a standard allocation.
+        std::free(ptr);
+    }
+    // Note: Size tracking for deallocation is not implemented and would require
+    // storing the size as metadata as well.
 }
 
 void* MemoryManager::AllocateFrameMemory(size_t size, size_t alignment) {

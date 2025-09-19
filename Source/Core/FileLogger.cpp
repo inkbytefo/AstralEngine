@@ -50,7 +50,6 @@ bool FileLogger::OpenLogFile(const std::string& directory) {
         m_file.open(m_logFilePath, std::ios::out | std::ios::app);
         
         if (!m_file.is_open()) {
-            std::cerr << "Failed to open log file: " << m_logFilePath << std::endl;
             return false;
         }
         
@@ -79,11 +78,9 @@ bool FileLogger::OpenLogFile(const std::string& directory) {
         
         m_file.flush();
         
-        std::cout << "Log file opened: " << m_logFilePath << std::endl;
         return true;
         
     } catch (const std::exception& e) {
-        std::cerr << "Exception opening log file: " << e.what() << std::endl;
         return false;
     }
 }
@@ -111,10 +108,8 @@ void FileLogger::CloseLogFile() {
             m_file << "========================================" << std::endl;
             
             m_file.close();
-            std::cout << "Log file closed: " << m_logFilePath << std::endl;
             
         } catch (const std::exception& e) {
-            std::cerr << "Exception closing log file: " << e.what() << std::endl;
             if (m_file.is_open()) {
                 m_file.close();
             }
@@ -176,7 +171,6 @@ std::string FileLogger::GetExecutableDirectory() {
         return ".";
         
     } catch (const std::exception& e) {
-        std::cerr << "Exception getting executable directory: " << e.what() << std::endl;
         return ".";
     }
 }

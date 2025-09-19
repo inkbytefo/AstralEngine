@@ -4,7 +4,6 @@
 #include "../../Asset/AssetManager.h"
 #include "../Buffers/VulkanTexture.h"
 #include "../Shaders/VulkanShader.h"
-#include "../Commands/VulkanPipeline.h" // Added for VulkanPipeline
 #include "../RendererTypes.h"
 #include <vulkan/vulkan.h>
 #include <string>
@@ -138,18 +137,19 @@ public:
     // Shader yönetimi
     void SetShaders(const std::string& vertexPath, const std::string& fragmentPath);
 
-    // Vulkan kaynakları
-    VkDescriptorSetLayout GetDescriptorSetLayout() const { return m_descriptorSetLayout; }
-    VkDescriptorSet GetDescriptorSet() const { return m_descriptorSet; }
-    VkPipelineLayout GetPipelineLayout() const { return m_pipelineLayout; }
-    VkPipeline GetPipeline() const;
-
     // Materyal bilgileri
     MaterialType GetType() const { return m_type; }
     const std::string& GetName() const { return m_name; }
     bool IsInitialized() const { return m_isInitialized; }
-    bool IsReady() const;
     bool IsTransparent() const { return m_properties.transparent; }
+    
+    // Shader handle erişimi
+    AssetHandle GetVertexShaderHandle() const { return m_vertexShaderHandle; }
+    AssetHandle GetFragmentShaderHandle() const { return m_fragmentShaderHandle; }
+    
+    // Vulkan kaynakları erişimi
+    VkDescriptorSetLayout GetDescriptorSetLayout() const { return m_descriptorSetLayout; }
+    VkDescriptorSet GetDescriptorSet() const { return m_descriptorSet; }
 
     // Frame güncellemeleri
     void UpdateDescriptorSet();
@@ -164,8 +164,6 @@ private:
     bool CreateDescriptorPool();
     bool CreateDescriptorSets();
     bool CreatePipelineLayout();
-    bool BuildPipeline();
-    bool ResolveShaders(std::shared_ptr<VulkanShader>& vertexShader, std::shared_ptr<VulkanShader>& fragmentShader) const;
     void UpdateTextureBindings();
     uint32_t GetTextureBinding(TextureType type) const;
     std::string GetTextureName(TextureType type) const;
@@ -195,7 +193,6 @@ private:
     std::vector<VkDescriptorSet> m_descriptorSets;
     VkDescriptorSet m_descriptorSet = VK_NULL_HANDLE;
     VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
-    std::unique_ptr<VulkanPipeline> m_graphicsPipeline; // Added for pipeline ownership
     
     // Uniform buffer
     std::vector<VkBuffer> m_uniformBuffers;

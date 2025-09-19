@@ -214,7 +214,7 @@ std::shared_ptr<VulkanMesh> VulkanMeshManager::CreateMeshFromData(const std::sha
     }
 
     // Mesh'i vertex ve index verileriyle başlat
-    if (!mesh->Initialize(m_device, modelData->vertices, modelData->indices)) {
+    if (!mesh->Initialize(m_device, modelData->vertices, modelData->indices, modelData->boundingBox)) {
         SetError("Failed to initialize VulkanMesh: " + mesh->GetLastError());
         return nullptr;
     }

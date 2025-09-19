@@ -123,7 +123,25 @@ void Camera::UpdateProjectionMatrix() {
 void Camera::UpdateMatrices() {
     UpdateViewMatrix();
     UpdateProjectionMatrix();
+    ExtractFrustumPlanes();
     Logger::Debug("Camera", "Both view and projection matrices updated");
+}
+
+void Camera::ExtractFrustumPlanes() {
+    const glm::mat4 vp = m_projectionMatrix * m_viewMatrix;
+    const glm::mat4 transposed_vp = glm::transpose(vp);
+
+    m_frustum.planes[0] = transposed_vp[3] + transposed_vp[0]; // Left
+    m_frustum.planes[1] = transposed_vp[3] - transposed_vp[0]; // Right
+    m_frustum.planes[2] = transposed_vp[3] + transposed_vp[1]; // Bottom
+    m_frustum.planes[3] = transposed_vp[3] - transposed_vp[1]; // Top
+    m_frustum.planes[4] = transposed_vp[3] + transposed_vp[2]; // Near
+    m_frustum.planes[5] = transposed_vp[3] - transposed_vp[2]; // Far
+
+    // Normalize the planes
+    for (auto& plane : m_frustum.planes) {
+        plane = plane / glm::length(glm::vec3(plane));
+    }
 }
 
 void Camera::LookAt(const glm::vec3& position, const glm::vec3& target, const glm::vec3& up) {

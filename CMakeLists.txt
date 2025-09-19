@@ -13,10 +13,14 @@ cmake_minimum_required(VERSION 3.24)
 
 # !!! WORKAROUND for SSL/TLS Certificate Issues !!!
 # If you are in a corporate network or have issues downloading dependencies
-# (like DXC or Slang), uncommenting the line below will disable SSL
-# certificate verification for downloads. This is a security risk and should
-# only be used if you trust the repositories.
- set(CMAKE_TLS_VERIFY OFF)
+# (like DXC or Slang), you can disable SSL certificate verification for downloads.
+# This is a security risk and should only be used if you trust the repositories.
+option(ASTRAL_DISABLE_TLS_VERIFY "SECURITY RISK: Disable SSL/TLS certificate verification for FetchContent." ON)
+
+if(ASTRAL_DISABLE_TLS_VERIFY)
+    message(WARNING "SECURITY RISK: SSL/TLS certificate verification is DISABLED. This should only be used in trusted networks.")
+    set(CMAKE_TLS_VERIFY OFF)
+endif()
 
 project(AstralEngine VERSION 0.1.0 LANGUAGES CXX)
 
@@ -48,7 +52,7 @@ include(FetchContent)
 # 2. Build Seçenekleri
 #----------------------------------------------------------------------
 option(ASTRAL_BUILD_EXAMPLES "Build example applications" OFF)
-option(ASTRAL_BUILD_TESTS "Build unit tests" OFF)
+option(ASTRAL_BUILD_EXAMPLES "Build example applications" OFF)
 option(ASTRAL_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
 option(ASTRAL_ENABLE_PROFILING "Enable profiling support" OFF)
 option(ASTRAL_VULKAN_VALIDATION "Enable Vulkan validation layers in debug builds" ON)
@@ -100,13 +104,17 @@ set(SLANG_ENABLE_OPTIX OFF)
 # DXC indirme sorunlarını önlemek için DXBC ve DXIL desteğini devre dışı bırak
 set(SLANG_ENABLE_DXBC OFF)
 set(SLANG_ENABLE_DXIL OFF)
-# SPIRV desteğini açıkça aktif et ve statik build sağla
+# SPIRV desteğini açıkça aktif et
 set(SLANG_ENABLE_SPIRV_TOOLS ON)
-# Ensure a fully static build for Slang
+# Statik build zorlamasını kaldırarak varsayılan (shared) derlemeye izin ver.
+# Bu, LNK1104 bağlama hatasını çözecektir.
 set(SLANG_BUILD_SHARED OFF)
 set(SLANG_BUILD_STATIC ON)
 find_or_fetch_package(slang "https://github.com/shader-slang/slang.git" "v2025.16.1")
 set(ASTRAL_HAS_SLANG TRUE)
+
+# SPIRV-Dependencies are handled by slang
+
 
 # GLM
 find_or_fetch_package(glm "https://github.com/g-truc/glm.git" "1.0.1")
@@ -121,7 +129,7 @@ find_package(Vulkan REQUIRED)
 set(ASTRAL_HAS_VULKAN TRUE)
 FetchContent_Declare(VulkanMemoryAllocator
     GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
-    GIT_TAG v3.1.0
+    GIT_TAG v3.3.0
 )
 FetchContent_MakeAvailable(VulkanMemoryAllocator)
 
@@ -170,6 +178,7 @@ function(configure_astral_target target_name)
         VulkanMemoryAllocator
         glm::glm
         nlohmann_json::nlohmann_json
+        SPIRV-Tools
     )
 
     if(WIN32 AND TARGET SDL3::SDL3main)
@@ -190,88 +199,402 @@ endfunction()
 #----------------------------------------------------------------------
 add_library(AstralEngine STATIC)
 
-target_sources(AstralEngine PRIVATE
-    # ... Tüm .cpp ve .h dosyalarınız buraya eklenecek ...
-    # Otomatik dosya toplama veya manuel liste kullanılabilir.
-    # Örnek:
-    Source/Core/Engine.cpp Source/Core/Engine.h
-    Source/Core/Logger.cpp Source/Core/Logger.h
-    Source/Core/FileLogger.cpp Source/Core/FileLogger.h
-    Source/Core/MemoryManager.cpp Source/Core/MemoryManager.h
-    Source/Core/ISubsystem.h
+set(ASTRAL_ENGINE_SOURCES
+    # Core
+    Source/Core/Engine.cpp
+    Source/Core/Engine.h
     Source/Core/IApplication.h
-    Source/Events/EventManager.cpp Source/Events/EventManager.h
-    Source/Events/Event.h
-    Source/Subsystems/Platform/PlatformSubsystem.cpp Source/Subsystems/Platform/PlatformSubsystem.h
-    Source/Subsystems/Platform/Window.cpp Source/Subsystems/Platform/Window.h
-    Source/Subsystems/Platform/InputManager.cpp Source/Subsystems/Platform/InputManager.h
-    Source/Subsystems/Platform/KeyCode.h
-    Source/Subsystems/ECS/ECSSubsystem.cpp Source/Subsystems/ECS/ECSSubsystem.h
+    Source/Core/ISubsystem.h
+    Source/Core/Logger.cpp
+    Source/Core/Logger.h
+    Source/Core/FileLogger.cpp
+    Source/Core/FileLogger.h
+    Source/Core/MemoryManager.cpp
+    Source/Core/MemoryManager.h
+    Source/Core/ThreadPool.cpp
+    Source/Core/ThreadPool.h
+
+    # ECS
     Source/ECS/Components.h
-    Source/Subsystems/Asset/AssetSubsystem.cpp Source/Subsystems/Asset/AssetSubsystem.h
-    Source/Subsystems/Asset/AssetManager.cpp Source/Subsystems/Asset/AssetManager.h
-    Source/Subsystems/Asset/AssetHandle.cpp Source/Subsystems/Asset/AssetHandle.h
-    Source/Subsystems/Asset/AssetRegistry.cpp Source/Subsystems/Asset/AssetRegistry.h
-    Source/Subsystems/Asset/Model.cpp Source/Subsystems/Asset/Model.h
+    Source/Subsystems/ECS/ECSSubsystem.cpp
+    Source/Subsystems/ECS/ECSSubsystem.h
+
+    # Events
+    Source/Events/Event.h
+    Source/Events/EventManager.cpp
+    Source/Events/EventManager.h
+
+    # Platform
+    Source/Subsystems/Platform/InputManager.cpp
+    Source/Subsystems/Platform/InputManager.h
+    Source/Subsystems/Platform/KeyCode.h
+    Source/Subsystems/Platform/PlatformSubsystem.cpp
+    Source/Subsystems/Platform/PlatformSubsystem.h
+    Source/Subsystems/Platform/Window.cpp
+    Source/Subsystems/Platform/Window.h
+
+    # Asset System
+    Source/Subsystems/Asset/AssetData.h
+    Source/Subsystems/Asset/AssetHandle.cpp
+    Source/Subsystems/Asset/AssetHandle.h
+    Source/Subsystems/Asset/AssetManager.cpp
+    Source/Subsystems/Asset/AssetManager.h
+    Source/Subsystems/Asset/AssetRegistry.cpp
+    Source/Subsystems/Asset/AssetRegistry.h
+    Source/Subsystems/Asset/AssetSubsystem.cpp
+    Source/Subsystems/Asset/AssetSubsystem.h
+    Source/Subsystems/Asset/Model.cpp
+    Source/Subsystems/Asset/Model.h
     Source/Subsystems/Asset/ShaderProgram.h
-    Source/Subsystems/Renderer/RenderSubsystem.cpp Source/Subsystems/Renderer/RenderSubsystem.h
-    Source/Subsystems/Renderer/VulkanRenderer.cpp Source/Subsystems/Renderer/VulkanRenderer.h
-    Source/Subsystems/Renderer/Camera.cpp Source/Subsystems/Renderer/Camera.h
-    Source/Subsystems/Renderer/GraphicsDevice.cpp Source/Subsystems/Renderer/GraphicsDevice.h
-    Source/Subsystems/Renderer/VulkanMemoryManager.cpp Source/Subsystems/Renderer/VulkanMemoryManager.h
-    Source/Subsystems/Renderer/VulkanSynchronization.cpp Source/Subsystems/Renderer/VulkanSynchronization.h
-    Source/Subsystems/Renderer/VulkanUtils.cpp Source/Subsystems/Renderer/VulkanUtils.h
-    Source/Subsystems/Renderer/Core/VulkanInstance.cpp Source/Subsystems/Renderer/Core/VulkanInstance.h
-    Source/Subsystems/Renderer/Core/VulkanDevice.cpp Source/Subsystems/Renderer/Core/VulkanDevice.h
-    Source/Subsystems/Renderer/Core/VulkanSwapchain.cpp Source/Subsystems/Renderer/Core/VulkanSwapchain.h
-    Source/Subsystems/Renderer/Core/VulkanFrameManager.cpp Source/Subsystems/Renderer/Core/VulkanFrameManager.h
-    Source/Subsystems/Renderer/Shaders/VulkanShader.cpp Source/Subsystems/Renderer/Shaders/VulkanShader.h
-    Source/Subsystems/Renderer/Commands/VulkanCommandPool.cpp Source/Subsystems/Renderer/Commands/VulkanCommandPool.h
-    Source/Subsystems/Renderer/Commands/VulkanPipeline.cpp Source/Subsystems/Renderer/Commands/VulkanPipeline.h
-    Source/Subsystems/Renderer/Buffers/VulkanBuffer.cpp Source/Subsystems/Renderer/Buffers/VulkanBuffer.h
-    Source/Subsystems/Renderer/Buffers/VulkanMesh.cpp Source/Subsystems/Renderer/Buffers/VulkanMesh.h
-    Source/Subsystems/Renderer/Buffers/VulkanTexture.cpp Source/Subsystems/Renderer/Buffers/VulkanTexture.h
-    Source/Subsystems/Renderer/Texture/TextureManager.cpp Source/Subsystems/Renderer/Texture/TextureManager.h
-    Source/Subsystems/Renderer/Material/Material.cpp Source/Subsystems/Renderer/Material/Material.h
-    Source/Subsystems/Renderer/RendererTypes.h
+
+    # Renderer
+    Source/Subsystems/Renderer/BloomEffect.cpp
+    Source/Subsystems/Renderer/BloomEffect.h
+    Source/Subsystems/Renderer/Bounds.h
+    Source/Subsystems/Renderer/Camera.cpp
+    Source/Subsystems/Renderer/Camera.h
+    Source/Subsystems/Renderer/GraphicsDevice.cpp
+    Source/Subsystems/Renderer/GraphicsDevice.h
+    Source/Subsystems/Renderer/IPostProcessingEffect.h
     Source/Subsystems/Renderer/IRenderer.h
+    Source/Subsystems/Renderer/PostProcessingSubsystem.cpp
+    Source/Subsystems/Renderer/PostProcessingSubsystem.h
+    Source/Subsystems/Renderer/RendererTypes.h
+    Source/Subsystems/Renderer/RenderSubsystem.cpp
+    Source/Subsystems/Renderer/RenderSubsystem.h
+    Source/Subsystems/Renderer/TonemappingEffect.cpp
+    Source/Subsystems/Renderer/TonemappingEffect.h
+    Source/Subsystems/Renderer/VulkanMemoryManager.cpp
+    Source/Subsystems/Renderer/VulkanMemoryManager.h
+    Source/Subsystems/Renderer/VulkanMeshManager.cpp
+    Source/Subsystems/Renderer/VulkanMeshManager.h
+    Source/Subsystems/Renderer/VulkanRenderer.cpp
+    Source/Subsystems/Renderer/VulkanRenderer.h
+    Source/Subsystems/Renderer/VulkanSynchronization.cpp
+    Source/Subsystems/Renderer/VulkanSynchronization.h
+    Source/Subsystems/Renderer/VulkanTextureManager.cpp
+    Source/Subsystems/Renderer/VulkanTextureManager.h
+    Source/Subsystems/Renderer/VulkanUtils.cpp
+    Source/Subsystems/Renderer/VulkanUtils.h
+
+    # Renderer/Buffers
+    Source/Subsystems/Renderer/Buffers/VulkanBuffer.cpp
+    Source/Subsystems/Renderer/Buffers/VulkanBuffer.h
+    Source/Subsystems/Renderer/Buffers/VulkanMesh.cpp
+    Source/Subsystems/Renderer/Buffers/VulkanMesh.h
+    Source/Subsystems/Renderer/Buffers/VulkanTexture.cpp
+    Source/Subsystems/Renderer/Buffers/VulkanTexture.h
+
+    # Renderer/Commands
+    Source/Subsystems/Renderer/Commands/VulkanCommandPool.cpp
+    Source/Subsystems/Renderer/Commands/VulkanCommandPool.h
+    Source/Subsystems/Renderer/Commands/VulkanPipeline.cpp
+    Source/Subsystems/Renderer/Commands/VulkanPipeline.h
+
+    # Renderer/Core
+    Source/Subsystems/Renderer/Core/VulkanDevice.cpp
+    Source/Subsystems/Renderer/Core/VulkanDevice.h
+    Source/Subsystems/Renderer/Core/VulkanFramebuffer.cpp
+    Source/Subsystems/Renderer/Core/VulkanFramebuffer.h
+    Source/Subsystems/Renderer/Core/VulkanFrameManager.cpp
+    Source/Subsystems/Renderer/Core/VulkanFrameManager.h
+    Source/Subsystems/Renderer/Core/VulkanInstance.cpp
+    Source/Subsystems/Renderer/Core/VulkanInstance.h
+    Source/Subsystems/Renderer/Core/VulkanSwapchain.cpp
+    Source/Subsystems/Renderer/Core/VulkanSwapchain.h
+
+    # Renderer/Material
+    Source/Subsystems/Renderer/Material/Material.cpp
+    Source/Subsystems/Renderer/Material/Material.h
+
+    # Renderer/Shaders
+    Source/Subsystems/Renderer/Shaders/VulkanShader.cpp
+    Source/Subsystems/Renderer/Shaders/VulkanShader.h
+
+    # Renderer/Texture
+    Source/Subsystems/Renderer/Texture/TextureManager.cpp
+    Source/Subsystems/Renderer/Texture/TextureManager.h
 )
+
+target_sources(AstralEngine PRIVATE ${ASTRAL_ENGINE_SOURCES})
 configure_astral_target(AstralEngine)
 
 #----------------------------------------------------------------------
-# 7. Shader Derleme Sistemi
+# 7. Astral Engine - Advanced Shader Compilation System
+# Supports: Slang -> SPIR-V compilation with hot reload capability
+#----------------------------------------------------------------------
+
+# Shader stage detection patterns
+set(ASTRAL_SHADER_STAGE_PATTERNS
+    "vertex;vert;vs"
+    "fragment;frag;pixel;ps"
+    "compute;comp;cs"
+    "geometry;geom;gs"
+    "tessellation_control;tesc;hs"
+    "tessellation_evaluation;tese;ds"
+)
+
+# Global shader configuration
+set(ASTRAL_SHADER_OUTPUT_FORMAT "spirv" CACHE STRING "Target shader format")
+set(ASTRAL_SHADER_PROFILE "sm_6_6" CACHE STRING "Shader model profile")
+set(ASTRAL_SHADER_OPTIMIZATION_LEVEL "O2" CACHE STRING "Shader optimization level")
+set(ASTRAL_ENABLE_SHADER_DEBUG OFF CACHE BOOL "Enable shader debug information")
+set(ASTRAL_ENABLE_SHADER_HOT_RELOAD ON CACHE BOOL "Enable shader hot reload in development")
+
+#----------------------------------------------------------------------
+# Internal: Detect shader stage from filename or content
+#----------------------------------------------------------------------
+function(_astral_detect_shader_stage shader_path out_stage out_entry)
+    get_filename_component(shader_name ${shader_path} NAME_WE)
+    string(TOLOWER ${shader_name} shader_name_lower)
+    
+    # Default values
+    set(detected_stage "vertex")
+    set(detected_entry "main")
+    
+    # Pattern matching for stage detection
+    foreach(stage_info ${ASTRAL_SHADER_STAGE_PATTERNS})
+        string(REPLACE ";" "|" patterns ${stage_info})
+        list(GET stage_info 0 stage_name)
+        
+        if(shader_name_lower MATCHES ".*(${patterns}).*")
+            set(detected_stage ${stage_name})
+            break()
+        endif()
+    endforeach()
+    
+    # Try to detect entry point from content (basic heuristic)
+    if(EXISTS ${shader_path})
+        file(READ ${shader_path} shader_content)
+        if(shader_content MATCHES "([a-zA-Z_][a-zA-Z0-9_]*)[[:space:]]*\\([^)]*\\)[[:space:]]*:[[:space:]]*SV_")
+            set(detected_entry ${CMAKE_MATCH_1})
+        endif()
+    endif()
+    
+    set(${out_stage} ${detected_stage} PARENT_SCOPE)
+    set(${out_entry} ${detected_entry} PARENT_SCOPE)
+endfunction()
+
+#----------------------------------------------------------------------
+# Internal: Generate Slang compilation command
+#----------------------------------------------------------------------
+function(_astral_generate_slang_command shader_path output_path stage entry out_command)
+    set(base_args
+        -target ${ASTRAL_SHADER_OUTPUT_FORMAT}
+        -profile ${ASTRAL_SHADER_PROFILE}
+        -stage ${stage}
+        -entry ${entry}
+        -o "${output_path}"
+    )
+    
+    # Add optimization flags
+    if(CMAKE_BUILD_TYPE STREQUAL "Release")
+        list(APPEND base_args -${ASTRAL_SHADER_OPTIMIZATION_LEVEL})
+    endif()
+    
+    # Add debug information for development builds
+    if(ASTRAL_ENABLE_SHADER_DEBUG AND NOT CMAKE_BUILD_TYPE STREQUAL "Release")
+        list(APPEND base_args -g -O0)
+    endif()
+    
+    # Add hot reload support
+    if(ASTRAL_ENABLE_SHADER_HOT_RELOAD AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+        list(APPEND base_args -embed-downstream-ir)
+    endif()
+    
+    set(${out_command} ${base_args} "${shader_path}" PARENT_SCOPE)
+endfunction()
+
+#----------------------------------------------------------------------
+# Internal: Create shader compilation target
+#----------------------------------------------------------------------
+function(_astral_create_shader_target target_name shader_info_list output_dir)
+    set(all_outputs "")
+    set(all_commands "")
+    
+    foreach(shader_info ${shader_info_list})
+        # Parse shader info: "path;stage;entry;output"
+        # Fix: Use proper list handling instead of string(SPLIT)
+        set(shader_parts ${shader_info})
+        list(GET shader_parts 0 shader_path)
+        list(GET shader_parts 1 shader_stage)
+        list(GET shader_parts 2 shader_entry)
+        list(GET shader_parts 3 output_path)
+        
+        get_filename_component(shader_name ${shader_path} NAME)
+        
+        # Generate compilation command
+        _astral_generate_slang_command(
+            ${shader_path}
+            ${output_path}
+            ${shader_stage}
+            ${shader_entry}
+            slang_command
+        )
+        
+        # Create custom command with proper error handling
+        add_custom_command(
+            OUTPUT ${output_path}
+            COMMAND ${CMAKE_COMMAND} -E echo "Compiling ${shader_stage} shader: ${shader_name}"
+            COMMAND $<TARGET_FILE:slangc> ${slang_command}
+            COMMAND ${CMAKE_COMMAND} -E echo "Successfully compiled: ${shader_name} -> ${output_path}"
+            DEPENDS ${shader_path} slangc
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+            COMMENT "Astral: Building ${shader_stage} shader ${shader_name}"
+            COMMAND_EXPAND_LISTS
+            VERBATIM
+        )
+        
+        list(APPEND all_outputs ${output_path})
+        
+        # Hot reload support: Create file watcher for development
+        if(ASTRAL_ENABLE_SHADER_HOT_RELOAD AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+            get_filename_component(shader_dir ${shader_path} DIRECTORY)
+            set_property(DIRECTORY ${shader_dir} APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${shader_path})
+        endif()
+    endforeach()
+    
+    # Create the shader compilation target
+    add_custom_target(${target_name}_shaders
+        ALL
+        DEPENDS ${all_outputs}
+        COMMENT "Astral: Compiling all shaders for ${target_name}"
+    )
+    
+    # Ensure proper build order
+    add_dependencies(${target_name} ${target_name}_shaders)
+    
+    # Set target properties for IDE organization
+    set_target_properties(${target_name}_shaders PROPERTIES
+        FOLDER "Astral/Shaders"
+        VS_GLOBAL_EnableMicrosoftCodeAnalysis false
+    )
+endfunction()
+
+#----------------------------------------------------------------------
+# Public API: Main shader compilation function
 #----------------------------------------------------------------------
 function(astral_compile_shaders target_name)
+    # Validate prerequisites
     if(NOT ASTRAL_HAS_SLANG)
-        message(WARNING "Slang not found, cannot compile .slang shaders.")
+        message(FATAL_ERROR "Astral Engine: Slang compiler not found! Cannot compile shaders for ${target_name}")
         return()
     endif()
-
-    set(SHADER_SOURCES ${ARGN})
-    set(COMPILED_SHADERS "")
-    set(SHADER_OUTPUT_DIR ${CMAKE_BINARY_DIR}/shaders)
-    file(MAKE_DIRECTORY ${SHADER_OUTPUT_DIR})
-
-    foreach(SHADER_SOURCE_PATH ${SHADER_SOURCES})
-        get_filename_component(SHADER_NAME ${SHADER_SOURCE_PATH} NAME)
-        set(SHADER_OUTPUT_PATH "${SHADER_OUTPUT_DIR}/${SHADER_NAME}.spv")
-
-        add_custom_command(
-            OUTPUT ${SHADER_OUTPUT_PATH}
-            COMMAND slang::slangc
-                -target spirv
-                -profile sm_6_6
-                -entry main
-                -o ${SHADER_OUTPUT_PATH}
-                ${SHADER_SOURCE_PATH}
-            DEPENDS ${SHADER_SOURCE_PATH}
-            COMMENT "Compiling Slang shader: ${SHADER_NAME}"
-        )
-        list(APPEND COMPILED_SHADERS ${SHADER_OUTPUT_PATH})
+    
+    if(NOT TARGET ${target_name})
+        message(FATAL_ERROR "Astral Engine: Target '${target_name}' does not exist")
+        return()
+    endif()
+    
+    set(shader_sources ${ARGN})
+    if(NOT shader_sources)
+        message(WARNING "Astral Engine: No shader sources provided for ${target_name}")
+        return()
+    endif()
+    
+    # Setup output directories
+    set(shader_output_dir "${CMAKE_BINARY_DIR}/Assets/Shaders/${target_name}")
+    set(runtime_shader_dir "$<TARGET_FILE_DIR:${target_name}>/Assets/Shaders")
+    
+    file(MAKE_DIRECTORY ${shader_output_dir})
+    
+    # Process each shader source
+    set(processed_shaders "")
+    set(total_shaders 0)
+    set(processed_count 0)
+    
+    list(LENGTH shader_sources total_shaders)
+    message(STATUS "Astral Engine: Processing ${total_shaders} shader(s) for ${target_name}")
+    
+    foreach(shader_source ${shader_sources})
+        math(EXPR processed_count "${processed_count} + 1")
+        
+        # Validate shader file exists
+        if(NOT EXISTS ${shader_source})
+            message(FATAL_ERROR "Astral Engine: Shader file not found: ${shader_source}")
+            continue()
+        endif()
+        
+        # Auto-detect shader stage and entry point
+        _astral_detect_shader_stage(${shader_source} shader_stage shader_entry)
+        
+        # Generate output filename
+        get_filename_component(shader_name ${shader_source} NAME_WE)
+        set(output_filename "${shader_name}.${shader_stage}.spv")
+        set(output_path "${shader_output_dir}/${output_filename}")
+        
+        # Create shader info entry
+        set(shader_info "${shader_source};${shader_stage};${shader_entry};${output_path}")
+        list(APPEND processed_shaders ${shader_info})
+        
+        message(STATUS "  [${processed_count}/${total_shaders}] ${shader_name} -> ${shader_stage} (${shader_entry})")
     endforeach()
+    
+    # Create compilation targets
+    if(processed_shaders)
+        _astral_create_shader_target(${target_name} "${processed_shaders}" ${shader_output_dir})
+        
+        # Copy compiled shaders to runtime location
+        add_custom_command(TARGET ${target_name}_shaders POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                ${shader_output_dir}
+                ${runtime_shader_dir}
+            COMMENT "Astral: Deploying shaders for ${target_name}"
+        )
+        
+        message(STATUS "Astral Engine: Shader system configured for ${target_name}")
+    else()
+        message(WARNING "Astral Engine: No valid shaders processed for ${target_name}")
+    endif()
+endfunction()
 
-    add_custom_target(${target_name}_shaders ALL DEPENDS ${COMPILED_SHADERS})
-    add_dependencies(${target_name} ${target_name}_shaders)
+#----------------------------------------------------------------------
+# Public API: Configure shader compilation settings
+#----------------------------------------------------------------------
+function(astral_configure_shaders)
+    cmake_parse_arguments(ASTRAL_SHADER
+        "ENABLE_DEBUG;DISABLE_HOT_RELOAD;VERBOSE"
+        "PROFILE;OPTIMIZATION;OUTPUT_FORMAT"
+        "INCLUDE_DIRS;PREPROCESSOR_DEFINES"
+        ${ARGN}
+    )
+    
+    if(ASTRAL_SHADER_PROFILE)
+        set(ASTRAL_SHADER_PROFILE ${ASTRAL_SHADER_PROFILE} CACHE STRING "" FORCE)
+    endif()
+    
+    if(ASTRAL_SHADER_OPTIMIZATION)
+        set(ASTRAL_SHADER_OPTIMIZATION_LEVEL ${ASTRAL_SHADER_OPTIMIZATION} CACHE STRING "" FORCE)
+    endif()
+    
+    if(ASTRAL_SHADER_OUTPUT_FORMAT)
+        set(ASTRAL_SHADER_OUTPUT_FORMAT ${ASTRAL_SHADER_OUTPUT_FORMAT} CACHE STRING "" FORCE)
+    endif()
+    
+    if(ASTRAL_SHADER_ENABLE_DEBUG)
+        set(ASTRAL_ENABLE_SHADER_DEBUG ON CACHE BOOL "" FORCE)
+    endif()
+    
+    if(ASTRAL_SHADER_DISABLE_HOT_RELOAD)
+        set(ASTRAL_ENABLE_SHADER_HOT_RELOAD OFF CACHE BOOL "" FORCE)
+    endif()
+    
+    if(ASTRAL_SHADER_VERBOSE)
+        message(STATUS "Astral Shader Configuration:")
+        message(STATUS "  Profile: ${ASTRAL_SHADER_PROFILE}")
+        message(STATUS "  Optimization: ${ASTRAL_SHADER_OPTIMIZATION_LEVEL}")
+        message(STATUS "  Format: ${ASTRAL_SHADER_OUTPUT_FORMAT}")
+        message(STATUS "  Debug: ${ASTRAL_ENABLE_SHADER_DEBUG}")
+        message(STATUS "  Hot Reload: ${ASTRAL_ENABLE_SHADER_HOT_RELOAD}")
+    endif()
+endfunction()
+
+#----------------------------------------------------------------------
+# Public API: Add shader include directories
+#----------------------------------------------------------------------
+function(astral_add_shader_includes)
+    # This can be extended to handle include directories for Slang
+    set(ASTRAL_SHADER_INCLUDE_DIRS ${ARGN} CACHE STRING "Shader include directories")
 endfunction()
 
 #----------------------------------------------------------------------
@@ -281,16 +604,13 @@ add_executable(Sandbox Source/main.cpp)
 target_link_libraries(Sandbox PRIVATE AstralEngine)
 configure_astral_target(Sandbox)
 
-# Proje varlıklarını ve derlenmiş shader'ları Sandbox'ın yanına kopyala
+# Proje varlıklarını Sandbox'ın yanına kopyala
 set(ASSETS_DIR "${CMAKE_SOURCE_DIR}/Assets")
-set(SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/shaders")
 
 add_custom_command(TARGET Sandbox POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
         ${ASSETS_DIR} $<TARGET_FILE_DIR:Sandbox>/Assets
-    COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
-        ${SHADER_OUTPUT_DIR} $<TARGET_FILE_DIR:Sandbox>/Assets/Shaders
-    COMMENT "Copying assets and compiled shaders to output directory..."
+    COMMENT "Copying assets to output directory..."
 )
 
 # Derlenecek shader'ları bul ve derleme hedefini oluştur
@@ -306,22 +626,22 @@ astral_compile_shaders(Sandbox ${ENGINE_SHADERS})
 #----------------------------------------------------------------------
 # 9. SDL3 Test Uygulama Hedefi
 #----------------------------------------------------------------------
-if(ASTRAL_BUILD_TESTS)
-    add_executable(SDL3Test Source/test_sdl3.cpp)
-    target_link_libraries(SDL3Test PRIVATE AstralEngine)
-    configure_astral_target(SDL3Test)
+if(ASTRAL_BUILD_EXAMPLES)
+    add_executable(Example_SDL3 Source/test_sdl3.cpp)
+    target_link_libraries(Example_SDL3 PRIVATE AstralEngine)
+    configure_astral_target(Example_SDL3)
     
-    # SDL3Test için IDE özelliklerini ayarla
-    set_target_properties(SDL3Test PROPERTIES
-        OUTPUT_NAME "SDL3Test$<$<CONFIG:Debug>:_Debug>"
-        DESCRIPTION "Astral Engine SDL3 Integration Test"
+    # Example_SDL3 için IDE özelliklerini ayarla
+    set_target_properties(Example_SDL3 PROPERTIES
+        OUTPUT_NAME "Example_SDL3$<$<CONFIG:Debug>:_Debug>"
+        DESCRIPTION "Astral Engine SDL3 Integration Example"
         VERSION ${PROJECT_VERSION}
         $<$<PLATFORM_ID:Windows>:WIN32_EXECUTABLE OFF>
         $<$<CONFIG:Debug>:DEBUG_POSTFIX "_d">
         $<$<CONFIG:RelWithDebInfo>:RELWITHDEBINFO_POSTFIX "_rd">
     )
     
-    message(STATUS "SDL3Test target created (enabled by ASTRAL_BUILD_TESTS)")
+    message(STATUS "Example_SDL3 target created (enabled by ASTRAL_BUILD_EXAMPLES)")
 endif()
 
 #----------------------------------------------------------------------

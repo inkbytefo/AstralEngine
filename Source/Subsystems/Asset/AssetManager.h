@@ -5,6 +5,9 @@
 #include <memory>
 #include <future>
 #include <functional>
+#include <vector>
+#include <queue>
+#include <mutex>
 #include "AssetHandle.h"
 #include "AssetRegistry.h"
 #include "AssetData.h"
@@ -47,6 +50,7 @@ public:
     bool Initialize(const std::string& assetDirectory);
     void Update(); // Controls async operations
     void Shutdown();
+	void ProcessGpuUploadQueue();
 
     // CPU-side data loading methods (synchronous, used by async system)
     std::shared_ptr<ModelData> LoadModel(const std::string& filePath);
@@ -75,9 +79,7 @@ public:
     const AssetRegistry& GetRegistry() const { return m_registry; }
 
     // Asynchronous Loading (non-blocking)
-    using LoadCallback = std::function<void(std::shared_ptr<void>)>;
-    void LoadModelAsync(const std::string& filePath, LoadCallback callback);
-    void LoadTextureAsync(const std::string& filePath, LoadCallback callback);
+	void LoadAssetAsync(const AssetHandle& handle);
 
     // Cache Management
     void ClearAssetCache();
@@ -97,6 +99,9 @@ private:
     // Thread pool for async loading
     std::unique_ptr<ThreadPool> m_threadPool;
     
+	std::queue<std::function<void()>> m_gpuUploadQueue;
+	std::mutex m_queueMutex;
+
     // Helper functions
     std::string GetFullPath(const std::string& relativePath) const;
     std::string NormalizePath(const std::string& path) const;
@@ -107,6 +112,7 @@ private:
     std::string m_assetDirectory;
     bool m_initialized = false;
     mutable std::mutex m_cacheMutex; // Thread safety
+    std::vector<AssetHandle> m_loadingAssets; // Track assets currently being loaded
 };
 
 
@@ -117,53 +123,42 @@ std::shared_ptr<T> AssetManager::GetAsset(const AssetHandle& handle) {
         return nullptr;
     }
 
-    // Initiate loading process (if not already started)
-    // This is always a non-blocking call
-    RequestLoad(handle);
+    // Ensure the loading process is initiated if the asset isn't loaded or loading.
+    if (m_registry.GetAssetState(handle) == AssetLoadState::NotLoaded || m_registry.GetAssetState(handle) == AssetLoadState::Unloaded) {
+        RequestLoad(handle);
+    }
 
+    // Check if the asset is fully loaded.
+    if (m_registry.GetAssetState(handle) != AssetLoadState::Loaded) {
+        Logger::Trace("AssetManager", "Asset {} is not ready yet (State: {}). Returning nullptr for this frame.",
+                     handle.GetID(), static_cast<int>(m_registry.GetAssetState(handle)));
+        return nullptr;
+    }
+
+    // If loaded, retrieve it from the cache.
     std::shared_future<std::shared_ptr<void>> future;
     {
         std::lock_guard<std::mutex> lock(m_cacheMutex);
         auto it = m_assetHandleCache.find(handle);
         if (it == m_assetHandleCache.end()) {
-            // Future should not be missing immediately after RequestLoad
-            // This indicates an error condition
-            Logger::Error("AssetManager", "Asset future not found in cache after RequestLoad: {}", handle.GetID());
+            Logger::Error("AssetManager", "Asset {} is marked as Loaded but not found in cache.", handle.GetID());
             return nullptr;
         }
         future = it->second;
     }
 
-    // Check future status non-blocking
-    if (future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-        // Asset is loaded, get the data and return it
-        // future.get() can be called multiple times for shared_future
+    // The future should be ready if the state is Loaded.
+    if (future.valid() && future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         std::shared_ptr<void> assetData = future.get();
-        
         if (assetData) {
-            // Update AssetRegistry (success status, last access time, etc.)
-            // This is done in the main thread (render thread), not worker thread
-            m_registry.SetAssetState(handle, AssetLoadState::Loaded);
-            m_registry.SetLoadProgress(handle, 1.0f);
             m_registry.UpdateLastAccessTime(handle);
-            
-            // Memory size is already set in RequestLoad using assetData->GetMemoryUsage()
-
-            Logger::Trace("AssetManager", "Asset {} is ready, returning data.", handle.GetID());
             return std::static_pointer_cast<T>(assetData);
-        } else {
-            // Future is ready but data is nullptr, meaning loading failed
-            Logger::Warning("AssetManager", "Asset {} loading resulted in null data (failed).", handle.GetID());
-            m_registry.SetAssetState(handle, AssetLoadState::Failed);
-            m_registry.SetAssetError(handle, "Async loading resulted in null data.");
-            return nullptr;
         }
-    } else {
-        // Asset is not yet loaded, skip for this frame
-        // AssetRegistry status is already set to "Loading"
-        Logger::Trace("AssetManager", "Asset {} is still loading, skipping for this frame.", handle.GetID());
-        return nullptr;
     }
+    
+    // This case indicates a state mismatch, which should be logged.
+    Logger::Warning("AssetManager", "Asset {} is marked as Loaded, but its future is not ready or data is null.", handle.GetID());
+    return nullptr;
 }
 
 } // namespace AstralEngine

@@ -4,6 +4,14 @@
 #include <vulkan/vulkan.h>
 #include <cstdint>
 
+// GPU kaynak durumu enum'u
+enum class GpuResourceState {
+    Unloaded,   ///< Henüz yüklenmeye başlanmadı
+    Uploading,  ///< GPU'ya upload ediliyor
+    Ready,      ///< GPU'da kullanıma hazır
+    Failed      ///< Yükleme başarısız oldu
+};
+
 namespace AstralEngine {
 
 /**
@@ -50,6 +58,41 @@ public:
     // Hata yönetimi
     const std::string& GetLastError() const { return m_lastError; }
 
+    // Sahipliği bırakmak için
+    void Release();
+
+    // Staging buffer ve veri kopyalama metotları
+    /**
+     * @brief Host'tan gelen veriyi buffer'a kopyalar
+     *
+     * Bu metod, staging buffer oluşturur, veriyi staging buffer'a kopyalar ve
+     * asenkron olarak GPU'ya transfer eder. async parametresi true ise fence döndürür,
+     * false ise senkron olarak bekler.
+     *
+     * @param device Vulkan device
+     * @param data Kopyalanacak veri
+     * @param dataSize Veri boyutu
+     * @param async Asenkron çalıştır (varsayılan: true)
+     * @return VkFence Asenkron ise fence handle, senkron ise VK_NULL_HANDLE
+     */
+    VkFence CopyDataFromHost(const void* data, VkDeviceSize dataSize, bool async = true);
+    
+    /**
+     * @brief Staging buffer kaynaklarını temizler
+     *
+     * Bu metod, asenkron upload işlemi tamamlandığında staging buffer
+     * ve fence kaynaklarını temizlemek için kullanılır.
+     */
+    void CleanupStagingResources();
+    
+    /**
+     * @brief Upload işleminin tamamlanıp tamamlanmadığını kontrol eder
+     *
+     * @return true Upload tamamlandıysa
+     * @return false Upload hala devam ediyorsa
+     */
+    bool IsUploadComplete() const;
+
 private:
     // Yardımcı metotlar
     void SetError(const std::string& error);
@@ -65,6 +108,13 @@ private:
     std::string m_lastError;
     bool m_isInitialized = false;
     bool m_mapped = false;
+    
+    // Asenkron upload için üye değişkenler
+    VkBuffer m_stagingBuffer = VK_NULL_HANDLE;        // Geçici staging buffer
+    VkDeviceMemory m_stagingMemory = VK_NULL_HANDLE;  // Staging buffer için bellek
+    VkFence m_uploadFence = VK_NULL_HANDLE;           // Upload işlemini senkronize etmek için fence
+    mutable GpuResourceState m_state = GpuResourceState::Unloaded; // Buffer'ın yükleme durumu
+    mutable bool m_autoCleanupStaging = true;         // Otomatik staging temizliği etkin mi?
 };
 
 } // namespace AstralEngine

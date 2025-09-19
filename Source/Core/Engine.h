@@ -8,7 +8,10 @@
 #include <typeindex>
 #include <filesystem>
 
+// Forward declaration
 namespace AstralEngine {
+    class EventManager;
+}
 
 /**
  * @brief Motorun çekirdek orkestratörü.

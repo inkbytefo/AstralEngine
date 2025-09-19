@@ -79,21 +79,25 @@ std::string VulkanUtils::GetVkResultString(VkResult result) {
     return oss.str();
 }
 
-bool VulkanUtils::IsFormatSupported([[maybe_unused]] VkFormat format, [[maybe_unused]] VkImageTiling tiling, [[maybe_unused]] VkFormatFeatureFlags features, [[maybe_unused]] VkPhysicalDevice physicalDevice) {
-    // Note: This function needs a VkPhysicalDevice parameter to work properly
-    // Currently it's a placeholder implementation
+bool VulkanUtils::IsFormatSupported(VkPhysicalDevice physicalDevice, VkFormat format, VkImageTiling tiling, VkFormatFeatureFlags features) {
+    if (physicalDevice == VK_NULL_HANDLE) return false;
+    VkFormatProperties props;
+    vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &props);
+
+    if (tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features) {
+        return true;
+    } else if (tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures & features) == features) {
+        return true;
+    }
     return false;
 }
 
-VkFormat VulkanUtils::FindSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features) {
-    // Note: This function needs a VkPhysicalDevice parameter to work properly
-    // For now, we'll pass nullptr as physicalDevice, but this should be fixed
+VkFormat VulkanUtils::FindSupportedFormat(VkPhysicalDevice physicalDevice, const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features) {
     for (VkFormat format : candidates) {
-        if (IsFormatSupported(format, tiling, features, nullptr)) {
+        if (IsFormatSupported(physicalDevice, format, tiling, features)) {
             return format;
         }
     }
-    
     LogWarning("No supported format found from candidates", __FILE__, __LINE__);
     return VK_FORMAT_UNDEFINED;
 }
@@ -105,7 +109,7 @@ VkFormat VulkanUtils::FindDepthFormat(VkPhysicalDevice physicalDevice) {
         VK_FORMAT_D24_UNORM_S8_UINT
     };
     
-    return FindSupportedFormat(candidates, VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+    return FindSupportedFormat(physicalDevice, candidates, VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
 }
 
 VkImageAspectFlags VulkanUtils::GetImageAspectFlags(VkFormat format) {

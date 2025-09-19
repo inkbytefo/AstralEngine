@@ -109,6 +109,8 @@ bool GraphicsDevice::Initialize(Window* window, Engine* owner, const GraphicsDev
     
     Logger::Info("GraphicsDevice", "Frame manager created successfully");
 
+    m_deletionQueue.resize(m_config.maxFramesInFlight);
+
     if (!CreateRenderer()) {
         Logger::Error("GraphicsDevice", "Failed to create renderer");
         return false;
@@ -138,6 +140,15 @@ void GraphicsDevice::Shutdown() {
 #ifdef ASTRAL_USE_VULKAN
     // Cihazı idle bekle
     vkDeviceWaitIdle(m_vulkanDevice->GetDevice());
+
+    // Deletion queue'daki her şeyi temizle
+    for (auto& frame_queue : m_deletionQueue) {
+        for (auto& pair : frame_queue) {
+            vkDestroyBuffer(m_vulkanDevice->GetDevice(), pair.first, nullptr);
+            vkFreeMemory(m_vulkanDevice->GetDevice(), pair.second, nullptr);
+        }
+        frame_queue.clear();
+    }
     
     // Frame manager'ı kapat
     if (m_frameManager) {
@@ -202,14 +213,26 @@ bool GraphicsDevice::BeginFrame() {
     if (!m_initialized || m_frameStarted) {
         return false;
     }
+
+    // Bu frame için silme kuyruğunu temizle
+    m_currentFrameIndex = m_frameManager->GetCurrentFrameIndex();
+    for (auto& pair : m_deletionQueue[m_currentFrameIndex]) {
+        vkDestroyBuffer(m_vulkanDevice->GetDevice(), pair.first, nullptr);
+        vkFreeMemory(m_vulkanDevice->GetDevice(), pair.second, nullptr);
+    }
+    m_deletionQueue[m_currentFrameIndex].clear();
     
     // Frame manager'a delege et
     if (!m_frameManager || !m_frameManager->BeginFrame()) {
         return false;
     }
     
+    // At the beginning of the frame's rendering commands
+    if (m_vulkanRenderer) {
+        m_vulkanRenderer->ResetInstanceBuffer();
+    }
+    
     m_frameStarted = true;
-    m_currentFrameIndex = m_frameManager->GetCurrentFrameIndex();
     return true;
 }
 
@@ -681,6 +704,12 @@ void GraphicsDevice::CleanupSwapchain() {
     if (m_swapchain) {
         m_swapchain->Shutdown();
         m_swapchain.reset();
+    }
+}
+
+void GraphicsDevice::QueueBufferForDeletion(VkBuffer buffer, VkDeviceMemory memory) {
+    if (m_initialized) {
+        m_deletionQueue[m_currentFrameIndex].push_back({buffer, memory});
     }
 }
 

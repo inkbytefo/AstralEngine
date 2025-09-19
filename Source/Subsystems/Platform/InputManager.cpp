@@ -1,6 +1,8 @@
 #include "InputManager.h"
 #include "Window.h"
 #include "../../Core/Logger.h"
+#include "../../Events/EventManager.h"
+#include "../../Events/Event.h"
 
 // SDL3 key mapping
 #ifdef ASTRAL_USE_SDL3
@@ -19,32 +21,32 @@ namespace AstralEngine {
 KeyCode SDLKeyToAstralKey(SDL_Keycode sdlKey) {
     switch (sdlKey) {
         // Letters
-        case SDLK_A: return KeyCode::A;
-        case SDLK_B: return KeyCode::B;
-        case SDLK_C: return KeyCode::C;
-        case SDLK_D: return KeyCode::D;
-        case SDLK_E: return KeyCode::E;
-        case SDLK_F: return KeyCode::F;
-        case SDLK_G: return KeyCode::G;
-        case SDLK_H: return KeyCode::H;
-        case SDLK_I: return KeyCode::I;
-        case SDLK_J: return KeyCode::J;
-        case SDLK_K: return KeyCode::K;
-        case SDLK_L: return KeyCode::L;
-        case SDLK_M: return KeyCode::M;
-        case SDLK_N: return KeyCode::N;
-        case SDLK_O: return KeyCode::O;
-        case SDLK_P: return KeyCode::P;
-        case SDLK_Q: return KeyCode::Q;
-        case SDLK_R: return KeyCode::R;
-        case SDLK_S: return KeyCode::S;
-        case SDLK_T: return KeyCode::T;
-        case SDLK_U: return KeyCode::U;
-        case SDLK_V: return KeyCode::V;
-        case SDLK_W: return KeyCode::W;
-        case SDLK_X: return KeyCode::X;
-        case SDLK_Y: return KeyCode::Y;
-        case SDLK_Z: return KeyCode::Z;
+        case SDLK_a: return KeyCode::A;
+        case SDLK_b: return KeyCode::B;
+        case SDLK_c: return KeyCode::C;
+        case SDLK_d: return KeyCode::D;
+        case SDLK_e: return KeyCode::E;
+        case SDLK_f: return KeyCode::F;
+        case SDLK_g: return KeyCode::G;
+        case SDLK_h: return KeyCode::H;
+        case SDLK_i: return KeyCode::I;
+        case SDLK_j: return KeyCode::J;
+        case SDLK_k: return KeyCode::K;
+        case SDLK_l: return KeyCode::L;
+        case SDLK_m: return KeyCode::M;
+        case SDLK_n: return KeyCode::N;
+        case SDLK_o: return KeyCode::O;
+        case SDLK_p: return KeyCode::P;
+        case SDLK_q: return KeyCode::Q;
+        case SDLK_r: return KeyCode::R;
+        case SDLK_s: return KeyCode::S;
+        case SDLK_t: return KeyCode::T;
+        case SDLK_u: return KeyCode::U;
+        case SDLK_v: return KeyCode::V;
+        case SDLK_w: return KeyCode::W;
+        case SDLK_x: return KeyCode::X;
+        case SDLK_y: return KeyCode::Y;
+        case SDLK_z: return KeyCode::Z;
         
         // Numbers
         case SDLK_1: return KeyCode::Number1;
@@ -238,32 +240,42 @@ void InputManager::GetMouseDelta(int& dx, int& dy) const {
     dy = m_mouseDeltaY;
 }
 
-void InputManager::OnKeyEvent(KeyCode key, bool pressed) {
+void InputManager::OnKeyEvent(KeyCode key, bool pressed, bool isRepeat) {
     if (key >= KeyCode::MAX_KEYS || key == KeyCode::Unknown) {
         return;
     }
     
     size_t keyIndex = static_cast<size_t>(key);
-    bool wasPressed = m_keyboardState[keyIndex];
-    m_keyboardState[keyIndex] = pressed;
     
-    // Log state changes only
-    if (wasPressed != pressed) {
+    // Sadece durum değiştiğinde veya repeat event ise event gönder
+    if (m_keyboardState[keyIndex] != pressed) {
+        m_keyboardState[keyIndex] = pressed;
+        
+        if (pressed) {
+            EventManager::GetInstance().PublishEvent<KeyPressedEvent>(key, isRepeat);
+        } else {
+            EventManager::GetInstance().PublishEvent<KeyReleasedEvent>(key);
+        }
+        
         Logger::Trace("InputManager", "Key {} {} (code: {})", 
                     static_cast<int>(key), 
                     pressed ? "pressed" : "released",
                     keyIndex);
+    } else if (pressed && isRepeat) {
+        // Repeat event for a key that is already held down
+        EventManager::GetInstance().PublishEvent<KeyPressedEvent>(key, true);
     }
 }
+
 
 /**
  * @brief SDL3 key event'ini engine key event'ine çevirir ve işler
  */
-void InputManager::HandleSDLKeyEvent(int sdlKeycode, bool pressed) {
+void InputManager::HandleSDLKeyEvent(int sdlKeycode, bool pressed, bool isRepeat) {
 #ifdef ASTRAL_USE_SDL3
     KeyCode engineKey = SDLKeyToAstralKey(static_cast<SDL_Keycode>(sdlKeycode));
     if (engineKey != KeyCode::Unknown) {
-        OnKeyEvent(engineKey, pressed);
+        OnKeyEvent(engineKey, pressed, isRepeat);
     }
 #endif
 }
@@ -274,17 +286,22 @@ void InputManager::OnMouseButtonEvent(MouseButton button, bool pressed) {
     }
     
     size_t buttonIndex = static_cast<size_t>(button);
-    bool wasPressed = m_mouseState[buttonIndex];
-    m_mouseState[buttonIndex] = pressed;
-    
-    // Log state changes only
-    if (wasPressed != pressed) {
+    if (m_mouseState[buttonIndex] != pressed) {
+        m_mouseState[buttonIndex] = pressed;
+
+        if (pressed) {
+            EventManager::GetInstance().PublishEvent<MouseButtonPressedEvent>(static_cast<int>(button));
+        } else {
+            EventManager::GetInstance().PublishEvent<MouseButtonReleasedEvent>(static_cast<int>(button));
+        }
+
         Logger::Trace("InputManager", "Mouse button {} {} at ({}, {})", 
                     static_cast<int>(button), 
                     pressed ? "pressed" : "released",
                     m_mouseX, m_mouseY);
     }
 }
+
 
 /**
  * @brief SDL3 mouse button event'ini engine mouse event'ine çevirir ve işler
@@ -303,26 +320,35 @@ void InputManager::HandleSDLMouseButtonEvent(uint8_t sdlButton, bool pressed, fl
 
 
 void InputManager::OnMouseMoveEvent(int x, int y) {
-    m_mouseDeltaX = x - m_mouseX;
-    m_mouseDeltaY = y - m_mouseY;
-    m_mouseX = x;
-    m_mouseY = y;
-    
-    Logger::Trace("InputManager", "Mouse moved to ({}, {}), delta: ({}, {})", 
-                  x, y, m_mouseDeltaX, m_mouseDeltaY);
+    if (x != m_mouseX || y != m_mouseY) {
+        m_mouseDeltaX = x - m_mouseX;
+        m_mouseDeltaY = y - m_mouseY;
+        m_mouseX = x;
+        m_mouseY = y;
+        
+        EventManager::GetInstance().PublishEvent<MouseMovedEvent>(x, y);
+
+        Logger::Trace("InputManager", "Mouse moved to ({}, {}), delta: ({}, {})", 
+                      x, y, m_mouseDeltaX, m_mouseDeltaY);
+    }
 }
 
-void InputManager::OnMouseWheelEvent(int delta) {
-    m_mouseWheelDelta = delta;
+void InputManager::OnMouseWheelEvent(float xOffset, float yOffset) {
+    m_mouseWheelDeltaX = xOffset;
+    m_mouseWheelDeltaY = yOffset;
     
-    Logger::Trace("InputManager", "Mouse wheel delta: {}", delta);
+    EventManager::GetInstance().PublishEvent<MouseScrolledEvent>(xOffset, yOffset);
+
+    Logger::Trace("InputManager", "Mouse wheel delta: X: {}, Y: {}", xOffset, yOffset);
 }
+
 
 void InputManager::ResetFrameInputs() {
     // Mouse delta ve wheel her frame sıfırlanmalı
     m_mouseDeltaX = 0;
     m_mouseDeltaY = 0;
-    m_mouseWheelDelta = 0;
+    m_mouseWheelDeltaX = 0;
+    m_mouseWheelDeltaY = 0;
 }
 
 } // namespace AstralEngine

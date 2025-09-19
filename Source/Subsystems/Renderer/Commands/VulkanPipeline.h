@@ -29,6 +29,8 @@ public:
         VulkanSwapchain* swapchain;             ///< Swapchain (render pass için)
         VkExtent2D extent;                      ///< Pencere boyutu
         VkDescriptorSetLayout descriptorSetLayout; ///< Descriptor set layout (uniform buffer için)
+        std::vector<VkVertexInputBindingDescription> vertexBindingDescriptions;
+        std::vector<VkVertexInputAttributeDescription> vertexAttributeDescriptions;
         bool useMinimalVertexInput = false;     ///< For debugging - bypass vertex attributes
     };
 
@@ -61,10 +63,7 @@ private:
     
     // Pipeline aşama oluşturma yardımcıları
     std::vector<VkPipelineShaderStageCreateInfo> CreateShaderStages();
-    VkPipelineVertexInputStateCreateInfo CreateVertexInputState(
-        const VkVertexInputBindingDescription& bindingDescription,
-        const std::array<VkVertexInputAttributeDescription, 3>& attributeDescriptions
-    );
+    VkPipelineVertexInputStateCreateInfo CreateVertexInputState();
     VkPipelineInputAssemblyStateCreateInfo CreateInputAssemblyState();
     std::vector<VkDynamicState> GetDynamicStates();
     VkPipelineViewportStateCreateInfo CreateViewportState();

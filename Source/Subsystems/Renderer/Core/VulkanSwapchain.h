@@ -2,6 +2,7 @@
 
 #include "Core/Logger.h"
 #include "VulkanDevice.h"
+#include "VulkanFramebuffer.h"
 #include <vulkan/vulkan.h>
 #include <memory>
 #include <vector>
@@ -63,7 +64,6 @@ private:
     bool CreateSwapchain();
     bool CreateImageViews();
     bool CreateDepthResources();
-    VkFormat FindSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
     bool CreateRenderPass();
     bool CreateFramebuffers();
 
@@ -71,8 +71,7 @@ private:
     void Cleanup();
 
     // Helper methods
-    uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
-    bool CreateImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, 
+    bool CreateImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
                     VkImageUsageFlags usage, VkMemoryPropertyFlags properties, 
                     VkImage& image, VkDeviceMemory& imageMemory);
     VkImageView CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
@@ -100,7 +99,7 @@ private:
     
     // Render pass and framebuffers
     VkRenderPass m_renderPass = VK_NULL_HANDLE;
-    std::vector<VkFramebuffer> m_swapchainFramebuffers;
+    std::vector<std::unique_ptr<VulkanFramebuffer>> m_framebuffers;
     
     // State management
     bool m_isInitialized = false;

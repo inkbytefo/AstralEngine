@@ -29,7 +29,7 @@ struct AssetMetadata {
     AssetHandle handle;
     std::string filePath;
     AssetHandle::Type type;
-    AssetLoadState state;
+    std::atomic<AssetLoadState> state;
     size_t memorySize;
     uint32_t refCount;
     std::string lastError;

@@ -19,7 +19,7 @@ public:
 
     // Bellek ayırma ve serbest bırakma
     void* Allocate(size_t size, size_t alignment = alignof(std::max_align_t));
-    void Deallocate(void* ptr);
+    void Deallocate(void* ptr, size_t alignment = alignof(std::max_align_t));
 
     // Frame-based temporary allocator
     void* AllocateFrameMemory(size_t size, size_t alignment = alignof(std::max_align_t));

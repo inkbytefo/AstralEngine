@@ -38,9 +38,6 @@ private:
     std::unique_ptr<Window> m_window;
     std::unique_ptr<InputManager> m_inputManager;
     Engine* m_owner = nullptr;
-    
-    // Event subscription management
-    std::vector<EventManager::EventHandlerID> m_eventSubscriptions;
 };
 
 } // namespace AstralEngine
