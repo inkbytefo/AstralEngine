@@ -81,10 +81,10 @@ target_link_libraries(AstralEngine PUBLIC
     # Core dependencies
     SDL3::SDL3
     Vulkan::Vulkan
-    GLM::GLM
+    glm # GLM uses 'glm' target name, not 'GLM::GLM'
     nlohmann_json::nlohmann_json
     assimp::assimp
-    VMA::VMA
+    VMA
 
     # Optional dependencies
     $<$<BOOL:${ASTRAL_USE_IMGUI}>:ImGui>
@@ -164,6 +164,73 @@ install(TARGETS AstralEngine
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
+
+# Install the common settings target
+install(TARGETS astral_common_settings
+    EXPORT AstralEngineTargets
+)
+
+# Install dependencies that need to be exported
+# Include ALL dependency targets in the export set to resolve dependency chains
+if(TARGET SDL3_Headers)
+    install(TARGETS SDL3_Headers
+        EXPORT AstralEngineTargets
+    )
+endif()
+
+if(TARGET SDL3-shared)
+    install(TARGETS SDL3-shared
+        EXPORT AstralEngineTargets
+    )
+endif()
+
+if(TARGET glm-header-only)
+    install(TARGETS glm-header-only
+        EXPORT AstralEngineTargets
+    )
+endif()
+
+if(TARGET glm)
+    install(TARGETS glm
+        EXPORT AstralEngineTargets
+    )
+endif()
+
+if(TARGET VulkanMemoryAllocator)
+    install(TARGETS VulkanMemoryAllocator
+        EXPORT AstralEngineTargets
+    )
+endif()
+
+if(TARGET VMA)
+    install(TARGETS VMA
+        EXPORT AstralEngineTargets
+    )
+endif()
+
+if(TARGET nlohmann_json)
+    install(TARGETS nlohmann_json
+        EXPORT AstralEngineTargets
+    )
+endif()
+
+if(TARGET assimp)
+    install(TARGETS assimp
+        EXPORT AstralEngineTargets
+    )
+endif()
+
+if(TARGET ImGui)
+    install(TARGETS ImGui
+        EXPORT AstralEngineTargets
+    )
+endif()
+
+if(TARGET Jolt)
+    install(TARGETS Jolt
+        EXPORT AstralEngineTargets
+    )
+endif()
 
 # Install the header files
 install(DIRECTORY Source/
