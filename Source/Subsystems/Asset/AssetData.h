@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <memory>
+#include <array>
 #include <glm/glm.hpp>
 #include "../Renderer/Bounds.h"
 

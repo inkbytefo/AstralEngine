@@ -1,6 +1,8 @@
 #include "VulkanShader.h"
 #include "../../../Core/Logger.h"
 #include <stdexcept>
+#include <vector>
+#include <string>
 
 namespace AstralEngine {
 

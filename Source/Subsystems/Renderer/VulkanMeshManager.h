@@ -4,22 +4,13 @@
 #include "../../Asset/AssetSubsystem.h"
 #include "../Buffers/VulkanMesh.h"
 #include "../Core/VulkanDevice.h"
+#include "../RendererTypes.h"
 #include <memory>
 #include <unordered_map>
 #include <mutex>
 #include <vulkan/vulkan.h>
 
 namespace AstralEngine {
-
-/**
- * @brief GPU kaynaklarının yükleme durumunu belirten enum
- */
-enum class GpuResourceState {
-    Unloaded,   ///< Henüz yüklenmeye başlanmadı
-    Uploading,  ///< GPU'ya upload ediliyor
-    Ready,      ///< GPU'da kullanıma hazır
-    Failed      ///< Yükleme başarısız oldu
-};
 
 /**
  * @brief Mesh cache entry'si için veri yapısı

@@ -186,21 +186,68 @@ PBR (Physically Based Rendering) tabanlı materyal sistemi:
 
 ## 7. Build Sistemi ve Bağımlılıklar
 
-### 7.1. CMake Konfigürasyonu
+### 7.1. Modern CMake Konfigürasyonu
 
-Modern CMake yapılandırması ile:
-- **Multi-strategy SDL3 detection:** [`External/SDL3/`](External/SDL3/) dizini, system SDL3, pkg-config, FetchContent sırasıyla denenir
-- **Platform-specific Vulkan tanımları:** Windows için `VK_USE_PLATFORM_WIN32_KHR`, Linux için `VK_USE_PLATFORM_XCB_KHR`
-- **AVX2 optimizasyonları:** MSVC Release build'lerde otomatik etkinleştirme
-- **FetchContent bağımlılık yönetimi:** Tüm dış kütüphaneler otomatik olarak indirilir ve derlenir
+AstralEngine, modern CMake en iyi pratiklerine uygun olarak yeniden yapılandırılmıştır. Derleme sistemi şu modüllerden oluşur:
 
-### 7.2. Base Path Çözümleme
+- **cmake/ProjectOptions.cmake**: Tüm kullanıcı tarafından yapılandırılabilir seçenekleri içerir
+  - Temel derleme seçenekleri (shared/static library, examples, tests, tools)
+  - Alt sistem seçenekleri (SDL3, Vulkan, ImGui, Jolt Physics)
+  - Geliştirme seçenekleri (validation, debug markers, shader hot reload)
 
-Motor, [`argv[0]`](Source/main.cpp:96) kullanarak base path çözümler:
-```cpp
-engine.SetBasePath(std::filesystem::path(argv[0]).parent_path());
+- **cmake/ProjectConfiguration.cmake**: Merkezi bir INTERFACE target (`astral_common_settings`) tanımlar
+  - Derleyiciye özgü bayraklar (MSVC, GCC/Clang)
+  - Platforma özgü tanımlamalar (Windows, Linux, macOS)
+  - Ortak derleyici tanımlamaları ve optimizasyonlar
+  - Link Time Optimization (LTO) ve uyarı yönetimi
+
+- **cmake/Dependencies.cmake**: Tüm bağımlılıkları yönetir
+  - FetchContent veya find_package kullanarak bağımlılık yönetimi
+  - Kategorize edilmiş bağımlılık yapısı (Core, Math, JSON, 3D Model, Vulkan, UI, Physics)
+  - Standartlaştırılmış yardımcı fonksiyonlar
+
+- **CMakeLists.txt**: Projenin üst düzey orkestratörü
+  - Modüler yapı ile temiz ve okunabilir ana dosya
+  - Hedef odaklı tasarım ile bağımlılık yönetimi
+  - Otomatik asset kopyalama ve shader yönetimi
+  - Gelişmiş kurulum ve paketleme desteği
+
+### 7.2. Build Seçenekleri ve Yapılandırma
+
+Proje, modern CMake'in hedef odaklı yaklaşımını kullanır:
+
+```bash
+# Temel yapılandırma
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+# Tüm seçenekleri görüntüleme
+cmake -B build -LAH
+
+# Örnek yapılandırma
+cmake -B build \
+  -DASTRAL_BUILD_SHARED=ON \
+  -DASTRAL_BUILD_EXAMPLES=ON \
+  -DASTRAL_USE_VULKAN=ON \
+  -DASTRAL_USE_IMGUI=ON \
+  -DASTRAL_ENABLE_LTO=ON \
+  -DCMAKE_BUILD_TYPE=Release
 ```
-Bu, shader ve asset yükleme için kritik öneme sahiptir ve [`VulkanRenderer.cpp`](Source/Subsystems/Renderer/VulkanRenderer.cpp:320-322) dosyasında kullanılır.
+
+### 7.3. Bağımlılık Yönetimi
+
+Bağımlılıklar, modern CMake pratiklerine göre yönetilir:
+
+- **Otomatik İndirme**: FetchContent ile bağımlılıklar otomatik olarak indirilir
+- **vcpkg Entegrasyonu**: Varsa vcpkg kullanılır
+- **Interface Targets**: Bağımlılıklar INTERFACE target olarak tanımlanır
+- **Koşullu Bağlama**: İsteğe bağlı bağımlılıklar koşullu olarak bağlanır
+
+### 7.4. Platform Desteği ve Optimizasyonlar
+
+- **Çapraz Platform**: Windows, Linux ve macOS desteği
+- **Derleyici Optimizasyonları**: MSVC için AVX2, GCC/Clang için native optimizasyonlar
+- **Debug/Release Ayırımı**: Farklı build türleri için özel ayarlar
+- **Validation Desteği**: Debug build'lerde otomatik validation katmanları
 
 ## 8. Veri Akışı: Bir Frame'in Anatomisi
 

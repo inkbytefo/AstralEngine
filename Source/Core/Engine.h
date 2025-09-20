@@ -84,6 +84,4 @@ T* Engine::GetSubsystem() const {
     return nullptr;
 }
 
-} // class Engine
-
 } // namespace AstralEngine

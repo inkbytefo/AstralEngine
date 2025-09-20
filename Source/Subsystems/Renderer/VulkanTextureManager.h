@@ -4,21 +4,13 @@
 #include "../../../Subsystems/Asset/AssetSubsystem.h"
 #include "../Buffers/VulkanTexture.h"
 #include "../Core/VulkanDevice.h"
+#include "RendererTypes.h"
 #include <memory>
 #include <unordered_map>
 #include <mutex>
 #include <vulkan/vulkan.h>
 
 namespace AstralEngine {
-
-// GpuResourceState enum'unu buraya da eklemeliyiz veya ortak bir header'a taşımalıyız
-// Şimdilik kopyalayalım
-enum class GpuResourceState {
-    Unloaded,   ///< Henüz yüklenmeye başlanmadı
-    Uploading,  ///< GPU'ya upload ediliyor
-    Ready,      ///< GPU'da kullanıma hazır
-    Failed      ///< Yükleme başarısız oldu
-};
 
 /**
  * @brief Texture cache entry'si için veri yapısı

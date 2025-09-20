@@ -1,9 +1,6 @@
 #pragma once
 
 #include "../../Asset/AssetHandle.h"
-#include "../../Asset/AssetManager.h"
-#include "../Buffers/VulkanTexture.h"
-#include "../Shaders/VulkanShader.h"
 #include "../RendererTypes.h"
 #include <vulkan/vulkan.h>
 #include <string>
@@ -11,10 +8,15 @@
 #include <memory>
 #include <unordered_map>
 #include <glm/glm.hpp>
+#include <mutex>
 
 namespace AstralEngine {
-    // Forward declaration to avoid circular dependency
-    class RenderSubsystem;
+
+// Forward declarations
+class VulkanTexture;
+class VulkanDevice;
+class AssetManager;
+class VulkanShader;
 
 /**
  * @enum MaterialType

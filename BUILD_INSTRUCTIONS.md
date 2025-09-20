@@ -1,4 +1,4 @@
-# Astral Engine - SDL3 Integration Build Instructions
+# Astral Engine - Modern CMake Build Instructions
 
 ## 📋 Prerequisites
 
@@ -16,7 +16,7 @@
 #### Windows
 ```powershell
 # No additional dependencies required
-# SDL3 will be automatically downloaded and built
+# All dependencies will be automatically downloaded and built
 ```
 
 #### Linux (Ubuntu/Debian)
@@ -58,9 +58,9 @@ brew install cmake git
 
 ## 🚀 Build Options
 
-### Option 1: Automatic SDL3 Build (Recommended)
+### Option 1: Basic Build (Recommended)
 
-This option automatically downloads and builds SDL3 from source.
+This option automatically downloads and builds all dependencies.
 
 #### Windows (Visual Studio)
 ```cmd
@@ -71,9 +71,8 @@ cd AstralEngine
 mkdir build
 cd build
 
-# Configure with automatic SDL3 build
+# Configure with default settings
 cmake .. -G "Visual Studio 17 2022" -A x64 \
-  -DASTRAL_VENDOR_SDL3=ON \
   -DCMAKE_BUILD_TYPE=Release
 
 # Build the project
@@ -92,9 +91,8 @@ cd AstralEngine
 mkdir build
 cd build
 
-# Configure with automatic SDL3 build
+# Configure with default settings
 cmake .. \
-  -DASTRAL_VENDOR_SDL3=ON \
   -DCMAKE_BUILD_TYPE=Release
 
 # Build the project
@@ -105,22 +103,24 @@ make -j$(nproc)  # Linux
 ./bin/AstralEngine
 ```
 
-### Option 2: Pre-installed SDL3
-
-If you have SDL3 already installed on your system.
-
-#### Download SDL3 Development Libraries
-
-1. **Visit**: https://github.com/libsdl-org/SDL/releases
-2. **Download**: SDL3-devel-3.2.22-VC.zip (Windows) or equivalent for your platform
-3. **Extract**: To a known location (e.g., `C:\SDL3` on Windows)
-
-#### Build with Pre-installed SDL3
+### Option 2: Custom Build with Options
 
 ```bash
-# Configure with SDL3 path
+# Configure with custom options
 cmake .. \
-  -DSDL3_ROOT="/path/to/your/sdl3/installation" \
+  -DASTRAL_BUILD_SHARED=ON \
+  -DASTRAL_BUILD_EXAMPLES=ON \
+  -DASTRAL_BUILD_TESTS=ON \
+  -DASTRAL_BUILD_TOOLS=ON \
+  -DASTRAL_USE_VULKAN=ON \
+  -DASTRAL_USE_IMGUI=ON \
+  -DASTRAL_USE_JOLT_PHYSICS=ON \
+  -DASTRAL_ENABLE_PROFILING=OFF \
+  -DASTRAL_WARNINGS_AS_ERRORS=OFF \
+  -DASTRAL_ENABLE_LTO=ON \
+  -DASTRAL_ENABLE_VALIDATION=ON \
+  -DASTRAL_ENABLE_DEBUG_MARKERS=ON \
+  -DASTRAL_ENABLE_SHADER_HOT_RELOAD=ON \
   -DCMAKE_BUILD_TYPE=Release
 
 # Build
@@ -136,8 +136,8 @@ cd vcpkg
 ./bootstrap-vcpkg.sh  # Linux/macOS
 # .\bootstrap-vcpkg.bat  # Windows
 
-# Install SDL3
-./vcpkg install sdl3
+# Install dependencies
+./vcpkg install sdl3 vulkan glm nlohmann-json assimp
 
 # Configure AstralEngine with vcpkg
 cd /path/to/AstralEngine
@@ -158,22 +158,49 @@ cmake --build . --config Release
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `ASTRAL_VENDOR_SDL3` | `OFF` | Automatically download and build SDL3 |
-| `ASTRAL_LINK_SDL3MAIN` | `ON` | Link SDL3main on Windows |
+| `ASTRAL_BUILD_SHARED` | `OFF` | Build AstralEngine as shared library |
 | `ASTRAL_BUILD_EXAMPLES` | `ON` | Build example applications |
-| `ASTRAL_WARNINGS_AS_ERRORS` | `OFF` | Treat warnings as compilation errors |
+| `ASTRAL_BUILD_TESTS` | `OFF` | Build unit tests |
+| `ASTRAL_BUILD_TOOLS` | `OFF` | Build development tools |
 | `ASTRAL_ENABLE_PROFILING` | `OFF` | Enable profiling support |
-| `ASTRAL_ENABLE_TESTS` | `OFF` | Build unit tests |
+| `ASTRAL_WARNINGS_AS_ERRORS` | `OFF` | Treat warnings as compilation errors |
+| `ASTRAL_ENABLE_LTO` | `ON` | Enable Link Time Optimization for Release builds |
+
+### Subsystem Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `ASTRAL_USE_SDL3` | `ON` | Enable SDL3 platform backend |
+| `ASTRAL_USE_VULKAN` | `ON` | Enable Vulkan graphics backend |
+| `ASTRAL_USE_IMGUI` | `ON` | Enable Dear ImGui UI system |
+| `ASTRAL_USE_JOLT_PHYSICS` | `ON` | Enable Jolt Physics system |
+
+### Development Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `ASTRAL_ENABLE_VALIDATION` | `ON` | Enable Vulkan validation layers in Debug builds |
+| `ASTRAL_ENABLE_DEBUG_MARKERS` | `ON` | Enable Vulkan debug markers in Debug builds |
+| `ASTRAL_ENABLE_SHADER_HOT_RELOAD` | `ON` | Enable hot shader reloading |
 
 ### Advanced Configuration
 
 ```bash
 # Full configuration example
 cmake .. \
-  -DASTRAL_VENDOR_SDL3=ON \
+  -DASTRAL_BUILD_SHARED=ON \
   -DASTRAL_BUILD_EXAMPLES=ON \
-  -DASTRAL_WARNINGS_AS_ERRORS=ON \
+  -DASTRAL_BUILD_TESTS=ON \
+  -DASTRAL_BUILD_TOOLS=ON \
+  -DASTRAL_USE_VULKAN=ON \
+  -DASTRAL_USE_IMGUI=ON \
+  -DASTRAL_USE_JOLT_PHYSICS=ON \
   -DASTRAL_ENABLE_PROFILING=ON \
+  -DASTRAL_WARNINGS_AS_ERRORS=ON \
+  -DASTRAL_ENABLE_LTO=ON \
+  -DASTRAL_ENABLE_VALIDATION=ON \
+  -DASTRAL_ENABLE_DEBUG_MARKERS=ON \
+  -DASTRAL_ENABLE_SHADER_HOT_RELOAD=ON \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -DCMAKE_INSTALL_PREFIX="/usr/local"
 ```
@@ -210,24 +237,28 @@ ASTRAL_LOG_LEVEL=DEBUG ./AstralEngine
 
 ## 🔍 Verification
 
-### Check SDL3 Integration
+### Check Engine Startup
 
 When the engine starts successfully, you should see:
 
 ```
 [INFO] [Main] Starting Astral Engine...
-[INFO] [Main] Engine Version: 0.1.0-alpha
+[INFO] [Main] Engine Version: 0.2.0-alpha
 [INFO] [PlatformSubsystem] Using SDL3 for platform abstraction
 [INFO] [Window] SDL3 window created successfully
 [INFO] [PlatformSubsystem] Window: 1280x720, VSync: enabled
+[INFO] [RenderSubsystem] Vulkan renderer initialized successfully
+[INFO] [AssetSubsystem] Asset manager initialized
+[INFO] [ECSSubsystem] Entity Component System initialized
 ```
 
-### Test Window Functionality
+### Test Functionality
 
-1. **Window Creation**: A window titled "Astral Engine v0.1.0-alpha" should appear
+1. **Window Creation**: A window titled "Astral Engine v0.2.0-alpha" should appear
 2. **Window Resizing**: Try resizing the window - should see resize events in logs
 3. **Input Handling**: Press keys and move mouse - should see input events in logs
-4. **Close Window**: Click the X button or press Alt+F4 - engine should exit gracefully
+4. **Graphics Rendering**: Should see a clear colored background (indicating Vulkan is working)
+5. **Close Window**: Click the X button or press Alt+F4 - engine should exit gracefully
 
 ---
 
@@ -235,18 +266,7 @@ When the engine starts successfully, you should see:
 
 ### Common Issues
 
-#### 1. "SDL3 not found" Error
-
-**Solution**:
-```bash
-# Enable automatic build
-cmake .. -DASTRAL_VENDOR_SDL3=ON
-
-# Or specify SDL3 path manually
-cmake .. -DSDL3_ROOT="/path/to/sdl3"
-```
-
-#### 2. "CMake version too old" Error
+#### 1. "CMake version too old" Error
 
 **Solution**:
 ```bash
@@ -259,26 +279,29 @@ sudo apt-get update && sudo apt-get install cmake
 brew upgrade cmake
 ```
 
-#### 3. Missing DLL on Windows
-
-**Solution**:
-```cmd
-# SDL3.dll should be automatically copied to output directory
-# If not, manually copy from SDL3 installation:
-copy "C:\SDL3\bin\x64\SDL3.dll" "build\bin\Release\"
-```
-
-#### 4. Linux Build Dependencies Missing
+#### 2. Missing Dependencies on Linux
 
 **Solution**:
 ```bash
 # Install all required development packages
 sudo apt-get install build-essential cmake git \
     libx11-dev libxrandr-dev libxinerama-dev \
-    libxi-dev libxss-dev libgl1-mesa-dev
+    libxi-dev libxss-dev libgl1-mesa-dev \
+    libvulkan-dev
 ```
 
-#### 5. Permission Denied (Linux/macOS)
+#### 3. Vulkan SDK Not Found
+
+**Solution**:
+```bash
+# Install Vulkan SDK
+# Ubuntu/Debian
+sudo apt-get install libvulkan-dev
+
+# Download from https://vulkan.lunarg.com/ for Windows/macOS
+```
+
+#### 4. Permission Denied (Linux/macOS)
 
 **Solution**:
 ```bash
@@ -295,23 +318,24 @@ For debugging issues:
 # Configure debug build
 cmake .. \
   -DCMAKE_BUILD_TYPE=Debug \
-  -DASTRAL_VENDOR_SDL3=ON
+  -DASTRAL_ENABLE_VALIDATION=ON \
+  -DASTRAL_ENABLE_DEBUG_MARKERS=ON
 
 # Build
 cmake --build . --config Debug
 
 # Run with verbose logging
-ASTRAL_LOG_LEVEL=TRACE ./bin/AstralEngine_Debug
+ASTRAL_LOG_LEVEL=TRACE ./bin/AstralEngine_d
 ```
 
 ### Verbose CMake Output
 
 ```bash
 # Get detailed CMake configuration info
-cmake .. --debug-find -DASTRAL_VENDOR_SDL3=ON
+cmake .. --debug-find
 
 # Or use trace mode
-cmake .. --trace -DASTRAL_VENDOR_SDL3=ON
+cmake .. --trace
 ```
 
 ---
@@ -322,23 +346,27 @@ cmake .. --trace -DASTRAL_VENDOR_SDL3=ON
 
 ```bash
 # Build release version
-cmake .. -DCMAKE_BUILD_TYPE=Release -DASTRAL_VENDOR_SDL3=ON
+cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build . --config Release
 
 # Install to staging directory
 cmake --install . --prefix ./package
 
 # Create archive
-tar -czf AstralEngine-v0.1.0-alpha.tar.gz package/
-# zip -r AstralEngine-v0.1.0-alpha.zip package/  # Windows
+tar -czf AstralEngine-v0.2.0-alpha.tar.gz package/
+# zip -r AstralEngine-v0.2.0-alpha.zip package/  # Windows
 ```
 
-### Windows Installer
+### Using CPack
 
 ```bash
 # Enable CPack
-cmake .. -DASTRAL_BUILD_INSTALLER=ON
+cmake .. -DCMAKE_BUILD_TYPE=Release
+
+# Build
 cmake --build . --config Release
+
+# Create package
 cpack
 ```
 
@@ -360,6 +388,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         build_type: [Release, Debug]
+        config: [
+          { shared: OFF, examples: ON, tests: OFF },
+          { shared: ON, examples: ON, tests: ON }
+        ]
     
     steps:
     - uses: actions/checkout@v3
@@ -368,12 +400,15 @@ jobs:
       run: |
         cmake -B build \
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
-          -DASTRAL_VENDOR_SDL3=ON
+          -DASTRAL_BUILD_SHARED=${{ matrix.config.shared }} \
+          -DASTRAL_BUILD_EXAMPLES=${{ matrix.config.examples }} \
+          -DASTRAL_BUILD_TESTS=${{ matrix.config.tests }}
     
     - name: Build
       run: cmake --build build --config ${{ matrix.build_type }}
     
     - name: Test
+      if: matrix.config.tests == 'ON'
       run: ctest --test-dir build -C ${{ matrix.build_type }}
 ```
 
@@ -386,14 +421,14 @@ If you encounter issues:
 1. **Check the logs**: Look for error messages in the console output
 2. **Verify dependencies**: Ensure all required libraries are installed
 3. **Check CMake cache**: Delete `build/` directory and reconfigure
-4. **Review integration guide**: See `SDL3_INTEGRATION_GUIDE.md` for detailed information
+4. **Review architecture document**: See `MIMARI.md` for detailed information
 5. **Create an issue**: Include full error output and system information
 
 ---
 
 ## ✅ Success Indicators
 
-Your SDL3 integration is working correctly if:
+Your build is working correctly if:
 
 - ✅ CMake configuration completes without errors
 - ✅ Build completes successfully
@@ -401,6 +436,7 @@ Your SDL3 integration is working correctly if:
 - ✅ Window appears with correct title and size
 - ✅ Keyboard and mouse input is detected
 - ✅ Window can be resized and closed properly
-- ✅ No SDL3-related error messages in logs
+- ✅ No Vulkan-related error messages in logs
+- ✅ All selected subsystems initialize successfully
 
-Congratulations! Your Astral Engine is now running with professional SDL3 integration.
+Congratulations! Your Astral Engine is now running with a modern, modular CMake configuration.

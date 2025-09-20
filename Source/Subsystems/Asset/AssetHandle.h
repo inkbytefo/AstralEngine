@@ -57,10 +57,15 @@ struct AssetHandleHash {
 
 } // namespace AstralEngine
 
-// std::hash specialization for AssetHandle
+// std::hash specialization for AssetHandle - sadece bir kez tanımlanmalı
+#ifndef ASSET_HANDLE_HASH_DEFINED
+#define ASSET_HANDLE_HASH_DEFINED
 namespace std {
     template<>
     struct hash<AstralEngine::AssetHandle> {
-        size_t operator()(const AstralEngine::AssetHandle& handle) const;
+        size_t operator()(const AstralEngine::AssetHandle& handle) const {
+            return handle.GetHash();
+        }
     };
 }
+#endif

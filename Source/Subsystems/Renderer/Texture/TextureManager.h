@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../Asset/AssetManager.h"
+#include "../../Asset/AssetData.h"
 #include "../Buffers/VulkanTexture.h"
 #include "../Material/Material.h"
 #include "../Core/VulkanDevice.h"
@@ -104,132 +105,6 @@ struct TextureInfo {
     uint64_t lastAccessTime = 0;          ///< Son erişim zamanı
 };
 
-/**
- * @struct TextureData
- * @brief Ham texture verisi
- */
-struct TextureData {
-    void* data = nullptr;                 ///< Pixel verisi
-    uint32_t width = 0;                  ///< Genişlik
-    uint32_t height = 0;                 ///< Yükseklik
-    uint32_t channels = 0;               ///< Kanal sayısı
-    TextureFormat format = TextureFormat::R8G8B8A8_UNORM; ///< Format
-    size_t size = 0;                     ///< Veri boyutu (bytes)
-    
-    TextureData() = default;
-    ~TextureData() { Free(); }
-    
-    // Non-copyable
-    TextureData(const TextureData&) = delete;
-    TextureData& operator=(const TextureData&) = delete;
-    
-    // Movable
-    TextureData(TextureData&& other) noexcept;
-    TextureData& operator=(TextureData&& other) noexcept;
-    
-    void Allocate(uint32_t w, uint32_t h, uint32_t c, TextureFormat fmt);
-    void Free();
-    bool IsValid() const { return data != nullptr && size > 0; }
-};
-
-/**
- * @class Texture
- * @brief Gelişmiş texture sınıfı
- * 
- * Bu sınıf, VulkanTexture sınıfını sarar ve ek özellikler sunar:
- * - Meta bilgiler yönetimi
- * - Format dönüşümleri
- * - Mipmap yönetimi
- * - Texture atlas desteği
- * - Procedural texture oluşturma
- */
-class Texture {
-public:
-    Texture();
-    ~Texture();
-
-    // Non-copyable
-    Texture(const Texture&) = delete;
-    Texture& operator=(const Texture&) = delete;
-
-    // Yaşam döngüsü
-    bool Initialize(VulkanDevice* device, const TextureInfo& info);
-    bool InitializeFromData(VulkanDevice* device, const TextureData& data, const TextureInfo& info);
-    void Shutdown();
-
-    // Texture yükleme
-    bool LoadFromFile(const std::string& filePath);
-    bool LoadFromMemory(const void* data, uint32_t width, uint32_t height, TextureFormat format);
-    bool LoadAsCubemap(const std::vector<std::string>& facePaths);
-
-    // Procedural texture oluşturma
-    bool CreateCheckerboard(uint32_t width, uint32_t height, uint32_t squareSize, 
-                           const glm::vec3& color1, const glm::vec3& color2);
-    bool CreateGradient(uint32_t width, uint32_t height, 
-                        const glm::vec3& startColor, const glm::vec3& endColor, 
-                        bool horizontal = true);
-    bool CreateNoise(uint32_t width, uint32_t height, float scale, float persistence);
-    bool CreateNormalMapFromHeightmap(const Texture* heightmap, float strength = 1.0f);
-
-    // Texture işlemleri
-    bool GenerateMipmaps();
-    bool ConvertFormat(TextureFormat newFormat);
-    bool Resize(uint32_t newWidth, uint32_t newHeight);
-    bool FlipHorizontal();
-    bool FlipVertical();
-    bool Rotate90(bool clockwise = true);
-
-    // Texture atlas işlemleri
-    bool AddToAtlas(Texture* otherTexture, uint32_t x, uint32_t y);
-    bool ExtractRegion(uint32_t x, uint32_t y, uint32_t width, uint32_t height, Texture* outTexture);
-
-    // Getter'lar
-    std::shared_ptr<VulkanTexture> GetVulkanTexture() const { return m_vulkanTexture; }
-    const TextureInfo& GetInfo() const { return m_info; }
-    TextureInfo& GetInfo() { return m_info; }
-    VkImageView GetImageView() const;
-    VkSampler GetSampler() const;
-    bool IsInitialized() const { return m_isInitialized; }
-    bool IsLoaded() const { return m_loaded; }
-    uint32_t GetWidth() const { return m_info.width; }
-    uint32_t GetHeight() const { return m_info.height; }
-    TextureFormat GetFormat() const { return m_info.format; }
-    const std::string& GetName() const { return m_info.name; }
-    const std::string& GetFilePath() const { return m_info.filePath; }
-
-    // Setter'lar
-    void SetName(const std::string& name) { m_info.name = name; }
-    void SetFilter(TextureFilter minFilter, TextureFilter magFilter);
-    void SetWrap(TextureWrap wrapU, TextureWrap wrapV, TextureWrap wrapW = TextureWrap::Repeat);
-    void SetAnisotropy(float anisotropy);
-    void SetBorderColor(const glm::vec4& color);
-
-    // Hata yönetimi
-    const std::string& GetLastError() const { return m_lastError; }
-
-private:
-    // Yardımcı metotlar
-    VkFormat ConvertToVkFormat(TextureFormat format) const;
-    VkFilter ConvertToVkFilter(TextureFilter filter) const;
-    VkSamplerAddressMode ConvertToVkSamplerAddressMode(TextureWrap wrap) const;
-    bool CreateSampler();
-    bool UpdateSampler();
-    void UpdateAccessTime();
-    void SetError(const std::string& error);
-    bool LoadWithSTB(const std::string& filePath);
-    bool SaveToMemory(const void* data, uint32_t width, uint32_t height, TextureFormat format);
-
-    // Member değişkenler
-    VulkanDevice* m_device = nullptr;
-    std::shared_ptr<VulkanTexture> m_vulkanTexture;
-    TextureInfo m_info;
-    VkSampler m_sampler = VK_NULL_HANDLE;
-    
-    bool m_isInitialized = false;
-    bool m_loaded = false;
-    std::string m_lastError;
-    mutable std::mutex m_mutex;
-};
 
 /**
  * @class TextureManager

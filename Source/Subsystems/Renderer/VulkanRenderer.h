@@ -26,7 +26,7 @@ class VulkanTexture;
 class RenderSubsystem;
 
 class VulkanRenderer : public IRenderer {
-public>
+public:
     struct ResolvedRenderItem {
         glm::mat4 transform;
         std::shared_ptr<VulkanMesh> mesh;
