@@ -3,6 +3,8 @@ build/
 cmake-build-*/
 out/
 External/
+/vcpkg_installed
+/External
 
 # IDE files
 .vscode/

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Core/VulkanDevice.h"
+#include "../GraphicsDevice.h"
 #include <vulkan/vulkan.h>
 #include <cstdint>
 
@@ -41,7 +42,7 @@ public:
     VulkanBuffer& operator=(const VulkanBuffer&) = delete;
 
     // Yaşam döngüsü
-    bool Initialize(VulkanDevice* device, const Config& config);
+    bool Initialize(GraphicsDevice* graphicsDevice, VulkanDevice* device, const Config& config);
     void Shutdown();
 
     // Bellek eşleme (mapping)
@@ -76,28 +77,13 @@ public:
      * @return VkFence Asenkron ise fence handle, senkron ise VK_NULL_HANDLE
      */
     VkFence CopyDataFromHost(const void* data, VkDeviceSize dataSize, bool async = true);
-    
-    /**
-     * @brief Staging buffer kaynaklarını temizler
-     *
-     * Bu metod, asenkron upload işlemi tamamlandığında staging buffer
-     * ve fence kaynaklarını temizlemek için kullanılır.
-     */
-    void CleanupStagingResources();
-    
-    /**
-     * @brief Upload işleminin tamamlanıp tamamlanmadığını kontrol eder
-     *
-     * @return true Upload tamamlandıysa
-     * @return false Upload hala devam ediyorsa
-     */
-    bool IsUploadComplete() const;
 
 private:
     // Yardımcı metotlar
     void SetError(const std::string& error);
 
     // Member değişkenler
+    GraphicsDevice* m_graphicsDevice = nullptr;
     VulkanDevice* m_device = nullptr;
     VkBuffer m_buffer = VK_NULL_HANDLE;
     VkDeviceMemory m_bufferMemory = VK_NULL_HANDLE;
@@ -112,7 +98,6 @@ private:
     // Asenkron upload için üye değişkenler
     VkBuffer m_stagingBuffer = VK_NULL_HANDLE;        // Geçici staging buffer
     VkDeviceMemory m_stagingMemory = VK_NULL_HANDLE;  // Staging buffer için bellek
-    VkFence m_uploadFence = VK_NULL_HANDLE;           // Upload işlemini senkronize etmek için fence
     mutable GpuResourceState m_state = GpuResourceState::Unloaded; // Buffer'ın yükleme durumu
     mutable bool m_autoCleanupStaging = true;         // Otomatik staging temizliği etkin mi?
 };

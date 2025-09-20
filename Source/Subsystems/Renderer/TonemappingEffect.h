@@ -1,6 +1,6 @@
 #pragma once
 
-#include "IPostProcessingEffect.h"
+#include "PostProcessingEffectBase.h"
 #include "../Core/Logger.h"
 #include "Shaders/VulkanShader.h"
 #include "Commands/VulkanPipeline.h"
@@ -14,13 +14,13 @@ namespace AstralEngine {
 /**
  * @class TonemappingEffect
  * @brief Tonemapping post-processing efekti implementasyonu
- * 
- * Bu sınıf, IPostProcessingEffect arayüzünden türetilmiş olup
+ *
+ * Bu sınıf, PostProcessingEffectBase temel sınıfından türetilmiş olup
  * tonemapping işlemlerini gerçekleştirir. Farklı tonemapping algoritmalarını
  * (ACES, Reinhard, Filmic vb.) destekler ve exposure, gamma gibi parametrelerle
  * yapılandırılabilir.
  */
-class TonemappingEffect : public IPostProcessingEffect {
+class TonemappingEffect : public PostProcessingEffectBase {
 public:
     /**
      * @brief Tonemapping parametreleri için uniform buffer yapısı
@@ -55,16 +55,27 @@ public:
     TonemappingEffect();
     virtual ~TonemappingEffect();
 
-    // IPostProcessingEffect arayüz metodları
+    // IPostProcessingEffect arayüz metodları (PostProcessingEffectBase tarafından implemente edilir)
     bool Initialize(VulkanRenderer* renderer) override;
     void Shutdown() override;
-    void RecordCommands(VkCommandBuffer commandBuffer, 
+    void RecordCommands(VkCommandBuffer commandBuffer,
                        VulkanTexture* inputTexture,
                        VulkanFramebuffer* outputFramebuffer,
                        uint32_t frameIndex) override;
     const std::string& GetName() const override;
     bool IsEnabled() const override;
     void SetEnabled(bool enabled) override;
+
+protected:
+    // PostProcessingEffectBase sanal metodları
+    bool OnInitialize() override;
+    void OnShutdown() override;
+    void OnRecordCommands(VkCommandBuffer commandBuffer,
+                         VulkanTexture* inputTexture,
+                         VulkanFramebuffer* outputFramebuffer,
+                         uint32_t frameIndex) override;
+    bool CreateDescriptorSetLayout() override;
+    void UpdateDescriptorSets(VulkanTexture* inputTexture, uint32_t frameIndex) override;
 
     // Tonemapping parametreleri için getter/setter metodları
     float GetExposure() const { return m_uboData.exposure; }
@@ -107,47 +118,11 @@ public:
     void SetUseDithering(bool use) { m_uboData.useDithering = use ? 1 : 0; }
 
 private:
-    // Yardımcı metodlar
-    bool CreateDescriptorSetLayout();
-    bool CreatePipeline();
-    bool CreateUniformBuffers();
-    bool CreateDescriptorSets();
-    void UpdateDescriptorSets(VulkanTexture* inputTexture);
-    void CreateFullScreenQuad();
-    
-    // Hata yönetimi
-    void SetError(const std::string& error);
-
-    // Member değişkenler
-    VulkanRenderer* m_renderer = nullptr;
-    VulkanDevice* m_device = nullptr;
-    std::string m_name = "TonemappingEffect";
-    bool m_isEnabled = true;
-    std::string m_lastError;
-
-    // Vulkan kaynakları
-    std::unique_ptr<VulkanShader> m_vertexShader;
-    std::unique_ptr<VulkanShader> m_fragmentShader;
-    std::unique_ptr<VulkanPipeline> m_pipeline;
-    VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;
-    VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
-    std::vector<VkDescriptorSet> m_descriptorSets;
-    
-    // Uniform buffer'lar
-    std::vector<std::unique_ptr<VulkanBuffer>> m_uniformBuffers;
-    
-    // Tam ekran quad için vertex buffer
-    std::unique_ptr<VulkanBuffer> m_vertexBuffer;
-    uint32_t m_vertexCount = 0;
-    
     // Uniform buffer verisi
     TonemappingUBO m_uboData{};
     
     // Push constants verisi
     PushConstants m_pushConstants{};
-    
-    // Durum yönetimi
-    bool m_isInitialized = false;
 };
 
 } // namespace AstralEngine

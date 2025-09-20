@@ -17,7 +17,8 @@ enum class AssetLoadState {
     NotLoaded,      // Henüz yüklenmedi
     Queued,         // Yükleme kuyruğunda bekliyor
     Loading,        // Yükleniyor
-    Loaded,         // Yüklendi ve kullanıma hazır
+    Loaded_CPU,     // CPU belleğine yüklendi, GPU için hazır
+    Loaded,         // Yüklendi ve kullanıma hazır (legacy, Loaded_CPU ile aynı)
     Failed,         // Yükleme başarısız oldu
     Unloaded        // Bellekten çıkarıldı
 };

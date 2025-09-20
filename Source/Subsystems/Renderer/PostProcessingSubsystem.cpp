@@ -302,158 +302,6 @@ void PostProcessingSubsystem::SetVulkanRenderer(VulkanRenderer* renderer) {
     }
 }
 
-void PostProcessingSubsystem::SetTonemappingExposure(float exposure) {
-    auto it = m_effectNameMap.find("TonemappingEffect");
-    if (it != m_effectNameMap.end()) {
-        auto* tonemappingEffect = static_cast<TonemappingEffect*>(it->second);
-        tonemappingEffect->SetExposure(exposure);
-        Logger::Info("PostProcessingSubsystem", "Tonemapping exposure set to: {}", exposure);
-    } else {
-        Logger::Warning("PostProcessingSubsystem", "TonemappingEffect not found when setting exposure");
-    }
-}
-
-void PostProcessingSubsystem::SetTonemappingGamma(float gamma) {
-    auto it = m_effectNameMap.find("TonemappingEffect");
-    if (it != m_effectNameMap.end()) {
-        auto* tonemappingEffect = static_cast<TonemappingEffect*>(it->second);
-        tonemappingEffect->SetGamma(gamma);
-        Logger::Info("PostProcessingSubsystem", "Tonemapping gamma set to: {}", gamma);
-    } else {
-        Logger::Warning("PostProcessingSubsystem", "TonemappingEffect not found when setting gamma");
-    }
-}
-
-void PostProcessingSubsystem::SetTonemappingType(int tonemapper) {
-    auto it = m_effectNameMap.find("TonemappingEffect");
-    if (it != m_effectNameMap.end()) {
-        auto* tonemappingEffect = static_cast<TonemappingEffect*>(it->second);
-        tonemappingEffect->SetTonemapper(tonemapper);
-        Logger::Info("PostProcessingSubsystem", "Tonemapping type set to: {}", tonemapper);
-    } else {
-        Logger::Warning("PostProcessingSubsystem", "TonemappingEffect not found when setting tonemapper type");
-    }
-}
-
-void PostProcessingSubsystem::SetTonemappingContrast(float contrast) {
-    auto it = m_effectNameMap.find("TonemappingEffect");
-    if (it != m_effectNameMap.end()) {
-        auto* tonemappingEffect = static_cast<TonemappingEffect*>(it->second);
-        tonemappingEffect->SetContrast(contrast);
-        Logger::Info("PostProcessingSubsystem", "Tonemapping contrast set to: {}", contrast);
-    } else {
-        Logger::Warning("PostProcessingSubsystem", "TonemappingEffect not found when setting contrast");
-    }
-}
-
-void PostProcessingSubsystem::SetTonemappingBrightness(float brightness) {
-    auto it = m_effectNameMap.find("TonemappingEffect");
-    if (it != m_effectNameMap.end()) {
-        auto* tonemappingEffect = static_cast<TonemappingEffect*>(it->second);
-        tonemappingEffect->SetBrightness(brightness);
-        Logger::Info("PostProcessingSubsystem", "Tonemapping brightness set to: {}", brightness);
-    } else {
-        Logger::Warning("PostProcessingSubsystem", "TonemappingEffect not found when setting brightness");
-    }
-}
-
-void PostProcessingSubsystem::SetTonemappingSaturation(float saturation) {
-    auto it = m_effectNameMap.find("TonemappingEffect");
-    if (it != m_effectNameMap.end()) {
-        auto* tonemappingEffect = static_cast<TonemappingEffect*>(it->second);
-        tonemappingEffect->SetSaturation(saturation);
-        Logger::Info("PostProcessingSubsystem", "Tonemapping saturation set to: {}", saturation);
-    } else {
-        Logger::Warning("PostProcessingSubsystem", "TonemappingEffect not found when setting saturation");
-    }
-}
-
-void PostProcessingSubsystem::SetTonemappingEnabled(bool enabled) {
-    EnableEffect("TonemappingEffect", enabled);
-    Logger::Info("PostProcessingSubsystem", "Tonemapping effect {}", enabled ? "enabled" : "disabled");
-}
-
-void PostProcessingSubsystem::SetBloomThreshold(float threshold) {
-    auto it = m_effectNameMap.find("BloomEffect");
-    if (it != m_effectNameMap.end()) {
-        auto* bloomEffect = static_cast<BloomEffect*>(it->second);
-        bloomEffect->SetThreshold(threshold);
-        Logger::Info("PostProcessingSubsystem", "Bloom threshold set to: {}", threshold);
-    } else {
-        Logger::Warning("PostProcessingSubsystem", "BloomEffect not found when setting threshold");
-    }
-}
-
-void PostProcessingSubsystem::SetBloomKnee(float knee) {
-    auto it = m_effectNameMap.find("BloomEffect");
-    if (it != m_effectNameMap.end()) {
-        auto* bloomEffect = static_cast<BloomEffect*>(it->second);
-        bloomEffect->SetKnee(knee);
-        Logger::Info("PostProcessingSubsystem", "Bloom knee set to: {}", knee);
-    } else {
-        Logger::Warning("PostProcessingSubsystem", "BloomEffect not found when setting knee");
-    }
-}
-
-void PostProcessingSubsystem::SetBloomIntensity(float intensity) {
-    auto it = m_effectNameMap.find("BloomEffect");
-    if (it != m_effectNameMap.end()) {
-        auto* bloomEffect = static_cast<BloomEffect*>(it->second);
-        bloomEffect->SetIntensity(intensity);
-        Logger::Info("PostProcessingSubsystem", "Bloom intensity set to: {}", intensity);
-    } else {
-        Logger::Warning("PostProcessingSubsystem", "BloomEffect not found when setting intensity");
-    }
-}
-
-void PostProcessingSubsystem::SetBloomRadius(float radius) {
-    auto it = m_effectNameMap.find("BloomEffect");
-    if (it != m_effectNameMap.end()) {
-        auto* bloomEffect = static_cast<BloomEffect*>(it->second);
-        bloomEffect->SetRadius(radius);
-        Logger::Info("PostProcessingSubsystem", "Bloom radius set to: {}", radius);
-    } else {
-        Logger::Warning("PostProcessingSubsystem", "BloomEffect not found when setting radius");
-    }
-}
-
-void PostProcessingSubsystem::SetBloomQuality(int quality) {
-    auto it = m_effectNameMap.find("BloomEffect");
-    if (it != m_effectNameMap.end()) {
-        auto* bloomEffect = static_cast<BloomEffect*>(it->second);
-        bloomEffect->SetQuality(quality);
-        Logger::Info("PostProcessingSubsystem", "Bloom quality set to: {}", quality);
-    } else {
-        Logger::Warning("PostProcessingSubsystem", "BloomEffect not found when setting quality");
-    }
-}
-
-void PostProcessingSubsystem::SetBloomUseDirt(bool useDirt) {
-    auto it = m_effectNameMap.find("BloomEffect");
-    if (it != m_effectNameMap.end()) {
-        auto* bloomEffect = static_cast<BloomEffect*>(it->second);
-        bloomEffect->SetUseDirt(useDirt);
-        Logger::Info("PostProcessingSubsystem", "Bloom use dirt set to: {}", useDirt);
-    } else {
-        Logger::Warning("PostProcessingSubsystem", "BloomEffect not found when setting use dirt");
-    }
-}
-
-void PostProcessingSubsystem::SetBloomDirtIntensity(float dirtIntensity) {
-    auto it = m_effectNameMap.find("BloomEffect");
-    if (it != m_effectNameMap.end()) {
-        auto* bloomEffect = static_cast<BloomEffect*>(it->second);
-        bloomEffect->SetDirtIntensity(dirtIntensity);
-        Logger::Info("PostProcessingSubsystem", "Bloom dirt intensity set to: {}", dirtIntensity);
-    } else {
-        Logger::Warning("PostProcessingSubsystem", "BloomEffect not found when setting dirt intensity");
-    }
-}
-
-void PostProcessingSubsystem::SetBloomEnabled(bool enabled) {
-    EnableEffect("BloomEffect", enabled);
-    Logger::Info("PostProcessingSubsystem", "Bloom effect {}", enabled ? "enabled" : "disabled");
-}
 
 void PostProcessingSubsystem::CreateFramebuffers(uint32_t width, uint32_t height) {
     if (!m_owner || !m_owner->GetGraphicsDevice()) {
@@ -1302,110 +1150,152 @@ bool PostProcessingSubsystem::LoadShaderCode(const std::string& filePath, std::v
    // Tonemapping efektini kullanmak için örnek kod:
    
    // 1. Tonemapping efektini etkinleştir/devre dışı bırak
-   postProcessingSubsystem->SetTonemappingEnabled(true);
+   postProcessingSubsystem->EnableEffect("TonemappingEffect", true);
    
    // 2. Tonemapping parametrelerini ayarla
-   postProcessingSubsystem->SetTonemappingExposure(1.2f);      // Varsayılan: 1.0f
-   postProcessingSubsystem->SetTonemappingGamma(2.4f);        // Varsayılan: 2.2f
-   postProcessingSubsystem->SetTonemappingType(0);            // 0: ACES, 1: Reinhard, 2: Filmic, 3: Custom
-   postProcessingSubsystem->SetTonemappingContrast(1.1f);     // Varsayılan: 1.0f
-   postProcessingSubsystem->SetTonemappingBrightness(0.1f);   // Varsayılan: 0.0f
-   postProcessingSubsystem->SetTonemappingSaturation(1.2f);   // Varsayılan: 1.0f
+   if (auto* tonemapping = postProcessingSubsystem->GetEffect<TonemappingEffect>()) {
+       tonemapping->SetExposure(1.2f);      // Varsayılan: 1.0f
+       tonemapping->SetGamma(2.4f);        // Varsayılan: 2.2f
+       tonemapping->SetTonemapper(0);       // 0: ACES, 1: Reinhard, 2: Filmic, 3: Custom
+       tonemapping->SetContrast(1.1f);     // Varsayılan: 1.0f
+       tonemapping->SetBrightness(0.1f);   // Varsayılan: 0.0f
+       tonemapping->SetSaturation(1.2f);   // Varsayılan: 1.0f
+   }
    
    // 3. Farklı tonemapping operatörlerini test et
    // ACES (varsayılan)
-   postProcessingSubsystem->SetTonemappingType(0);
+   if (auto* tonemapping = postProcessingSubsystem->GetEffect<TonemappingEffect>()) {
+       tonemapping->SetTonemapper(0);
+   }
    
    // Reinhard
-   postProcessingSubsystem->SetTonemappingType(1);
+   if (auto* tonemapping = postProcessingSubsystem->GetEffect<TonemappingEffect>()) {
+       tonemapping->SetTonemapper(1);
+   }
    
    // Filmic
-   postProcessingSubsystem->SetTonemappingType(2);
+   if (auto* tonemapping = postProcessingSubsystem->GetEffect<TonemappingEffect>()) {
+       tonemapping->SetTonemapper(2);
+   }
    
    // Custom
-   postProcessingSubsystem->SetTonemappingType(3);
+   if (auto* tonemapping = postProcessingSubsystem->GetEffect<TonemappingEffect>()) {
+       tonemapping->SetTonemapper(3);
+   }
    
    // 4. HDR içeriği için ayarlar
-   postProcessingSubsystem->SetTonemappingExposure(1.5f);  // Daha parlak görüntü
-   postProcessingSubsystem->SetTonemappingGamma(2.2f);    // Standart gamma
+   if (auto* tonemapping = postProcessingSubsystem->GetEffect<TonemappingEffect>()) {
+       tonemapping->SetExposure(1.5f);  // Daha parlak görüntü
+       tonemapping->SetGamma(2.2f);    // Standart gamma
+   }
    
    // 5. Gece sahneleri için ayarlar
-   postProcessingSubsystem->SetTonemappingExposure(0.8f);  // Daha karanlık görüntü
-   postProcessingSubsystem->SetTonemappingBrightness(0.2f); // Biraz daha parlaklık
-   postProcessingSubsystem->SetTonemappingContrast(1.3f);  // Daha yüksek kontrast
+   if (auto* tonemapping = postProcessingSubsystem->GetEffect<TonemappingEffect>()) {
+       tonemapping->SetExposure(0.8f);  // Daha karanlık görüntü
+       tonemapping->SetBrightness(0.2f); // Biraz daha parlaklık
+       tonemapping->SetContrast(1.3f);  // Daha yüksek kontrast
+   }
    
    // Bloom efektini kullanmak için örnek kod:
    
    // 1. Bloom efektini etkinleştir/devre dışı bırak
-   postProcessingSubsystem->SetBloomEnabled(true);
+   postProcessingSubsystem->EnableEffect("BloomEffect", true);
    
    // 2. Bloom parametrelerini ayarla
-   postProcessingSubsystem->SetBloomThreshold(1.0f);        // Varsayılan: 1.0f - Parlaklık eşiği
-   postProcessingSubsystem->SetBloomKnee(0.5f);             // Varsayılan: 0.5f - Eşik yumuşatma
-   postProcessingSubsystem->SetBloomIntensity(0.5f);        // Varsayılan: 0.5f - Bloom yoğunluğu
-   postProcessingSubsystem->SetBloomRadius(4.0f);           // Varsayılan: 4.0f - Bulanıklık yarıçapı
-   postProcessingSubsystem->SetBloomQuality(1);             // Varsayılan: 1 (medium) - 0: low, 1: medium, 2: high
-   postProcessingSubsystem->SetBloomUseDirt(false);         // Varsayılan: false - Lens dirt kullanımı
-   postProcessingSubsystem->SetBloomDirtIntensity(1.0f);    // Varsayılan: 1.0f - Lens dirt yoğunluğu
+   if (auto* bloom = postProcessingSubsystem->GetEffect<BloomEffect>()) {
+       bloom->SetThreshold(1.0f);        // Varsayılan: 1.0f - Parlaklık eşiği
+       bloom->SetKnee(0.5f);             // Varsayılan: 0.5f - Eşik yumuşatma
+       bloom->SetIntensity(0.5f);        // Varsayılan: 0.5f - Bloom yoğunluğu
+       bloom->SetRadius(4.0f);           // Varsayılan: 4.0f - Bulanıklık yarıçapı
+       bloom->SetQuality(1);             // Varsayılan: 1 (medium) - 0: low, 1: medium, 2: high
+       bloom->SetUseDirt(false);         // Varsayılan: false - Lens dirt kullanımı
+       bloom->SetDirtIntensity(1.0f);    // Varsayılan: 1.0f - Lens dirt yoğunluğu
+   }
    
    // 3. Farklı Bloom kalite seviyeleri test et
    // Düşük kalite (performans odaklı)
-   postProcessingSubsystem->SetBloomQuality(0);
+   if (auto* bloom = postProcessingSubsystem->GetEffect<BloomEffect>()) {
+       bloom->SetQuality(0);
+   }
    
    // Orta kalite (varsayılan)
-   postProcessingSubsystem->SetBloomQuality(1);
+   if (auto* bloom = postProcessingSubsystem->GetEffect<BloomEffect>()) {
+       bloom->SetQuality(1);
+   }
    
    // Yüksek kalite (görsel kalite odaklı)
-   postProcessingSubsystem->SetBloomQuality(2);
+   if (auto* bloom = postProcessingSubsystem->GetEffect<BloomEffect>()) {
+       bloom->SetQuality(2);
+   }
    
    // 4. Farklı sahneler için Bloom ayarları
    // Parlak gün ışığı sahneleri
-   postProcessingSubsystem->SetBloomThreshold(1.2f);  // Daha yüksek eşik
-   postProcessingSubsystem->SetBloomIntensity(0.3f);  // Daha düşük yoğunluk
-   postProcessingSubsystem->SetBloomRadius(3.0f);     // Daha az bulanıklık
+   if (auto* bloom = postProcessingSubsystem->GetEffect<BloomEffect>()) {
+       bloom->SetThreshold(1.2f);  // Daha yüksek eşik
+       bloom->SetIntensity(0.3f);  // Daha düşük yoğunluk
+       bloom->SetRadius(3.0f);     // Daha az bulanıklık
+   }
    
    // Karanlık gece sahneleri (ışık kaynakleri için)
-   postProcessingSubsystem->SetBloomThreshold(0.8f);  // Daha düşük eşik
-   postProcessingSubsystem->SetBloomIntensity(0.8f);  // Daha yüksek yoğunluk
-   postProcessingSubsystem->SetBloomRadius(5.0f);     // Daha fazla bulanıklık
+   if (auto* bloom = postProcessingSubsystem->GetEffect<BloomEffect>()) {
+       bloom->SetThreshold(0.8f);  // Daha düşük eşik
+       bloom->SetIntensity(0.8f);  // Daha yüksek yoğunluk
+       bloom->SetRadius(5.0f);     // Daha fazla bulanıklık
+   }
    
    // Neon ve parlak objeler
-   postProcessingSubsystem->SetBloomThreshold(0.5f);  // Çok düşük eşik
-   postProcessingSubsystem->SetBloomIntensity(1.2f);  // Yüksek yoğunluk
-   postProcessingSubsystem->SetBloomRadius(6.0f);     // Geniş bulanıklık
+   if (auto* bloom = postProcessingSubsystem->GetEffect<BloomEffect>()) {
+       bloom->SetThreshold(0.5f);  // Çok düşük eşik
+       bloom->SetIntensity(1.2f);  // Yüksek yoğunluk
+       bloom->SetRadius(6.0f);     // Geniş bulanıklık
+   }
    
    // 5. Bloom ve Tonemapping birlikte kullanım
    // Bloom ve tonemapping efektlerini birlikte etkinleştir
-   postProcessingSubsystem->SetBloomEnabled(true);
-   postProcessingSubsystem->SetTonemappingEnabled(true);
+   postProcessingSubsystem->EnableEffect("BloomEffect", true);
+   postProcessingSubsystem->EnableEffect("TonemappingEffect", true);
    
    // HDR sahneleri için optimizasyon
-   postProcessingSubsystem->SetBloomThreshold(1.1f);
-   postProcessingSubsystem->SetBloomIntensity(0.6f);
-   postProcessingSubsystem->SetTonemappingExposure(1.3f);
-   postProcessingSubsystem->SetTonemappingType(0); // ACES
+   if (auto* bloom = postProcessingSubsystem->GetEffect<BloomEffect>()) {
+       bloom->SetThreshold(1.1f);
+       bloom->SetIntensity(0.6f);
+   }
+   if (auto* tonemapping = postProcessingSubsystem->GetEffect<TonemappingEffect>()) {
+       tonemapping->SetExposure(1.3f);
+       tonemapping->SetTonemapper(0); // ACES
+   }
    
    // 6. Lens dirt efekti ile Bloom
-   postProcessingSubsystem->SetBloomUseDirt(true);
-   postProcessingSubsystem->SetBloomDirtIntensity(1.5f);
+   if (auto* bloom = postProcessingSubsystem->GetEffect<BloomEffect>()) {
+       bloom->SetUseDirt(true);
+       bloom->SetDirtIntensity(1.5f);
+   }
    
    // 7. Bloom efektini dinamik olarak değiştirme (örneğin gün/gece döngüsü için)
    // Gündüz ayarları
-   postProcessingSubsystem->SetBloomThreshold(1.2f);
-   postProcessingSubsystem->SetBloomIntensity(0.4f);
+   if (auto* bloom = postProcessingSubsystem->GetEffect<BloomEffect>()) {
+       bloom->SetThreshold(1.2f);
+       bloom->SetIntensity(0.4f);
+   }
    
    // Gece ayarları
-   postProcessingSubsystem->SetBloomThreshold(0.7f);
-   postProcessingSubsystem->SetBloomIntensity(0.9f);
+   if (auto* bloom = postProcessingSubsystem->GetEffect<BloomEffect>()) {
+       bloom->SetThreshold(0.7f);
+       bloom->SetIntensity(0.9f);
+   }
    
    // 8. Performans testi için
    // Düşük kalite ve minimum yoğunluk
-   postProcessingSubsystem->SetBloomQuality(0);
-   postProcessingSubsystem->SetBloomIntensity(0.2f);
+   if (auto* bloom = postProcessingSubsystem->GetEffect<BloomEffect>()) {
+       bloom->SetQuality(0);
+       bloom->SetIntensity(0.2f);
+   }
    
    // Yüksek kalite ve maksimum yoğunluk
-   postProcessingSubsystem->SetBloomQuality(2);
-   postProcessingSubsystem->SetBloomIntensity(1.5f);
+   if (auto* bloom = postProcessingSubsystem->GetEffect<BloomEffect>()) {
+       bloom->SetQuality(2);
+       bloom->SetIntensity(1.5f);
+   }
 */
 
 } // namespace AstralEngine

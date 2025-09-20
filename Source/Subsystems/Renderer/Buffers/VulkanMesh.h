@@ -5,6 +5,7 @@
 #include "../RendererTypes.h"
 #include "../VulkanMeshManager.h"
 #include "../Bounds.h"
+#include "../GraphicsDevice.h"
 #include <vulkan/vulkan.h>
 #include <vector>
 #include <memory>
@@ -50,7 +51,7 @@ public:
      * @return true Başarılı olursa
      * @return false Hata oluşursa
      */
-    bool Initialize(VulkanDevice* device, const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices, const AABB& boundingBox);
+    bool Initialize(GraphicsDevice* graphicsDevice, const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices, const AABB& boundingBox);
 
     /**
      * @brief Mesh kaynaklarını temizler
@@ -102,7 +103,7 @@ public:
      * @return true Hazırsa (fence sinyal vermişse)
      * @return false Henüz hazır değilse
      */
-    bool IsReady() const;
+    bool IsReady() const { return true; }
 
     /**
      * @brief Mesh'in yükleme durumunu döndürür
@@ -161,13 +162,11 @@ private:
     std::vector<uint32_t> m_indices;                   // Index verileri listesi
     std::unique_ptr<VulkanBuffer> m_vertexBuffer;      // Vertex buffer için
     std::unique_ptr<VulkanBuffer> m_indexBuffer;       // Index buffer için
-    VulkanDevice* m_device;                            // Vulkan cihaz referansı
+    GraphicsDevice* m_graphicsDevice;                  // GraphicsDevice referansı
     std::string m_lastError;                           // Son hata mesajı
     bool m_isInitialized;                              // Başlatma durumu
     mutable GpuResourceState m_state;                  // Mesh'in yükleme durumu
-    VkFence m_uploadFence = VK_NULL_HANDLE;            // Upload fence takibi
     VkBuffer m_stagingBuffer = VK_NULL_HANDLE;         // Staging buffer
-    VkDeviceMemory m_stagingMemory = VK_NULL_HANDLE;   // Staging buffer için bellek
 };
 
 } // namespace AstralEngine

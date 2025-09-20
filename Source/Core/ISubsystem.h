@@ -5,6 +5,20 @@ namespace AstralEngine {
 class Engine; // Forward declaration
 
 /**
+ * @brief Alt sistemlerin güncelleme aşamalarını belirler.
+ *
+ * Bu enum, motorun ana döngüsünde subsystem'lerin hangi aşamada
+ * güncelleneceğini belirlemek için kullanılır.
+ */
+enum class UpdateStage {
+    PreUpdate,   // Input, Platform Events gibi ön işlemler
+    Update,      // Game Logic, ECS Systems gibi ana güncelleme mantığı
+    PostUpdate,  // Physics gibi son işlemler
+    UI,          // UI logic updates and command list generation (NEW)
+    Render       // Render işlemleri
+};
+
+/**
  * @brief Tüm motor alt sistemleri için temel arayüz.
  * 
  * Her alt sistem bu arayüzü uygulamalıdır. Bu, Engine çekirdeğinin
@@ -26,6 +40,9 @@ public:
 
     // Hata ayıklama ve tanılama için sistemin adını döndürür.
     virtual const char* GetName() const = 0;
+
+    // Alt sistemin güncelleme aşamasını döndürür.
+    virtual UpdateStage GetUpdateStage() const = 0;
 };
 
 } // namespace AstralEngine

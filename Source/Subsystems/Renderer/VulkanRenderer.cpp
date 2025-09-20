@@ -178,9 +178,58 @@ void VulkanRenderer::ShutdownRenderingComponents() {
         }
     }
     m_pipelineCache.clear();
+    
+    // Merkezi layout cache'lerini temizle
+    // Vulkan kaynaklarının doğru sırayla yok edilmesini sağla
+    
+    // Önce pipeline layout cache'ini temizle
+    Logger::Info("VulkanRenderer", "Cleaning up pipeline layout cache with {} entries", m_pipelineLayoutCache.size());
+    for (auto& pair : m_pipelineLayoutCache) {
+        if (pair.second != VK_NULL_HANDLE) {
+            vkDestroyPipelineLayout(m_graphicsDevice->GetVulkanDevice()->GetDevice(), pair.second, nullptr);
+            Logger::Debug("VulkanRenderer", "Destroyed pipeline layout for hash: {}", pair.first);
+        }
+    }
+    m_pipelineLayoutCache.clear();
+    
+    // Sonra descriptor set layout cache'ini temizle
+    Logger::Info("VulkanRenderer", "Cleaning up descriptor set layout cache with {} entries", m_descriptorSetLayoutCache.size());
+    for (auto& pair : m_descriptorSetLayoutCache) {
+        if (pair.second != VK_NULL_HANDLE) {
+            vkDestroyDescriptorSetLayout(m_graphicsDevice->GetVulkanDevice()->GetDevice(), pair.second, nullptr);
+            Logger::Debug("VulkanRenderer", "Destroyed descriptor set layout for hash: {}", pair.first);
+        }
+    }
+    m_descriptorSetLayoutCache.clear();
+    
+    Logger::Info("VulkanRenderer", "Central layout cache cleanup completed");
 }
 
 std::shared_ptr<VulkanPipeline> VulkanRenderer::GetOrCreatePipeline(const Material& material) {
+    /**
+     * @brief Güncellenmiş pipeline oluşturma metodu - Merkezi layout yönetimi ile entegre
+     *
+     * Bu metot, artık merkezi layout yönetim sistemini kullanır. Material sınıfından gelen
+     * shader handle'larını kullanarak doğru layout'ları alır ve pipeline oluşturur.
+     * Bu sayede:
+     * - Material sınıfı lightweight bir veri konteyneri olarak kalır
+     * - Layout'lar merkezi olarak yönetilir ve paylaşılır
+     * - Performans optimize edilir
+     *
+     * @par Yeni İş Akışı
+     * 1. Shader handle'larından hash oluştur
+     * 2. Pipeline cache'ini kontrol et
+     * 3. Cache'de yoksa:
+     *    a. GetOrCreateDescriptorSetLayout() ile descriptor set layout al
+     *    b. GetOrCreatePipelineLayout() ile pipeline layout al
+     *    c. Yeni pipeline oluştur ve cache'e ekle
+     *
+     * @par Performans İyileştirmeleri
+     * - Layout paylaşımı sayesinde bellek kullanımı azalır
+     * - Cache hit durumunda pipeline oluşturma maliyeti sıfırlanır
+     * - Aynı shader kombinasyonu için tekrar tekrar layout oluşturulmaz
+     */
+    
     // Generate a hash from shader handles and relevant render state
     size_t materialHash = 0;
     std::hash<uint64_t> hasher;
@@ -203,12 +252,26 @@ std::shared_ptr<VulkanPipeline> VulkanRenderer::GetOrCreatePipeline(const Materi
         return nullptr;
     }
 
+    // Merkezi layout yönetim sistemini kullanarak descriptor set layout al
+    VkDescriptorSetLayout descriptorSetLayout = GetOrCreateDescriptorSetLayout(material);
+    if (descriptorSetLayout == VK_NULL_HANDLE) {
+        Logger::Error("VulkanRenderer", "Failed to get or create descriptor set layout for material '{}'", material.GetName());
+        return nullptr;
+    }
+    
+    // Merkezi layout yönetim sistemini kullanarak pipeline layout al
+    VkPipelineLayout pipelineLayout = GetOrCreatePipelineLayout(descriptorSetLayout);
+    if (pipelineLayout == VK_NULL_HANDLE) {
+        Logger::Error("VulkanRenderer", "Failed to get or create pipeline layout for material '{}'", material.GetName());
+        return nullptr;
+    }
+
     // Create pipeline configuration for G-Buffer pass
     VulkanPipeline::Config pipelineConfig;
     pipelineConfig.shaders = {vertexShader.get(), fragmentShader.get()};
     pipelineConfig.swapchain = m_graphicsDevice->GetSwapchain();
     pipelineConfig.extent = {m_graphicsDevice->GetSwapchain()->GetExtent().width, m_graphicsDevice->GetSwapchain()->GetExtent().height};
-    pipelineConfig.descriptorSetLayout = material.GetDescriptorSetLayout();
+    pipelineConfig.descriptorSetLayout = descriptorSetLayout;
     
     // Use the VulkanVertexHelper for vertex input state
     auto vertexInputState = VulkanVertexHelper::GetVertexInputStateWithInstancing();
@@ -246,6 +309,173 @@ std::shared_ptr<VulkanPipeline> VulkanRenderer::GetOrCreatePipeline(const Materi
     return newPipeline;
 }
 
+VkDescriptorSetLayout VulkanRenderer::GetOrCreateDescriptorSetLayout(const Material& material) {
+    /**
+     * @brief Merkezi descriptor set layout yönetimi implementasyonu
+     *
+     * Bu metot, materyalin shader handle'larını kullanarak benzersiz bir hash oluşturur.
+     * Bu hash değerini kullanarak cache'de mevcut bir layout arar. Bulunamazsa yeni layout
+     * oluşturur ve cache'e ekler. Bu sayede aynı shader kombinasyonunu kullanan tüm
+     * materyaller aynı descriptor set layout'u paylaşır.
+     *
+     * @par Hash Oluşturma Algoritması
+     * - Vertex shader handle'ı XOR ile hash'e eklenir
+     * - Fragment shader handle'ı XOR ile hash'e eklenir
+     * - 0x9e3779b9 (golden ratio) ile karıştırma yapılır
+     *
+     * @par Cache Performansı
+     * - Cache hit durumunda layout oluşturma maliyeti sıfırlanır
+     * - Aynı shader kombinasyonu için sadece bir kez layout oluşturulur
+     * - Bellek kullanımı optimize edilir
+     */
+    
+    // Shader handle'larından hash oluştur
+    size_t layoutHash = 0;
+    std::hash<uint64_t> hasher;
+    
+    // Vertex shader handle'ını hash'e ekle
+    layoutHash ^= hasher(material.GetVertexShaderHandle().GetID()) + 0x9e3779b9;
+    // Fragment shader handle'ını hash'e ekle
+    layoutHash ^= hasher(material.GetFragmentShaderHandle().GetID()) + 0x9e3779b9;
+    
+    // Cache'de ara
+    auto it = m_descriptorSetLayoutCache.find(layoutHash);
+    if (it != m_descriptorSetLayoutCache.end()) {
+        Logger::Debug("VulkanRenderer", "Found cached descriptor set layout for hash: {}", layoutHash);
+        return it->second;
+    }
+    
+    // Cache'de yoksa yeni descriptor set layout oluştur
+    Logger::Info("VulkanRenderer", "Creating new descriptor set layout for hash: {}", layoutHash);
+    
+    // Shader'ları yükle ve reflection bilgilerini al
+    auto assetManager = m_renderSubsystem->GetAssetManager();
+    auto vertexShader = assetManager->GetAsset<VulkanShader>(material.GetVertexShaderHandle());
+    auto fragmentShader = assetManager->GetAsset<VulkanShader>(material.GetFragmentShaderHandle());
+    
+    if (!vertexShader || !fragmentShader) {
+        Logger::Error("VulkanRenderer", "Shaders not ready for descriptor set layout creation");
+        return VK_NULL_HANDLE;
+    }
+    
+    // Basit bir descriptor set layout oluştur - gerçek uygulamada shader reflection kullanılmalı
+    // Şimdilik standart UBO ve texture binding'leri kullanıyoruz
+    std::vector<VkDescriptorSetLayoutBinding> bindings;
+    
+    // Scene UBO binding (binding = 0)
+    VkDescriptorSetLayoutBinding uboBinding{};
+    uboBinding.binding = 0;
+    uboBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uboBinding.descriptorCount = 1;
+    uboBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    uboBinding.pImmutableSamplers = nullptr;
+    bindings.push_back(uboBinding);
+    
+    // Texture binding'leri (binding = 1, 2, 3, ...)
+    // Material'dan texture sayısına göre dinamik olarak eklenebilir
+    // Şimdilik sabit 4 texture binding'i ekliyoruz
+    for (uint32_t i = 0; i < 4; ++i) {
+        VkDescriptorSetLayoutBinding textureBinding{};
+        textureBinding.binding = 1 + i;
+        textureBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        textureBinding.descriptorCount = 1;
+        textureBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        textureBinding.pImmutableSamplers = nullptr;
+        bindings.push_back(textureBinding);
+    }
+    
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+    layoutInfo.pBindings = bindings.data();
+    
+    VkDescriptorSetLayout descriptorSetLayout;
+    VkResult result = vkCreateDescriptorSetLayout(m_graphicsDevice->GetVulkanDevice()->GetDevice(),
+                                                  &layoutInfo, nullptr, &descriptorSetLayout);
+    
+    if (result != VK_SUCCESS) {
+        Logger::Error("VulkanRenderer", "Failed to create descriptor set layout");
+        return VK_NULL_HANDLE;
+    }
+    
+    // Cache'e ekle
+    m_descriptorSetLayoutCache[layoutHash] = descriptorSetLayout;
+    Logger::Info("VulkanRenderer", "Created and cached descriptor set layout for hash: {}", layoutHash);
+    
+    return descriptorSetLayout;
+}
+
+VkPipelineLayout VulkanRenderer::GetOrCreatePipelineLayout(VkDescriptorSetLayout descriptorSetLayout) {
+    /**
+     * @brief Merkezi pipeline layout yönetimi implementasyonu
+     *
+     * Bu metot, descriptor set layout pointer'ını kullanarak benzersiz bir hash oluşturur.
+     * Bu hash değerini kullanarak cache'de mevcut bir pipeline layout arar. Bulunamazsa
+     * yeni pipeline layout oluşturur ve cache'e ekler. Bu sayede aynı descriptor set
+     * layout'ını kullanan tüm materyaller aynı pipeline layout'u paylaşır.
+     *
+     * @par Hash Oluşturma Algoritması
+     * - Descriptor set layout pointer'ı hash'e eklenir
+     * - 0x9e3779b9 (golden ratio) ile karıştırma yapılır
+     * - Pointer değeri benzersiz olduğu için farklı layout'lar farklı hash'ler üretir
+     *
+     * @par Performans Avantajları
+     * - Pipeline layout oluşturma maliyeti azalır
+     * - Aynı descriptor set layout için tek bir pipeline layout oluşturulur
+     * - Vulkan pipeline oluşturma süreci hızlanır
+     */
+    
+    // Descriptor set layout hash'inden pipeline layout hash'i oluştur
+    size_t layoutHash = 0;
+    std::hash<uint64_t> hasher;
+    
+    // Descriptor set layout pointer'ını hash'e ekle
+    layoutHash ^= hasher(reinterpret_cast<uint64_t>(descriptorSetLayout)) + 0x9e3779b9;
+    
+    // Cache'de ara
+    auto it = m_pipelineLayoutCache.find(layoutHash);
+    if (it != m_pipelineLayoutCache.end()) {
+        Logger::Debug("VulkanRenderer", "Found cached pipeline layout for hash: {}", layoutHash);
+        return it->second;
+    }
+    
+    // Cache'de yoksa yeni pipeline layout oluştur
+    Logger::Info("VulkanRenderer", "Creating new pipeline layout for hash: {}", layoutHash);
+    
+    VkPipelineLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    
+    // Descriptor set layout kullan
+    if (descriptorSetLayout != VK_NULL_HANDLE) {
+        layoutInfo.setLayoutCount = 1;
+        layoutInfo.pSetLayouts = &descriptorSetLayout;
+        Logger::Debug("VulkanRenderer", "Using descriptor set layout for pipeline layout");
+    } else {
+        layoutInfo.setLayoutCount = 0;
+        layoutInfo.pSetLayouts = nullptr;
+        Logger::Debug("VulkanRenderer", "Creating pipeline layout without descriptor sets");
+    }
+    
+    // Push constant'lar - şimdilik kullanmıyoruz
+    layoutInfo.pushConstantRangeCount = 0;
+    layoutInfo.pPushConstantRanges = nullptr;
+    
+    VkPipelineLayout pipelineLayout;
+    VkResult result = vkCreatePipelineLayout(m_graphicsDevice->GetVulkanDevice()->GetDevice(),
+                                           &layoutInfo, nullptr, &pipelineLayout);
+    
+    if (result != VK_SUCCESS) {
+        Logger::Error("VulkanRenderer", "Failed to create pipeline layout");
+        return VK_NULL_HANDLE;
+    }
+    
+    // Cache'e ekle
+    m_pipelineLayoutCache[layoutHash] = pipelineLayout;
+    Logger::Info("VulkanRenderer", "Created and cached pipeline layout for hash: {}", layoutHash);
+    
+    return pipelineLayout;
+}
+
 void VulkanRenderer::CreateShadowPass() {
     VkAttachmentDescription depthAttachment{};
     depthAttachment.format = VulkanUtils::FindDepthFormat(m_graphicsDevice->GetVulkanDevice()->GetPhysicalDevice());
@@ -274,8 +504,8 @@ void VulkanRenderer::CreateShadowPass() {
     VulkanPipeline::Config pipelineConfig{};
     pipelineConfig.device = m_graphicsDevice->GetVulkanDevice();
     pipelineConfig.renderPass = m_shadowRenderPass;
-    pipelineConfig.vertexShaderPath = "Assets/Shaders/Materials/shadow.slang";
-    pipelineConfig.fragmentShaderPath = "Assets/Shaders/Materials/shadow.slang";
+    pipelineConfig.vertexShaderPath = "Assets/Shaders/Materials/shadow_vertex.slang";
+    pipelineConfig.fragmentShaderPath = "Assets/Shaders/Materials/shadow_vertex.slang";
     pipelineConfig.cullMode = VK_CULL_MODE_FRONT_BIT;
     pipelineConfig.depthBiasEnable = VK_TRUE;
     pipelineConfig.colorBlendAttachments = {};
@@ -362,12 +592,62 @@ void VulkanRenderer::RecordGBufferCommands(uint32_t frameIndex, VulkanFramebuffe
             continue; // Shaders not ready, skip for this frame
         }
         
+        // a. Pipeline'ı bağla
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->GetPipeline());
         
-        VkDescriptorSet descriptorSet = material->GetDescriptorSet();
-        if (descriptorSet != VK_NULL_HANDLE) {
+        // b. Mevcut frame'in descriptor set'ini VulkanFrameManager'dan al
+        VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+        if (m_renderSubsystem && m_renderSubsystem->GetFrameManager()) {
+            descriptorSet = m_renderSubsystem->GetFrameManager()->GetCurrentDescriptorSet(frameIndex);
+        }
+        
+        // c. Materyalin özelliklerini ve texture handle'larını kullanarak VulkanTexture pointer'larını al
+        if (descriptorSet != VK_NULL_HANDLE && material) {
+            // Texture'ları al
+            std::vector<std::shared_ptr<VulkanTexture>> materialTextures;
+            const auto& textureSlots = material->GetTextureSlots();
+            
+            for (const auto& slot : textureSlots) {
+                if (slot.enabled && slot.texture) {
+                    materialTextures.push_back(slot.texture);
+                }
+            }
+            
+            // d. VkWriteDescriptorSet yapılarını burada oluştur ve descriptor set'ini güncelle
+            if (!materialTextures.empty()) {
+                std::vector<VkWriteDescriptorSet> descriptorWrites;
+                std::vector<VkDescriptorImageInfo> imageInfos;
+                
+                // Her texture için descriptor write oluştur
+                for (size_t i = 0; i < materialTextures.size() && i < 4; ++i) { // Maksimum 4 texture desteği
+                    VkDescriptorImageInfo imageInfo{};
+                    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    imageInfo.imageView = materialTextures[i]->GetImageView();
+                    imageInfo.sampler = materialTextures[i]->GetSampler();
+                    imageInfos.push_back(imageInfo);
+                    
+                    VkWriteDescriptorSet descriptorWrite{};
+                    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    descriptorWrite.dstSet = descriptorSet;
+                    descriptorWrite.dstBinding = 1 + static_cast<uint32_t>(i); // Binding 1, 2, 3, 4
+                    descriptorWrite.dstArrayElement = 0;
+                    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                    descriptorWrite.descriptorCount = 1;
+                    descriptorWrite.pImageInfo = &imageInfos.back();
+                    descriptorWrites.push_back(descriptorWrite);
+                }
+                
+                // e. Descriptor set'ini güncelle
+                if (!descriptorWrites.empty()) {
+                    vkUpdateDescriptorSets(m_graphicsDevice->GetVulkanDevice()->GetDevice(),
+                                          static_cast<uint32_t>(descriptorWrites.size()),
+                                          descriptorWrites.data(), 0, nullptr);
+                }
+            }
+            
+            // f. Güncellenmiş descriptor set'ini bağla
             vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                  pipeline->GetLayout(), 0, 1, &descriptorSet, 0, nullptr);
+                                   pipeline->GetLayout(), 0, 1, &descriptorSet, 0, nullptr);
         }
         
         // Inside the loop in RecordGBufferCommands

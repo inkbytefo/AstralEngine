@@ -10,10 +10,18 @@
 #include "Core/VulkanFramebuffer.h"
 // PostProcessingSubsystem forward declaration
 class PostProcessingSubsystem;
+class TonemappingEffect;
+class BloomEffect;
 #include "../../Assets/Shaders/Include/lighting_structs.slang"
 #include <memory>
 #include <vector>
 #include <map>
+
+// UI Subsystem forward declaration
+#ifdef ASTRAL_USE_IMGUI
+    #include <vulkan/vulkan.h>
+    class UISubsystem;
+#endif
 
 namespace AstralEngine {
 
@@ -37,7 +45,7 @@ class VulkanBuffer;
 class VulkanTexture;
 
 class RenderSubsystem : public ISubsystem {
-public>
+public:
     RenderSubsystem();
     ~RenderSubsystem() override;
 
@@ -45,6 +53,7 @@ public>
     void OnUpdate(float deltaTime) override;
     void OnShutdown() override;
     const char* GetName() const override { return "RenderSubsystem"; }
+    UpdateStage GetUpdateStage() const override { return UpdateStage::Render; }
 
     // Getters are omitted for brevity
     GraphicsDevice* GetGraphicsDevice() const { return m_graphicsDevice.get(); }
@@ -66,6 +75,11 @@ public>
     // Swapchain'e blit işlemi için metod
     void BlitToSwapchain(VkCommandBuffer commandBuffer, VulkanTexture* sourceTexture);
 
+    // UI Integration
+    void RenderUI();
+    VkRenderPass GetUIRenderPass() const;
+    VkCommandBuffer GetCurrentUICommandBuffer() const;
+
 private:
     void CreateGBuffer();
     void DestroyGBuffer();
@@ -82,6 +96,11 @@ private:
     void UpdateLightsAndShadows();
 
     bool CheckAssetReadiness(const AssetHandle& modelHandle, const AssetHandle& materialHandle) const;
+
+    void CreateUIRenderPass();
+    void CreateUIFramebuffers();
+    void CreateUICommandBuffers();
+    void DestroyUIResources();
 
     Engine* m_owner = nullptr;
     Window* m_window = nullptr;
@@ -111,6 +130,15 @@ private:
     
     // Post-processing için yeni üyeler
     std::unique_ptr<PostProcessingSubsystem> m_postProcessing;
+
+    // UI rendering resources
+#ifdef ASTRAL_USE_IMGUI
+    VkRenderPass m_uiRenderPass = VK_NULL_HANDLE;
+    std::vector<VkFramebuffer> m_uiFramebuffers;
+    std::vector<VkCommandBuffer> m_uiCommandBuffers;
+    std::vector<VkCommandPool> m_uiCommandPools;
+    uint32_t m_currentFrame = 0;
+#endif
 };
 
 } // namespace AstralEngine

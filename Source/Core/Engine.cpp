@@ -48,27 +48,54 @@ void Engine::Run(IApplication* application) {
         // 1. Update engine-level systems
         Update();
         
-        // 2. Update platform subsystem (polls for events)
-        auto* platformSubsystem = GetSubsystem<PlatformSubsystem>();
-        if (platformSubsystem) {
-            platformSubsystem->OnUpdate(deltaTime);
-        }
-        
-        // 3. Process all queued events from the previous frame
-        EventManager::GetInstance().ProcessEvents();
-        
-        // 4. Update all other registered subsystems
-        for (auto& subsystem : m_subsystems) {
-            // Skip platform subsystem as it was already updated
-            if (subsystem.get() != platformSubsystem) {
+        // 2. PreUpdate aşaması (Input, Platform Events)
+        auto preUpdateIt = m_subsystemsByStage.find(UpdateStage::PreUpdate);
+        if (preUpdateIt != m_subsystemsByStage.end()) {
+            for (auto& subsystem : preUpdateIt->second) {
                 subsystem->OnUpdate(deltaTime);
             }
         }
         
-        // 5. Update application logic
+        // 3. Event processing
+        EventManager::GetInstance().ProcessEvents();
+        
+        // 4. Main Update aşaması (Game Logic, ECS Systems)
+        auto updateIt = m_subsystemsByStage.find(UpdateStage::Update);
+        if (updateIt != m_subsystemsByStage.end()) {
+            for (auto& subsystem : updateIt->second) {
+                subsystem->OnUpdate(deltaTime);
+            }
+        }
+        
+        // 5. Application Logic Update
         m_application->OnUpdate(deltaTime);
         
-        // 6. Check for shutdown requests (e.g., window close)
+        // 6. PostUpdate aşaması (Physics, etc.)
+        auto postUpdateIt = m_subsystemsByStage.find(UpdateStage::PostUpdate);
+        if (postUpdateIt != m_subsystemsByStage.end()) {
+            for (auto& subsystem : postUpdateIt->second) {
+                subsystem->OnUpdate(deltaTime);
+            }
+        }
+
+        // 7. UI aşaması (ImGui updates, command list generation)
+        auto uiIt = m_subsystemsByStage.find(UpdateStage::UI);
+        if (uiIt != m_subsystemsByStage.end()) {
+            for (auto& subsystem : uiIt->second) {
+                subsystem->OnUpdate(deltaTime);
+            }
+        }
+
+        // 8. Render aşaması
+        auto renderIt = m_subsystemsByStage.find(UpdateStage::Render);
+        if (renderIt != m_subsystemsByStage.end()) {
+            for (auto& subsystem : renderIt->second) {
+                subsystem->OnUpdate(deltaTime);
+            }
+        }
+        
+        // 8. Shutdown check
+        auto* platformSubsystem = GetSubsystem<PlatformSubsystem>();
         if (platformSubsystem && platformSubsystem->GetWindow()->ShouldClose()) {
             RequestShutdown();
         }
@@ -90,9 +117,11 @@ void Engine::Initialize() {
     Logger::Info("Engine", "Initializing engine and subsystems...");
     
     // Tüm subsystem'leri başlat
-    for (auto& subsystem : m_subsystems) {
-        Logger::Info("Engine", "Initializing subsystem: {}", subsystem->GetName());
-        subsystem->OnInitialize(this);
+    for (auto& [stage, subsystems] : m_subsystemsByStage) {
+        for (auto& subsystem : subsystems) {
+            Logger::Info("Engine", "Initializing subsystem: {}", subsystem->GetName());
+            subsystem->OnInitialize(this);
+        }
     }
     
     m_initialized = true;
@@ -107,9 +136,11 @@ void Engine::Shutdown() {
     Logger::Info("Engine", "Shutting down engine and subsystems...");
     
     // Subsystem'leri ters sırada kapat (LIFO)
-    for (auto it = m_subsystems.rbegin(); it != m_subsystems.rend(); ++it) {
-        Logger::Info("Engine", "Shutting down subsystem: {}", (*it)->GetName());
-        (*it)->OnShutdown();
+    for (auto it = m_subsystemsByStage.rbegin(); it != m_subsystemsByStage.rend(); ++it) {
+        for (auto subsystem_it = it->second.rbegin(); subsystem_it != it->second.rend(); ++subsystem_it) {
+            Logger::Info("Engine", "Shutting down subsystem: {}", (*subsystem_it)->GetName());
+            (*subsystem_it)->OnShutdown();
+        }
     }
     
     m_initialized = false;

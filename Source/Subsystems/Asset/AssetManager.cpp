@@ -10,8 +10,6 @@
 #include <glm/glm.hpp>
 #include <nlohmann/json.hpp>
 
-// stb_image implementation
-#define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
 namespace AstralEngine {
@@ -64,17 +62,7 @@ bool AssetManager::Initialize(const std::string& assetDirectory) {
 
 void AssetManager::Update() {
     if (!m_initialized) return;
-
-    ProcessGpuUploadQueue();
-}
-
-void AssetManager::ProcessGpuUploadQueue() {
-    std::lock_guard<std::mutex> lock(m_queueMutex);
-    while (!m_gpuUploadQueue.empty()) {
-        auto& uploadTask = m_gpuUploadQueue.front();
-        uploadTask();
-        m_gpuUploadQueue.pop();
-    }
+    // GPU upload processing removed - now handled by RenderSubsystem
 }
 
 void AssetManager::Shutdown() {
@@ -346,28 +334,13 @@ void AssetManager::LoadAssetAsync(const AssetHandle& handle) {
         }
 
         {
-            std::lock_guard<std::mutex> lock(m_queueMutex);
-            m_gpuUploadQueue.push([this, handle, cpuData, type]() {
-                // This part runs on the main thread
-                std::shared_ptr<void> gpuResource;
-
-                // TODO: Replace with actual GPU resource creation
-                // For now, we'll just store the CPU data in the cache
-                gpuResource = cpuData;
-
-                if (gpuResource) {
-                    std::lock_guard<std::mutex> cacheLock(m_cacheMutex);
-                    // Create a promise, set its value, and store the shared_future in the cache
-                    std::promise<std::shared_ptr<void>> promise;
-                    promise.set_value(gpuResource);
-                    m_assetHandleCache[handle] = promise.get_future().share();
-                    m_registry.SetAssetState(handle, AssetLoadState::Loaded);
-                    Logger::Info("AssetManager", "Asset {} is loaded and ready.", handle.GetID());
-                } else {
-                    m_registry.SetAssetError(handle, "Failed to create GPU resource");
-                    m_registry.SetAssetState(handle, AssetLoadState::Failed);
-                }
-            });
+            std::lock_guard<std::mutex> cacheLock(m_cacheMutex);
+            // CPU verisini doğrudan cache'e yerleştir
+            std::promise<std::shared_ptr<void>> promise;
+            promise.set_value(cpuData);
+            m_assetHandleCache[handle] = promise.get_future().share();
+            m_registry.SetAssetState(handle, AssetLoadState::Loaded_CPU);
+            Logger::Info("AssetManager", "Asset {} is loaded to CPU and ready for GPU upload.", handle.GetID());
         }
     });
 }
@@ -377,7 +350,8 @@ bool AssetManager::IsAssetLoaded(const AssetHandle& handle) const {
     if (!handle.IsValid()) {
         return false;
     }
-    return m_registry.GetAssetState(handle) == AssetLoadState::Loaded;
+    AssetLoadState state = m_registry.GetAssetState(handle);
+    return state == AssetLoadState::Loaded_CPU || state == AssetLoadState::Loaded;
 }
 
 AssetLoadState AssetManager::GetAssetState(const AssetHandle& handle) const {
@@ -435,7 +409,7 @@ void AssetManager::RequestLoad(const AssetHandle& handle) {
 
     // Check if already loaded or loading
     AssetLoadState currentState = m_registry.GetAssetState(handle);
-    if (currentState == AssetLoadState::Loaded || currentState == AssetLoadState::Loading || currentState == AssetLoadState::Queued) {
+    if (currentState == AssetLoadState::Loaded_CPU || currentState == AssetLoadState::Loaded || currentState == AssetLoadState::Loading || currentState == AssetLoadState::Queued) {
         return;
     }
 

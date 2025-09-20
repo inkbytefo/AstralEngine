@@ -12,6 +12,7 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <unordered_map>
 #include <glm/glm.hpp>
 
 // Forward declarations
@@ -73,6 +74,47 @@ private:
 
     // Pipeline cache management
     std::shared_ptr<VulkanPipeline> GetOrCreatePipeline(const Material& material);
+    
+    /**
+     * @brief Merkezi layout yönetimi metodları
+     *
+     * Bu metodlar, shader kombinasyonlarına göre layout'ları oluşturur veya cache'den alır.
+     * Aynı shader kombinasyonu için aynı layout'un paylaşılmasını sağlarlar.
+     */
+    
+    /**
+     * @brief Shader özelliklerinden descriptor set layout oluşturur veya cache'den alır
+     *
+     * Bu metot, verilen materyalin shader handle'larını kullanarak bir hash oluşturur.
+     * Bu hash değerini cache'de arar, eğer varsa mevcut layout'u döndürür.
+     * Yoksa yeni bir VkDescriptorSetLayout oluşturur, cache'e ekler ve döndürür.
+     *
+     * @param material Layout'u oluşturulacak materyal
+     * @return VkDescriptorSetLayout Oluşturulan veya cache'den alınan descriptor set layout
+     *
+     * @par Performans Avantajları
+     * - Aynı shader kombinasyonu için layout paylaşımı
+     * - Tekrar tekrar layout oluşturma maliyetinin önlenmesi
+     * - Bellek kullanımının optimizasyonu
+     */
+    VkDescriptorSetLayout GetOrCreateDescriptorSetLayout(const Material& material);
+    
+    /**
+     * @brief Descriptor set layout hash'inden pipeline layout oluşturur veya cache'den alır
+     *
+     * Bu metot, verilen descriptor set layout pointer'ını kullanarak bir hash oluşturur.
+     * Bu hash değerini cache'de arar, eğer varsa mevcut pipeline layout'u döndürür.
+     * Yoksa yeni bir VkPipelineLayout oluşturur, cache'e ekler ve döndürür.
+     *
+     * @param descriptorSetLayout Pipeline layout oluşturmak için kullanılacak descriptor set layout
+     * @return VkPipelineLayout Oluşturulan veya cache'den alınan pipeline layout
+     *
+     * @par Performans Avantajları
+     * - Aynı descriptor set layout için pipeline layout paylaşımı
+     * - Pipeline layout oluşturma maliyetinin azaltılması
+     * - Vulkan pipeline oluşturma sürecinin hızlandırılması
+     */
+    VkPipelineLayout GetOrCreatePipelineLayout(VkDescriptorSetLayout descriptorSetLayout);
 
     GraphicsDevice* m_graphicsDevice = nullptr;
     RenderSubsystem* m_renderSubsystem = nullptr;
@@ -94,6 +136,29 @@ private:
     
     // Pipeline cache for material-based pipeline management
     std::map<size_t, std::shared_ptr<VulkanPipeline>> m_pipelineCache;
+    
+    /**
+     * @defgroup MerkeziLayoutYonetimi Merkezi Layout Yönetim Sistemi
+     * @brief VulkanRenderer'da descriptor set ve pipeline layout'larını merkezi olarak yöneten sistem
+     *
+     * Bu sistem, aynı shader kombinasyonunu kullanan materyaller arasında layout paylaşımını sağlar.
+     * Bu sayede:
+     * - Bellek kullanımı optimize edilir (aynı layout için tekrar tekrar oluşturma önlenir)
+     * - Performans artar (layout oluşturma maliyeti azalır)
+     * - Material sınıfı lightweight bir veri konteyneri olarak kalabilir
+     * - Vulkan kaynakları merkezi olarak yönetilir ve temizlenir
+     *
+     * @par Cache Mekanizması
+     * - Shader handle'larından benzersiz hash değerleri oluşturulur
+     * - Aynı hash değerine sahip istekler cache'den karşılanır
+     * - Cache'de bulunmayan layout'lar oluşturulur ve cache'e eklenir
+     * - Shutdown() sırasında tüm cache kaynakları düzgün şekilde temizlenir
+     */
+    
+    // Aynı shader kombinasyonu için descriptor set layout'ları paylaşır
+    std::unordered_map<size_t, VkDescriptorSetLayout> m_descriptorSetLayoutCache;
+    // Aynı shader kombinasyonu için pipeline layout'ları paylaşır
+    std::unordered_map<size_t, VkPipelineLayout> m_pipelineLayoutCache;
     
     // Frame-ringed instance buffer for performance optimization
     std::vector<std::unique_ptr<VulkanBuffer>> m_instanceBuffers;

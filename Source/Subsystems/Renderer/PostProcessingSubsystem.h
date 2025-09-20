@@ -90,112 +90,23 @@ public:
     // VulkanRenderer bağlantısı için yeni metod
     void SetVulkanRenderer(VulkanRenderer* renderer);
     
-    // Tonemapping parametrelerini yönetmek için metodlar
+    // Generic efekt erişim metodu
     /**
-     * @brief Tonemapping efektinin exposure değerini ayarlar
+     * @brief Belirtilen türdeki efekt pointer'ını döndürür
      *
-     * @param exposure Exposure değeri
+     * @tparam T Efekt tipi (IPostProcessingEffect'ten türemelidir)
+     * @return T* Efekt pointer'ı, bulunamazsa nullptr
      */
-    void SetTonemappingExposure(float exposure);
-    
-    /**
-     * @brief Tonemapping efektinin gamma değerini ayarlar
-     *
-     * @param gamma Gamma değeri
-     */
-    void SetTonemappingGamma(float gamma);
-    
-    /**
-     * @brief Tonemapping efektinin tonemapper tipini ayarlar
-     *
-     * @param tonemapper Tonemapper tipi (0: None, 1: ACES, 2: Reinhard, 3: Filmic, 4: Custom)
-     */
-    void SetTonemappingType(int tonemapper);
-    
-    /**
-     * @brief Tonemapping efektinin kontrast değerini ayarlar
-     *
-     * @param contrast Kontrast değeri
-     */
-    void SetTonemappingContrast(float contrast);
-    
-    /**
-     * @brief Tonemapping efektinin parlaklık değerini ayarlar
-     *
-     * @param brightness Parlaklık değeri
-     */
-    void SetTonemappingBrightness(float brightness);
-    
-    /**
-     * @brief Tonemapping efektinin doygunluk değerini ayarlar
-     *
-     * @param saturation Doygunluk değeri
-     */
-    void SetTonemappingSaturation(float saturation);
-    
-    /**
-     * @brief Tonemapping efektini aktif/pasif yapar
-     *
-     * @param enabled Aktif/pasif durumu
-     */
-    void SetTonemappingEnabled(bool enabled);
-    
-    // Bloom parametrelerini yönetmek için metodlar
-    /**
-     * @brief Bloom efektinin threshold değerini ayarlar
-     *
-     * @param threshold Threshold değeri
-     */
-    void SetBloomThreshold(float threshold);
-    
-    /**
-     * @brief Bloom efektinin knee değerini ayarlar
-     *
-     * @param knee Knee değeri
-     */
-    void SetBloomKnee(float knee);
-    
-    /**
-     * @brief Bloom efektinin intensity değerini ayarlar
-     *
-     * @param intensity Intensity değeri
-     */
-    void SetBloomIntensity(float intensity);
-    
-    /**
-     * @brief Bloom efektinin radius değerini ayarlar
-     *
-     * @param radius Radius değeri
-     */
-    void SetBloomRadius(float radius);
-    
-    /**
-     * @brief Bloom efektinin kalitesini ayarlar
-     *
-     * @param quality Kalite değeri (0: low, 1: medium, 2: high)
-     */
-    void SetBloomQuality(int quality);
-    
-    /**
-     * @brief Bloom efektinin lens dirt kullanımını ayarlar
-     *
-     * @param useDirt Lens dirt kullanımı
-     */
-    void SetBloomUseDirt(bool useDirt);
-    
-    /**
-     * @brief Bloom efektinin lens dirt yoğunluğunu ayarlar
-     *
-     * @param dirtIntensity Lens dirt yoğunluğu
-     */
-    void SetBloomDirtIntensity(float dirtIntensity);
-    
-    /**
-     * @brief Bloom efektini aktif/pasif yapar
-     *
-     * @param enabled Aktif/pasif durumu
-     */
-    void SetBloomEnabled(bool enabled);
+    template<typename T>
+    T* GetEffect() const {
+        static_assert(std::is_base_of_v<IPostProcessingEffect, T>, "T must derive from IPostProcessingEffect");
+        for (const auto& effect : m_effects) {
+            if (auto* castedEffect = dynamic_cast<T*>(effect.get())) {
+                return castedEffect;
+            }
+        }
+        return nullptr;
+    }
 
 private:
     // Vulkan kaynak yönetimi için yardımcı metodlar

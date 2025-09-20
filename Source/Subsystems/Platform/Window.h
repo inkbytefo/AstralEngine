@@ -44,6 +44,7 @@ namespace AstralEngine {
 // Forward declaration
 class EventManager;
 class InputManager;
+class UISubsystem;
 
 /**
  * @class Window
@@ -74,6 +75,9 @@ private:
         // Event yönetici referansı (dependency injection)
         EventManager* EventMgr = nullptr;
         InputManager* inputManager = nullptr;
+
+        // UI subsystem referansı (ImGui integration için)
+        UISubsystem* uiSubsystem = nullptr;
         
         // Platform pencere verileri
 #ifdef ASTRAL_USE_SDL3
@@ -294,6 +298,15 @@ public:
     void Maximize();
 
     void SetInputManager(InputManager* inputManager);
+
+    /**
+     * @brief UI subsystem referansını ayarla.
+     *
+     * @param uiSubsystem UI subsystem referansı
+     *
+     * ImGui event forwarding için gerekli.
+     */
+    void SetUISubsystem(UISubsystem* uiSubsystem);
 
     /**********************************************************************
      * Platform Özel API'ler

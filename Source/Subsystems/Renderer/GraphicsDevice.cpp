@@ -16,6 +16,7 @@
     #include <vulkan/vulkan.h>
     #include "Core/VulkanDevice.h"
     #include "Core/VulkanInstance.h"
+    #include "Core/VulkanTransferManager.h"
 #endif
 
 namespace AstralEngine {
@@ -111,6 +112,12 @@ bool GraphicsDevice::Initialize(Window* window, Engine* owner, const GraphicsDev
 
     m_deletionQueue.resize(m_config.maxFramesInFlight);
 
+    // Transfer manager'ı oluştur ve başlat
+    Logger::Info("GraphicsDevice", "Creating transfer manager...");
+    m_transferManager = std::make_unique<VulkanTransferManager>(m_vulkanDevice.get());
+    m_transferManager->Initialize();
+    Logger::Info("GraphicsDevice", "Transfer manager created successfully");
+
     if (!CreateRenderer()) {
         Logger::Error("GraphicsDevice", "Failed to create renderer");
         return false;
@@ -154,6 +161,12 @@ void GraphicsDevice::Shutdown() {
     if (m_frameManager) {
         m_frameManager->Shutdown();
         m_frameManager.reset();
+    }
+    
+    // Transfer manager'ı kapat
+    if (m_transferManager) {
+        m_transferManager->Shutdown();
+        m_transferManager.reset();
     }
     
     // Renderer'ı kapat
@@ -244,6 +257,11 @@ bool GraphicsDevice::EndFrame() {
     // Frame manager'a delege et
     if (!m_frameManager || !m_frameManager->EndFrame()) {
         return false;
+    }
+    
+    // Transfer manager'da kuyruğa alınan transferleri gönder
+    if (m_transferManager) {
+        m_transferManager->SubmitTransfers();
     }
     
     m_frameStarted = false;

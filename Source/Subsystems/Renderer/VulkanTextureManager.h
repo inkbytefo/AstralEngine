@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../../Asset/AssetHandle.h"
-#include "../../Asset/AssetSubsystem.h"
+#include "../../../Subsystems/Asset/AssetHandle.h"
+#include "../../../Subsystems/Asset/AssetSubsystem.h"
 #include "../Buffers/VulkanTexture.h"
 #include "../Core/VulkanDevice.h"
 #include <memory>
@@ -26,7 +26,6 @@ enum class GpuResourceState {
 struct TextureCacheEntry {
     std::shared_ptr<VulkanTexture> texture;
     GpuResourceState state = GpuResourceState::Unloaded;
-    bool needsCompletion = true;  // Texture'ler için CompleteImageInitialization çağrılması gerekiyor
     VkFence uploadFence = VK_NULL_HANDLE;
     VkBuffer stagingBuffer = VK_NULL_HANDLE;
     VkDeviceMemory stagingMemory = VK_NULL_HANDLE;

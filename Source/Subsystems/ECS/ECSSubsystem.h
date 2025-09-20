@@ -39,10 +39,13 @@ public:
 
     // Component management
     template<typename T>
-    T& AddComponent(uint32_t entity);
+    T* AddComponent(uint32_t entity);
     
     template<typename T>
-    T& GetComponent(uint32_t entity);
+    T* GetComponent(uint32_t entity);
+    
+    template<typename T>
+    const T* GetComponent(uint32_t entity) const;
     
     template<typename T>
     bool HasComponent(uint32_t entity) const;
@@ -115,11 +118,10 @@ private:
 
 // Template implementations
 template<typename T>
-T& ECSSubsystem::AddComponent(uint32_t entity) {
+T* ECSSubsystem::AddComponent(uint32_t entity) {
     if (!IsEntityValid(entity)) {
-        // TODO: Proper error handling
-        static T dummy;
-        return dummy;
+        Logger::Warning("ECSSubsystem", "Attempted to add component to invalid entity: {}", entity);
+        return nullptr;
     }
 
     auto& pool = GetComponentPool<T>();
@@ -138,22 +140,19 @@ T& ECSSubsystem::AddComponent(uint32_t entity) {
     indices[entity] = index;
     pool.count++;
 
-    return *component;
+    return component;
 }
 
 template<typename T>
-T& ECSSubsystem::GetComponent(uint32_t entity) {
-    auto& indices = GetComponentIndices<T>();
-    auto it = indices.find(entity);
-    
-    if (it == indices.end()) {
-        // TODO: Proper error handling
-        static T dummy;
-        return dummy;
-    }
+T* ECSSubsystem::GetComponent(uint32_t entity) {
+    void* ptr = GetComponentPointer(entity, typeid(T));
+    return reinterpret_cast<T*>(ptr);
+}
 
-    auto& pool = GetComponentPool<T>();
-    return *reinterpret_cast<T*>(&pool.data[it->second * sizeof(T)]);
+template<typename T>
+const T* ECSSubsystem::GetComponent(uint32_t entity) const {
+    const void* ptr = GetComponentPointer(entity, typeid(T));
+    return reinterpret_cast<const T*>(ptr);
 }
 
 template<typename T>

@@ -1,10 +1,12 @@
 #include "VulkanBuffer.h"
 #include "../../../Core/Logger.h"
+#include "../GraphicsDevice.h"
 
 namespace AstralEngine {
 
 VulkanBuffer::VulkanBuffer() 
-    : m_device(nullptr)
+    : m_graphicsDevice(nullptr)
+    , m_device(nullptr)
     , m_buffer(VK_NULL_HANDLE)
     , m_bufferMemory(VK_NULL_HANDLE)
     , m_size(0)
@@ -25,7 +27,7 @@ VulkanBuffer::~VulkanBuffer() {
     Logger::Debug("VulkanBuffer", "VulkanBuffer destroyed");
 }
 
-bool VulkanBuffer::Initialize(VulkanDevice* device, const Config& config) {
+bool VulkanBuffer::Initialize(GraphicsDevice* graphicsDevice, VulkanDevice* device, const Config& config) {
     if (m_isInitialized) {
         Logger::Warning("VulkanBuffer", "VulkanBuffer already initialized");
         return true;
@@ -36,11 +38,17 @@ bool VulkanBuffer::Initialize(VulkanDevice* device, const Config& config) {
         return false;
     }
     
+    if (!graphicsDevice) {
+        SetError("Invalid graphics device pointer");
+        return false;
+    }
+    
     if (config.size == 0) {
         SetError("Buffer size cannot be zero");
         return false;
     }
     
+    m_graphicsDevice = graphicsDevice;
     m_device = device;
     m_size = config.size;
     m_usage = config.usage;
@@ -79,6 +87,19 @@ void VulkanBuffer::Shutdown() {
         Unmap();
     }
     
+    // Staging buffer kaynaklarını temizle
+    if (m_stagingBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(m_device->GetDevice(), m_stagingBuffer, nullptr);
+        m_stagingBuffer = VK_NULL_HANDLE;
+        Logger::Debug("VulkanBuffer", "Staging buffer destroyed");
+    }
+    
+    if (m_stagingMemory != VK_NULL_HANDLE) {
+        vkFreeMemory(m_device->GetDevice(), m_stagingMemory, nullptr);
+        m_stagingMemory = VK_NULL_HANDLE;
+        Logger::Debug("VulkanBuffer", "Staging memory freed");
+    }
+    
     // Belleği serbest bırak
     if (m_bufferMemory != VK_NULL_HANDLE) {
         vkFreeMemory(m_device->GetDevice(), m_bufferMemory, nullptr);
@@ -93,6 +114,7 @@ void VulkanBuffer::Shutdown() {
         Logger::Debug("VulkanBuffer", "Buffer destroyed");
     }
     
+    m_graphicsDevice = nullptr;
     m_device = nullptr;
     m_size = 0;
     m_usage = 0;
@@ -147,7 +169,6 @@ void VulkanBuffer::Release() {
     m_isInitialized = false; // Prevent Shutdown from running
 }
 
-
 void VulkanBuffer::SetError(const std::string& error) {
     m_lastError = error;
     Logger::Error("VulkanBuffer", "Error: {}", error);
@@ -170,24 +191,23 @@ VkFence VulkanBuffer::CopyDataFromHost(const void* data, VkDeviceSize dataSize, 
     }
     
     // Önceki staging kaynaklarını temizle
-    CleanupStagingResources();
+    if (m_stagingBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(m_device->GetDevice(), m_stagingBuffer, nullptr);
+        m_stagingBuffer = VK_NULL_HANDLE;
+    }
+    
+    if (m_stagingMemory != VK_NULL_HANDLE) {
+        vkFreeMemory(m_device->GetDevice(), m_stagingMemory, nullptr);
+        m_stagingMemory = VK_NULL_HANDLE;
+    }
     
     Logger::Info("VulkanBuffer", "Starting data copy from host: size={} bytes, async={}", dataSize, async);
     
     try {
         // Staging buffer oluştur (CPU erişilebilir, transfer için)
-        VkBufferCreateInfo stagingBufferInfo{};
-        stagingBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        stagingBufferInfo.size = dataSize;
-        stagingBufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-        stagingBufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        
-        VkBuffer stagingBuffer;
-        VkDeviceMemory stagingMemory;
-        
         if (!m_device->CreateBuffer(dataSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                                 stagingBuffer, stagingMemory)) {
+                                 m_stagingBuffer, m_stagingMemory)) {
             SetError("Failed to create staging buffer: " + m_device->GetLastError());
             m_state = GpuResourceState::Failed;
             return VK_NULL_HANDLE;
@@ -195,126 +215,40 @@ VkFence VulkanBuffer::CopyDataFromHost(const void* data, VkDeviceSize dataSize, 
         
         // Staging buffer'ı map et ve veriyi kopyala
         void* mappedData;
-        VkResult result = vkMapMemory(m_device->GetDevice(), stagingMemory, 0, dataSize, 0, &mappedData);
+        VkResult result = vkMapMemory(m_device->GetDevice(), m_stagingMemory, 0, dataSize, 0, &mappedData);
         if (result != VK_SUCCESS) {
             SetError("Failed to map staging buffer memory, VkResult: " + std::to_string(result));
-            vkDestroyBuffer(m_device->GetDevice(), stagingBuffer, nullptr);
-            vkFreeMemory(m_device->GetDevice(), stagingMemory, nullptr);
+            vkDestroyBuffer(m_device->GetDevice(), m_stagingBuffer, nullptr);
+            vkFreeMemory(m_device->GetDevice(), m_stagingMemory, nullptr);
+            m_stagingBuffer = VK_NULL_HANDLE;
+            m_stagingMemory = VK_NULL_HANDLE;
             m_state = GpuResourceState::Failed;
             return VK_NULL_HANDLE;
         }
         
         memcpy(mappedData, data, static_cast<size_t>(dataSize));
-        vkUnmapMemory(m_device->GetDevice(), stagingMemory);
+        vkUnmapMemory(m_device->GetDevice(), m_stagingMemory);
         
-        // Fence oluştur (asenkron için)
-        VkFence fence = VK_NULL_HANDLE;
-        if (async) {
-            VkFenceCreateInfo fenceInfo{};
-            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-            fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-            
-            result = vkCreateFence(m_device->GetDevice(), &fenceInfo, nullptr, &fence);
-            if (result != VK_SUCCESS) {
-                SetError("Failed to create fence, VkResult: " + std::to_string(result));
-                vkDestroyBuffer(m_device->GetDevice(), stagingBuffer, nullptr);
-                vkFreeMemory(m_device->GetDevice(), stagingMemory, nullptr);
-                m_state = GpuResourceState::Failed;
-                return VK_NULL_HANDLE;
-            }
-        }
+        // Transfer'i kuyruğa ekle
+        m_graphicsDevice->GetTransferManager()->QueueTransfer(m_stagingBuffer, m_buffer, dataSize);
         
-        // Transfer komutunu başlat
-        VkCommandBuffer commandBuffer = m_device->BeginSingleTimeCommands();
-        if (!commandBuffer) {
-            SetError("Failed to begin single time commands");
-            if (fence != VK_NULL_HANDLE) {
-                vkDestroyFence(m_device->GetDevice(), fence, nullptr);
-            }
-            vkDestroyBuffer(m_device->GetDevice(), stagingBuffer, nullptr);
-            vkFreeMemory(m_device->GetDevice(), stagingMemory, nullptr);
-            m_state = GpuResourceState::Failed;
-            return VK_NULL_HANDLE;
-        }
+        // Transfer işlemini gönder
+        m_graphicsDevice->GetTransferManager()->SubmitTransfers();
         
-        // Buffer kopyalama işlemi
-        VkBufferCopy copyRegion{};
-        copyRegion.srcOffset = 0;
-        copyRegion.dstOffset = 0;
-        copyRegion.size = dataSize;
+        m_state = GpuResourceState::Ready;
+        Logger::Info("VulkanBuffer", "Data copy completed using VulkanTransferManager");
         
-        vkCmdCopyBuffer(commandBuffer, stagingBuffer, m_buffer, 1, &copyRegion);
+        // Not: async parametresi şu an için kullanılmıyor, çünkü VulkanTransferManager
+        // kendi iç senkronizasyonunu yönetiyor. İleride bu parametre kaldırılabilir veya
+        // farklı bir anlam kazandırılabilir.
         
-        // Komut buffer'ını bitir
-        if (async) {
-            m_device->EndSingleTimeCommands(commandBuffer, fence);
-            m_state = GpuResourceState::Uploading;
-            
-            // Staging kaynaklarını sakla (daha sonra temizlemek için)
-            m_stagingBuffer = stagingBuffer;
-            m_stagingMemory = stagingMemory;
-            m_uploadFence = fence;
-            
-            Logger::Info("VulkanBuffer", "Async data copy started, fence created");
-            return fence;
-        } else {
-            m_device->EndSingleTimeCommands(commandBuffer);
-            
-            // Staging buffer'ı hemen temizle
-            vkDestroyBuffer(m_device->GetDevice(), stagingBuffer, nullptr);
-            vkFreeMemory(m_device->GetDevice(), stagingMemory, nullptr);
-            
-            m_state = GpuResourceState::Ready;
-            Logger::Info("VulkanBuffer", "Sync data copy completed");
-            return VK_NULL_HANDLE;
-        }
+        return VK_NULL_HANDLE;
         
     } catch (const std::exception& e) {
         SetError(std::string("Exception during data copy: ") + e.what());
         Logger::Error("VulkanBuffer", "Data copy failed: {}", e.what());
         m_state = GpuResourceState::Failed;
         return VK_NULL_HANDLE;
-    }
-}
-
-void VulkanBuffer::CleanupStagingResources() {
-    if (m_stagingBuffer != VK_NULL_HANDLE) {
-        vkDestroyBuffer(m_device->GetDevice(), m_stagingBuffer, nullptr);
-        m_stagingBuffer = VK_NULL_HANDLE;
-        Logger::Debug("VulkanBuffer", "Staging buffer destroyed");
-    }
-    
-    if (m_stagingMemory != VK_NULL_HANDLE) {
-        vkFreeMemory(m_device->GetDevice(), m_stagingMemory, nullptr);
-        m_stagingMemory = VK_NULL_HANDLE;
-        Logger::Debug("VulkanBuffer", "Staging memory freed");
-    }
-    
-    if (m_uploadFence != VK_NULL_HANDLE) {
-        vkDestroyFence(m_device->GetDevice(), m_uploadFence, nullptr);
-        m_uploadFence = VK_NULL_HANDLE;
-        Logger::Debug("VulkanBuffer", "Upload fence destroyed");
-    }
-}
-
-bool VulkanBuffer::IsUploadComplete() const {
-    if (m_uploadFence == VK_NULL_HANDLE) {
-        return m_state == GpuResourceState::Ready;
-    }
-    
-    VkResult result = vkGetFenceStatus(m_device->GetDevice(), m_uploadFence);
-    if (result == VK_SUCCESS) {
-        // Upload tamamlandı, durumu güncelle
-        m_state = GpuResourceState::Ready;
-        Logger::Debug("VulkanBuffer", "Upload completed, state updated to Ready");
-        return true;
-    } else if (result == VK_NOT_READY) {
-        // Henüz tamamlanmadı
-        return false;
-    } else {
-        // Hata oluştu
-        Logger::Error("VulkanBuffer", "Fence status check failed: {}", static_cast<int32_t>(result));
-        return false;
     }
 }
 

@@ -120,7 +120,6 @@ std::shared_ptr<VulkanTexture> VulkanTextureManager::GetOrCreateTexture(AssetHan
     TextureCacheEntry entry;
     entry.texture = texture;
     entry.state = GpuResourceState::Uploading;
-    entry.needsCompletion = true;  // CompleteImageInitialization çağrılması gerekiyor
     
     // Önbelleğe ekle
     m_textureCache[handle] = entry;
@@ -306,31 +305,23 @@ void VulkanTextureManager::CheckUploadCompletions() {
         if (entry.state == GpuResourceState::Uploading && entry.texture) {
             // Texture'ın hazır olup olmadığını kontrol et
             if (entry.texture->IsReady()) {
-                // Hazır olan texture'lar için CompleteImageInitialization çağır
-                if (entry.needsCompletion) {
-                    entry.texture->CompleteImageInitialization();
-                    entry.needsCompletion = false;
-                    
-                    // CompleteImageInitialization çağrıldıktan sonra texture durumunu kontrol et
-                    if (entry.texture->GetState() == GpuResourceState::Ready) {
-                        entry.state = GpuResourceState::Ready;
-                        Logger::Info("VulkanTextureManager", "Texture upload completed successfully for handle: {}", pair.first.GetID());
-                    } else if (entry.texture->GetState() == GpuResourceState::Failed) {
-                        entry.state = GpuResourceState::Failed;
-                        Logger::Error("VulkanTextureManager", "Texture upload failed for handle: {}", pair.first.GetID());
-                    }
-                    // Eğer hala Uploading durumundaysa, bir sonraki framede tekrar kontrol edilecek
-                } else {
-                    // needsCompletion false ise, doğrudan Ready olarak işaretle
+                // Hazır olan texture'lar için FinalizeUpload çağırarak süreci tamamla
+                entry.texture->FinalizeUpload();
+                
+                // FinalizeUpload çağrıldıktan sonra texture durumunu kontrol et
+                if (entry.texture->GetState() == GpuResourceState::Ready) {
                     entry.state = GpuResourceState::Ready;
-                    Logger::Info("VulkanTextureManager", "Texture marked as ready for handle: {}", pair.first.GetID());
+                    Logger::Info("VulkanTextureManager", "Texture upload completed successfully for handle: {}", pair.first.GetID());
+                } else if (entry.texture->GetState() == GpuResourceState::Failed) {
+                    entry.state = GpuResourceState::Failed;
+                    Logger::Error("VulkanTextureManager", "Texture upload failed for handle: {}", pair.first.GetID());
                 }
+                // Eğer hala Uploading durumundaysa, bir sonraki framede tekrar kontrol edilecek
             } else {
                 // Texture'ın kendi durumunu kontrol et
                 GpuResourceState textureState = entry.texture->GetState();
                 if (textureState == GpuResourceState::Failed) {
                     entry.state = GpuResourceState::Failed;
-                    entry.needsCompletion = false;
                     Logger::Error("VulkanTextureManager", "Texture upload failed for handle: {}", pair.first.GetID());
                 }
                 // Hala Uploading durumundaysa, bir sonraki framede tekrar kontrol edilecek
@@ -403,7 +394,6 @@ void VulkanTextureManager::CleanupTextureResources(AssetHandle handle) {
         
         // Durumu güncelle
         entry.state = GpuResourceState::Unloaded;
-        entry.needsCompletion = false;
         
         Logger::Info("VulkanTextureManager", "Texture resources cleaned up for handle: {}", handle.GetID());
     }

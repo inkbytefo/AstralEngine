@@ -36,47 +36,36 @@ bool Material::Initialize(const Config& config) {
         return true;
     }
     
-    if (!config.device) {
-        SetError("Invalid device pointer");
-        return false;
-    }
-    
-    m_device = config.device;
-    m_assetManager = config.assetManager;
-    m_renderSubsystem = config.renderSubsystem; // Store RenderSubsystem
+    // Materyal verilerini ayarla
     m_type = config.type;
     m_name = config.name;
-    m_vertexShaderHandle = config.vertexShaderHandle; // Store vertex shader handle
-    m_fragmentShaderHandle = config.fragmentShaderHandle; // Store fragment shader handle
+    m_vertexShaderHandle = config.vertexShaderHandle;
+    m_fragmentShaderHandle = config.fragmentShaderHandle;
     
-    Logger::Info("Material", "Initializing material: {} (type: {})", 
+    Logger::Info("Material", "Initializing material: {} (type: {})",
                 m_name, static_cast<int>(m_type));
     
     try {
-        // Descriptor set layout oluştur
-        if (!CreateDescriptorSetLayout()) {
-            return false;
-        }
+        // Texture slot'larını ve map'lerini başlat
+        m_textureSlots.clear();
+        m_textureMap.clear();
         
-        // Pipeline layout oluştur
-        if (!CreatePipelineLayout()) {
-            return false;
-        }
-        
-        // Descriptor pool oluştur
-        if (!CreateDescriptorPool()) {
-            return false;
-        }
-        
-        // Descriptor sets oluştur
-        if (!CreateDescriptorSets()) {
-            return false;
-        }
-        
-        // Uniform buffer'lar oluştur
-        // TODO: Implement uniform buffer creation using m_device->CreateBuffer()
-        // This should be implemented when the material system is fully functional
-        Logger::Warning("Material", "Uniform buffer creation is not yet implemented.");
+        // Materyal özelliklerini varsayılan değerlere ayarla
+        m_properties = MaterialProperties{};
+        m_properties.baseColor = glm::vec3(1.0f, 1.0f, 1.0f);
+        m_properties.metallic = 0.0f;
+        m_properties.roughness = 0.5f;
+        m_properties.ao = 1.0f;
+        m_properties.opacity = 1.0f;
+        m_properties.transparent = false;
+        m_properties.emissiveColor = glm::vec3(0.0f, 0.0f, 0.0f);
+        m_properties.emissiveIntensity = 0.0f;
+        m_properties.doubleSided = false;
+        m_properties.wireframe = false;
+        m_properties.tilingX = 1.0f;
+        m_properties.tilingY = 1.0f;
+        m_properties.offsetX = 0.0f;
+        m_properties.offsetY = 0.0f;
         
         m_isInitialized = true;
         Logger::Info("Material", "Material initialized successfully: {}", m_name);
@@ -96,46 +85,10 @@ void Material::Shutdown() {
     
     Logger::Info("Material", "Shutting down material: {}", m_name);
     
-    // Uniform buffer'ları temizle
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        if (m_uniformBuffersMapped[i]) {
-            vkUnmapMemory(m_device->GetDevice(), m_uniformBuffersMemory[i]);
-        }
-        if (m_uniformBuffers[i] != VK_NULL_HANDLE) {
-            vkDestroyBuffer(m_device->GetDevice(), m_uniformBuffers[i], nullptr);
-        }
-        if (m_uniformBuffersMemory[i] != VK_NULL_HANDLE) {
-            vkFreeMemory(m_device->GetDevice(), m_uniformBuffersMemory[i], nullptr);
-        }
-    }
-    
-    m_uniformBuffers.clear();
-    m_uniformBuffersMemory.clear();
-    m_uniformBuffersMapped.clear();
-    
-    // Vulkan kaynaklarını temizle
-    if (m_pipelineLayout != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(m_device->GetDevice(), m_pipelineLayout, nullptr);
-        m_pipelineLayout = VK_NULL_HANDLE;
-    }
-    
-    if (m_descriptorPool != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(m_device->GetDevice(), m_descriptorPool, nullptr);
-        m_descriptorPool = VK_NULL_HANDLE;
-    }
-    
-    if (m_descriptorSetLayout != VK_NULL_HANDLE) {
-        vkDestroyDescriptorSetLayout(m_device->GetDevice(), m_descriptorSetLayout, nullptr);
-        m_descriptorSetLayout = VK_NULL_HANDLE;
-    }
-    
-    m_descriptorSets.clear();
+    // Texture'ları temizle (bunlar hala Material tarafından yönetiliyor)
     m_textureSlots.clear();
     m_textureMap.clear();
     
-    m_device = nullptr;
-    m_assetManager = nullptr;
-    m_renderSubsystem = nullptr; // Reset RenderSubsystem
     m_isInitialized = false;
     
     Logger::Info("Material", "Material shutdown completed: {}", m_name);
@@ -197,9 +150,6 @@ void Material::SetTexture(TextureType type, std::shared_ptr<VulkanTexture> textu
         m_textureMap[type] = m_textureSlots.size() - 1;
     }
     
-    // Descriptor set'i güncelle
-    UpdateDescriptorSet();
-    
     Logger::Debug("Material", "Texture set: {} -> {}", GetTextureName(type), texture ? "valid" : "null");
 }
 
@@ -218,9 +168,6 @@ void Material::RemoveTexture(TextureType type) {
         size_t index = it->second;
         m_textureSlots[index].texture.reset();
         m_textureSlots[index].enabled = false;
-        
-        // Descriptor set'i güncelle
-        UpdateDescriptorSet();
         
         Logger::Debug("Material", "Texture removed: {}", GetTextureName(type));
     }
@@ -270,189 +217,11 @@ void Material::SetShaders(const std::string& vertexPath, const std::string& frag
     */
 }
 
-void Material::UpdateDescriptorSet() {
-    if (!m_isInitialized || m_descriptorSet == VK_NULL_HANDLE) {
-        return;
-    }
-    
-    std::vector<VkWriteDescriptorSet> descriptorWrites;
-    std::vector<VkDescriptorImageInfo> imageInfos;
-    
-    // Texture descriptor'ları
-    for (const auto& slot : m_textureSlots) {
-        if (slot.enabled && slot.texture) {
-            VkDescriptorImageInfo imageInfo{};
-            imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfo.imageView = slot.texture->GetImageView();
-            imageInfo.sampler = slot.texture->GetSampler();
-            
-            imageInfos.push_back(imageInfo);
-            
-            VkWriteDescriptorSet descriptorWrite{};
-            descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrite.dstSet = m_descriptorSet;
-            descriptorWrite.dstBinding = slot.binding;
-            descriptorWrite.dstArrayElement = 0;
-            descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            descriptorWrite.descriptorCount = 1;
-            descriptorWrite.pImageInfo = &imageInfos.back();
-            
-            descriptorWrites.push_back(descriptorWrite);
-        }
-    }
-    
-    // Uniform buffer descriptor'ı
-    if (m_currentFrame < m_uniformBuffers.size()) {
-        VkDescriptorBufferInfo bufferInfo{};
-        bufferInfo.buffer = m_uniformBuffers[m_currentFrame];
-        bufferInfo.offset = 0;
-        bufferInfo.range = sizeof(MaterialProperties);
-        
-        VkWriteDescriptorSet bufferWrite{};
-        bufferWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        bufferWrite.dstSet = m_descriptorSet;
-        bufferWrite.dstBinding = 0; // Material properties binding
-        bufferWrite.dstArrayElement = 0;
-        bufferWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        bufferWrite.descriptorCount = 1;
-        bufferWrite.pBufferInfo = &bufferInfo;
-        
-        descriptorWrites.push_back(bufferWrite);
-    }
-    
-    if (!descriptorWrites.empty()) {
-        vkUpdateDescriptorSets(m_device->GetDevice(), 
-                              static_cast<uint32_t>(descriptorWrites.size()), 
-                              descriptorWrites.data(), 0, nullptr);
-        
-        Logger::Debug("Material", "Descriptor set updated for material: {}", m_name);
-    }
-}
 
-void Material::UpdateUniformBuffer(uint32_t currentFrame) {
-    if (!m_isInitialized || currentFrame >= m_uniformBuffersMapped.size()) {
-        return;
-    }
-    
-    m_currentFrame = currentFrame;
-    
-    // Uniform buffer'ı güncelle
-    memcpy(m_uniformBuffersMapped[currentFrame], &m_properties, sizeof(MaterialProperties));
-    
-    Logger::Debug("Material", "Uniform buffer updated for material: {}", m_name);
-}
 
-bool Material::CreateDescriptorSetLayout() {
-    std::vector<VkDescriptorSetLayoutBinding> bindings;
-    
-    // Material properties uniform buffer (binding = 0)
-    VkDescriptorSetLayoutBinding materialBinding{};
-    materialBinding.binding = 0;
-    materialBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    materialBinding.descriptorCount = 1;
-    materialBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-    materialBinding.pImmutableSamplers = nullptr;
-    bindings.push_back(materialBinding);
-    
-    // Texture bindings
-    for (const auto& slot : m_textureSlots) {
-        if (slot.enabled) {
-            VkDescriptorSetLayoutBinding textureBinding{};
-            textureBinding.binding = slot.binding;
-            textureBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            textureBinding.descriptorCount = 1;
-            textureBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-            textureBinding.pImmutableSamplers = nullptr;
-            bindings.push_back(textureBinding);
-        }
-    }
-    
-    VkDescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
-    layoutInfo.pBindings = bindings.data();
-    
-    VkResult result = vkCreateDescriptorSetLayout(m_device->GetDevice(), &layoutInfo, nullptr, &m_descriptorSetLayout);
-    if (result != VK_SUCCESS) {
-        SetError("Failed to create descriptor set layout: " + std::to_string(result));
-        return false;
-    }
-    
-    Logger::Debug("Material", "Descriptor set layout created for material: {}", m_name);
-    return true;
-}
+// CreateDescriptorSets metodu kaldırıldı
+// Artık descriptor set'leri merkezi VulkanFrameManager tarafından yönetiliyor
 
-bool Material::CreateDescriptorPool() {
-    std::vector<VkDescriptorPoolSize> poolSizes;
-    
-    // Uniform buffer pool size
-    VkDescriptorPoolSize uniformPoolSize{};
-    uniformPoolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    uniformPoolSize.descriptorCount = MAX_FRAMES_IN_FLIGHT;
-    poolSizes.push_back(uniformPoolSize);
-    
-    // Texture pool size
-    VkDescriptorPoolSize texturePoolSize{};
-    texturePoolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    texturePoolSize.descriptorCount = static_cast<uint32_t>(m_textureSlots.size()) * MAX_FRAMES_IN_FLIGHT;
-    poolSizes.push_back(texturePoolSize);
-    
-    VkDescriptorPoolCreateInfo poolInfo{};
-    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
-    poolInfo.pPoolSizes = poolSizes.data();
-    poolInfo.maxSets = MAX_FRAMES_IN_FLIGHT;
-    
-    VkResult result = vkCreateDescriptorPool(m_device->GetDevice(), &poolInfo, nullptr, &m_descriptorPool);
-    if (result != VK_SUCCESS) {
-        SetError("Failed to create descriptor pool: " + std::to_string(result));
-        return false;
-    }
-    
-    Logger::Debug("Material", "Descriptor pool created for material: {}", m_name);
-    return true;
-}
-
-bool Material::CreateDescriptorSets() {
-    std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, m_descriptorSetLayout);
-    
-    VkDescriptorSetAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool = m_descriptorPool;
-    allocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
-    allocInfo.pSetLayouts = layouts.data();
-    
-    m_descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-    VkResult result = vkAllocateDescriptorSets(m_device->GetDevice(), &allocInfo, m_descriptorSets.data());
-    if (result != VK_SUCCESS) {
-        SetError("Failed to allocate descriptor sets: " + std::to_string(result));
-        return false;
-    }
-    
-    // İlk descriptor set'i kullan
-    m_descriptorSet = m_descriptorSets[0];
-    
-    Logger::Debug("Material", "Descriptor sets created for material: {}", m_name);
-    return true;
-}
-
-bool Material::CreatePipelineLayout() {
-    VkPipelineLayoutCreateInfo layoutInfo{};
-    layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layoutInfo.setLayoutCount = 1;
-    layoutInfo.pSetLayouts = &m_descriptorSetLayout;
-    layoutInfo.pushConstantRangeCount = 0;
-    layoutInfo.pPushConstantRanges = nullptr;
-    
-    VkResult result = vkCreatePipelineLayout(m_device->GetDevice(), &layoutInfo, nullptr, &m_pipelineLayout);
-    if (result != VK_SUCCESS) {
-        SetError("Failed to create pipeline layout: " + std::to_string(result));
-        return false;
-    }
-    
-    Logger::Debug("Material", "Pipeline layout created for material: {}", m_name);
-    return true;
-}
 
 void Material::UpdateTextureBindings() {
     m_textureMap.clear();

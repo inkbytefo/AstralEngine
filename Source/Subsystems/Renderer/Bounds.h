@@ -2,50 +2,74 @@
 
 #include <glm/glm.hpp>
 #include <array>
+#include <limits>
 
 namespace AstralEngine {
 
     /**
      * @struct AABB
      * @brief Axis-Aligned Bounding Box (Eksenle Hizalı Sınırlayıcı Kutu).
-     * 
+     *
      * Bir nesneyi çevreleyen ve eksenlere paralel olan en küçük kutuyu temsil eder.
-     * Hızlı kesişim testleri için kullanılır.
+     * Hızlı kesişim testleri için kullanılır. Modern C++ özellikleriyle optimize edilmiştir.
      */
     struct AABB {
         glm::vec3 min = glm::vec3(std::numeric_limits<float>::max());
         glm::vec3 max = glm::vec3(std::numeric_limits<float>::lowest());
 
-        AABB() = default;
-        AABB(const glm::vec3& min, const glm::vec3& max) : min(min), max(max) {}
+        constexpr AABB() noexcept = default;
+        constexpr AABB(const glm::vec3& minPoint, const glm::vec3& maxPoint) noexcept : min(minPoint), max(maxPoint) {}
 
-        // İki AABB'yi birleştirerek yeni bir AABB oluşturur
-        void Merge(const AABB& other) {
-            min = glm::min(min, other.min);
-            max = glm::max(max, other.max);
+        // Resets the AABB to an invalid state, ready to be extended.
+        void Reset() noexcept {
+            min = glm::vec3(std::numeric_limits<float>::max());
+            max = glm::vec3(std::numeric_limits<float>::lowest());
         }
 
-        // Bir noktayı içerecek şekilde AABB'yi genişletir
-        void Extend(const glm::vec3& point) {
+        // Checks if the AABB is valid (i.e., has been extended).
+        [[nodiscard]] constexpr bool IsValid() const noexcept {
+            return min.x <= max.x && min.y <= max.y && min.z <= max.z;
+        }
+
+        // Returns the center point of the AABB.
+        [[nodiscard]] constexpr glm::vec3 GetCenter() const noexcept {
+            return (min + max) * 0.5f;
+        }
+
+        // Returns the size (dimensions) of the AABB.
+        [[nodiscard]] constexpr glm::vec3 GetSize() const noexcept {
+            return max - min;
+        }
+
+        // Merges another AABB into this one.
+        void Merge(const AABB& other) noexcept {
+            if (other.IsValid()) {
+                min = glm::min(min, other.min);
+                max = glm::max(max, other.max);
+            }
+        }
+
+        // Extends the AABB to include a point.
+        void Extend(const glm::vec3& point) noexcept {
             min = glm::min(min, point);
             max = glm::max(max, point);
         }
 
-        // AABB'yi bir matris ile dönüştürür
-        AABB Transform(const glm::mat4& matrix) const {
-            std::array<glm::vec3, 8> corners = {
-                glm::vec3(min.x, min.y, min.z),
-                glm::vec3(max.x, min.y, min.z),
-                glm::vec3(min.x, max.y, min.z),
-                glm::vec3(min.x, min.y, max.z),
-                glm::vec3(max.x, max.y, min.z),
-                glm::vec3(min.x, max.y, max.z),
-                glm::vec3(max.x, min.y, max.z),
-                glm::vec3(max.x, max.y, max.z),
+        // Transforms the AABB by a matrix and returns the new AABB.
+        [[nodiscard]] AABB Transform(const glm::mat4& matrix) const noexcept {
+            if (!IsValid()) {
+                return {};
+            }
+
+            static const std::array<glm::vec3, 8> cornersTemplate = {
+                glm::vec3(0, 0, 0), glm::vec3(1, 0, 0), glm::vec3(0, 1, 0), glm::vec3(0, 0, 1),
+                glm::vec3(1, 1, 0), glm::vec3(0, 1, 1), glm::vec3(1, 0, 1), glm::vec3(1, 1, 1)
             };
 
             AABB transformedAABB;
-            for (const auto& corner : corners) {
+            const glm::vec3 size = GetSize();
+            for (const auto& cornerT : cornersTemplate) {
+                glm::vec3 corner = min + size * cornerT;
                 transformedAABB.Extend(glm::vec3(matrix * glm::vec4(corner, 1.0f)));
             }
             return transformedAABB;

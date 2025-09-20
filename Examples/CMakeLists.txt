@@ -8,7 +8,7 @@
 #  **********************************************************************/
 
 # Basic Example uygulaması için bir executable hedefi oluştur
-add_executable(BasicExample Sandbox.cpp)
+add_executable(BasicExample BasicExample.cpp)
 
 # BasicExample hedefini, ana motor kütüphanesi olan AstralEngine'e bağla
 target_link_libraries(BasicExample PRIVATE AstralEngine)

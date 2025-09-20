@@ -5,7 +5,9 @@
 
 namespace AstralEngine {
 
-VulkanTexture::VulkanTexture() {}
+VulkanTexture::VulkanTexture()
+    : m_graphicsDevice(nullptr) {
+}
 
 VulkanTexture::~VulkanTexture() { 
     Shutdown(); 
@@ -14,13 +16,18 @@ VulkanTexture::~VulkanTexture() {
 bool VulkanTexture::Initialize(VulkanDevice* device, const std::string& texturePath) {
     if (m_isInitialized) return true;
     m_device = device;
+    // GraphicsDevice'i VulkanDevice'den al (bu geçici bir çözüm, ileride doğrudan GraphicsDevice parametresi geçilebilir)
+    m_graphicsDevice = nullptr; // Şimdilik nullptr, ilerlide güncellenecek
 
     try {
         CreateTextureImage(texturePath);
-        // Not: CreateTextureImageView ve CreateTextureSampler asenkron upload tamamlandığında çağrılacak
+        // Transfer işlemi senkronize olduğu için hemen image view ve sampler oluştur
+        CreateTextureImageView();
+        CreateTextureSampler();
 
         m_isInitialized = true;
-        Logger::Info("VulkanTexture", "Texture initialization started successfully: '{}'", texturePath);
+        m_state = GpuResourceState::Ready;
+        Logger::Info("VulkanTexture", "Texture initialization completed successfully: '{}'", texturePath);
         return true;
     } catch (const std::exception& e) {
         SetError(std::string("Failed to initialize texture: ") + e.what());
@@ -32,6 +39,8 @@ bool VulkanTexture::Initialize(VulkanDevice* device, const std::string& textureP
 bool VulkanTexture::Initialize(VulkanDevice* device, const Config& config) {
     if (m_isInitialized) return true;
     m_device = device;
+    // GraphicsDevice'i VulkanDevice'den al (bu geçici bir çözüm, ileride doğrudan GraphicsDevice parametresi geçilebilir)
+    m_graphicsDevice = nullptr; // Şimdilik nullptr, ilerlide güncellenecek
 
     try {
         // Config bilgilerini sakla
@@ -43,7 +52,7 @@ bool VulkanTexture::Initialize(VulkanDevice* device, const Config& config) {
         CreateEmptyTexture(config);
 
         m_isInitialized = true;
-        Logger::Info("VulkanTexture", "Empty texture initialization started: {}x{}, format: {}, name: '{}'",
+        Logger::Info("VulkanTexture", "Empty texture initialization completed: {}x{}, format: {}, name: '{}'",
                     config.width, config.height, static_cast<int>(config.format), config.name);
         return true;
     } catch (const std::exception& e) {
@@ -56,13 +65,18 @@ bool VulkanTexture::Initialize(VulkanDevice* device, const Config& config) {
 bool VulkanTexture::InitializeFromData(VulkanDevice* device, const void* data, uint32_t width, uint32_t height, VkFormat format) {
     if (m_isInitialized) return true;
     m_device = device;
+    // GraphicsDevice'i VulkanDevice'den al (bu geçici bir çözüm, ileride doğrudan GraphicsDevice parametresi geçilebilir)
+    m_graphicsDevice = nullptr; // Şimdilik nullptr, ilerlide güncellenecek
 
     try {
         CreateTextureImageFromData(data, width, height, format);
-        // Not: CreateTextureImageView ve CreateTextureSampler asenkron upload tamamlandığında çağrılacak
+        // Transfer işlemi senkronize olduğu için hemen image view ve sampler oluştur
+        CreateTextureImageView();
+        CreateTextureSampler();
 
         m_isInitialized = true;
-        Logger::Info("VulkanTexture", "Texture initialization from data started: {}x{}, format: {}", width, height, static_cast<int>(format));
+        m_state = GpuResourceState::Ready;
+        Logger::Info("VulkanTexture", "Texture initialization from data completed: {}x{}, format: {}", width, height, static_cast<int>(format));
         return true;
     } catch (const std::exception& e) {
         SetError(std::string("Failed to initialize texture from data: ") + e.what());
@@ -122,15 +136,16 @@ void VulkanTexture::CreateTextureImage(const std::string& path) {
     m_format = VK_FORMAT_R8G8B8A8_SRGB;
 
     // 1. Geçici bir staging buffer oluştur (CPU'dan erişilebilir)
+    VkDeviceMemory stagingMemory;
     m_device->CreateBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                           m_stagingBuffer, m_stagingMemory);
+                           m_stagingBuffer, stagingMemory);
 
     // 2. Staging buffer'ı map et ve veriyi kopyala
     void* mappedData;
-    vkMapMemory(m_device->GetDevice(), m_stagingMemory, 0, imageSize, 0, &mappedData);
+    vkMapMemory(m_device->GetDevice(), stagingMemory, 0, imageSize, 0, &mappedData);
     memcpy(mappedData, pixels, static_cast<size_t>(imageSize));
-    vkUnmapMemory(m_device->GetDevice(), m_stagingMemory);
+    vkUnmapMemory(m_device->GetDevice(), stagingMemory);
 
     stbi_image_free(pixels);
 
@@ -142,35 +157,48 @@ void VulkanTexture::CreateTextureImage(const std::string& path) {
     // 4. Image layout'ını transfer için hazırla (undefined -> transfer_dst_optimal)
     TransitionImageLayout(m_textureImage, m_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-    // 5. Asenkron kopyalama komutunu transfer queue'ya gönder
-    m_uploadFence = m_device->SubmitToTransferQueue([&](VkCommandBuffer commandBuffer) {
-        VkBufferImageCopy region{};
-        region.bufferOffset = 0;
-        region.bufferRowLength = 0;
-        region.bufferImageHeight = 0;
+    // 5. Transfer işlemini VulkanTransferManager'a gönder
+    if (m_graphicsDevice && m_graphicsDevice->GetTransferManager()) {
+        m_graphicsDevice->GetTransferManager()->QueueTransfer(m_stagingBuffer, m_textureImage, m_width, m_height);
+        m_graphicsDevice->GetTransferManager()->SubmitTransfers();
         
-        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        region.imageSubresource.mipLevel = 0;
-        region.imageSubresource.baseArrayLayer = 0;
-        region.imageSubresource.layerCount = 1;
+        // Transfer tamamlandıktan sonra staging buffer'ı temizle
+        vkDestroyBuffer(m_device->GetDevice(), m_stagingBuffer, nullptr);
+        vkFreeMemory(m_device->GetDevice(), stagingMemory, nullptr);
+        m_stagingBuffer = VK_NULL_HANDLE;
+    } else {
+        // Eğer TransferManager yoksa, doğrudan kopyala (geriye dönük uyumluluk)
+        m_device->SubmitSingleTimeCommands([&](VkCommandBuffer commandBuffer) {
+            VkBufferImageCopy region{};
+            region.bufferOffset = 0;
+            region.bufferRowLength = 0;
+            region.bufferImageHeight = 0;
+            
+            region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            region.imageSubresource.mipLevel = 0;
+            region.imageSubresource.baseArrayLayer = 0;
+            region.imageSubresource.layerCount = 1;
+            
+            region.imageOffset = {0, 0, 0};
+            region.imageExtent = {m_width, m_height, 1};
+            
+            vkCmdCopyBufferToImage(commandBuffer, m_stagingBuffer, m_textureImage,
+                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+        });
         
-        region.imageOffset = {0, 0, 0};
-        region.imageExtent = {m_width, m_height, 1};
-        
-        vkCmdCopyBufferToImage(commandBuffer, m_stagingBuffer, m_textureImage,
-                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-    });
-
-    if (m_uploadFence == VK_NULL_HANDLE) {
-        SetError("Failed to submit transfer command to queue");
-        CleanupStagingResources();
-        throw std::runtime_error(m_lastError);
+        // Staging buffer'ı temizle
+        vkDestroyBuffer(m_device->GetDevice(), m_stagingBuffer, nullptr);
+        vkFreeMemory(m_device->GetDevice(), stagingMemory, nullptr);
+        m_stagingBuffer = VK_NULL_HANDLE;
     }
 
-    // 6. Texture durumunu "Uploading" olarak ayarla
-    m_state = GpuResourceState::Uploading;
+    // 6. Image layout'ını shader okuma için hazırla
+    TransitionImageLayout(m_textureImage, m_format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-    Logger::Debug("VulkanTexture", "Texture image transfer submitted to transfer queue asynchronously.");
+    // 7. Texture durumunu "Ready" olarak ayarla
+    m_state = GpuResourceState::Ready;
+
+    Logger::Debug("VulkanTexture", "Texture image transfer completed successfully.");
 }
 
 void VulkanTexture::CreateTextureImageFromData(const void* data, uint32_t width, uint32_t height, VkFormat format) {
@@ -215,15 +243,16 @@ void VulkanTexture::CreateTextureImageFromData(const void* data, uint32_t width,
     m_format = format;
 
     // 1. Geçici bir staging buffer oluştur (CPU'dan erişilebilir)
+    VkDeviceMemory stagingMemory;
     m_device->CreateBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                           m_stagingBuffer, m_stagingMemory);
+                           m_stagingBuffer, stagingMemory);
 
     // 2. Staging buffer'ı map et ve veriyi kopyala
     void* mappedData;
-    vkMapMemory(m_device->GetDevice(), m_stagingMemory, 0, imageSize, 0, &mappedData);
+    vkMapMemory(m_device->GetDevice(), stagingMemory, 0, imageSize, 0, &mappedData);
     memcpy(mappedData, data, static_cast<size_t>(imageSize));
-    vkUnmapMemory(m_device->GetDevice(), m_stagingMemory);
+    vkUnmapMemory(m_device->GetDevice(), stagingMemory);
 
     // 3. Texture image oluştur
     m_device->CreateImage(width, height, format, VK_IMAGE_TILING_OPTIMAL,
@@ -233,35 +262,48 @@ void VulkanTexture::CreateTextureImageFromData(const void* data, uint32_t width,
     // 4. Image layout'ını transfer için hazırla (undefined -> transfer_dst_optimal)
     TransitionImageLayout(m_textureImage, format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-    // 5. Asenkron kopyalama komutunu transfer queue'ya gönder
-    m_uploadFence = m_device->SubmitToTransferQueue([&](VkCommandBuffer commandBuffer) {
-        VkBufferImageCopy region{};
-        region.bufferOffset = 0;
-        region.bufferRowLength = 0;
-        region.bufferImageHeight = 0;
+    // 5. Transfer işlemini VulkanTransferManager'a gönder
+    if (m_graphicsDevice && m_graphicsDevice->GetTransferManager()) {
+        m_graphicsDevice->GetTransferManager()->QueueTransfer(m_stagingBuffer, m_textureImage, width, height);
+        m_graphicsDevice->GetTransferManager()->SubmitTransfers();
         
-        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        region.imageSubresource.mipLevel = 0;
-        region.imageSubresource.baseArrayLayer = 0;
-        region.imageSubresource.layerCount = 1;
+        // Transfer tamamlandıktan sonra staging buffer'ı temizle
+        vkDestroyBuffer(m_device->GetDevice(), m_stagingBuffer, nullptr);
+        vkFreeMemory(m_device->GetDevice(), stagingMemory, nullptr);
+        m_stagingBuffer = VK_NULL_HANDLE;
+    } else {
+        // Eğer TransferManager yoksa, doğrudan kopyala (geriye dönük uyumluluk)
+        m_device->SubmitSingleTimeCommands([&](VkCommandBuffer commandBuffer) {
+            VkBufferImageCopy region{};
+            region.bufferOffset = 0;
+            region.bufferRowLength = 0;
+            region.bufferImageHeight = 0;
+            
+            region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            region.imageSubresource.mipLevel = 0;
+            region.imageSubresource.baseArrayLayer = 0;
+            region.imageSubresource.layerCount = 1;
+            
+            region.imageOffset = {0, 0, 0};
+            region.imageExtent = {width, height, 1};
+            
+            vkCmdCopyBufferToImage(commandBuffer, m_stagingBuffer, m_textureImage,
+                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+        });
         
-        region.imageOffset = {0, 0, 0};
-        region.imageExtent = {width, height, 1};
-        
-        vkCmdCopyBufferToImage(commandBuffer, m_stagingBuffer, m_textureImage,
-                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-    });
-
-    if (m_uploadFence == VK_NULL_HANDLE) {
-        SetError("Failed to submit transfer command to queue");
-        CleanupStagingResources();
-        throw std::runtime_error(m_lastError);
+        // Staging buffer'ı temizle
+        vkDestroyBuffer(m_device->GetDevice(), m_stagingBuffer, nullptr);
+        vkFreeMemory(m_device->GetDevice(), stagingMemory, nullptr);
+        m_stagingBuffer = VK_NULL_HANDLE;
     }
 
-    // 6. Texture durumunu "Uploading" olarak ayarla
-    m_state = GpuResourceState::Uploading;
+    // 6. Image layout'ını shader okuma için hazırla
+    TransitionImageLayout(m_textureImage, format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-    Logger::Debug("VulkanTexture", "Texture image from data transfer submitted to transfer queue asynchronously.");
+    // 7. Texture durumunu "Ready" olarak ayarla
+    m_state = GpuResourceState::Ready;
+
+    Logger::Debug("VulkanTexture", "Texture image from data transfer completed successfully.");
 }
 
 void VulkanTexture::CreateTextureImageView() {
@@ -302,7 +344,12 @@ void VulkanTexture::CreateTextureSampler() {
 
 void VulkanTexture::TransitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
     (void)format; // Suppress unused parameter warning
-    m_device->SubmitSingleTimeCommands([&](VkCommandBuffer commandBuffer) {
+    
+    // Eğer TransferManager varsa, onu kullan
+    if (m_graphicsDevice && m_graphicsDevice->GetTransferManager()) {
+        // Geçici bir command buffer oluştur ve layout transition'ı yap
+        VkCommandBuffer commandBuffer = m_graphicsDevice->GetTransferManager()->GetCommandBufferForImmediateUse();
+        
         VkImageMemoryBarrier barrier{};
         barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         barrier.oldLayout = oldLayout;
@@ -335,34 +382,52 @@ void VulkanTexture::TransitionImageLayout(VkImage image, VkFormat format, VkImag
         }
 
         vkCmdPipelineBarrier(commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-    });
+        
+        // Command buffer'ı submit et ve bekle
+        m_graphicsDevice->GetTransferManager()->SubmitImmediateCommand(commandBuffer);
+    } else {
+        // Eğer TransferManager yoksa, eski yöntemi kullan (geriye dönük uyumluluk)
+        m_device->SubmitSingleTimeCommands([&](VkCommandBuffer commandBuffer) {
+            VkImageMemoryBarrier barrier{};
+            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            barrier.oldLayout = oldLayout;
+            barrier.newLayout = newLayout;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.image = image;
+            barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            barrier.subresourceRange.baseMipLevel = 0;
+            barrier.subresourceRange.levelCount = 1;
+            barrier.subresourceRange.baseArrayLayer = 0;
+            barrier.subresourceRange.layerCount = 1;
+
+            VkPipelineStageFlags sourceStage;
+            VkPipelineStageFlags destinationStage;
+
+            if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+                barrier.srcAccessMask = 0;
+                barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+                destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+                barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+                sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+                destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+            } else {
+                SetError("Unsupported layout transition");
+                throw std::invalid_argument(m_lastError);
+            }
+
+            vkCmdPipelineBarrier(commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+        });
+    }
 }
 
-bool VulkanTexture::IsReady() const {
-    if (!m_isInitialized) {
-        return false;
-    }
-    
-    // Eğer fence varsa, durumunu kontrol et
-    if (m_uploadFence != VK_NULL_HANDLE) {
-        VkResult result = vkGetFenceStatus(m_device->GetDevice(), m_uploadFence);
-        if (result == VK_SUCCESS) {
-            // Fence sinyal verdi, upload tamamlandı
-            // Const metod olduğu için state'i değiştiremiyoruz, bu yüzden sadece true döndürüyoruz
-            // State güncellemesi için CompleteImageInitialization() çağrılmalı
-            return true;
-        } else if (result == VK_NOT_READY) {
-            // Henüz tamamlanmadı
-            return false;
-        } else {
-            // Hata durumu
-            Logger::Error("VulkanTexture", "Fence status check failed: %d", result);
-            return false;
-        }
-    }
-    
-    // Fence yoksa, state'e göre kontrol et
-    return m_state == GpuResourceState::Ready;
+bool VulkanTexture::IsReady() {
+    // Artık transfer işlemleri senkronize olduğu için her zaman true döndür
+    // Texture initialize edildiyse kullanıma hazırdır
+    return m_isInitialized;
 }
 
 void VulkanTexture::CleanupStagingResources() {
@@ -371,54 +436,12 @@ void VulkanTexture::CleanupStagingResources() {
         m_stagingBuffer = VK_NULL_HANDLE;
         Logger::Debug("VulkanTexture", "Staging buffer destroyed");
     }
-
-    if (m_stagingMemory != VK_NULL_HANDLE) {
-        vkFreeMemory(m_device->GetDevice(), m_stagingMemory, nullptr);
-        m_stagingMemory = VK_NULL_HANDLE;
-        Logger::Debug("VulkanTexture", "Staging memory freed");
-    }
-
-    if (m_uploadFence != VK_NULL_HANDLE) {
-        vkDestroyFence(m_device->GetDevice(), m_uploadFence, nullptr);
-        m_uploadFence = VK_NULL_HANDLE;
-        Logger::Debug("VulkanTexture", "Upload fence destroyed");
-    }
 }
 
-void VulkanTexture::CompleteImageInitialization() {
-    if (!m_isInitialized || m_state != GpuResourceState::Uploading) {
-        Logger::Warning("VulkanTexture", "CompleteImageInitialization called but texture is not in uploading state");
-        return;
-    }
-
-    // Fence durumunu kontrol et
-    if (m_uploadFence != VK_NULL_HANDLE) {
-        VkResult result = vkGetFenceStatus(m_device->GetDevice(), m_uploadFence);
-        if (result == VK_SUCCESS) {
-            // Upload tamamlandı, staging kaynaklarını temizle
-            CleanupStagingResources();
-            
-            // Image layout'ını shader okuma için hazırla
-            TransitionImageLayout(m_textureImage, m_format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            
-            // Image view ve sampler oluştur
-            CreateTextureImageView();
-            CreateTextureSampler();
-            
-            // Texture durumunu "Ready" olarak ayarla
-            m_state = GpuResourceState::Ready;
-            
-            Logger::Info("VulkanTexture", "Texture initialization completed successfully: {}x{}", m_width, m_height);
-        } else if (result == VK_NOT_READY) {
-            // Henüz tamamlanmadı, bekle
-            Logger::Trace("VulkanTexture", "Texture upload still in progress");
-        } else {
-            // Hata durumu
-            Logger::Error("VulkanTexture", "Fence status check failed: %d", result);
-            m_state = GpuResourceState::Failed;
-            CleanupStagingResources();
-        }
-    }
+bool VulkanTexture::FinalizeUpload() {
+    // Artık transfer işlemleri senkronize olduğu için bu metot gerekli değil
+    // Her zaman true döndür
+    return true;
 }
 
 void VulkanTexture::SetError(const std::string& error) {
@@ -435,7 +458,25 @@ void VulkanTexture::CreateEmptyTexture(const Config& config) {
                           m_textureImage, m_textureImageMemory);
 
     // Image layout'ını general olarak ayarla
-    TransitionImageLayout(m_textureImage, config.format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    // Boş texture'lar için doğrudan SubmitSingleTimeCommands kullanabiliriz çünkü bu senkron bir işlem
+    m_device->SubmitSingleTimeCommands([&](VkCommandBuffer commandBuffer) {
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = m_textureImage;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = 0;
+        
+        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    });
 
     // Image view ve sampler oluştur
     CreateTextureImageView();

@@ -2,6 +2,7 @@
 
 #include "../Core/VulkanDevice.h"
 #include "../VulkanMeshManager.h"
+#include "../GraphicsDevice.h"
 #include <string>
 
 namespace AstralEngine {
@@ -35,10 +36,9 @@ public:
     /**
      * @brief Texture'in GPU'da kullanıma hazır olup olmadığını kontrol eder
      *
-     * @return true Hazırsa (fence sinyal vermişse)
-     * @return false Henüz hazır değilse
+     * @return true Her zaman true döndürür (artık transfer işlemleri senkronize)
      */
-    bool IsReady() const;
+    bool IsReady();
     
     /**
      * @brief Texture'in yükleme durumunu döndürür
@@ -58,21 +58,14 @@ private:
     void TransitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
     
     /**
-     * @brief Staging buffer ve fence kaynaklarını temizler
+     * @brief Staging buffer kaynaklarını temizler
      *
-     * Bu metod, asenkron upload işlemi tamamlandığında staging buffer
-     * ve fence kaynaklarını temizlemek için kullanılır.
+     * Bu metod, staging buffer kaynaklarını temizlemek için kullanılır.
      */
     void CleanupStagingResources();
-    
-    /**
-     * @brief Image initialization'ını tamamlar
-     *
-     * Bu metod, fence sinyal verdiğinde layout transition'larını tamamlamak için kullanılır.
-     */
-    void CompleteImageInitialization();
 
     VulkanDevice* m_device = nullptr;
+    GraphicsDevice* m_graphicsDevice = nullptr;       // GraphicsDevice için pointer
     VkImage m_textureImage = VK_NULL_HANDLE;
     VkDeviceMemory m_textureImageMemory = VK_NULL_HANDLE;
     VkImageView m_textureImageView = VK_NULL_HANDLE;
@@ -83,10 +76,8 @@ private:
     std::string m_lastError;
     void SetError(const std::string& error);
     
-    // Asenkron upload için üye değişkenler
-    VkFence m_uploadFence = VK_NULL_HANDLE;           // Upload işlemini senkronize etmek için fence
+    // Transfer için üye değişkenler
     VkBuffer m_stagingBuffer = VK_NULL_HANDLE;        // Geçici staging buffer
-    VkDeviceMemory m_stagingMemory = VK_NULL_HANDLE;  // Staging buffer için bellek
     GpuResourceState m_state = GpuResourceState::Unloaded; // Texture'in yükleme durumu
     
     // Geçici olarak saklanacak bilgiler

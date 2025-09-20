@@ -17,7 +17,12 @@ VulkanFrameManager::VulkanFrameManager()
     , m_frameStarted(false)
     , m_commandPool(VK_NULL_HANDLE)
     , m_descriptorPool(VK_NULL_HANDLE)
-    , m_descriptorSetLayout(VK_NULL_HANDLE) {
+    , m_descriptorSetLayout(VK_NULL_HANDLE)
+    , m_maxSets(100) { // Her pool için varsayılan maksimum descriptor set sayısı
+    
+    // Descriptor pool boyutlarını başlat
+    m_poolSizes[0] = { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 100 }; // Uniform buffer descriptor'ları
+    m_poolSizes[1] = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 100 }; // Texture sampler descriptor'ları
     
     Logger::Debug("VulkanFrameManager", "VulkanFrameManager created");
 }
@@ -59,8 +64,8 @@ bool VulkanFrameManager::Initialize(VulkanDevice* device, VulkanSwapchain* swapc
             return false;
         }
 
-        if (!CreateDescriptorPool()) {
-            Logger::Error("VulkanFrameManager", "Failed to create descriptor pool");
+        if (!InitializeDescriptorPools()) {
+            Logger::Error("VulkanFrameManager", "Failed to initialize descriptor pools");
             return false;
         }
 
@@ -218,6 +223,74 @@ VulkanBuffer* VulkanFrameManager::GetCurrentUniformBufferWrapper(uint32_t frameI
     return m_uniformBuffers[frameIndex].get();
 }
 
+VkDescriptorPool VulkanFrameManager::GetDescriptorPool() const {
+    // Mevcut frame için descriptor pool döndür
+    return GetDescriptorPool(m_currentFrameIndex);
+}
+
+VkDescriptorPool VulkanFrameManager::GetDescriptorPool(uint32_t frameIndex) const {
+    if (!m_initialized || frameIndex >= m_descriptorPools.size()) {
+        Logger::Error("VulkanFrameManager", "Invalid frame index {} or descriptor pools not initialized", frameIndex);
+        return VK_NULL_HANDLE;
+    }
+    
+    return m_descriptorPools[frameIndex];
+}
+
+VkDescriptorSet VulkanFrameManager::AllocateDescriptorSet(VkDescriptorSetLayout layout, uint32_t frameIndex) {
+    if (!m_initialized || frameIndex >= m_descriptorPools.size()) {
+        Logger::Error("VulkanFrameManager", "Invalid frame index {} or descriptor pools not initialized", frameIndex);
+        return VK_NULL_HANDLE;
+    }
+    
+    if (layout == VK_NULL_HANDLE) {
+        Logger::Error("VulkanFrameManager", "Invalid descriptor set layout");
+        return VK_NULL_HANDLE;
+    }
+    
+    try {
+        /**
+         * Merkezi Descriptor Set Allocation
+         *
+         * Bu metod, Material sınıfı ve diğer bileşenler için descriptor set allocation sağlar:
+         * 1. Belirtilen frame index'ine göre doğru descriptor pool'u kullanır
+         * 2. Frame bazlı allocation ile memory management'i optimize eder
+         * 3. Hata yönetimi ile allocation başarısızlıklarını handle eder
+         *
+         * Kullanım:
+         * - Material sınıfları, render sırasında kendi descriptor set'lerini bu metodla allocate eder
+         * - Frame index'i, mevcut render frame'ine karşılık gelir
+         * - Her frame'in kendi pool'undan allocation yapılır, bu da paralel çalışmayı destekler
+         *
+         * Performans Avantajları:
+         * - Frame bazlı allocation, GPU memory fragmentation'ını azaltır
+         * - Her frame için ayrı pool sayesinde allocation'lar birbirini etkilemez
+         * - Material sınıfları için merkezi ve tutarlı bir allocation interface'i sağlar
+         */
+        
+        VkDescriptorSetAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorPool = m_descriptorPools[frameIndex];
+        allocInfo.descriptorSetCount = 1;
+        allocInfo.pSetLayouts = &layout;
+        
+        VkDescriptorSet descriptorSet;
+        VkResult result = vkAllocateDescriptorSets(m_device->GetDevice(), &allocInfo, &descriptorSet);
+        
+        if (result != VK_SUCCESS) {
+            Logger::Error("VulkanFrameManager", "Failed to allocate descriptor set for frame {}: {}", frameIndex, result);
+            return VK_NULL_HANDLE;
+        }
+        
+        Logger::Debug("VulkanFrameManager", "Descriptor set allocated successfully for frame {}", frameIndex);
+        return descriptorSet;
+        
+    } catch (const std::exception& e) {
+        Logger::Error("VulkanFrameManager", "AllocateDescriptorSet failed for frame {}: {}", frameIndex, e.what());
+        return VK_NULL_HANDLE;
+    }
+}
+
 void VulkanFrameManager::RecreateSwapchain(VulkanSwapchain* newSwapchain) {
     Logger::Info("VulkanFrameManager", "Recreating swapchain-dependent resources...");
 
@@ -285,7 +358,7 @@ bool VulkanFrameManager::CreateCommandBuffers() {
 }
 
 bool VulkanFrameManager::CreateDescriptorPool() {
-    Logger::Info("VulkanFrameManager", "Creating descriptor pool...");
+    Logger::Info("VulkanFrameManager", "Creating legacy descriptor pool...");
 
     try {
         VkDescriptorPoolSize poolSizes[] = {
@@ -302,15 +375,66 @@ bool VulkanFrameManager::CreateDescriptorPool() {
 
         VkResult result = vkCreateDescriptorPool(m_device->GetDevice(), &poolInfo, nullptr, &m_descriptorPool);
         if (result != VK_SUCCESS) {
-            SetError("Failed to create descriptor pool: " + std::to_string(result));
+            SetError("Failed to create legacy descriptor pool: " + std::to_string(result));
             return false;
         }
 
-        Logger::Info("VulkanFrameManager", "Descriptor pool created successfully");
+        Logger::Info("VulkanFrameManager", "Legacy descriptor pool created successfully");
         return true;
 
     } catch (const std::exception& e) {
         SetError("CreateDescriptorPool failed: " + std::string(e.what()));
+        return false;
+    }
+}
+
+bool VulkanFrameManager::InitializeDescriptorPools() {
+    Logger::Info("VulkanFrameManager", "Initializing descriptor pools for frame-based management...");
+
+    try {
+        /**
+         * Merkezi Descriptor Pool Yönetimi
+         *
+         * Bu implementasyon, her frame için ayrı descriptor pool kullanarak:
+         * 1. Memory fragmentation'ı önler
+         * 2. Frame bazlı kaynak yönetimi sağlar
+         * 3. Performansı optimize eder
+         * 4. Material sınıfı için merkezi descriptor set allocation imkanı sunar
+         *
+         * Avantajları:
+         * - Her frame'in kendi descriptor pool'u vardır, bu sayede frame'ler arasında
+         *   kaynak çakışması olmaz ve memory management daha verimli olur
+         * - Pool'lar frame bazlı resetlenebilir, bu da memory fragmentation'ı azaltır
+         * - Material sınıfları, frame index'e göre doğru pool'dan descriptor set allocate edebilir
+         * - Swapchain recreation durumlarında pool'lar kolayca resetlenebilir
+         */
+        
+        // Her frame için ayrı descriptor pool oluştur
+        m_descriptorPools.resize(m_maxFramesInFlight, VK_NULL_HANDLE);
+
+        for (uint32_t i = 0; i < m_maxFramesInFlight; ++i) {
+            VkDescriptorPoolCreateInfo poolInfo{};
+            poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+            poolInfo.poolSizeCount = static_cast<uint32_t>(m_poolSizes.size());
+            poolInfo.pPoolSizes = m_poolSizes.data();
+            poolInfo.maxSets = m_maxSets;
+            poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+
+            VkResult result = vkCreateDescriptorPool(m_device->GetDevice(), &poolInfo, nullptr, &m_descriptorPools[i]);
+            if (result != VK_SUCCESS) {
+                SetError("Failed to create descriptor pool for frame " + std::to_string(i) + ": " + std::to_string(result));
+                return false;
+            }
+
+            Logger::Debug("VulkanFrameManager", "Descriptor pool created for frame {}", i);
+        }
+
+        Logger::Info("VulkanFrameManager", "Descriptor pools initialized successfully with {} pools", m_maxFramesInFlight);
+        Logger::Info("VulkanFrameManager", "Frame-based descriptor pool management enabled with {} sets per pool", m_maxSets);
+        return true;
+
+    } catch (const std::exception& e) {
+        SetError("InitializeDescriptorPools failed: " + std::string(e.what()));
         return false;
     }
 }
@@ -439,6 +563,15 @@ void VulkanFrameManager::CleanupFrameResources() {
             vkDestroyDescriptorPool(m_device->GetDevice(), m_descriptorPool, nullptr);
             m_descriptorPool = VK_NULL_HANDLE;
         }
+        
+        // Yeni merkezi descriptor pool'ları temizle
+        for (auto& pool : m_descriptorPools) {
+            if (pool != VK_NULL_HANDLE) {
+                vkDestroyDescriptorPool(m_device->GetDevice(), pool, nullptr);
+                pool = VK_NULL_HANDLE;
+            }
+        }
+        m_descriptorPools.clear();
 
         // Descriptor set layout'ı temizleme - artık GraphicsDevice tarafından yönetiliyor
         // m_descriptorSetLayout dışarıdan alındığı için burada temizlemiyoruz
@@ -495,6 +628,13 @@ void VulkanFrameManager::CleanupSwapchainResources() {
         // Descriptor set'leri yeniden oluştur (swapchain değişebilir)
         if (m_descriptorPool != VK_NULL_HANDLE) {
             vkResetDescriptorPool(m_device->GetDevice(), m_descriptorPool, 0);
+        }
+        
+        // Yeni merkezi descriptor pool'larını resetle
+        for (auto& pool : m_descriptorPools) {
+            if (pool != VK_NULL_HANDLE) {
+                vkResetDescriptorPool(m_device->GetDevice(), pool, 0);
+            }
         }
 
         // Uniform buffer'ları temizle ve yeniden oluştur
@@ -606,6 +746,76 @@ bool VulkanFrameManager::PresentImage() {
     m_currentFrameIndex = (m_currentFrameIndex + 1) % m_maxFramesInFlight;
 
     return true;
+}
+
+bool VulkanFrameManager::UpdateSceneUBO(const Camera& camera, const LightData& lights) {
+    if (!m_initialized || m_currentFrameIndex >= m_uniformBuffers.size()) {
+        Logger::Error("VulkanFrameManager", "Cannot update scene UBO - frame manager not initialized or invalid frame index");
+        return false;
+    }
+
+    try {
+        /**
+         * @brief Scene UBO Güncelleme Implementasyonu
+         *
+         * Bu metot, ana sahne verilerini (kamera matrisleri ve ışık bilgileri)
+         * uniform buffer'a kopyalar. Bu veriler shader'larda sahne aydınlatması
+         * ve kamera dönüşümleri için kullanılır.
+         *
+         * @par UBO Yapısı
+         * - View matrisi (glm::mat4)
+         * - Projection matrisi (glm::mat4)
+         * - View-Projection matrisi (glm::mat4)
+         * - Kamera pozisyonu (glm::vec4)
+         * - Işık verileri (LightData yapısı)
+         *
+         * @par Performans Optimizasyonu
+         * - Frame bazlı buffer kullanımı
+         * - Host coherent memory ile senkronizasyon maliyeti azaltma
+         * - Doğrudan memory mapping ile veri transferi
+         */
+        
+        // Scene UBO veri yapısı
+        struct SceneUBO {
+            glm::mat4 viewMatrix;
+            glm::mat4 projectionMatrix;
+            glm::mat4 viewProjectionMatrix;
+            glm::vec4 cameraPosition;
+            LightData lights;
+        };
+
+        // UBO verisini hazırla
+        SceneUBO sceneUBO{};
+        sceneUBO.viewMatrix = camera.GetViewMatrix();
+        sceneUBO.projectionMatrix = camera.GetProjectionMatrix();
+        sceneUBO.viewProjectionMatrix = camera.GetProjectionMatrix() * camera.GetViewMatrix();
+        sceneUBO.cameraPosition = glm::vec4(camera.GetPosition(), 1.0f);
+        sceneUBO.lights = lights;
+
+        // Uniform buffer'ı map et ve veriyi kopyala
+        VulkanBuffer* uniformBuffer = m_uniformBuffers[m_currentFrameIndex].get();
+        if (!uniformBuffer) {
+            Logger::Error("VulkanFrameManager", "Uniform buffer is null for frame {}", m_currentFrameIndex);
+            return false;
+        }
+
+        void* mappedData = uniformBuffer->Map();
+        if (!mappedData) {
+            Logger::Error("VulkanFrameManager", "Failed to map uniform buffer for frame {}", m_currentFrameIndex);
+            return false;
+        }
+
+        // Veriyi buffer'a kopyala
+        memcpy(mappedData, &sceneUBO, sizeof(SceneUBO));
+        uniformBuffer->Unmap();
+
+        Logger::Debug("VulkanFrameManager", "Scene UBO updated successfully for frame {}", m_currentFrameIndex);
+        return true;
+
+    } catch (const std::exception& e) {
+        Logger::Error("VulkanFrameManager", "UpdateSceneUBO failed: {}", e.what());
+        return false;
+    }
 }
 
 } // namespace AstralEngine

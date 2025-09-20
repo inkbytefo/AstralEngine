@@ -25,6 +25,7 @@ public:
     void OnUpdate(float deltaTime) override;
     void OnShutdown() override;
     const char* GetName() const override { return "PlatformSubsystem"; }
+    UpdateStage GetUpdateStage() const override { return UpdateStage::PreUpdate; }
 
     // Pencere ve girdi erişimi
     Window* GetWindow() const { return m_window.get(); }

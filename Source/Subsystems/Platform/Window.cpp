@@ -556,6 +556,13 @@ void Window::SetInputManager(InputManager* inputManager) {
     }
 }
 
+void Window::SetUISubsystem(UISubsystem* uiSubsystem) {
+    if (m_data) {
+        m_data->uiSubsystem = uiSubsystem;
+        Logger::Debug("Window", "UI subsystem set");
+    }
+}
+
 /**
  * @brief Window lifecycle events handling
  */
@@ -760,8 +767,15 @@ void Window::HandleWindowEvent(const void* event) {
     if (!event || !m_data->IsInitialized) {
         return;
     }
-    
+
     const SDL_Event* sdlEvent = static_cast<const SDL_Event*>(event);
+
+    // ImGui event forwarding - MUST happen BEFORE any other event processing
+    #ifdef ASTRAL_USE_IMGUI
+        if (m_data->uiSubsystem) {
+            m_data->uiSubsystem->ProcessSDLEvent(sdlEvent);
+        }
+    #endif
     
     // Event kategorilerine göre ayır
     switch (sdlEvent->type) {

@@ -88,9 +88,15 @@ struct TextureSlot {
 /**
  * @class Material
  * @brief Materyal yönetimi için ana sınıf
- * 
+ *
  * Bu sınıf, materyal özelliklerini, texture'ları ve shader'ları
- * yönetir. Vulkan descriptor set'leri oluşturur ve günceller.
+ * yönetir. Lazy initialization prensibi ile çalışır - Vulkan kaynaklarını
+ * hemen oluşturmak yerine ihtiyaç duyulduğunda merkezi sistemden alır.
+ *
+ * Basitleştirilmiş Initialize() metodu sadece temel materyal verilerini
+ * hazırlar ve merkezi rendering sistemlerine erişimi kontrol eder.
+ * Descriptor set'ler, uniform buffer'lar ve diğer Vulkan kaynakları
+ * merkezi VulkanFrameManager tarafından yönetilir.
  */
 class Material {
 public:
@@ -102,9 +108,6 @@ public:
         std::string name = "UnnamedMaterial";    ///< Materyal adı
         AssetHandle vertexShaderHandle;          ///< Vertex shader handle
         AssetHandle fragmentShaderHandle;        ///< Fragment shader handle
-        VulkanDevice* device = nullptr;          ///< Vulkan device
-        AssetManager* assetManager = nullptr;    ///< Asset manager
-        RenderSubsystem* renderSubsystem = nullptr; ///< Render subsystem for shader resolution
     };
 
     Material();
@@ -115,6 +118,19 @@ public:
     Material& operator=(const Material&) = delete;
 
     // Yaşam döngüsü
+    /**
+     * @brief Materyali başlatır (basitleştirilmiş versiyon)
+     *
+     * Bu metot, materyali saf bir veri konteyneri olarak başlatır:
+     * - Materyal tipini ve adını ayarlar
+     * - Shader handle'larını ayarlar
+     * - Texture slot'larını ve map'lerini başlatır
+     * - Materyal özelliklerini varsayılan değerlere ayarlar
+     *
+     * @param config Materyal yapılandırma parametreleri
+     * @return true Başarılı olursa
+     * @return false Hata olursa
+     */
     bool Initialize(const Config& config);
     void Shutdown();
 
@@ -147,32 +163,19 @@ public:
     AssetHandle GetVertexShaderHandle() const { return m_vertexShaderHandle; }
     AssetHandle GetFragmentShaderHandle() const { return m_fragmentShaderHandle; }
     
-    // Vulkan kaynakları erişimi
-    VkDescriptorSetLayout GetDescriptorSetLayout() const { return m_descriptorSetLayout; }
-    VkDescriptorSet GetDescriptorSet() const { return m_descriptorSet; }
-
-    // Frame güncellemeleri
-    void UpdateDescriptorSet();
-    void UpdateUniformBuffer(uint32_t currentFrame);
 
     // Hata yönetimi
     const std::string& GetLastError() const { return m_lastError; }
 
 private:
     // Yardımcı metotlar
-    bool CreateDescriptorSetLayout();
-    bool CreateDescriptorPool();
-    bool CreateDescriptorSets();
-    bool CreatePipelineLayout();
+    // CreateDescriptorSets metodu kaldırıldı - artık descriptor set'ler merkezi sistemden yönetiliyor
     void UpdateTextureBindings();
     uint32_t GetTextureBinding(TextureType type) const;
     std::string GetTextureName(TextureType type) const;
     void SetError(const std::string& error);
 
     // Member değişkenler
-    VulkanDevice* m_device = nullptr;
-    AssetManager* m_assetManager = nullptr;
-    RenderSubsystem* m_renderSubsystem = nullptr; // For shader resolution
     
     // Materyal özellikleri
     MaterialType m_type;
@@ -187,21 +190,6 @@ private:
     std::vector<TextureSlot> m_textureSlots;
     std::unordered_map<TextureType, size_t> m_textureMap;
     
-    // Vulkan kaynakları
-    VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;
-    VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
-    std::vector<VkDescriptorSet> m_descriptorSets;
-    VkDescriptorSet m_descriptorSet = VK_NULL_HANDLE;
-    VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
-    
-    // Uniform buffer
-    std::vector<VkBuffer> m_uniformBuffers;
-    std::vector<VkDeviceMemory> m_uniformBuffersMemory;
-    std::vector<void*> m_uniformBuffersMapped;
-    
-    // Frame yönetimi
-    uint32_t m_currentFrame = 0;
-    static const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
     
     bool m_isInitialized = false;
     std::string m_lastError;

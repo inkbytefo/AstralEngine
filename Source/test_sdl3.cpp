@@ -52,58 +52,52 @@ private:
         auto& eventManager = EventManager::GetInstance();
         
         // Window event'lerini dinle
-        m_windowCloseSubscription = eventManager.Subscribe<WindowCloseEvent>([this]([[maybe_unused]] Event& event) {
+        m_windowCloseSubscription = eventManager.Subscribe<WindowCloseEvent>([this]([[maybe_unused]] WindowCloseEvent& event) {
             Logger::Info("SDL3Test", "Window close event received");
             m_windowCloseReceived = true;
             return false;
         });
         
-        m_windowResizeSubscription = eventManager.Subscribe<WindowResizeEvent>([this](Event& event) {
-            auto& resizeEvent = static_cast<WindowResizeEvent&>(event);
-            Logger::Info("SDL3Test", "Window resized to {}x{}", resizeEvent.GetWidth(), resizeEvent.GetHeight());
+        m_windowResizeSubscription = eventManager.Subscribe<WindowResizeEvent>([this](WindowResizeEvent& event) {
+            Logger::Info("SDL3Test", "Window resized to {}x{}", event.GetWidth(), event.GetHeight());
             m_windowResizeReceived = true;
             return false;
         });
         
         // Keyboard event'lerini dinle
-        m_keyPressedSubscription = eventManager.Subscribe<KeyPressedEvent>([this](Event& event) {
-            auto& keyEvent = static_cast<KeyPressedEvent&>(event);
-            Logger::Info("SDL3Test", "Key pressed: {} (repeat: {})", static_cast<int>(keyEvent.GetKeyCode()), keyEvent.IsRepeat());
+        m_keyPressedSubscription = eventManager.Subscribe<KeyPressedEvent>([this](KeyPressedEvent& event) {
+            Logger::Info("SDL3Test", "Key pressed: {} (repeat: {})", static_cast<int>(event.GetKeyCode()), event.IsRepeat());
             m_keyPressedReceived = true;
             
             // ESC tuşuna basılırsa testi erken bitir
-            if (keyEvent.GetKeyCode() == KeyCode::Escape) {
+            if (event.GetKeyCode() == KeyCode::Escape) {
                 Logger::Info("SDL3Test", "ESC key pressed - ending test early");
                 m_earlyExit = true;
             }
             return false;
         });
         
-        m_keyReleasedSubscription = eventManager.Subscribe<KeyReleasedEvent>([this](Event& event) {
-            auto& keyEvent = static_cast<KeyReleasedEvent&>(event);
-            Logger::Info("SDL3Test", "Key released: {}", static_cast<int>(keyEvent.GetKeyCode()));
+        m_keyReleasedSubscription = eventManager.Subscribe<KeyReleasedEvent>([this](KeyReleasedEvent& event) {
+            Logger::Info("SDL3Test", "Key released: {}", static_cast<int>(event.GetKeyCode()));
             m_keyReleasedReceived = true;
             return false;
         });
         
         // Mouse event'lerini dinle
-        m_mousePressedSubscription = eventManager.Subscribe<MouseButtonPressedEvent>([this](Event& event) {
-            auto& mouseEvent = static_cast<MouseButtonPressedEvent&>(event);
-            Logger::Info("SDL3Test", "Mouse button pressed: {}", mouseEvent.GetMouseButton());
+        m_mousePressedSubscription = eventManager.Subscribe<MouseButtonPressedEvent>([this](MouseButtonPressedEvent& event) {
+            Logger::Info("SDL3Test", "Mouse button pressed: {}", event.GetMouseButton());
             m_mousePressedReceived = true;
             return false;
         });
         
-        m_mouseReleasedSubscription = eventManager.Subscribe<MouseButtonReleasedEvent>([this](Event& event) {
-            auto& mouseEvent = static_cast<MouseButtonReleasedEvent&>(event);
-            Logger::Info("SDL3Test", "Mouse button released: {}", mouseEvent.GetMouseButton());
+        m_mouseReleasedSubscription = eventManager.Subscribe<MouseButtonReleasedEvent>([this](MouseButtonReleasedEvent& event) {
+            Logger::Info("SDL3Test", "Mouse button released: {}", event.GetMouseButton());
             m_mouseReleasedReceived = true;
             return false;
         });
         
-        m_mouseMovedSubscription = eventManager.Subscribe<MouseMovedEvent>([this](Event& event) {
-            auto& mouseEvent = static_cast<MouseMovedEvent&>(event);
-            Logger::Trace("SDL3Test", "Mouse moved to ({}, {})", mouseEvent.GetX(), mouseEvent.GetY());
+        m_mouseMovedSubscription = eventManager.Subscribe<MouseMovedEvent>([this](MouseMovedEvent& event) {
+            Logger::Trace("SDL3Test", "Mouse moved to ({}, {})", event.GetX(), event.GetY());
             m_mouseMovedReceived = true;
             return false;
         });

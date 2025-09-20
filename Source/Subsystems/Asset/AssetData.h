@@ -302,21 +302,6 @@ struct ShaderData {
         return spirvCode.size() * sizeof(uint32_t);
     }
     
-    /**
-     * @brief Shader tipini VkShaderStageFlagBits'e dönüştür
-     * @return VkShaderStageFlagBits
-     */
-    VkShaderStageFlagBits GetVkStage() const {
-        switch (type) {
-            case Type::Vertex: return VK_SHADER_STAGE_VERTEX_BIT;
-            case Type::Fragment: return VK_SHADER_STAGE_FRAGMENT_BIT;
-            case Type::Compute: return VK_SHADER_STAGE_COMPUTE_BIT;
-            case Type::Geometry: return VK_SHADER_STAGE_GEOMETRY_BIT;
-            case Type::TessellationControl: return VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
-            case Type::TessellationEvaluation: return VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
-            default: return VK_SHADER_STAGE_ALL;
-        }
-    }
 };
 
 /**

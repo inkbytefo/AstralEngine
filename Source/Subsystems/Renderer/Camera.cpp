@@ -28,8 +28,10 @@ void Camera::Initialize(const Config& config) {
     m_config = config;
     m_isInitialized = true;
     
-    // Matrisleri hesapla
-    UpdateMatrices();
+    // Dirty flag'leri ayarla
+    m_viewDirty = true;
+    m_projectionDirty = true;
+    m_frustumDirty = true;
     
     Logger::Info("Camera", "Camera initialized successfully");
     Logger::Debug("Camera", "Position: ({}, {}, {})", m_config.position.x, m_config.position.y, m_config.position.z);
@@ -43,67 +45,117 @@ void Camera::Shutdown() {
 }
 
 void Camera::SetPosition(const glm::vec3& position) {
-    m_config.position = position;
-    UpdateViewMatrix();
-    Logger::Debug("Camera", "Position updated to ({}, {}, {})", position.x, position.y, position.z);
+    if (m_config.position != position) {
+        m_config.position = position;
+        m_viewDirty = true;
+        Logger::Debug("Camera", "Position updated to ({}, {}, {})", position.x, position.y, position.z);
+    }
 }
 
 void Camera::SetTarget(const glm::vec3& target) {
-    m_config.target = target;
-    UpdateViewMatrix();
-    Logger::Debug("Camera", "Target updated to ({}, {}, {})", target.x, target.y, target.z);
+    if (m_config.target != target) {
+        m_config.target = target;
+        m_viewDirty = true;
+        Logger::Debug("Camera", "Target updated to ({}, {}, {})", target.x, target.y, target.z);
+    }
 }
 
 void Camera::SetUp(const glm::vec3& up) {
-    m_config.up = up;
-    UpdateViewMatrix();
-    Logger::Debug("Camera", "Up vector updated to ({}, {}, {})", up.x, up.y, up.z);
+    if (m_config.up != up) {
+        m_config.up = up;
+        m_viewDirty = true;
+        Logger::Debug("Camera", "Up vector updated to ({}, {}, {})", up.x, up.y, up.z);
+    }
 }
 
 void Camera::SetFOV(float fov) {
-    m_config.fov = fov;
-    UpdateProjectionMatrix();
-    Logger::Debug("Camera", "FOV updated to {}°", fov);
+    if (m_config.fov != fov) {
+        m_config.fov = fov;
+        m_projectionDirty = true;
+        Logger::Debug("Camera", "FOV updated to {}°", fov);
+    }
 }
 
 void Camera::SetAspectRatio(float aspectRatio) {
-    m_config.aspectRatio = aspectRatio;
-    UpdateProjectionMatrix();
-    Logger::Debug("Camera", "Aspect ratio updated to {}", aspectRatio);
+    if (m_config.aspectRatio != aspectRatio) {
+        m_config.aspectRatio = aspectRatio;
+        m_projectionDirty = true;
+        Logger::Debug("Camera", "Aspect ratio updated to {}", aspectRatio);
+    }
 }
 
 void Camera::SetNearPlane(float nearPlane) {
-    m_config.nearPlane = nearPlane;
-    UpdateProjectionMatrix();
-    Logger::Debug("Camera", "Near plane updated to {}", nearPlane);
+    if (m_config.nearPlane != nearPlane) {
+        m_config.nearPlane = nearPlane;
+        m_projectionDirty = true;
+        Logger::Debug("Camera", "Near plane updated to {}", nearPlane);
+    }
 }
 
 void Camera::SetFarPlane(float farPlane) {
-    m_config.farPlane = farPlane;
-    UpdateProjectionMatrix();
-    Logger::Debug("Camera", "Far plane updated to {}", farPlane);
+    if (m_config.farPlane != farPlane) {
+        m_config.farPlane = farPlane;
+        m_projectionDirty = true;
+        Logger::Debug("Camera", "Far plane updated to {}", farPlane);
+    }
 }
 
 void Camera::SetLookAt(const glm::vec3& position, const glm::vec3& target, const glm::vec3& up) {
-    m_config.position = position;
-    m_config.target = target;
-    m_config.up = up;
-    UpdateViewMatrix();
-    Logger::Debug("Camera", "LookAt set to position({}, {}, {}), target({}, {}, {})", 
-                 position.x, position.y, position.z, target.x, target.y, target.z);
+    bool changed = false;
+    if (m_config.position != position) {
+        m_config.position = position;
+        changed = true;
+    }
+    if (m_config.target != target) {
+        m_config.target = target;
+        changed = true;
+    }
+    if (m_config.up != up) {
+        m_config.up = up;
+        changed = true;
+    }
+    
+    if (changed) {
+        m_viewDirty = true;
+        Logger::Debug("Camera", "LookAt set to position({}, {}, {}), target({}, {}, {})", 
+                     position.x, position.y, position.z, target.x, target.y, target.z);
+    }
 }
 
-void Camera::UpdateViewMatrix() {
+const glm::mat4& Camera::GetViewMatrix() {
+    if (m_viewDirty) {
+        UpdateViewMatrixInternal();
+    }
+    return m_viewMatrix;
+}
+
+const glm::mat4& Camera::GetProjectionMatrix() {
+    if (m_projectionDirty) {
+        UpdateProjectionMatrixInternal();
+    }
+    return m_projectionMatrix;
+}
+
+const Frustum& Camera::GetFrustum() {
+    if (m_frustumDirty) {
+        ExtractFrustumPlanesInternal();
+    }
+    return m_frustum;
+}
+
+void Camera::UpdateViewMatrixInternal() const {
     if (!m_isInitialized) {
         Logger::Warning("Camera", "Cannot update view matrix - camera not initialized");
         return;
     }
     
     m_viewMatrix = glm::lookAt(m_config.position, m_config.target, m_config.up);
-    Logger::Debug("Camera", "View matrix updated");
+    m_viewDirty = false;
+    m_frustumDirty = true; // View change affects the frustum
+    Logger::Debug("Camera", "View matrix recalculated.");
 }
 
-void Camera::UpdateProjectionMatrix() {
+void Camera::UpdateProjectionMatrixInternal() const {
     if (!m_isInitialized) {
         Logger::Warning("Camera", "Cannot update projection matrix - camera not initialized");
         return;
@@ -117,18 +169,13 @@ void Camera::UpdateProjectionMatrix() {
     // Vulkan'ın [0, 1] derinlik aralığı için Y eksenini ters çevir
     m_projectionMatrix[1][1] *= -1;
     
-    Logger::Debug("Camera", "Projection matrix updated for Vulkan clip space");
+    m_projectionDirty = false;
+    m_frustumDirty = true; // Projection change affects the frustum
+    Logger::Debug("Camera", "Projection matrix recalculated for Vulkan clip space.");
 }
 
-void Camera::UpdateMatrices() {
-    UpdateViewMatrix();
-    UpdateProjectionMatrix();
-    ExtractFrustumPlanes();
-    Logger::Debug("Camera", "Both view and projection matrices updated");
-}
-
-void Camera::ExtractFrustumPlanes() {
-    const glm::mat4 vp = m_projectionMatrix * m_viewMatrix;
+void Camera::ExtractFrustumPlanesInternal() const {
+    const glm::mat4 vp = GetProjectionMatrix() * GetViewMatrix();
     const glm::mat4 transposed_vp = glm::transpose(vp);
 
     m_frustum.planes[0] = transposed_vp[3] + transposed_vp[0]; // Left
@@ -142,6 +189,9 @@ void Camera::ExtractFrustumPlanes() {
     for (auto& plane : m_frustum.planes) {
         plane = plane / glm::length(glm::vec3(plane));
     }
+    
+    m_frustumDirty = false;
+    Logger::Debug("Camera", "Frustum planes recalculated.");
 }
 
 void Camera::LookAt(const glm::vec3& position, const glm::vec3& target, const glm::vec3& up) {
@@ -149,13 +199,29 @@ void Camera::LookAt(const glm::vec3& position, const glm::vec3& target, const gl
 }
 
 void Camera::SetPerspective(float fov, float aspectRatio, float nearPlane, float farPlane) {
-    m_config.fov = fov;
-    m_config.aspectRatio = aspectRatio;
-    m_config.nearPlane = nearPlane;
-    m_config.farPlane = farPlane;
-    UpdateProjectionMatrix();
-    Logger::Debug("Camera", "Perspective set to fov={}°, aspect={}, near={}, far={}", 
-                 fov, aspectRatio, nearPlane, farPlane);
+    bool changed = false;
+    if (m_config.fov != fov) {
+        m_config.fov = fov;
+        changed = true;
+    }
+    if (m_config.aspectRatio != aspectRatio) {
+        m_config.aspectRatio = aspectRatio;
+        changed = true;
+    }
+    if (m_config.nearPlane != nearPlane) {
+        m_config.nearPlane = nearPlane;
+        changed = true;
+    }
+    if (m_config.farPlane != farPlane) {
+        m_config.farPlane = farPlane;
+        changed = true;
+    }
+    
+    if (changed) {
+        m_projectionDirty = true;
+        Logger::Debug("Camera", "Perspective set to fov={}°, aspect={}, near={}, far={}", 
+                     fov, aspectRatio, nearPlane, farPlane);
+    }
 }
 
 } // namespace AstralEngine

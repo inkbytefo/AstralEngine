@@ -12,24 +12,23 @@
 namespace AstralEngine {
 
 VulkanMesh::VulkanMesh()
-    : m_device(nullptr)
+    : m_graphicsDevice(nullptr)
     , m_isInitialized(false)
-    , m_state(GpuResourceState::Unloaded)
-    , m_uploadFence(VK_NULL_HANDLE) {
+    , m_state(GpuResourceState::Unloaded) {
 }
 
 VulkanMesh::~VulkanMesh() {
     Shutdown();
 }
 
-bool VulkanMesh::Initialize(VulkanDevice* device, const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices, const AABB& boundingBox) {
+bool VulkanMesh::Initialize(GraphicsDevice* graphicsDevice, const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices, const AABB& boundingBox) {
     if (m_isInitialized) {
         SetError("Mesh already initialized");
         return false;
     }
 
-    if (!device) {
-        SetError("Invalid device pointer");
+    if (!graphicsDevice) {
+        SetError("Invalid graphics device pointer");
         return false;
     }
 
@@ -38,7 +37,7 @@ bool VulkanMesh::Initialize(VulkanDevice* device, const std::vector<Vertex>& ver
         return false;
     }
 
-    m_device = device;
+    m_graphicsDevice = graphicsDevice;
     m_vertices = vertices;
     m_indices = indices;
     m_boundingBox = boundingBox;
@@ -83,26 +82,15 @@ void VulkanMesh::Shutdown() {
         m_indexBuffer.reset();
     }
 
-    // Staging kaynaklarını temizle
+    // Staging buffer'ı temizle
     if (m_stagingBuffer != VK_NULL_HANDLE) {
-        vkDestroyBuffer(m_device->GetDevice(), m_stagingBuffer, nullptr);
+        vkDestroyBuffer(m_graphicsDevice->GetDevice(), m_stagingBuffer, nullptr);
         m_stagingBuffer = VK_NULL_HANDLE;
-    }
-
-    if (m_stagingMemory != VK_NULL_HANDLE) {
-        vkFreeMemory(m_device->GetDevice(), m_stagingMemory, nullptr);
-        m_stagingMemory = VK_NULL_HANDLE;
-    }
-
-    // Upload fence'i temizle
-    if (m_uploadFence != VK_NULL_HANDLE) {
-        vkDestroyFence(m_device->GetDevice(), m_uploadFence, nullptr);
-        m_uploadFence = VK_NULL_HANDLE;
     }
 
     m_vertices.clear();
     m_indices.clear();
-    m_device = nullptr;
+    m_graphicsDevice = nullptr;
     m_isInitialized = false;
     m_state = GpuResourceState::Unloaded;
     m_lastError.clear();
@@ -136,24 +124,7 @@ void VulkanMesh::Bind(VkCommandBuffer commandBuffer) const {
 }
 
 bool VulkanMesh::IsReady() const {
-    if (!m_isInitialized) {
-        return false;
-    }
-    
-    // Upload fence durumunu kontrol et
-    if (m_uploadFence != VK_NULL_HANDLE) {
-        VkResult result = vkGetFenceStatus(m_device->GetDevice(), m_uploadFence);
-        if (result == VK_SUCCESS) {
-            m_uploadFence = VK_NULL_HANDLE;
-            m_state = GpuResourceState::Ready;
-            AE_DEBUG("VulkanMesh", "Mesh upload completed and fence cleaned up");
-            return true;
-        }
-        return false;
-    }
-    
-    // Fence zaten temizlendiyse ve state Ready ise
-    return m_state == GpuResourceState::Ready;
+    return m_isInitialized;
 }
 
 bool VulkanMesh::CreateVertexBuffer(const std::vector<Vertex>& vertices) {
@@ -167,7 +138,7 @@ bool VulkanMesh::CreateVertexBuffer(const std::vector<Vertex>& vertices) {
 
     // Vertex buffer'ı oluştur
     m_vertexBuffer = std::make_unique<VulkanBuffer>();
-    if (!m_vertexBuffer->Initialize(m_device, bufferConfig)) {
+    if (!m_vertexBuffer->Initialize(m_graphicsDevice->GetVulkanDevice(), bufferConfig)) {
         SetError("Failed to initialize vertex buffer: " + m_vertexBuffer->GetLastError());
         return false;
     }
@@ -188,7 +159,7 @@ bool VulkanMesh::CreateIndexBuffer(const std::vector<uint32_t>& indices) {
 
     // Index buffer'ı oluştur
     m_indexBuffer = std::make_unique<VulkanBuffer>();
-    if (!m_indexBuffer->Initialize(m_device, bufferConfig)) {
+    if (!m_indexBuffer->Initialize(m_graphicsDevice->GetVulkanDevice(), bufferConfig)) {
         SetError("Failed to initialize index buffer: " + m_indexBuffer->GetLastError());
         return false;
     }
@@ -199,8 +170,8 @@ bool VulkanMesh::CreateIndexBuffer(const std::vector<uint32_t>& indices) {
 }
 
 bool VulkanMesh::UploadGpuData() {
-    if (!m_device || !m_vertexBuffer || !m_indexBuffer) {
-        SetError("Invalid device or buffers for upload");
+    if (!m_graphicsDevice || !m_vertexBuffer || !m_indexBuffer) {
+        SetError("Invalid graphics device or buffers for upload");
         return false;
     }
 
@@ -221,38 +192,38 @@ bool VulkanMesh::UploadGpuData() {
     stagingBufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     stagingBufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateBuffer(m_device->GetDevice(), &stagingBufferInfo, nullptr, &m_stagingBuffer) != VK_SUCCESS) {
+    if (vkCreateBuffer(m_graphicsDevice->GetDevice(), &stagingBufferInfo, nullptr, &m_stagingBuffer) != VK_SUCCESS) {
         SetError("Failed to create staging buffer");
         return false;
     }
 
     // Staging buffer için bellek ayır
     VkMemoryRequirements stagingMemRequirements;
-    vkGetBufferMemoryRequirements(m_device->GetDevice(), m_stagingBuffer, &stagingMemRequirements);
+    vkGetBufferMemoryRequirements(m_graphicsDevice->GetDevice(), m_stagingBuffer, &stagingMemRequirements);
 
     VkMemoryAllocateInfo stagingAllocInfo{};
     stagingAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     stagingAllocInfo.allocationSize = stagingMemRequirements.size;
-    stagingAllocInfo.memoryTypeIndex = m_device->FindMemoryType(stagingMemRequirements.memoryTypeBits,
+    stagingAllocInfo.memoryTypeIndex = m_graphicsDevice->GetVulkanDevice()->FindMemoryType(stagingMemRequirements.memoryTypeBits,
                                                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-    if (vkAllocateMemory(m_device->GetDevice(), &stagingAllocInfo, nullptr, &m_stagingMemory) != VK_SUCCESS) {
+    VkDeviceMemory stagingMemory;
+    if (vkAllocateMemory(m_graphicsDevice->GetDevice(), &stagingAllocInfo, nullptr, &stagingMemory) != VK_SUCCESS) {
         SetError("Failed to allocate staging buffer memory");
-        vkDestroyBuffer(m_device->GetDevice(), m_stagingBuffer, nullptr);
+        vkDestroyBuffer(m_graphicsDevice->GetDevice(), m_stagingBuffer, nullptr);
         m_stagingBuffer = VK_NULL_HANDLE;
         return false;
     }
 
-    vkBindBufferMemory(m_device->GetDevice(), m_stagingBuffer, m_stagingMemory, 0);
+    vkBindBufferMemory(m_graphicsDevice->GetDevice(), m_stagingBuffer, stagingMemory, 0);
 
     // Staging buffer'ı haritala ve verileri kopyala
     void* stagingData;
-    if (vkMapMemory(m_device->GetDevice(), m_stagingMemory, 0, totalSize, 0, &stagingData) != VK_SUCCESS) {
+    if (vkMapMemory(m_graphicsDevice->GetDevice(), stagingMemory, 0, totalSize, 0, &stagingData) != VK_SUCCESS) {
         SetError("Failed to map staging buffer memory");
-        vkFreeMemory(m_device->GetDevice(), m_stagingMemory, nullptr);
-        vkDestroyBuffer(m_device->GetDevice(), m_stagingBuffer, nullptr);
+        vkFreeMemory(m_graphicsDevice->GetDevice(), stagingMemory, nullptr);
+        vkDestroyBuffer(m_graphicsDevice->GetDevice(), m_stagingBuffer, nullptr);
         m_stagingBuffer = VK_NULL_HANDLE;
-        m_stagingMemory = VK_NULL_HANDLE;
         return false;
     }
 
@@ -262,34 +233,24 @@ bool VulkanMesh::UploadGpuData() {
     // Index verilerini kopyala (vertex verilerinden sonra)
     memcpy(static_cast<char*>(stagingData) + vertexDataSize, m_indices.data(), indexDataSize);
     
-    vkUnmapMemory(m_device->GetDevice(), m_stagingMemory);
+    vkUnmapMemory(m_graphicsDevice->GetDevice(), stagingMemory);
 
-    // SubmitToTransferQueue kullanarak verileri kopyala
-    m_uploadFence = m_device->SubmitToTransferQueue([&](VkCommandBuffer commandBuffer) {
-        // Vertex buffer kopyalama komutu
-        VkBufferCopy vertexCopyRegion{};
-        vertexCopyRegion.srcOffset = 0;
-        vertexCopyRegion.dstOffset = 0;
-        vertexCopyRegion.size = vertexDataSize;
-        vkCmdCopyBuffer(commandBuffer, m_stagingBuffer, m_vertexBuffer->GetBuffer(), 1, &vertexCopyRegion);
+    // Vertex buffer transferi için VulkanTransferManager'ı kullan
+    m_graphicsDevice->GetTransferManager()->QueueTransfer(m_stagingBuffer, m_vertexBuffer->GetBuffer(), vertexDataSize);
 
-        // Index buffer kopyalama komutu
-        VkBufferCopy indexCopyRegion{};
-        indexCopyRegion.srcOffset = vertexDataSize;
-        indexCopyRegion.dstOffset = 0;
-        indexCopyRegion.size = indexDataSize;
-        vkCmdCopyBuffer(commandBuffer, m_stagingBuffer, m_indexBuffer->GetBuffer(), 1, &indexCopyRegion);
-    });
+    // Index buffer transferi için VulkanTransferManager'ı kullan
+    m_graphicsDevice->GetTransferManager()->QueueTransfer(m_stagingBuffer, m_indexBuffer->GetBuffer(), indexDataSize);
 
-    if (m_uploadFence == VK_NULL_HANDLE) {
-        SetError("Failed to submit transfer commands: " + m_device->GetLastError());
-        return false;
-    }
+    // Transferleri gönder
+    m_graphicsDevice->GetTransferManager()->SubmitTransfers();
 
-    // Mesh durumunu "Uploading" olarak ayarla
-    m_state = GpuResourceState::Uploading;
+    // Staging buffer belleğini temizle (artık gerekli değil)
+    vkFreeMemory(m_graphicsDevice->GetDevice(), stagingMemory, nullptr);
 
-    AE_DEBUG("VulkanMesh", "Mesh data upload submitted to transfer queue asynchronously.");
+    // Mesh durumunu "Ready" olarak ayarla (transferler senkronize olarak tamamlandı)
+    m_state = GpuResourceState::Ready;
+
+    AE_DEBUG("VulkanMesh", "Mesh data uploaded successfully using VulkanTransferManager.");
     return true;
 }
 

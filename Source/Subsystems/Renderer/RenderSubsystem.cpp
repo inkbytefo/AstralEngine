@@ -15,8 +15,16 @@
 #include "VulkanUtils.h"
 #include "Bounds.h"
 #include "PostProcessingSubsystem.h"
+#include "TonemappingEffect.h"
+#include "BloomEffect.h"
 #include <map>
 #include <glm/gtc/quaternion.hpp>
+
+// UI Integration includes
+#ifdef ASTRAL_USE_IMGUI
+    #include <imgui.h>
+    #include <imgui_impl_vulkan.h>
+#endif
 
 namespace AstralEngine {
 
@@ -80,6 +88,93 @@ void RenderSubsystem::OnInitialize(Engine* owner) {
     if (m_postProcessing) {
         m_postProcessing->SetInputTexture(m_sceneColorTexture.get());
     }
+
+    // UI resources oluştur
+#ifdef ASTRAL_USE_IMGUI
+    CreateUIRenderPass();
+    CreateUIFramebuffers();
+    CreateUICommandBuffers();
+#endif
+    
+    /* YENİ POST-PROCESSING KULLANIM ÖRNEKLERİ:
+     
+     // PostProcessingSubsystem'e erişim için RenderSubsystem üzerinden GetPostProcessingSubsystem() kullanılır
+     // auto* postProcessing = GetPostProcessingSubsystem();
+     
+     // 1. Tonemapping efekt parametrelerini ayarlama (yeni kullanım şekli)
+     if (auto* tonemapping = m_postProcessing->GetEffect<TonemappingEffect>()) {
+         tonemapping->SetExposure(1.5f);      // Exposure değerini ayarla
+         tonemapping->SetGamma(2.2f);        // Gamma correction değerini ayarla
+         tonemapping->SetTonemapper(1);       // Tonemapper tipi (0: ACES, 1: Reinhard, 2: Filmic, 3: Custom)
+         tonemapping->SetContrast(1.1f);     // Kontrast değerini ayarla
+         tonemapping->SetBrightness(0.1f);   // Parlaklık değerini ayarla
+         tonemapping->SetSaturation(1.2f);   // Doygunluk değerini ayarla
+     }
+     
+     // 2. Bloom efekt parametrelerini ayarlama (yeni kullanım şekli)
+     if (auto* bloom = m_postProcessing->GetEffect<BloomEffect>()) {
+         bloom->SetThreshold(0.8f);        // Parlaklık eşiğini ayarla
+         bloom->SetKnee(0.5f);             // Eşik yumuşatma değerini ayarla
+         bloom->SetIntensity(0.6f);        // Bloom yoğunluğunu ayarla
+         bloom->SetRadius(4.0f);           // Bulanıklık yarıçapını ayarla
+         bloom->SetQuality(1);             // Kalite seviyesi (0: low, 1: medium, 2: high)
+         bloom->SetUseDirt(false);         // Lens dirt kullanımı
+         bloom->SetDirtIntensity(1.0f);    // Lens dirt yoğunluğu
+     }
+     
+     // 3. Efektleri etkinleştir/devre dışı bırakma
+     m_postProcessing->EnableEffect("TonemappingEffect", true);
+     m_postProcessing->EnableEffect("BloomEffect", true);
+     
+     // 4. Dinamik olarak efekt parametrelerini güncelleme (örneğin gün/gece döngüsü için)
+     // Gündüz ayarları
+     if (auto* tonemapping = m_postProcessing->GetEffect<TonemappingEffect>()) {
+         tonemapping->SetExposure(1.3f);
+     }
+     if (auto* bloom = m_postProcessing->GetEffect<BloomEffect>()) {
+         bloom->SetThreshold(1.1f);
+         bloom->SetIntensity(0.4f);
+     }
+     
+     // Gece ayarları
+     if (auto* tonemapping = m_postProcessing->GetEffect<TonemappingEffect>()) {
+         tonemapping->SetExposure(0.8f);
+         tonemapping->SetBrightness(0.2f);
+     }
+     if (auto* bloom = m_postProcessing->GetEffect<BloomEffect>()) {
+         bloom->SetThreshold(0.7f);
+         bloom->SetIntensity(0.9f);
+     }
+     
+     // 5. Performans optimizasyonu için kalite ayarları
+     // Düşük kalite (performans odaklı)
+     if (auto* bloom = m_postProcessing->GetEffect<BloomEffect>()) {
+         bloom->SetQuality(0);
+         bloom->SetIntensity(0.3f);
+     }
+     
+     // Yüksek kalite (görsel kalite odaklı)
+     if (auto* bloom = m_postProcessing->GetEffect<BloomEffect>()) {
+         bloom->SetQuality(2);
+         bloom->SetIntensity(0.8f);
+     }
+     
+     // 6. HDR içerik için optimizasyon
+     if (auto* tonemapping = m_postProcessing->GetEffect<TonemappingEffect>()) {
+         tonemapping->SetExposure(1.5f);
+         tonemapping->SetTonemapper(0); // ACES tonemapper
+     }
+     if (auto* bloom = m_postProcessing->GetEffect<BloomEffect>()) {
+         bloom->SetThreshold(1.2f);
+         bloom->SetIntensity(0.6f);
+     }
+     
+     NOT: Bu örnek kodlar, yeni PostProcessingSubsystem yapısına göre efekt parametrelerine
+     nasıl erişileceğini göstermektedir. Eski kullanım şekli olan:
+     // m_postProcessing->SetTonemappingExposure(1.5f);
+     // m_postProcessing->SetBloomThreshold(0.8f);
+     yerine artık GetEffect<T>() template metodu kullanılmaktadır.
+    */
 }
 
 void RenderSubsystem::OnUpdate(float deltaTime) {
@@ -93,6 +188,9 @@ void RenderSubsystem::OnUpdate(float deltaTime) {
         GBufferPass();
         LightingPass(); // Bu artık m_sceneColorTexture'a yazar
         
+        // UI rendering
+        RenderUI();
+
         // Post-processing geçişi
         if (m_postProcessing) {
             m_postProcessing->Execute(m_graphicsDevice->GetCurrentCommandBuffer(), m_graphicsDevice->GetCurrentFrameIndex());
@@ -105,9 +203,61 @@ void RenderSubsystem::OnUpdate(float deltaTime) {
     }
 }
 
+void RenderSubsystem::RenderUI() {
+#ifdef ASTRAL_USE_IMGUI
+    if (!m_owner) return;
+
+    auto* uiSubsystem = m_owner->GetSubsystem<UISubsystem>();
+    if (!uiSubsystem) return;
+
+    VkCommandBuffer commandBuffer = GetCurrentUICommandBuffer();
+
+    // UI render pass başlat
+    VkRenderPassBeginInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.renderPass = m_uiRenderPass;
+    renderPassInfo.framebuffer = m_uiFramebuffers[m_currentFrame];
+    renderPassInfo.renderArea.offset = {0, 0};
+    renderPassInfo.renderArea.extent = {m_window->GetWidth(), m_window->GetHeight()};
+
+    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+    // ImGui rendering
+    ImDrawData* drawData = ImGui::GetDrawData();
+    if (drawData) {
+        ImGui_ImplVulkan_RenderDrawData(drawData, commandBuffer);
+    }
+
+    vkCmdEndRenderPass(commandBuffer);
+#endif
+}
+
+VkRenderPass RenderSubsystem::GetUIRenderPass() const {
+#ifdef ASTRAL_USE_IMGUI
+    return m_uiRenderPass;
+#else
+    return VK_NULL_HANDLE;
+#endif
+}
+
+VkCommandBuffer RenderSubsystem::GetCurrentUICommandBuffer() const {
+#ifdef ASTRAL_USE_IMGUI
+    // UI command buffer'ları henüz implement edilmemiş
+    // Şimdilik mevcut command buffer'ı döndür
+    return m_graphicsDevice->GetCurrentCommandBuffer();
+#else
+    return VK_NULL_HANDLE;
+#endif
+}
+
 void RenderSubsystem::OnShutdown() {
     if (m_graphicsDevice) vkDeviceWaitIdle(m_graphicsDevice->GetVulkanDevice()->GetDevice());
     
+    // UI resources temizliği
+#ifdef ASTRAL_USE_IMGUI
+    DestroyUIResources();
+#endif
+
     // PostProcessingSubsystem'i kapat
     if (m_postProcessing) {
         m_postProcessing->Shutdown();
@@ -253,6 +403,59 @@ void RenderSubsystem::CreateSceneColorTexture(uint32_t width, uint32_t height) {
     Logger::Info("RenderSubsystem", "Created scene color texture ({0}x{1})", width, height);
 }
 
+void RenderSubsystem::CreateUIRenderPass() {
+#ifdef ASTRAL_USE_IMGUI
+    auto* swapchain = m_graphicsDevice->GetSwapchain();
+    if (!swapchain) return;
+
+    // Attachment description
+    VkAttachmentDescription colorAttachment{};
+    colorAttachment.format = swapchain->GetFormat();
+    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;  // UI üzerine çiz
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    VkAttachmentReference colorAttachmentRef{};
+    colorAttachmentRef.attachment = 0;
+    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    // Subpass
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &colorAttachmentRef;
+
+    // Subpass dependency
+    VkSubpassDependency dependency{};
+    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+    dependency.dstSubpass = 0;
+    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.srcAccessMask = 0;
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+    // Render pass
+    VkRenderPassCreateInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    renderPassInfo.attachmentCount = 1;
+    renderPassInfo.pAttachments = &colorAttachment;
+    renderPassInfo.subpassCount = 1;
+    renderPassInfo.pSubpasses = &subpass;
+    renderPassInfo.dependencyCount = 1;
+    renderPassInfo.pDependencies = &dependency;
+
+    if (vkCreateRenderPass(m_graphicsDevice->GetVulkanDevice()->GetDevice(), &renderPassInfo, nullptr, &m_uiRenderPass) != VK_SUCCESS) {
+        Logger::Error("RenderSubsystem", "Failed to create UI render pass");
+    } else {
+        Logger::Info("RenderSubsystem", "UI render pass created successfully");
+    }
+#endif
+}
+
 void RenderSubsystem::DestroySceneColorTexture() {
     if (m_sceneColorTexture) {
         m_sceneColorTexture->Shutdown();
@@ -373,7 +576,41 @@ void RenderSubsystem::BlitToSwapchain(VkCommandBuffer commandBuffer, VulkanTextu
     barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
     
     vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                        0, 0, nullptr, 0, nullptr, 1, &barrier);
+                         0, 0, nullptr, 0, nullptr, 1, &barrier);
+}
+
+void RenderSubsystem::DestroyUIResources() {
+#ifdef ASTRAL_USE_IMGUI
+    auto* device = m_graphicsDevice->GetVulkanDevice();
+    if (!device) return;
+
+    // UI render pass'i temizle
+    if (m_uiRenderPass != VK_NULL_HANDLE) {
+        vkDestroyRenderPass(device->GetDevice(), m_uiRenderPass, nullptr);
+        m_uiRenderPass = VK_NULL_HANDLE;
+    }
+
+    // UI framebuffers'ları temizle
+    for (auto& framebuffer : m_uiFramebuffers) {
+        if (framebuffer != VK_NULL_HANDLE) {
+            vkDestroyFramebuffer(device->GetDevice(), framebuffer, nullptr);
+        }
+    }
+    m_uiFramebuffers.clear();
+
+    // UI command pool'ları temizle
+    for (auto& commandPool : m_uiCommandPools) {
+        if (commandPool != VK_NULL_HANDLE) {
+            vkDestroyCommandPool(device->GetDevice(), commandPool, nullptr);
+        }
+    }
+    m_uiCommandPools.clear();
+
+    // UI command buffer'ları temizle
+    m_uiCommandBuffers.clear();
+
+    Logger::Info("RenderSubsystem", "UI resources destroyed successfully");
+#endif
 }
 
 }

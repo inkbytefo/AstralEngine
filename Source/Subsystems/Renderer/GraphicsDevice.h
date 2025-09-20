@@ -16,6 +16,7 @@
     #include "VulkanRenderer.h"
     #include "Buffers/VulkanBuffer.h"
     #include "Core/VulkanFrameManager.h"
+    #include "Core/VulkanTransferManager.h"
 #endif
 
 namespace AstralEngine {
@@ -75,11 +76,16 @@ public:
     void RecreateSwapchain();
 
     // Resource yönetimi
+#ifdef ASTRAL_USE_VULKAN
     VulkanMemoryManager* GetMemoryManager() { return m_memoryManager.get(); }
     const VulkanMemoryManager* GetMemoryManager() const { return m_memoryManager.get(); }
     
     VulkanSynchronization* GetSynchronization() { return m_synchronization.get(); }
     const VulkanSynchronization* GetSynchronization() const { return m_synchronization.get(); }
+    
+    VulkanTransferManager* GetTransferManager() { return m_transferManager.get(); }
+    const VulkanTransferManager* GetTransferManager() const { return m_transferManager.get(); }
+#endif
 
     // Getters
 #ifdef ASTRAL_USE_VULKAN
@@ -236,6 +242,7 @@ private:
     std::unique_ptr<VulkanSynchronization> m_synchronization;
     std::unique_ptr<VulkanRenderer> m_vulkanRenderer;
     std::unique_ptr<VulkanFrameManager> m_frameManager;
+    std::unique_ptr<VulkanTransferManager> m_transferManager;
     
     // Descriptor set layout (frame'den bağımsız, pipeline tarafından kullanılır)
     VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;

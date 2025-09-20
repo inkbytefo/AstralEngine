@@ -50,7 +50,6 @@ public:
     bool Initialize(const std::string& assetDirectory);
     void Update(); // Controls async operations
     void Shutdown();
-	void ProcessGpuUploadQueue();
 
     // CPU-side data loading methods (synchronous, used by async system)
     std::shared_ptr<ModelData> LoadModel(const std::string& filePath);
@@ -98,9 +97,6 @@ private:
 
     // Thread pool for async loading
     std::unique_ptr<ThreadPool> m_threadPool;
-    
-	std::queue<std::function<void()>> m_gpuUploadQueue;
-	std::mutex m_queueMutex;
 
     // Helper functions
     std::string GetFullPath(const std::string& relativePath) const;
@@ -128,8 +124,8 @@ std::shared_ptr<T> AssetManager::GetAsset(const AssetHandle& handle) {
         RequestLoad(handle);
     }
 
-    // Check if the asset is fully loaded.
-    if (m_registry.GetAssetState(handle) != AssetLoadState::Loaded) {
+    // Check if the asset is fully loaded to CPU.
+    if (m_registry.GetAssetState(handle) != AssetLoadState::Loaded_CPU && m_registry.GetAssetState(handle) != AssetLoadState::Loaded) {
         Logger::Trace("AssetManager", "Asset {} is not ready yet (State: {}). Returning nullptr for this frame.",
                      handle.GetID(), static_cast<int>(m_registry.GetAssetState(handle)));
         return nullptr;

@@ -5,17 +5,17 @@
 #include <vector>
 #include <memory>
 #include <unordered_map>
+#include <map>
 #include <typeindex>
 #include <filesystem>
 
 // Forward declaration
 namespace AstralEngine {
     class EventManager;
-}
 
 /**
  * @brief Motorun çekirdek orkestratörü.
- * 
+ *
  * Tüm alt sistemlerin yaşam döngüsünü yönetir ve ana döngüyü çalıştırır.
  * Subsystem'lerin kaydedilmesi, başlatılması, güncellenmesi ve kapatılması
  * işlemlerinden sorumludur.
@@ -53,7 +53,8 @@ private:
     void Shutdown();
     void Update();
 
-    std::vector<std::unique_ptr<ISubsystem>> m_subsystems;
+    // Subsystem'leri güncelleme aşamalarına göre organize et
+    std::map<UpdateStage, std::vector<std::unique_ptr<ISubsystem>>> m_subsystemsByStage;
     // Hızlı erişim için subsystem'leri tip indeksine göre haritala
     std::unordered_map<std::type_index, ISubsystem*> m_subsystemMap;
     
@@ -69,8 +70,9 @@ void Engine::RegisterSubsystem(Args&&... args) {
     static_assert(std::is_base_of_v<ISubsystem, T>, "T must derive from ISubsystem");
     
     auto subsystem = std::make_unique<T>(std::forward<Args>(args)...);
+    UpdateStage stage = subsystem->GetUpdateStage();
     m_subsystemMap[typeid(T)] = subsystem.get();
-    m_subsystems.push_back(std::move(subsystem));
+    m_subsystemsByStage[stage].push_back(std::move(subsystem));
 }
 
 template<typename T>
@@ -81,5 +83,7 @@ T* Engine::GetSubsystem() const {
     }
     return nullptr;
 }
+
+} // class Engine
 
 } // namespace AstralEngine

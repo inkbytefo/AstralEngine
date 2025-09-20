@@ -29,6 +29,10 @@ public:
     template<typename T>
     EventHandlerID Subscribe(EventHandler handler);
     
+    // Tip-güvenli event dinleyici yönetimi (static_cast gerektirmez)
+    template<typename TEvent, typename TFunc>
+    EventHandlerID Subscribe(TFunc&& func);
+    
     void Unsubscribe(EventHandlerID handlerID);
     void UnsubscribeAll();
 
@@ -90,6 +94,26 @@ EventManager::EventHandlerID EventManager::Subscribe(EventHandler handler) {
     HandlerInfo info(m_nextHandlerID++, T::GetStaticType(), handler);
     
     m_handlers[T::GetStaticType()].push_back(info);
+    
+    return info.id;
+}
+
+template<typename TEvent, typename TFunc>
+EventManager::EventHandlerID EventManager::Subscribe(TFunc&& func) {
+    static_assert(std::is_base_of_v<Event, TEvent>, "TEvent must be derived from Event");
+    
+    // Tip-güvenli handler'ı generic EventHandler içine wrap et
+    EventHandler wrappedHandler = [func = std::forward<TFunc>(func)](Event& event) -> bool {
+        // Doğru event tipine güvenli bir şekilde dönüştür
+        TEvent& typedEvent = static_cast<TEvent&>(event);
+        return func(typedEvent);
+    };
+    
+    std::lock_guard<std::mutex> lock(m_handlersMutex);
+    
+    HandlerInfo info(m_nextHandlerID++, TEvent::GetStaticType(), wrappedHandler);
+    
+    m_handlers[TEvent::GetStaticType()].push_back(info);
     
     return info.id;
 }

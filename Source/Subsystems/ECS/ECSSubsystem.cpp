@@ -82,23 +82,13 @@ bool ECSSubsystem::IsEntityValid(uint32_t entity) const {
 }
 
 void* ECSSubsystem::GetComponentPointer(uint32_t entity, std::type_index type) {
-    auto& indices = m_entityComponentIndices[type];
-    auto it = indices.find(entity);
-    
-    if (it == indices.end()) {
+    // Check if entity is valid
+    if (!IsEntityValid(entity)) {
+        Logger::Warning("ECSSubsystem", "Attempted to get component from invalid entity: {}", entity);
         return nullptr;
     }
     
-    auto poolIt = m_componentPools.find(type);
-    if (poolIt == m_componentPools.end()) {
-        return nullptr;
-    }
-    
-    auto& pool = poolIt->second;
-    return &pool.data[it->second * pool.componentSize];
-}
-
-const void* ECSSubsystem::GetComponentPointer(uint32_t entity, std::type_index type) const {
+    // Check if component type exists in indices
     auto indicesIt = m_entityComponentIndices.find(type);
     if (indicesIt == m_entityComponentIndices.end()) {
         return nullptr;
@@ -111,12 +101,59 @@ const void* ECSSubsystem::GetComponentPointer(uint32_t entity, std::type_index t
         return nullptr;
     }
     
+    // Check if component pool exists
     auto poolIt = m_componentPools.find(type);
     if (poolIt == m_componentPools.end()) {
+        Logger::Error("ECSSubsystem", "Component pool not found for type: {}", type.name());
         return nullptr;
     }
     
     auto& pool = poolIt->second;
+    
+    // Validate index bounds
+    if (it->second >= pool.count) {
+        Logger::Error("ECSSubsystem", "Component index out of bounds for entity: {}", entity);
+        return nullptr;
+    }
+    
+    return &pool.data[it->second * pool.componentSize];
+}
+
+const void* ECSSubsystem::GetComponentPointer(uint32_t entity, std::type_index type) const {
+    // Check if entity is valid
+    if (!IsEntityValid(entity)) {
+        Logger::Warning("ECSSubsystem", "Attempted to get component from invalid entity: {}", entity);
+        return nullptr;
+    }
+    
+    // Check if component type exists in indices
+    auto indicesIt = m_entityComponentIndices.find(type);
+    if (indicesIt == m_entityComponentIndices.end()) {
+        return nullptr;
+    }
+    
+    auto& indices = indicesIt->second;
+    auto it = indices.find(entity);
+    
+    if (it == indices.end()) {
+        return nullptr;
+    }
+    
+    // Check if component pool exists
+    auto poolIt = m_componentPools.find(type);
+    if (poolIt == m_componentPools.end()) {
+        Logger::Error("ECSSubsystem", "Component pool not found for type: {}", type.name());
+        return nullptr;
+    }
+    
+    auto& pool = poolIt->second;
+    
+    // Validate index bounds
+    if (it->second >= pool.count) {
+        Logger::Error("ECSSubsystem", "Component index out of bounds for entity: {}", entity);
+        return nullptr;
+    }
+    
     return &pool.data[it->second * pool.componentSize];
 }
 
@@ -127,24 +164,29 @@ ECSSubsystem::RenderPacket ECSSubsystem::GetRenderData() {
     auto renderableEntities = QueryEntities<TransformComponent, RenderComponent>();
     
     for (uint32_t entity : renderableEntities) {
-        auto& transform = GetComponent<TransformComponent>(entity);
-        auto& render = GetComponent<RenderComponent>(entity);
+        auto* transform = GetComponent<TransformComponent>(entity);
+        auto* render = GetComponent<RenderComponent>(entity);
+        
+        if (!transform || !render) {
+            Logger::Warning("ECSSubsystem", "Entity {} missing required components for rendering", entity);
+            continue;
+        }
         
         // Sadece visible olan entity'leri topla
-        if (render.visible) {
+        if (render->visible) {
             // Material-driven rendering: RenderItem sadece gerekli bilgileri içerir
             RenderPacket::RenderItem item(
-                transform.GetWorldMatrix(),
-                render.GetModelHandle(),
-                render.GetMaterialHandle(),
-                render.visible,
-                render.renderLayer
+                transform->GetWorldMatrix(),
+                render->GetModelHandle(),
+                render->GetMaterialHandle(),
+                render->visible,
+                render->renderLayer
             );
             
             packet.renderItems.push_back(item);
             
-            Logger::Debug("ECSSubsystem", "Added entity {} to render packet (model: {}, material: {})", 
-                         entity, 
+            Logger::Debug("ECSSubsystem", "Added entity {} to render packet (model: {}, material: {})",
+                         entity,
                          item.modelHandle.IsValid() ? std::to_string(item.modelHandle.GetID()).c_str() : "invalid",
                          item.materialHandle.IsValid() ? std::to_string(item.materialHandle.GetID()).c_str() : "invalid");
         }

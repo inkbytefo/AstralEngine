@@ -6,8 +6,6 @@
 
 namespace AstralEngine {
 
-namespace AstralEngine {
-
 /**
  * @class Camera
  * @brief 3D kamera sınıfı - view ve projection matrislerini üretir
@@ -43,9 +41,9 @@ public:
     void Shutdown();
 
     // Getter'lar
-    const glm::mat4& GetViewMatrix() const { return m_viewMatrix; }
-    const glm::mat4& GetProjectionMatrix() const { return m_projectionMatrix; }
-    const Frustum& GetFrustum() const { return m_frustum; }
+    const glm::mat4& GetViewMatrix();
+    const glm::mat4& GetProjectionMatrix();
+    const Frustum& GetFrustum();
     const glm::vec3& GetPosition() const { return m_config.position; }
     const glm::vec3& GetTarget() const { return m_config.target; }
     const glm::vec3& GetUp() const { return m_config.up; }
@@ -64,22 +62,22 @@ public:
     void SetFarPlane(float farPlane);
     void SetLookAt(const glm::vec3& position, const glm::vec3& target, const glm::vec3& up);
 
-    // Matris güncelleme
-    void UpdateViewMatrix();
-    void UpdateProjectionMatrix();
-    void UpdateMatrices();
-
     // Yardımcı fonksiyonlar
     void LookAt(const glm::vec3& position, const glm::vec3& target, const glm::vec3& up);
     void SetPerspective(float fov, float aspectRatio, float nearPlane, float farPlane);
 
 private:
-    void ExtractFrustumPlanes();
+    void UpdateViewMatrixInternal() const;
+    void UpdateProjectionMatrixInternal() const;
+    void ExtractFrustumPlanesInternal() const;
 
     Config m_config;
-    glm::mat4 m_viewMatrix;
-    glm::mat4 m_projectionMatrix;
-    Frustum m_frustum;
+    mutable glm::mat4 m_viewMatrix;
+    mutable glm::mat4 m_projectionMatrix;
+    mutable Frustum m_frustum;
+    mutable bool m_viewDirty = true;
+    mutable bool m_projectionDirty = true;
+    mutable bool m_frustumDirty = true;
     bool m_isInitialized;
 };
 

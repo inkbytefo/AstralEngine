@@ -5,6 +5,8 @@
 #include "Subsystems/Asset/AssetSubsystem.h"
 #include "Subsystems/ECS/ECSSubsystem.h"
 #include "Subsystems/Renderer/RenderSubsystem.h"
+#include "Subsystems/UI/UISubsystem.h"
+#include "Subsystems/Editor/SceneEditorSubsystem.h"
 #include "ECS/Components.h"
 #include <filesystem>
 
@@ -58,19 +60,31 @@ private:
         uint32_t testEntity = ecs->CreateEntity();
         
         // 3. Component'leri ekle ve ayarla
-        auto& transform = ecs->AddComponent<TransformComponent>(testEntity);
-        transform.position = glm::vec3(0.0f, -1.0f, 0.0f); // Adjusted for better view
-        transform.rotation = glm::vec3(glm::radians(-90.0f), 0.0f, 0.0f); // Adjusted for better view
-        transform.scale = glm::vec3(1.0f);
+        if (auto* transform = ecs->AddComponent<TransformComponent>(testEntity)) {
+            transform->position = glm::vec3(0.0f, -1.0f, 0.0f); // Adjusted for better view
+            transform->rotation = glm::vec3(glm::radians(-90.0f), 0.0f, 0.0f); // Adjusted for better view
+            transform->scale = glm::vec3(1.0f);
+        } else {
+            Logger::Error("SandboxApp", "Failed to add TransformComponent to entity: {}", testEntity);
+            return;
+        }
 
-        auto& render = ecs->AddComponent<RenderComponent>(testEntity);
-        render.modelHandle = modelHandle;
-        render.materialHandle = materialHandle;
-        render.visible = true;
+        if (auto* render = ecs->AddComponent<RenderComponent>(testEntity)) {
+            render->modelHandle = modelHandle;
+            render->materialHandle = materialHandle;
+            render->visible = true;
+        } else {
+            Logger::Error("SandboxApp", "Failed to add RenderComponent to entity: {}", testEntity);
+            return;
+        }
         
         // Add Name component for debugging
-        auto& name = ecs->AddComponent<NameComponent>(testEntity);
-        name.name = "VAZ2101";
+        if (auto* name = ecs->AddComponent<NameComponent>(testEntity)) {
+            name->name = "VAZ2101";
+        } else {
+            Logger::Error("SandboxApp", "Failed to add NameComponent to entity: {}", testEntity);
+            return;
+        }
 
         Logger::Info("SandboxApp", "Test entity created with model and material handles. Model ID: {}, Material ID: {}", 
                      modelHandle.GetID(), materialHandle.GetID());
@@ -101,6 +115,8 @@ int main(int argc, char* argv[]) {
         engine.RegisterSubsystem<AssetSubsystem>();
         engine.RegisterSubsystem<ECSSubsystem>();
         engine.RegisterSubsystem<RenderSubsystem>();
+        engine.RegisterSubsystem<UISubsystem>();
+        engine.RegisterSubsystem<SceneEditorSubsystem>();
         
         // Engine'i uygulama ile çalıştır
         engine.Run(&sandbox);

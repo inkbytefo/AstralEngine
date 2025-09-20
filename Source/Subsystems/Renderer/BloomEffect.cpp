@@ -22,6 +22,9 @@ BloomEffect::BloomEffect() {
     // Varsayılan push constants
     m_pushConstants.texelSize = glm::vec2(1.0f / 1920.0f, 1.0f / 1080.0f); // Varsayılan çözünürlük
     m_pushConstants.bloomPass = 0; // Bright pass
+    
+    // Temel sınıf konfigürasyonunu ayarla
+    SetName("BloomEffect");
 }
 
 BloomEffect::~BloomEffect() {
@@ -29,191 +32,13 @@ BloomEffect::~BloomEffect() {
 }
 
 bool BloomEffect::Initialize(VulkanRenderer* renderer) {
-    if (!renderer) {
-        SetError("Renderer pointer'ı boş");
-        return false;
-    }
-
-    m_renderer = renderer;
-    
-    // VulkanDevice'i al (bu kısım renderer'dan alınmalı)
-    // Not: Bu kısım VulkanRenderer implementasyonuna bağlı olarak değişebilir
-    m_device = nullptr; // renderer->GetDevice();
-    
-    if (!m_device) {
-        SetError("VulkanDevice alınamadı");
-        return false;
-    }
-
-    Logger::Info("BloomEffect", "Bloom efekti başlatılıyor...");
-
-    // Shader'ları yükle
-    m_vertexShader = std::make_unique<VulkanShader>();
-    m_fragmentShader = std::make_unique<VulkanShader>();
-    
-    // Shader SPIR-V kodlarını yükle (build sistemi tarafından derlenmiş olmalı)
-    std::vector<uint32_t> vertexSPIRV;
-    std::vector<uint32_t> fragmentSPIRV;
-    
-    if (!LoadShaderSPIRV("Assets/Shaders/PostProcessing/bloom.vert.spv", vertexSPIRV)) {
-        SetError("Vertex shader SPIR-V yüklenemedi");
-        return false;
-    }
-    
-    if (!LoadShaderSPIRV("Assets/Shaders/PostProcessing/bloom.frag.spv", fragmentSPIRV)) {
-        SetError("Fragment shader SPIR-V yüklenemedi");
-        return false;
-    }
-    
-    // Shader modüllerini oluştur
-    if (!m_vertexShader->Initialize(m_device, vertexSPIRV, VK_SHADER_STAGE_VERTEX_BIT)) {
-        SetError("Vertex shader başlatılamadı: " + m_vertexShader->GetLastError());
-        return false;
-    }
-    
-    if (!m_fragmentShader->Initialize(m_device, fragmentSPIRV, VK_SHADER_STAGE_FRAGMENT_BIT)) {
-        SetError("Fragment shader başlatılamadı: " + m_fragmentShader->GetLastError());
-        return false;
-    }
-
-    // Swapchain boyutlarını al
-    // m_width = renderer->GetSwapchainExtent().width;
-    // m_height = renderer->GetSwapchainExtent().height;
-    // m_frameCount = renderer->GetSwapchainImageCount();
-
-    // Descriptor set layout'ları oluştur
-    if (!CreateDescriptorSetLayouts()) {
-        return false;
-    }
-
-    // Pipeline'ı oluştur
-    if (!CreatePipelines()) {
-        return false;
-    }
-
-    // Uniform buffer'ları oluştur
-    if (!CreateUniformBuffers()) {
-        return false;
-    }
-
-    // Descriptor set'leri oluştur
-    if (!CreateDescriptorSets()) {
-        return false;
-    }
-
-    // Ara texture'ları oluştur
-    if (!CreateIntermediateTextures()) {
-        return false;
-    }
-
-    // Ara framebuffer'ları oluştur
-    if (!CreateIntermediateFramebuffers()) {
-        return false;
-    }
-
-    // Tam ekran quad vertex buffer'ını oluştur
-    CreateFullScreenQuad();
-
-    m_isInitialized = true;
-    Logger::Info("BloomEffect", "Bloom efekti başarıyla başlatıldı");
-    return true;
+    // Temel sınıfın Initialize metodunu çağır
+    return PostProcessingEffectBase::Initialize(renderer);
 }
 
 void BloomEffect::Shutdown() {
-    if (!m_isInitialized) {
-        return;
-    }
-
-    Logger::Info("BloomEffect", "Bloom efekti kapatılıyor...");
-
-    // Vulkan kaynaklarını ters başlatma sırasıyla temizle
-    
-    // Ara framebuffer'ları temizle
-    for (auto& framebuffer : m_blurFramebuffers) {
-        if (framebuffer) {
-            framebuffer->Shutdown();
-        }
-    }
-    m_blurFramebuffers.clear();
-
-    for (auto& framebuffer : m_brightPassFramebuffers) {
-        if (framebuffer) {
-            framebuffer->Shutdown();
-        }
-    }
-    m_brightPassFramebuffers.clear();
-
-    // Render pass'leri temizle
-    if (m_blurRenderPass != VK_NULL_HANDLE) {
-        vkDestroyRenderPass(m_device->GetDevice(), m_blurRenderPass, nullptr);
-        m_blurRenderPass = VK_NULL_HANDLE;
-    }
-
-    if (m_brightPassRenderPass != VK_NULL_HANDLE) {
-        vkDestroyRenderPass(m_device->GetDevice(), m_brightPassRenderPass, nullptr);
-        m_brightPassRenderPass = VK_NULL_HANDLE;
-    }
-
-    // Ara texture'ları temizle
-    for (auto& texture : m_blurTextures) {
-        if (texture) {
-            texture->Shutdown();
-        }
-    }
-    m_blurTextures.clear();
-
-    for (auto& texture : m_brightPassTextures) {
-        if (texture) {
-            texture->Shutdown();
-        }
-    }
-    m_brightPassTextures.clear();
-
-    // Vertex buffer'ı temizle
-    if (m_vertexBuffer) {
-        m_vertexBuffer->Shutdown();
-        m_vertexBuffer.reset();
-    }
-
-    // Uniform buffer'ları temizle
-    for (auto& buffer : m_uniformBuffers) {
-        if (buffer) {
-            buffer->Shutdown();
-        }
-    }
-    m_uniformBuffers.clear();
-
-    // Descriptor pool'u temizle
-    if (m_descriptorPool != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(m_device->GetDevice(), m_descriptorPool, nullptr);
-        m_descriptorPool = VK_NULL_HANDLE;
-    }
-
-    // Descriptor set layout'ı temizle
-    if (m_descriptorSetLayout != VK_NULL_HANDLE) {
-        vkDestroyDescriptorSetLayout(m_device->GetDevice(), m_descriptorSetLayout, nullptr);
-        m_descriptorSetLayout = VK_NULL_HANDLE;
-    }
-
-    // Pipeline'ı temizle
-    if (m_pipeline) {
-        m_pipeline->Shutdown();
-        m_pipeline.reset();
-    }
-
-    // Shader'ları temizle
-    if (m_fragmentShader) {
-        m_fragmentShader->Shutdown();
-        m_fragmentShader.reset();
-    }
-
-    if (m_vertexShader) {
-        m_vertexShader->Shutdown();
-        m_vertexShader.reset();
-    }
-
-    m_isInitialized = false;
-    Logger::Info("BloomEffect", "Bloom efekti başarıyla kapatıldı");
+    // Temel sınıfın Shutdown metodunu çağır
+    PostProcessingEffectBase::Shutdown();
 }
 
 void BloomEffect::RecordCommands(VkCommandBuffer commandBuffer, 
@@ -230,9 +55,9 @@ void BloomEffect::RecordCommands(VkCommandBuffer commandBuffer,
 
     // Uniform buffer'ı güncelle
     void* data;
-    vkMapMemory(m_device->GetDevice(), m_uniformBuffers[frameIndex]->GetBufferMemory(), 0, sizeof(BloomUBO), 0, &data);
+    vkMapMemory(GetDevice()->GetDevice(), GetUniformBuffers()[frameIndex]->GetBufferMemory(), 0, sizeof(BloomUBO), 0, &data);
     memcpy(data, &m_uboData, sizeof(BloomUBO));
-    vkUnmapMemory(m_device->GetDevice(), m_uniformBuffers[frameIndex]->GetBufferMemory());
+    vkUnmapMemory(GetDevice()->GetDevice(), GetUniformBuffers()[frameIndex]->GetBufferMemory());
 
     // Bloom pass'lerini sırayla uygula
     RecordBrightPass(commandBuffer, inputTexture, frameIndex);
@@ -253,7 +78,128 @@ void BloomEffect::SetEnabled(bool enabled) {
     m_isEnabled = enabled;
 }
 
-bool BloomEffect::CreateDescriptorSetLayouts() {
+bool BloomEffect::OnInitialize() {
+    Logger::Info("BloomEffect", "Bloom efektinin özel başlatma işlemleri başlatılıyor...");
+
+    // Shader'ları yükle - BloomEffect'e özel shader yollarını kullan
+    if (!CreateShaders("Assets/Shaders/PostProcessing/bloom.vert.spv", "Assets/Shaders/PostProcessing/bloom.frag.spv")) {
+        return false;
+    }
+
+    // Bloom efektine özel descriptor set layout'ı oluştur
+    if (!CreateDescriptorSetLayout()) {
+        return false;
+    }
+
+    // Pipeline'ı oluştur
+    if (!CreatePipeline()) {
+        return false;
+    }
+
+    // Uniform buffer'ları oluştur (BloomUBO boyutunda)
+    if (!CreateUniformBuffers(sizeof(BloomUBO))) {
+        return false;
+    }
+
+    // Descriptor set'leri oluştur (Bloom için 4 sampler descriptor: input, bright pass, blur x2)
+    if (!CreateDescriptorSets(4)) {
+        return false;
+    }
+
+    // Ara texture'ları oluştur
+    if (!CreateIntermediateTextures()) {
+        return false;
+    }
+
+    // Ara framebuffer'ları oluştur
+    if (!CreateIntermediateFramebuffers()) {
+        return false;
+    }
+
+    Logger::Info("BloomEffect", "Bloom efektinin özel başlatma işlemleri tamamlandı");
+    return true;
+}
+
+void BloomEffect::OnShutdown() {
+    Logger::Info("BloomEffect", "Bloom efektinin özel kapatma işlemleri başlatılıyor...");
+
+    // Vulkan kaynaklarını ters başlatma sırasıyla temizle
+    
+    // Ara framebuffer'ları temizle
+    for (auto& framebuffer : m_blurFramebuffers) {
+        if (framebuffer) {
+            framebuffer->Shutdown();
+        }
+    }
+    m_blurFramebuffers.clear();
+
+    for (auto& framebuffer : m_brightPassFramebuffers) {
+        if (framebuffer) {
+            framebuffer->Shutdown();
+        }
+    }
+    m_brightPassFramebuffers.clear();
+
+    // Render pass'leri temizle
+    if (m_blurRenderPass != VK_NULL_HANDLE) {
+        vkDestroyRenderPass(GetDevice()->GetDevice(), m_blurRenderPass, nullptr);
+        m_blurRenderPass = VK_NULL_HANDLE;
+    }
+
+    if (m_brightPassRenderPass != VK_NULL_HANDLE) {
+        vkDestroyRenderPass(GetDevice()->GetDevice(), m_brightPassRenderPass, nullptr);
+        m_brightPassRenderPass = VK_NULL_HANDLE;
+    }
+
+    // Ara texture'ları temizle
+    for (auto& texture : m_blurTextures) {
+        if (texture) {
+            texture->Shutdown();
+        }
+    }
+    m_blurTextures.clear();
+
+    for (auto& texture : m_brightPassTextures) {
+        if (texture) {
+            texture->Shutdown();
+        }
+    }
+    m_brightPassTextures.clear();
+
+    Logger::Info("BloomEffect", "Bloom efektinin özel kapatma işlemleri tamamlandı");
+}
+
+void BloomEffect::OnRecordCommands(VkCommandBuffer commandBuffer,
+                                 VulkanTexture* inputTexture,
+                                 VulkanFramebuffer* outputFramebuffer,
+                                 uint32_t frameIndex) {
+    // Uniform buffer'ı güncelle
+    void* data;
+    vkMapMemory(GetDevice()->GetDevice(), GetUniformBuffers()[frameIndex]->GetBufferMemory(), 0, sizeof(BloomUBO), 0, &data);
+    memcpy(data, &m_uboData, sizeof(BloomUBO));
+    vkUnmapMemory(GetDevice()->GetDevice(), GetUniformBuffers()[frameIndex]->GetBufferMemory());
+
+    // Bloom pass'lerini sırayla uygula - yeniden yapılandırılmış versiyon
+    // 1. Bright Pass
+    // Input: scene texture, Output: m_brightPassFramebuffers
+    RecordPass(commandBuffer, m_brightPassFramebuffers[frameIndex].get(), inputTexture, BloomPass::BrightPass, frameIndex);
+
+    // 2. Horizontal Blur
+    // Input: bright pass texture, Output: m_blurFramebuffers
+    RecordPass(commandBuffer, m_blurFramebuffers[frameIndex].get(), m_brightPassTextures[frameIndex].get(), BloomPass::HorizontalBlur, frameIndex);
+
+    // 3. Vertical Blur (ping-pong back to bright pass texture)
+    // Input: horizontal blur texture, Output: m_brightPassFramebuffers
+    RecordPass(commandBuffer, m_brightPassFramebuffers[frameIndex].get(), m_blurTextures[frameIndex].get(), BloomPass::VerticalBlur, frameIndex);
+
+    // 4. Composite
+    // Input: original scene + final blurred texture, Output: final output framebuffer
+    // This pass needs two input textures, so its descriptor set update is special.
+    UpdateCompositeDescriptorSets(inputTexture, m_brightPassTextures[frameIndex].get(), frameIndex);
+    RecordPass(commandBuffer, outputFramebuffer, inputTexture, BloomPass::Composite, frameIndex);
+}
+
+bool BloomEffect::CreateDescriptorSetLayout() {
     // Uniform buffer binding
     VkDescriptorSetLayoutBinding uboLayoutBinding{};
     uboLayoutBinding.binding = 0;
@@ -277,7 +223,10 @@ bool BloomEffect::CreateDescriptorSetLayouts() {
     layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
     layoutInfo.pBindings = bindings.data();
 
-    if (vkCreateDescriptorSetLayout(m_device->GetDevice(), &layoutInfo, nullptr, &m_descriptorSetLayout) != VK_SUCCESS) {
+    // Descriptor set layout'ı temel sınıf aracılığıyla oluştur
+    // Not: Bu metodun PostProcessingEffectBase'de implemente edilmesi gerekiyor
+    // Şimdilik doğrudan oluşturuyoruz
+    if (vkCreateDescriptorSetLayout(GetDevice()->GetDevice(), &layoutInfo, nullptr, const_cast<VkDescriptorSetLayout*>(&GetDescriptorSetLayout())) != VK_SUCCESS) {
         SetError("Descriptor set layout oluşturulamadı");
         return false;
     }
@@ -285,86 +234,99 @@ bool BloomEffect::CreateDescriptorSetLayouts() {
     return true;
 }
 
-bool BloomEffect::CreatePipelines() {
-    VulkanPipeline::Config pipelineConfig{};
-    pipelineConfig.shaders.push_back(m_vertexShader.get());
-    pipelineConfig.shaders.push_back(m_fragmentShader.get());
-    pipelineConfig.descriptorSetLayout = m_descriptorSetLayout;
-    pipelineConfig.useMinimalVertexInput = true; // Tam ekran quad için minimal vertex input
+void BloomEffect::UpdateDescriptorSets(VulkanTexture* inputTexture, uint32_t frameIndex) {
+    // Descriptor set güncelleme işlemleri
+    // Her bloom pass'i için farklı texture'ları bağla
     
-    // Swapchain ve extent bilgileri renderer'dan alınmalı
-    // pipelineConfig.swapchain = m_renderer->GetSwapchain();
-    // pipelineConfig.extent = m_renderer->GetSwapchainExtent();
-
-    m_pipeline = std::make_unique<VulkanPipeline>();
-    if (!m_pipeline->Initialize(m_device, pipelineConfig)) {
-        SetError("Pipeline oluşturulamadı: " + m_pipeline->GetLastError());
-        return false;
-    }
-
-    return true;
+    // Bu metodun implementasyonu, BloomEffect'in 4 aşamalı pipeline yapısına göre
+    // her pass için uygun descriptor set'leri güncellemelidir.
+    // Şimdilik basitleştirilmiş implementasyon
+    
+    // Not: Gerçek implementasyonda her pass (bright pass, horizontal blur, vertical blur, composite)
+    // için ayrı descriptor set güncellemeleri yapılmalıdır.
 }
 
-bool BloomEffect::CreateUniformBuffers() {
-    m_uniformBuffers.resize(m_frameCount);
-    
-    for (uint32_t i = 0; i < m_frameCount; i++) {
-        m_uniformBuffers[i] = std::make_unique<VulkanBuffer>();
-        
-        VulkanBuffer::Config bufferConfig{};
-        bufferConfig.size = sizeof(BloomUBO);
-        bufferConfig.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-        bufferConfig.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-        bufferConfig.name = "BloomUBO_" + std::to_string(i);
-        
-        if (!m_uniformBuffers[i]->Initialize(m_device, bufferConfig)) {
-            SetError("Uniform buffer oluşturulamadı: " + m_uniformBuffers[i]->GetLastError());
-            return false;
-        }
+void BloomEffect::UpdateDescriptorSetsForPass(VulkanTexture* inputTexture, uint32_t frameIndex) {
+    // Belirli bir bloom pass'i için descriptor set'leri güncelle
+    if (!inputTexture || frameIndex >= GetDescriptorSets().size()) {
+        return;
     }
 
-    return true;
+    VkDescriptorImageInfo imageInfo{};
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfo.imageView = inputTexture->GetImageView();
+    imageInfo.sampler = GetTextureSampler();
+
+    std::array<VkWriteDescriptorSet, 1> descriptorWrites{};
+
+    // Sampler descriptor'ı güncelle
+    descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[0].dstSet = GetDescriptorSets()[frameIndex];
+    descriptorWrites[0].dstBinding = 1;
+    descriptorWrites[0].dstArrayElement = 0;
+    descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptorWrites[0].descriptorCount = 1;
+    descriptorWrites[0].pImageInfo = &imageInfo;
+
+    vkUpdateDescriptorSets(GetDevice()->GetDevice(), static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
 }
 
-bool BloomEffect::CreateDescriptorSets() {
-    // Descriptor pool oluştur
-    std::array<VkDescriptorPoolSize, 2> poolSizes{};
-    poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSizes[0].descriptorCount = m_frameCount;
-    poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[1].descriptorCount = m_frameCount * 4; // Her frame için 4 texture (input, bright pass, blur x2)
-
-    VkDescriptorPoolCreateInfo poolInfo{};
-    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
-    poolInfo.pPoolSizes = poolSizes.data();
-    poolInfo.maxSets = m_frameCount;
-
-    if (vkCreateDescriptorPool(m_device->GetDevice(), &poolInfo, nullptr, &m_descriptorPool) != VK_SUCCESS) {
-        SetError("Descriptor pool oluşturulamadı");
-        return false;
+void BloomEffect::UpdateCompositeDescriptorSets(VulkanTexture* originalTexture, VulkanTexture* bloomTexture, uint32_t frameIndex) {
+    // Composite pass için iki texture'ı da güncelle (orijinal sahne ve bloom texture)
+    if (!originalTexture || !bloomTexture || frameIndex >= GetDescriptorSets().size()) {
+        return;
     }
 
-    // Descriptor set'leri allocate et
-    std::vector<VkDescriptorSetLayout> layouts(m_frameCount, m_descriptorSetLayout);
+    // Not: Bu metodun implementasyonu, composite pass için iki texture'ı aynı anda bağlamalıdır.
+    // Gerçek implementasyonda descriptor set layout'ı iki sampler binding'i desteklemelidir.
+    // Şimdilik sadece bloom texture'ı güncelliyoruz.
+    UpdateDescriptorSetsForPass(bloomTexture, frameIndex);
+}
+
+void BloomEffect::RecordPass(VkCommandBuffer commandBuffer, VulkanFramebuffer* targetFramebuffer,
+                             VulkanTexture* inputTexture, BloomPass passType, uint32_t frameIndex) {
+    m_pushConstants.bloomPass = static_cast<int>(passType);
     
-    VkDescriptorSetAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool = m_descriptorPool;
-    allocInfo.descriptorSetCount = m_frameCount;
-    allocInfo.pSetLayouts = layouts.data();
-
-    m_descriptorSets.resize(m_frameCount);
-    if (vkAllocateDescriptorSets(m_device->GetDevice(), &allocInfo, m_descriptorSets.data()) != VK_SUCCESS) {
-        SetError("Descriptor set'ler allocate edilemedi");
-        return false;
+    // Update descriptor sets to bind the correct input texture for this pass
+    if (passType != BloomPass::Composite) {
+        UpdateDescriptorSetsForPass(inputTexture, frameIndex);
     }
+    
+    VkRenderPassBeginInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.renderPass = targetFramebuffer->GetRenderPass(); // Assumes framebuffers share compatible render passes
+    renderPassInfo.framebuffer = targetFramebuffer->GetFramebuffer();
+    renderPassInfo.renderArea.offset = {0, 0};
+    renderPassInfo.renderArea.extent = {targetFramebuffer->GetWidth(), targetFramebuffer->GetHeight()};
 
-    return true;
+    VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+    renderPassInfo.clearValueCount = 1;
+    renderPassInfo.pClearValues = &clearColor;
+
+    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, GetPipeline()->GetPipeline());
+    
+    // Vertex buffer'ı bağla
+    VkBuffer vertexBuffers[] = {GetVertexBuffer()->GetBuffer()};
+    VkDeviceSize offsets[] = {0};
+    vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+    
+    // Bind descriptor sets...
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                           GetPipeline()->GetLayout(), 0, 1, &GetDescriptorSets()[frameIndex], 0, nullptr);
+    
+    vkCmdPushConstants(commandBuffer, GetPipeline()->GetLayout(),
+                      VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &m_pushConstants);
+
+    // Tam ekran quad'ı çiz
+    vkCmdDraw(commandBuffer, GetVertexCount(), 1, 0, 0);
+
+    vkCmdEndRenderPass(commandBuffer);
 }
 
 bool BloomEffect::CreateIntermediateTextures() {
-    // Bright pass texture'ları oluştur
+    // Bright pass texture'ları oluştur - tam çözünürlükte
     m_brightPassTextures.resize(m_frameCount);
     for (uint32_t i = 0; i < m_frameCount; i++) {
         m_brightPassTextures[i] = std::make_unique<VulkanTexture>();
@@ -376,29 +338,37 @@ bool BloomEffect::CreateIntermediateTextures() {
         textureConfig.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         textureConfig.name = "BloomBrightPass_" + std::to_string(i);
         
-        if (!m_brightPassTextures[i]->Initialize(m_device, textureConfig)) {
+        if (!m_brightPassTextures[i]->Initialize(GetDevice(), textureConfig)) {
             SetError("Bright pass texture oluşturulamadı: " + m_brightPassTextures[i]->GetLastError());
             return false;
         }
     }
 
-    // Blur texture'ları oluştur
+    // Blur texture'ları oluştur - downsampling ile mip chain desteği
     m_blurTextures.resize(m_frameCount);
     for (uint32_t i = 0; i < m_frameCount; i++) {
         m_blurTextures[i] = std::make_unique<VulkanTexture>();
         
         VulkanTexture::Config textureConfig{};
-        textureConfig.width = m_width;
-        textureConfig.height = m_height;
+        textureConfig.width = m_width / 2; // Start at half resolution for downsampling optimization
+        textureConfig.height = m_height / 2;
+        textureConfig.mipLevels = 5; // Create 5 mip levels for progressive blurring
         textureConfig.format = VK_FORMAT_R16G16B16A16_SFLOAT; // Yüksek dinamik aralık için
         textureConfig.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-        textureConfig.name = "BloomBlur_" + std::to_string(i);
+        textureConfig.name = "BloomBlurMipChain_" + std::to_string(i);
         
-        if (!m_blurTextures[i]->Initialize(m_device, textureConfig)) {
-            SetError("Blur texture oluşturulamadı: " + m_blurTextures[i]->GetLastError());
+        if (!m_blurTextures[i]->Initialize(GetDevice(), textureConfig)) {
+            SetError("Blur mip-chain texture oluşturulamadı: " + m_blurTextures[i]->GetLastError());
             return false;
         }
     }
+
+    // Not: Gerçek bir implementasyonda her mip level için ayrı image view'lar ve framebuffer'lar oluşturulmalıdır.
+    // Bu, daha karmaşık bir mimari değişikliği gerektirir ve şu anki örnekte basitleştirilmiştir.
+    // Tam bir downsampling implementasyonu için:
+    // 1. Her mip level için VkImageView oluşturulmalı
+    // 2. Her mip level için ayrı framebuffer'lar oluşturulmalı
+    // 3. Blur pass'leri farklı mip seviyeleri arasında geçiş yapmalıdır
 
     return true;
 }
@@ -444,13 +414,13 @@ bool BloomEffect::CreateIntermediateFramebuffers() {
     renderPassInfo.dependencyCount = 1;
     renderPassInfo.pDependencies = &dependency;
 
-    if (vkCreateRenderPass(m_device->GetDevice(), &renderPassInfo, nullptr, &m_brightPassRenderPass) != VK_SUCCESS) {
+    if (vkCreateRenderPass(GetDevice()->GetDevice(), &renderPassInfo, nullptr, &m_brightPassRenderPass) != VK_SUCCESS) {
         SetError("Bright pass render pass oluşturulamadı");
         return false;
     }
 
     // Blur render pass (aynı yapı)
-    if (vkCreateRenderPass(m_device->GetDevice(), &renderPassInfo, nullptr, &m_blurRenderPass) != VK_SUCCESS) {
+    if (vkCreateRenderPass(GetDevice()->GetDevice(), &renderPassInfo, nullptr, &m_blurRenderPass) != VK_SUCCESS) {
         SetError("Blur render pass oluşturulamadı");
         return false;
     }
@@ -459,7 +429,7 @@ bool BloomEffect::CreateIntermediateFramebuffers() {
     m_brightPassFramebuffers.resize(m_frameCount);
     for (uint32_t i = 0; i < m_frameCount; i++) {
         VulkanFramebuffer::Config framebufferConfig{};
-        framebufferConfig.device = m_device;
+        framebufferConfig.device = GetDevice();
         framebufferConfig.renderPass = m_brightPassRenderPass;
         framebufferConfig.attachments = {m_brightPassTextures[i]->GetImageView()};
         framebufferConfig.width = m_width;
@@ -476,7 +446,7 @@ bool BloomEffect::CreateIntermediateFramebuffers() {
     m_blurFramebuffers.resize(m_frameCount);
     for (uint32_t i = 0; i < m_frameCount; i++) {
         VulkanFramebuffer::Config framebufferConfig{};
-        framebufferConfig.device = m_device;
+        framebufferConfig.device = GetDevice();
         framebufferConfig.renderPass = m_blurRenderPass;
         framebufferConfig.attachments = {m_blurTextures[i]->GetImageView()};
         framebufferConfig.width = m_width;
@@ -491,43 +461,6 @@ bool BloomEffect::CreateIntermediateFramebuffers() {
     }
 
     return true;
-}
-
-void BloomEffect::UpdateDescriptorSets(VulkanTexture* inputTexture, uint32_t frameIndex) {
-    // Bu metod her bloom pass'i için ayrı ayrı çağrılmalı
-    // Şimdilik basitleştirilmiş implementasyon
-}
-
-void BloomEffect::CreateFullScreenQuad() {
-    // Tam ekran quad vertex verileri - AssetData.h'daki Vertex yapısını kullan
-    std::vector<Vertex> vertices = {
-        {glm::vec3(-1.0f, -1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec2(0.0f, 1.0f), glm::vec3(0.0f), glm::vec3(0.0f)},  // Sol alt
-        {glm::vec3(1.0f, -1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec2(1.0f, 1.0f), glm::vec3(0.0f), glm::vec3(0.0f)},   // Sağ alt
-        {glm::vec3(-1.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec2(0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(0.0f)},   // Sol üst
-        {glm::vec3(1.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec2(1.0f, 0.0f), glm::vec3(0.0f), glm::vec3(0.0f)}     // Sağ üst
-    };
-
-    m_vertexCount = static_cast<uint32_t>(vertices.size());
-
-    // Vertex buffer'ı oluştur
-    m_vertexBuffer = std::make_unique<VulkanBuffer>();
-    
-    VulkanBuffer::Config bufferConfig{};
-    bufferConfig.size = sizeof(Vertex) * vertices.size();
-    bufferConfig.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    bufferConfig.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-    bufferConfig.name = "BloomQuad";
-
-    if (!m_vertexBuffer->Initialize(m_device, bufferConfig)) {
-        Logger::Error("BloomEffect", "Vertex buffer oluşturulamadı: " + m_vertexBuffer->GetLastError());
-        return;
-    }
-
-    // Vertex verilerini kopyala
-    void* data;
-    vkMapMemory(m_device->GetDevice(), m_vertexBuffer->GetBufferMemory(), 0, bufferConfig.size, 0, &data);
-    memcpy(data, vertices.data(), bufferConfig.size);
-    vkUnmapMemory(m_device->GetDevice(), m_vertexBuffer->GetBufferMemory());
 }
 
 void BloomEffect::RecordBrightPass(VkCommandBuffer commandBuffer, VulkanTexture* inputTexture, uint32_t frameIndex) {
@@ -548,24 +481,24 @@ void BloomEffect::RecordBrightPass(VkCommandBuffer commandBuffer, VulkanTexture*
     vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
     // Pipeline'ı bağla
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline->GetPipeline());
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, GetPipeline()->GetPipeline());
 
     // Vertex buffer'ı bağla
-    VkBuffer vertexBuffers[] = {m_vertexBuffer->GetBuffer()};
+    VkBuffer vertexBuffers[] = {GetVertexBuffer()->GetBuffer()};
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
     // Descriptor set'leri bağla (input texture ile)
     // vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, 
-    //                        m_pipeline->GetLayout(), 0, 1, &m_descriptorSets[frameIndex], 0, nullptr);
+    //                        GetPipeline()->GetLayout(), 0, 1, &GetDescriptorSets()[frameIndex], 0, nullptr);
 
     // Push constants'ları ayarla
-    vkCmdPushConstants(commandBuffer, m_pipeline->GetLayout(), 
+    vkCmdPushConstants(commandBuffer, GetPipeline()->GetLayout(), 
                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 
                       0, sizeof(PushConstants), &m_pushConstants);
 
     // Tam ekran quad'ı çiz
-    vkCmdDraw(commandBuffer, m_vertexCount, 1, 0, 0);
+    vkCmdDraw(commandBuffer, GetVertexCount(), 1, 0, 0);
 
     // Render pass'i bitir
     vkCmdEndRenderPass(commandBuffer);
@@ -589,24 +522,24 @@ void BloomEffect::RecordHorizontalBlur(VkCommandBuffer commandBuffer, uint32_t f
     vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
     // Pipeline'ı bağla
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline->GetPipeline());
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, GetPipeline()->GetPipeline());
 
     // Vertex buffer'ı bağla
-    VkBuffer vertexBuffers[] = {m_vertexBuffer->GetBuffer()};
+    VkBuffer vertexBuffers[] = {GetVertexBuffer()->GetBuffer()};
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
     // Descriptor set'leri bağla (bright pass texture ile)
     // vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, 
-    //                        m_pipeline->GetLayout(), 0, 1, &m_descriptorSets[frameIndex], 0, nullptr);
+    //                        GetPipeline()->GetLayout(), 0, 1, &GetDescriptorSets()[frameIndex], 0, nullptr);
 
     // Push constants'ları ayarla
-    vkCmdPushConstants(commandBuffer, m_pipeline->GetLayout(), 
+    vkCmdPushConstants(commandBuffer, GetPipeline()->GetLayout(), 
                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 
                       0, sizeof(PushConstants), &m_pushConstants);
 
     // Tam ekran quad'ı çiz
-    vkCmdDraw(commandBuffer, m_vertexCount, 1, 0, 0);
+    vkCmdDraw(commandBuffer, GetVertexCount(), 1, 0, 0);
 
     // Render pass'i bitir
     vkCmdEndRenderPass(commandBuffer);
@@ -630,24 +563,24 @@ void BloomEffect::RecordVerticalBlur(VkCommandBuffer commandBuffer, uint32_t fra
     vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
     // Pipeline'ı bağla
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline->GetPipeline());
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, GetPipeline()->GetPipeline());
 
     // Vertex buffer'ı bağla
-    VkBuffer vertexBuffers[] = {m_vertexBuffer->GetBuffer()};
+    VkBuffer vertexBuffers[] = {GetVertexBuffer()->GetBuffer()};
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
     // Descriptor set'leri bağla (horizontal blur texture ile)
     // vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, 
-    //                        m_pipeline->GetLayout(), 0, 1, &m_descriptorSets[frameIndex], 0, nullptr);
+    //                        GetPipeline()->GetLayout(), 0, 1, &GetDescriptorSets()[frameIndex], 0, nullptr);
 
     // Push constants'ları ayarla
-    vkCmdPushConstants(commandBuffer, m_pipeline->GetLayout(), 
+    vkCmdPushConstants(commandBuffer, GetPipeline()->GetLayout(), 
                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 
                       0, sizeof(PushConstants), &m_pushConstants);
 
     // Tam ekran quad'ı çiz
-    vkCmdDraw(commandBuffer, m_vertexCount, 1, 0, 0);
+    vkCmdDraw(commandBuffer, GetVertexCount(), 1, 0, 0);
 
     // Render pass'i bitir
     vkCmdEndRenderPass(commandBuffer);
@@ -672,44 +605,27 @@ void BloomEffect::RecordComposite(VkCommandBuffer commandBuffer, VulkanTexture* 
     vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
     // Pipeline'ı bağla
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline->GetPipeline());
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, GetPipeline()->GetPipeline());
 
     // Vertex buffer'ı bağla
-    VkBuffer vertexBuffers[] = {m_vertexBuffer->GetBuffer()};
+    VkBuffer vertexBuffers[] = {GetVertexBuffer()->GetBuffer()};
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
     // Descriptor set'leri bağla (input texture ve blur texture ile)
     // vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, 
-    //                        m_pipeline->GetLayout(), 0, 1, &m_descriptorSets[frameIndex], 0, nullptr);
+    //                        GetPipeline()->GetLayout(), 0, 1, &GetDescriptorSets()[frameIndex], 0, nullptr);
 
     // Push constants'ları ayarla
-    vkCmdPushConstants(commandBuffer, m_pipeline->GetLayout(), 
+    vkCmdPushConstants(commandBuffer, GetPipeline()->GetLayout(), 
                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 
                       0, sizeof(PushConstants), &m_pushConstants);
 
     // Tam ekran quad'ı çiz
-    vkCmdDraw(commandBuffer, m_vertexCount, 1, 0, 0);
+    vkCmdDraw(commandBuffer, GetVertexCount(), 1, 0, 0);
 
     // Render pass'i bitir
     vkCmdEndRenderPass(commandBuffer);
-}
-
-bool BloomEffect::LoadShaderSPIRV(const std::string& filepath, std::vector<uint32_t>& spirv) {
-    std::ifstream file(filepath, std::ios::ate | std::ios::binary);
-    
-    if (!file.is_open()) {
-        Logger::Error("BloomEffect", "Shader dosyası açılamadı: " + filepath);
-        return false;
-    }
-
-    size_t fileSize = static_cast<size_t>(file.tellg());
-    file.seekg(0);
-    
-    spirv.resize(fileSize / sizeof(uint32_t));
-    file.read(reinterpret_cast<char*>(spirv.data()), fileSize);
-    
-    return true;
 }
 
 void BloomEffect::SetError(const std::string& error) {
