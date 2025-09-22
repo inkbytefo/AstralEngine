@@ -1,8 +1,7 @@
 #pragma once
 
-#include "../../Asset/AssetHandle.h"
-#include "../../Asset/AssetSubsystem.h"
-#include "../Buffers/VulkanMesh.h"
+#include "../Asset/AssetHandle.h"
+#include "../Asset/AssetSubsystem.h"
 #include "../Core/VulkanDevice.h"
 #include "../RendererTypes.h"
 #include <memory>
@@ -11,6 +10,9 @@
 #include <vulkan/vulkan.h>
 
 namespace AstralEngine {
+
+// Forward declarations
+class VulkanMesh;
 
 /**
  * @brief Mesh cache entry'si için veri yapısı

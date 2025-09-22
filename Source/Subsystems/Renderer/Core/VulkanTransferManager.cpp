@@ -1,203 +1,279 @@
 #include "VulkanTransferManager.h"
-#include "../../../Core/Logger.h"
+#include "Core/Logger.h"
 
 namespace AstralEngine {
 
-VulkanTransferManager::VulkanTransferManager(VulkanDevice* device)
-    : m_device(device) {
-    
-}
+	VulkanTransferManager::VulkanTransferManager(VulkanDevice* device)
+		: m_device(device) {
+		AE_CORE_ASSERT(device, "VulkanDevice is null");
+	}
 
-VulkanTransferManager::~VulkanTransferManager() {
-    Shutdown();
-}
+	VulkanTransferManager::~VulkanTransferManager() {
+		// Shutdown is called by the owner (GraphicsDevice) to ensure proper order
+	}
 
-void VulkanTransferManager::Initialize() {
-    if (!m_device || !m_device->GetDevice()) {
-        Logger::Error("VulkanTransferManager", "Device not initialized");
-        return;
-    }
+	void VulkanTransferManager::Initialize() {
+		if (!m_device || !m_device->GetDevice()) {
+			AE_CORE_ERROR("Device not initialized. Cannot initialize VulkanTransferManager.");
+			return;
+		}
 
-    // Create transfer command pool
-    VkCommandPoolCreateInfo poolInfo{};
-    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    poolInfo.queueFamilyIndex = m_device->GetQueueFamilyIndices().transferFamily.value();
-    poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+		VkDevice logicalDevice = m_device->GetDevice();
+		const auto& queueFamilyIndices = m_device->GetQueueFamilyIndices();
 
-    if (vkCreateCommandPool(m_device->GetDevice(), &poolInfo, nullptr, &m_transferCommandPool) != VK_SUCCESS) {
-        Logger::Error("VulkanTransferManager", "Failed to create transfer command pool");
-        return;
-    }
+		if (!queueFamilyIndices.transferFamily.has_value()) {
+			AE_CORE_ERROR("Transfer queue family not found. Cannot initialize VulkanTransferManager.");
+			return;
+		}
 
-    // Allocate command buffer
-    VkCommandBufferAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandPool = m_transferCommandPool;
-    allocInfo.commandBufferCount = 1;
+		// Create transfer command pool
+		VkCommandPoolCreateInfo poolInfo{};
+		poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+		poolInfo.queueFamilyIndex = queueFamilyIndices.transferFamily.value();
+		poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
-    if (vkAllocateCommandBuffers(m_device->GetDevice(), &allocInfo, &m_transferCommandBuffer) != VK_SUCCESS) {
-        Logger::Error("VulkanTransferManager", "Failed to allocate transfer command buffer");
-        vkDestroyCommandPool(m_device->GetDevice(), m_transferCommandPool, nullptr);
-        m_transferCommandPool = VK_NULL_HANDLE;
-        return;
-    }
+		if (vkCreateCommandPool(logicalDevice, &poolInfo, nullptr, &m_transferCommandPool) != VK_SUCCESS) {
+			AE_CORE_CRITICAL("Failed to create transfer command pool.");
+			return;
+		}
 
-    // Create fence
-    VkFenceCreateInfo fenceInfo{};
-    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+		// Allocate command buffer
+		VkCommandBufferAllocateInfo allocInfo{};
+		allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		allocInfo.commandPool = m_transferCommandPool;
+		allocInfo.commandBufferCount = 1;
 
-    if (vkCreateFence(m_device->GetDevice(), &fenceInfo, nullptr, &m_transferFence) != VK_SUCCESS) {
-        Logger::Error("VulkanTransferManager", "Failed to create transfer fence");
-        vkFreeCommandBuffers(m_device->GetDevice(), m_transferCommandPool, 1, &m_transferCommandBuffer);
-        vkDestroyCommandPool(m_device->GetDevice(), m_transferCommandPool, nullptr);
-        m_transferCommandBuffer = VK_NULL_HANDLE;
-        m_transferCommandPool = VK_NULL_HANDLE;
-        return;
-    }
+		if (vkAllocateCommandBuffers(logicalDevice, &allocInfo, &m_transferCommandBuffer) != VK_SUCCESS) {
+			AE_CORE_CRITICAL("Failed to allocate transfer command buffer.");
+			vkDestroyCommandPool(logicalDevice, m_transferCommandPool, nullptr);
+			m_transferCommandPool = VK_NULL_HANDLE;
+			return;
+		}
 
-    Logger::Info("VulkanTransferManager", "Transfer manager initialized successfully");
-}
+		if (!RecreateSignaledFence_()) {
+			AE_CORE_CRITICAL("Failed to create initial transfer fence.");
+			vkDestroyCommandPool(logicalDevice, m_transferCommandPool, nullptr);
+			m_transferCommandPool = VK_NULL_HANDLE;
+			m_transferCommandBuffer = VK_NULL_HANDLE;
+			return;
+		}
 
-void VulkanTransferManager::Shutdown() {
-    if (!m_device || !m_device->GetDevice()) {
-        return;
-    }
+		AE_CORE_INFO("VulkanTransferManager initialized successfully.");
+	}
 
-    // Wait for device to finish all operations
-    vkDeviceWaitIdle(m_device->GetDevice());
+	void VulkanTransferManager::Shutdown() {
+		if (!m_device || !m_device->GetDevice() || m_transferCommandPool == VK_NULL_HANDLE) {
+			return;
+		}
+		AE_CORE_INFO("Shutting down VulkanTransferManager...");
 
-    // Destroy fence
-    if (m_transferFence != VK_NULL_HANDLE) {
-        vkDestroyFence(m_device->GetDevice(), m_transferFence, nullptr);
-        m_transferFence = VK_NULL_HANDLE;
-    }
+		VkDevice logicalDevice = m_device->GetDevice();
 
-    // Command buffer will be destroyed with the pool
-    m_transferCommandBuffer = VK_NULL_HANDLE;
+		vkDeviceWaitIdle(logicalDevice);
 
-    // Destroy command pool
-    if (m_transferCommandPool != VK_NULL_HANDLE) {
-        vkDestroyCommandPool(m_device->GetDevice(), m_transferCommandPool, nullptr);
-        m_transferCommandPool = VK_NULL_HANDLE;
-    }
+		if (m_transferFence != VK_NULL_HANDLE) {
+			vkDestroyFence(logicalDevice, m_transferFence, nullptr);
+			m_transferFence = VK_NULL_HANDLE;
+		}
 
-    // Clear transfer queue
-    std::lock_guard<std::mutex> lock(m_queueMutex);
-    m_transferQueue.clear();
+		if (m_transferCommandPool != VK_NULL_HANDLE) {
+			vkDestroyCommandPool(logicalDevice, m_transferCommandPool, nullptr);
+			m_transferCommandPool = VK_NULL_HANDLE;
+		}
+		m_transferCommandBuffer = VK_NULL_HANDLE;
 
-    Logger::Info("VulkanTransferManager", "Transfer manager shutdown completed");
-}
 
-void VulkanTransferManager::QueueTransfer(VkBuffer stagingBuffer, VkBuffer dstBuffer, VkDeviceSize size) {
-    std::lock_guard<std::mutex> lock(m_queueMutex);
-    
-    // Create a lambda function for buffer-to-buffer transfer
-    auto transferFunction = [stagingBuffer, dstBuffer, size](VkCommandBuffer commandBuffer) {
-        VkBufferCopy copyRegion{};
-        copyRegion.srcOffset = 0; // Optional
-        copyRegion.dstOffset = 0; // Optional
-        copyRegion.size = size;
-        vkCmdCopyBuffer(commandBuffer, stagingBuffer, dstBuffer, 1, &copyRegion);
-    };
-    
-    m_transferQueue.push_back(transferFunction);
-}
+		std::lock_guard<std::mutex> lock(m_queueMutex);
+		m_transferQueue.clear();
 
-void VulkanTransferManager::QueueTransfer(VkBuffer stagingBuffer, VkImage dstImage, uint32_t width, uint32_t height) {
-    std::lock_guard<std::mutex> lock(m_queueMutex);
-    
-    // Create a lambda function for buffer-to-image transfer
-    auto transferFunction = [stagingBuffer, dstImage, width, height](VkCommandBuffer commandBuffer) {
-        VkBufferImageCopy region{};
-        region.bufferOffset = 0;
-        region.bufferRowLength = 0;
-        region.bufferImageHeight = 0;
-        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        region.imageSubresource.mipLevel = 0;
-        region.imageSubresource.baseArrayLayer = 0;
-        region.imageSubresource.layerCount = 1;
-        region.imageOffset = {0, 0, 0};
-        region.imageExtent = {width, height, 1};
-        vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-    };
-    
-    m_transferQueue.push_back(transferFunction);
-}
+		AE_CORE_INFO("VulkanTransferManager shutdown complete.");
+	}
 
-void VulkanTransferManager::SubmitTransfers() {
-    if (!m_device || !m_device->GetDevice() || !m_device->GetTransferQueue()) {
-        Logger::Error("VulkanTransferManager", "Device or transfer queue not initialized");
-        return;
-    }
+	void VulkanTransferManager::QueueTransfer(std::function<void(VkCommandBuffer)>&& transferFunction) {
+		std::lock_guard<std::mutex> lock(m_queueMutex);
+		m_transferQueue.emplace_back(std::move(transferFunction));
+		AE_CORE_TRACE("Queued a new transfer operation. Queue size: {0}", m_transferQueue.size());
+	}
 
-    // Check if queue is empty
-    {
-        std::lock_guard<std::mutex> lock(m_queueMutex);
-        if (m_transferQueue.empty()) {
-            return;
-        }
-    }
+	void VulkanTransferManager::SubmitTransfers() {
+		std::lock_guard<std::mutex> lock(m_submitMutex);
 
-    // Wait for fence to ensure previous transfers have completed
-    vkWaitForFences(m_device->GetDevice(), 1, &m_transferFence, VK_TRUE, UINT64_MAX);
-    vkResetFences(m_device->GetDevice(), 1, &m_transferFence);
+		std::vector<std::function<void(VkCommandBuffer)>> localQueue;
+		{
+			std::lock_guard<std::mutex> queueLock(m_queueMutex);
+			if (m_transferQueue.empty()) {
+				return;
+			}
+			localQueue.swap(m_transferQueue);
+		}
 
-    // Reset command buffer
-    if (vkResetCommandBuffer(m_transferCommandBuffer, 0) != VK_SUCCESS) {
-        Logger::Error("VulkanTransferManager", "Failed to reset command buffer");
-        return;
-    }
+		size_t transferCount = localQueue.size();
+		AE_CORE_TRACE("Submitting {0} queued transfers...", transferCount);
 
-    // Begin command buffer recording
-    VkCommandBufferBeginInfo beginInfo{};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		VkDevice logicalDevice = m_device->GetDevice();
 
-    if (vkBeginCommandBuffer(m_transferCommandBuffer, &beginInfo) != VK_SUCCESS) {
-        Logger::Error("VulkanTransferManager", "Failed to begin command buffer");
-        return;
-    }
+		vkWaitForFences(logicalDevice, 1, &m_transferFence, VK_TRUE, UINT64_MAX);
 
-    // Apply all queued transfer functions
-    {
-        std::lock_guard<std::mutex> lock(m_queueMutex);
-        for (auto& transferFunction : m_transferQueue) {
-            transferFunction(m_transferCommandBuffer);
-        }
-    }
+		if (vkResetCommandBuffer(m_transferCommandBuffer, 0) != VK_SUCCESS) {
+			AE_CORE_ERROR("Failed to reset transfer command buffer.");
+			return;
+		}
 
-    // End command buffer recording
-    if (vkEndCommandBuffer(m_transferCommandBuffer) != VK_SUCCESS) {
-        Logger::Error("VulkanTransferManager", "Failed to end command buffer");
-        return;
-    }
+		VkCommandBufferBeginInfo beginInfo{};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-    // Submit to transfer queue
-    VkSubmitInfo submitInfo{};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &m_transferCommandBuffer;
+		if (vkBeginCommandBuffer(m_transferCommandBuffer, &beginInfo) != VK_SUCCESS) {
+			AE_CORE_ERROR("Failed to begin recording transfer command buffer.");
+			return;
+		}
 
-    if (vkQueueSubmit(m_device->GetTransferQueue(), 1, &submitInfo, m_transferFence) != VK_SUCCESS) {
-        Logger::Error("VulkanTransferManager", "Failed to submit transfer commands");
-        return;
-    }
+		for (const auto& func : localQueue) {
+			func(m_transferCommandBuffer);
+		}
 
-    // Wait for fence to ensure transfers have completed
-    vkWaitForFences(m_device->GetDevice(), 1, &m_transferFence, VK_TRUE, UINT64_MAX);
-    
-    // Reset fence for next use
-    vkResetFences(m_device->GetDevice(), 1, &m_transferFence);
+		if (vkEndCommandBuffer(m_transferCommandBuffer) != VK_SUCCESS) {
+			AE_CORE_ERROR("Failed to end recording transfer command buffer.");
+			return;
+		}
 
-    // Clear transfer queue
-    {
-        std::lock_guard<std::mutex> lock(m_queueMutex);
-        m_transferQueue.clear();
-    }
+		if (vkResetFences(logicalDevice, 1, &m_transferFence) != VK_SUCCESS) {
+			AE_CORE_ERROR("Failed to reset transfer fence.");
+			return;
+		}
 
-    Logger::Debug("VulkanTransferManager", "Transfers submitted successfully");
-}
+		VkSubmitInfo submitInfo{};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &m_transferCommandBuffer;
+
+		if (vkQueueSubmit(m_device->GetTransferQueue(), 1, &submitInfo, m_transferFence) != VK_SUCCESS) {
+			AE_CORE_ERROR("vkQueueSubmit failed for batched transfers. Attempting recovery...");
+			IdleTransferQueue_();
+			if (!RecreateSignaledFence_()) {
+				AE_CORE_CRITICAL("Fence recovery failed. Transfer manager is in an unrecoverable state.");
+				return;
+			}
+			{
+				std::lock_guard<std::mutex> ql(m_queueMutex);
+				m_transferQueue.insert(m_transferQueue.begin(),
+					std::make_move_iterator(localQueue.begin()),
+					std::make_move_iterator(localQueue.end()));
+			}
+			AE_CORE_WARN("Recovered from submit failure. {0} transfers were re-queued.", transferCount);
+			return;
+		}
+
+		vkWaitForFences(logicalDevice, 1, &m_transferFence, VK_TRUE, UINT64_MAX);
+
+		// Execute cleanup callbacks after fence signals (GPU completion)
+		if (!m_cleanupCallbacks.empty()) {
+			AE_CORE_TRACE("Executing {0} cleanup callbacks after transfer completion.", m_cleanupCallbacks.size());
+			for (const auto& callback : m_cleanupCallbacks) {
+				callback();
+			}
+			m_cleanupCallbacks.clear();
+		}
+
+		AE_CORE_INFO("Successfully submitted and completed {0} transfer operations.", transferCount);
+	}
+
+	VkCommandBuffer VulkanTransferManager::GetCommandBufferForImmediateUse() {
+		AE_CORE_TRACE("Acquiring command buffer for immediate use...");
+		m_submitMutex.lock();
+
+		VkDevice logicalDevice = m_device->GetDevice();
+
+		vkWaitForFences(logicalDevice, 1, &m_transferFence, VK_TRUE, UINT64_MAX);
+
+		if (vkResetCommandBuffer(m_transferCommandBuffer, 0) != VK_SUCCESS) {
+			AE_CORE_ERROR("Failed to reset immediate command buffer.");
+			m_submitMutex.unlock();
+			return VK_NULL_HANDLE;
+		}
+
+		VkCommandBufferBeginInfo beginInfo{};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+		if (vkBeginCommandBuffer(m_transferCommandBuffer, &beginInfo) != VK_SUCCESS) {
+			AE_CORE_ERROR("Failed to begin recording immediate command buffer.");
+			m_submitMutex.unlock();
+			return VK_NULL_HANDLE;
+		}
+
+		AE_CORE_TRACE("Command buffer ready for immediate use. Mutex is locked.");
+		return m_transferCommandBuffer;
+	}
+
+	void VulkanTransferManager::SubmitImmediateCommand(VkCommandBuffer commandBuffer) {
+		AE_CORE_ASSERT(commandBuffer == m_transferCommandBuffer, "Invalid command buffer submitted for immediate execution.");
+		AE_CORE_TRACE("Submitting immediate command...");
+
+		VkDevice logicalDevice = m_device->GetDevice();
+
+		if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
+			AE_CORE_ERROR("Failed to end recording immediate command buffer.");
+			m_submitMutex.unlock();
+			return;
+		}
+
+		if (vkResetFences(logicalDevice, 1, &m_transferFence) != VK_SUCCESS) {
+			AE_CORE_ERROR("Failed to reset immediate fence.");
+			m_submitMutex.unlock();
+			return;
+		}
+
+		VkSubmitInfo submitInfo{};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &commandBuffer;
+
+		if (vkQueueSubmit(m_device->GetTransferQueue(), 1, &submitInfo, m_transferFence) != VK_SUCCESS) {
+			AE_CORE_ERROR("vkQueueSubmit failed for immediate command. Attempting recovery...");
+			IdleTransferQueue_();
+			if (!RecreateSignaledFence_()) {
+				AE_CORE_CRITICAL("Fence recovery failed. Transfer manager is in an unrecoverable state.");
+			} else {
+				(void)vkResetCommandBuffer(m_transferCommandBuffer, 0);
+			}
+			m_submitMutex.unlock();
+			return;
+		}
+
+		vkWaitForFences(logicalDevice, 1, &m_transferFence, VK_TRUE, UINT64_MAX);
+
+		AE_CORE_INFO("Immediate command submitted and completed successfully.");
+		m_submitMutex.unlock();
+	}
+
+	void VulkanTransferManager::RegisterCleanupCallback(std::function<void()>&& cleanupCallback) {
+		std::lock_guard<std::mutex> lock(m_submitMutex);
+		m_cleanupCallbacks.emplace_back(std::move(cleanupCallback));
+		AE_CORE_TRACE("Registered cleanup callback. Total callbacks: {0}", m_cleanupCallbacks.size());
+	}
+
+	void VulkanTransferManager::IdleTransferQueue_() {
+		VkQueue transferQueue = m_device->GetTransferQueue();
+		if (transferQueue != VK_NULL_HANDLE) {
+			vkQueueWaitIdle(transferQueue);
+		} else {
+			vkDeviceWaitIdle(m_device->GetDevice());
+		}
+	}
+
+	bool VulkanTransferManager::RecreateSignaledFence_() {
+		VkDevice logicalDevice = m_device->GetDevice();
+		vkDestroyFence(logicalDevice, m_transferFence, nullptr);
+
+		VkFenceCreateInfo fenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+		fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+		if (vkCreateFence(logicalDevice, &fenceInfo, nullptr, &m_transferFence) != VK_SUCCESS) {
+			AE_CORE_CRITICAL("Failed to recreate transfer fence after submit failure.");
+			return false;
+		}
+		return true;
+	}
 
 } // namespace AstralEngine

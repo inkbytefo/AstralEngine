@@ -5,6 +5,7 @@
 #include "../Asset/AssetData.h"
 #include <fstream>
 #include <filesystem>
+#include <array> // For std::array
 
 namespace AstralEngine {
 
@@ -49,17 +50,11 @@ void TonemappingEffect::Shutdown() {
     PostProcessingEffectBase::Shutdown();
 }
 
-void TonemappingEffect::RecordCommands(VkCommandBuffer commandBuffer,
-                                      VulkanTexture* inputTexture,
-                                      VulkanFramebuffer* outputFramebuffer,
-                                      uint32_t frameIndex) {
-    if (!IsInitialized() || !inputTexture || !outputFramebuffer) {
-        Logger::Error("TonemappingEffect", "RecordCommands çağrısı için efekt başlatılmamış veya geçersiz parametreler");
+void TonemappingEffect::Update(VulkanTexture* inputTexture, uint32_t frameIndex) {
+    if (!IsInitialized() || !inputTexture) {
+        Logger::Error("TonemappingEffect", "Update çağrısı için efekt başlatılmamış veya geçersiz parametreler");
         return;
     }
-
-    // Descriptor set'leri güncelle
-    UpdateDescriptorSets(inputTexture, frameIndex);
 
     // Uniform buffer'ı güncelle
     void* data;
@@ -67,42 +62,8 @@ void TonemappingEffect::RecordCommands(VkCommandBuffer commandBuffer,
     memcpy(data, &m_uboData, sizeof(TonemappingUBO));
     vkUnmapMemory(GetDevice()->GetDevice(), GetUniformBuffers()[frameIndex]->GetBufferMemory());
 
-    // Render pass başlat
-    VkRenderPassBeginInfo renderPassInfo{};
-    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    renderPassInfo.renderPass = outputFramebuffer->GetRenderPass();
-    renderPassInfo.framebuffer = outputFramebuffer->GetFramebuffer();
-    renderPassInfo.renderArea.offset = {0, 0};
-    renderPassInfo.renderArea.extent = {outputFramebuffer->GetWidth(), outputFramebuffer->GetHeight()};
-
-    VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
-    renderPassInfo.clearValueCount = 1;
-    renderPassInfo.pClearValues = &clearColor;
-
-    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-    // Pipeline'ı bağla
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, GetPipeline()->GetPipeline());
-
-    // Vertex buffer'ı bağla
-    VkBuffer vertexBuffers[] = {GetVertexBuffer()->GetBuffer()};
-    VkDeviceSize offsets[] = {0};
-    vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-
-    // Descriptor set'leri bağla
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                           GetPipeline()->GetLayout(), 0, 1, &GetDescriptorSets()[frameIndex], 0, nullptr);
-
-    // Push constants'ları ayarla
-    vkCmdPushConstants(commandBuffer, GetPipeline()->GetLayout(),
-                      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                      0, sizeof(PushConstants), &m_pushConstants);
-
-    // Tam ekran quad'ı çiz
-    DrawFullScreenQuad(commandBuffer, frameIndex);
-
-    // Render pass'i bitir
-    vkCmdEndRenderPass(commandBuffer);
+    // Descriptor set'leri güncelle
+    UpdateDescriptorSets(inputTexture, frameIndex);
 }
 
 const std::string& TonemappingEffect::GetName() const {
@@ -158,53 +119,6 @@ void TonemappingEffect::OnShutdown() {
     Logger::Info("TonemappingEffect", "Tonemapping efektinin özel kapatma işlemleri tamamlandı");
 }
 
-void TonemappingEffect::OnRecordCommands(VkCommandBuffer commandBuffer,
-                                       VulkanTexture* inputTexture,
-                                       VulkanFramebuffer* outputFramebuffer,
-                                       uint32_t frameIndex) {
-    // Uniform buffer'ı güncelle
-    void* data;
-    vkMapMemory(GetDevice()->GetDevice(), GetUniformBuffers()[frameIndex]->GetBufferMemory(), 0, sizeof(TonemappingUBO), 0, &data);
-    memcpy(data, &m_uboData, sizeof(TonemappingUBO));
-    vkUnmapMemory(GetDevice()->GetDevice(), GetUniformBuffers()[frameIndex]->GetBufferMemory());
-
-    // Render pass başlat
-    VkRenderPassBeginInfo renderPassInfo{};
-    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    renderPassInfo.renderPass = outputFramebuffer->GetRenderPass();
-    renderPassInfo.framebuffer = outputFramebuffer->GetFramebuffer();
-    renderPassInfo.renderArea.offset = {0, 0};
-    renderPassInfo.renderArea.extent = {outputFramebuffer->GetWidth(), outputFramebuffer->GetHeight()};
-
-    VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
-    renderPassInfo.clearValueCount = 1;
-    renderPassInfo.pClearValues = &clearColor;
-
-    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-    // Pipeline'ı bağla
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, GetPipeline()->GetPipeline());
-
-    // Vertex buffer'ı bağla
-    VkBuffer vertexBuffers[] = {GetVertexBuffer()->GetBuffer()};
-    VkDeviceSize offsets[] = {0};
-    vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-
-    // Descriptor set'leri bağla
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                           GetPipeline()->GetLayout(), 0, 1, &GetDescriptorSets()[frameIndex], 0, nullptr);
-
-    // Push constants'ları ayarla
-    vkCmdPushConstants(commandBuffer, GetPipeline()->GetLayout(),
-                      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                      0, sizeof(PushConstants), &m_pushConstants);
-
-    // Tam ekran quad'ı çiz
-    DrawFullScreenQuad(commandBuffer, frameIndex);
-
-    // Render pass'i bitir
-    vkCmdEndRenderPass(commandBuffer);
-}
 
 bool TonemappingEffect::CreateDescriptorSetLayout() {
     // Uniform buffer binding

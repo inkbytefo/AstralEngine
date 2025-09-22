@@ -5,6 +5,7 @@
 #include "../Asset/AssetData.h"
 #include <fstream>
 #include <filesystem>
+#include <array> // For std::array
 
 namespace AstralEngine {
 
@@ -41,17 +42,11 @@ void BloomEffect::Shutdown() {
     PostProcessingEffectBase::Shutdown();
 }
 
-void BloomEffect::RecordCommands(VkCommandBuffer commandBuffer, 
-                                VulkanTexture* inputTexture,
-                                VulkanFramebuffer* outputFramebuffer,
-                                uint32_t frameIndex) {
-    if (!m_isInitialized || !inputTexture || !outputFramebuffer) {
-        Logger::Error("BloomEffect", "RecordCommands çağrısı için efekt başlatılmamış veya geçersiz parametreler");
+void BloomEffect::Update(VulkanTexture* inputTexture, uint32_t frameIndex) {
+    if (!m_isInitialized || !inputTexture) {
+        Logger::Error("BloomEffect", "Update çağrısı için efekt başlatılmamış veya geçersiz parametreler");
         return;
     }
-
-    // Descriptor set'leri güncelle
-    UpdateDescriptorSets(inputTexture, frameIndex);
 
     // Uniform buffer'ı güncelle
     void* data;
@@ -59,11 +54,8 @@ void BloomEffect::RecordCommands(VkCommandBuffer commandBuffer,
     memcpy(data, &m_uboData, sizeof(BloomUBO));
     vkUnmapMemory(GetDevice()->GetDevice(), GetUniformBuffers()[frameIndex]->GetBufferMemory());
 
-    // Bloom pass'lerini sırayla uygula
-    RecordBrightPass(commandBuffer, inputTexture, frameIndex);
-    RecordHorizontalBlur(commandBuffer, frameIndex);
-    RecordVerticalBlur(commandBuffer, frameIndex);
-    RecordComposite(commandBuffer, inputTexture, outputFramebuffer, frameIndex);
+    // Descriptor set'leri güncelle
+    UpdateDescriptorSets(inputTexture, frameIndex);
 }
 
 const std::string& BloomEffect::GetName() const {
@@ -169,35 +161,6 @@ void BloomEffect::OnShutdown() {
     Logger::Info("BloomEffect", "Bloom efektinin özel kapatma işlemleri tamamlandı");
 }
 
-void BloomEffect::OnRecordCommands(VkCommandBuffer commandBuffer,
-                                 VulkanTexture* inputTexture,
-                                 VulkanFramebuffer* outputFramebuffer,
-                                 uint32_t frameIndex) {
-    // Uniform buffer'ı güncelle
-    void* data;
-    vkMapMemory(GetDevice()->GetDevice(), GetUniformBuffers()[frameIndex]->GetBufferMemory(), 0, sizeof(BloomUBO), 0, &data);
-    memcpy(data, &m_uboData, sizeof(BloomUBO));
-    vkUnmapMemory(GetDevice()->GetDevice(), GetUniformBuffers()[frameIndex]->GetBufferMemory());
-
-    // Bloom pass'lerini sırayla uygula - yeniden yapılandırılmış versiyon
-    // 1. Bright Pass
-    // Input: scene texture, Output: m_brightPassFramebuffers
-    RecordPass(commandBuffer, m_brightPassFramebuffers[frameIndex].get(), inputTexture, BloomPass::BrightPass, frameIndex);
-
-    // 2. Horizontal Blur
-    // Input: bright pass texture, Output: m_blurFramebuffers
-    RecordPass(commandBuffer, m_blurFramebuffers[frameIndex].get(), m_brightPassTextures[frameIndex].get(), BloomPass::HorizontalBlur, frameIndex);
-
-    // 3. Vertical Blur (ping-pong back to bright pass texture)
-    // Input: horizontal blur texture, Output: m_brightPassFramebuffers
-    RecordPass(commandBuffer, m_brightPassFramebuffers[frameIndex].get(), m_blurTextures[frameIndex].get(), BloomPass::VerticalBlur, frameIndex);
-
-    // 4. Composite
-    // Input: original scene + final blurred texture, Output: final output framebuffer
-    // This pass needs two input textures, so its descriptor set update is special.
-    UpdateCompositeDescriptorSets(inputTexture, m_brightPassTextures[frameIndex].get(), frameIndex);
-    RecordPass(commandBuffer, outputFramebuffer, inputTexture, BloomPass::Composite, frameIndex);
-}
 
 bool BloomEffect::CreateDescriptorSetLayout() {
     // Uniform buffer binding
@@ -235,15 +198,44 @@ bool BloomEffect::CreateDescriptorSetLayout() {
 }
 
 void BloomEffect::UpdateDescriptorSets(VulkanTexture* inputTexture, uint32_t frameIndex) {
-    // Descriptor set güncelleme işlemleri
-    // Her bloom pass'i için farklı texture'ları bağla
-    
-    // Bu metodun implementasyonu, BloomEffect'in 4 aşamalı pipeline yapısına göre
-    // her pass için uygun descriptor set'leri güncellemelidir.
-    // Şimdilik basitleştirilmiş implementasyon
-    
-    // Not: Gerçek implementasyonda her pass (bright pass, horizontal blur, vertical blur, composite)
-    // için ayrı descriptor set güncellemeleri yapılmalıdır.
+    if (!inputTexture || frameIndex >= GetDescriptorSets().size()) {
+        return;
+    }
+
+    // Uniform buffer info
+    VkDescriptorBufferInfo bufferInfo{};
+    bufferInfo.buffer = GetUniformBuffers()[frameIndex]->GetBuffer();
+    bufferInfo.offset = 0;
+    bufferInfo.range = sizeof(BloomUBO);
+
+    // Input texture info
+    VkDescriptorImageInfo imageInfo{};
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfo.imageView = inputTexture->GetImageView();
+    imageInfo.sampler = inputTexture->GetSampler();
+
+    std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
+
+    // Uniform buffer descriptor'ı güncelle
+    descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[0].dstSet = GetDescriptorSets()[frameIndex];
+    descriptorWrites[0].dstBinding = 0;
+    descriptorWrites[0].dstArrayElement = 0;
+    descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptorWrites[0].descriptorCount = 1;
+    descriptorWrites[0].pBufferInfo = &bufferInfo;
+
+    // Sampler descriptor'ı güncelle
+    descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[1].dstSet = GetDescriptorSets()[frameIndex];
+    descriptorWrites[1].dstBinding = 1;
+    descriptorWrites[1].dstArrayElement = 0;
+    descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptorWrites[1].descriptorCount = 1;
+    descriptorWrites[1].pImageInfo = &imageInfo;
+
+    vkUpdateDescriptorSets(GetDevice()->GetDevice(), static_cast<uint32_t>(descriptorWrites.size()),
+                          descriptorWrites.data(), 0, nullptr);
 }
 
 void BloomEffect::UpdateDescriptorSetsForPass(VulkanTexture* inputTexture, uint32_t frameIndex) {

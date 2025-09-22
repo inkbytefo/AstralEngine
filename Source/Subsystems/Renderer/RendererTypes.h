@@ -4,6 +4,7 @@
 #include <glm/glm.hpp>
 #include <memory>
 #include <vector>
+#include <array>
 
 namespace AstralEngine {
 

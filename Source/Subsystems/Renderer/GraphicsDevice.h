@@ -14,10 +14,12 @@
     #include "VulkanMemoryManager.h"
     #include "VulkanSynchronization.h"
     #include "VulkanRenderer.h"
-    #include "Buffers/VulkanBuffer.h"
     #include "Core/VulkanFrameManager.h"
     #include "Core/VulkanTransferManager.h"
 #endif
+
+// Forward declaration to break circular dependency
+class VulkanBuffer;
 
 namespace AstralEngine {
 

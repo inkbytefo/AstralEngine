@@ -33,10 +33,13 @@ void AssetSubsystem::OnInitialize(Engine* owner) {
 
 void AssetSubsystem::OnUpdate(float deltaTime) {
     (void)deltaTime; // Suppress unused parameter warning
-    
+
     // Asset Manager'ın background yükleme işlemlerini kontrol et
     if (m_assetManager) {
         m_assetManager->Update();
+
+        // Hot reload kontrolü
+        m_assetManager->CheckForAssetChanges();
     }
 }
 

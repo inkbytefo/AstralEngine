@@ -1,6 +1,6 @@
 #include "InputManager.h"
 #include "Window.h"
-#include "../../Core/Logger.h"
+#include "Core/Logger.h"
 #include "../../Events/EventManager.h"
 #include "../../Events/Event.h"
 
@@ -21,32 +21,32 @@ namespace AstralEngine {
 KeyCode SDLKeyToAstralKey(SDL_Keycode sdlKey) {
     switch (sdlKey) {
         // Letters
-        case SDLK_a: return KeyCode::A;
-        case SDLK_b: return KeyCode::B;
-        case SDLK_c: return KeyCode::C;
-        case SDLK_d: return KeyCode::D;
-        case SDLK_e: return KeyCode::E;
-        case SDLK_f: return KeyCode::F;
-        case SDLK_g: return KeyCode::G;
-        case SDLK_h: return KeyCode::H;
-        case SDLK_i: return KeyCode::I;
-        case SDLK_j: return KeyCode::J;
-        case SDLK_k: return KeyCode::K;
-        case SDLK_l: return KeyCode::L;
-        case SDLK_m: return KeyCode::M;
-        case SDLK_n: return KeyCode::N;
-        case SDLK_o: return KeyCode::O;
-        case SDLK_p: return KeyCode::P;
-        case SDLK_q: return KeyCode::Q;
-        case SDLK_r: return KeyCode::R;
-        case SDLK_s: return KeyCode::S;
-        case SDLK_t: return KeyCode::T;
-        case SDLK_u: return KeyCode::U;
-        case SDLK_v: return KeyCode::V;
-        case SDLK_w: return KeyCode::W;
-        case SDLK_x: return KeyCode::X;
-        case SDLK_y: return KeyCode::Y;
-        case SDLK_z: return KeyCode::Z;
+        case SDLK_A: return KeyCode::A;
+        case SDLK_B: return KeyCode::B;
+        case SDLK_C: return KeyCode::C;
+        case SDLK_D: return KeyCode::D;
+        case SDLK_E: return KeyCode::E;
+        case SDLK_F: return KeyCode::F;
+        case SDLK_G: return KeyCode::G;
+        case SDLK_H: return KeyCode::H;
+        case SDLK_I: return KeyCode::I;
+        case SDLK_J: return KeyCode::J;
+        case SDLK_K: return KeyCode::K;
+        case SDLK_L: return KeyCode::L;
+        case SDLK_M: return KeyCode::M;
+        case SDLK_N: return KeyCode::N;
+        case SDLK_O: return KeyCode::O;
+        case SDLK_P: return KeyCode::P;
+        case SDLK_Q: return KeyCode::Q;
+        case SDLK_R: return KeyCode::R;
+        case SDLK_S: return KeyCode::S;
+        case SDLK_T: return KeyCode::T;
+        case SDLK_U: return KeyCode::U;
+        case SDLK_V: return KeyCode::V;
+        case SDLK_W: return KeyCode::W;
+        case SDLK_X: return KeyCode::X;
+        case SDLK_Y: return KeyCode::Y;
+        case SDLK_Z: return KeyCode::Z;
         
         // Numbers
         case SDLK_1: return KeyCode::Number1;

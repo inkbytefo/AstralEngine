@@ -10,10 +10,11 @@
 #  **********************************************************************/
 
 #include "Window.h"
-#include "../../Core/Logger.h"
+#include "Core/Logger.h"
 #include "../../Events/EventManager.h"
 #include "../../Events/Event.h"
 #include "InputManager.h"
+#include "../UI/UISubsystem.h"
 
 #ifdef ASTRAL_USE_SDL3
     #include <SDL3/SDL.h>
@@ -26,7 +27,7 @@
     // Placeholder definitions for SDL3-less builds
     namespace std {
         namespace chrono {
-            template<typename duration>
+            template<typename Rep>
             class duration { /* ... */ };
         }
     }
@@ -567,6 +568,7 @@ void Window::SetUISubsystem(UISubsystem* uiSubsystem) {
  * @brief Window lifecycle events handling
  */
 void Window::HandleWindowLifecycleEvent(const void* event) {
+#ifdef ASTRAL_USE_SDL3
     const SDL_Event* sdlEvent = static_cast<const SDL_Event*>(event);
     auto& eventManager = EventManager::GetInstance();
     
@@ -588,12 +590,14 @@ void Window::HandleWindowLifecycleEvent(const void* event) {
         default:
             break;
     }
+#endif
 }
 
 /**
  * @brief Window size and state change events handling
  */
 void Window::HandleWindowResizeEvent(const void* event) {
+#ifdef ASTRAL_USE_SDL3
     const SDL_Event* sdlEvent = static_cast<const SDL_Event*>(event);
     auto& eventManager = EventManager::GetInstance();
     
@@ -648,12 +652,14 @@ void Window::HandleWindowResizeEvent(const void* event) {
         default:
             break;
     }
+#endif
 }
 
 /**
  * @brief Keyboard events handling
  */
 void Window::HandleKeyboardEvent(const void* event) {
+#ifdef ASTRAL_USE_SDL3
     if (!m_data->inputManager) return;
 
     const SDL_Event* sdlEvent = static_cast<const SDL_Event*>(event);
@@ -677,12 +683,14 @@ void Window::HandleKeyboardEvent(const void* event) {
         default:
             break;
     }
+#endif
 }
 
 /**
  * @brief Mouse events handling
  */
 void Window::HandleMouseEvent(const void* event) {
+#ifdef ASTRAL_USE_SDL3
     if (!m_data->inputManager) return;
 
     const SDL_Event* sdlEvent = static_cast<const SDL_Event*>(event);
@@ -718,12 +726,14 @@ void Window::HandleMouseEvent(const void* event) {
         default:
             break;
     }
+#endif
 }
 
 /**
  * @brief Other important events handling
  */
 void Window::HandleOtherEvent(const void* event) {
+#ifdef ASTRAL_USE_SDL3
     const SDL_Event* sdlEvent = static_cast<const SDL_Event*>(event);
     switch (sdlEvent->type) {
         case SDL_EVENT_WINDOW_FOCUS_GAINED:
@@ -754,6 +764,7 @@ void Window::HandleOtherEvent(const void* event) {
             // Bilinmeyen veya işlenmeyen olaylar
             break;
     }
+#endif
 }
 
 /**

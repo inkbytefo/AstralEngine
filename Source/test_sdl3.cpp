@@ -118,6 +118,7 @@ private:
         
 #ifdef ASTRAL_USE_SDL3
         Logger::Info("SDL3Test", "✅ SDL3 integration is active");
+        TestKeyCodeCompatibility();
 #else
         Logger::Warning("SDL3Test", "⚠️  SDL3 integration is not active (compiled without SDL3)");
 #endif
@@ -147,6 +148,80 @@ private:
         }
         
         return allTestsPassed;
+    }
+    
+    void TestKeyCodeCompatibility() {
+        Logger::Info("SDL3Test", "Testing SDL3 Key Code compatibility...");
+        
+        // Test some key mappings to ensure SDL3 compatibility
+        bool keyMappingTestsPassed = true;
+        
+        // Test letter keys (SDL3 uses uppercase)
+        if (static_cast<int>(KeyCode::A) != 'A') {
+            Logger::Error("SDL3Test", "❌ KeyCode::A mapping incorrect: expected {}, got {}", 'A', static_cast<int>(KeyCode::A));
+            keyMappingTestsPassed = false;
+        }
+        
+        if (static_cast<int>(KeyCode::Z) != 'Z') {
+            Logger::Error("SDL3Test", "❌ KeyCode::Z mapping incorrect: expected {}, got {}", 'Z', static_cast<int>(KeyCode::Z));
+            keyMappingTestsPassed = false;
+        }
+        
+        // Test number keys
+        if (static_cast<int>(KeyCode::Number1) != '1') {
+            Logger::Error("SDL3Test", "❌ KeyCode::Number1 mapping incorrect: expected {}, got {}", '1', static_cast<int>(KeyCode::Number1));
+            keyMappingTestsPassed = false;
+        }
+        
+        if (static_cast<int>(KeyCode::Number0) != '0') {
+            Logger::Error("SDL3Test", "❌ KeyCode::Number0 mapping incorrect: expected {}, got {}", '0', static_cast<int>(KeyCode::Number0));
+            keyMappingTestsPassed = false;
+        }
+        
+        // Test special keys
+        if (static_cast<int>(KeyCode::Return) != 0x0D) {
+            Logger::Error("SDL3Test", "❌ KeyCode::Return mapping incorrect: expected {}, got {}", 0x0D, static_cast<int>(KeyCode::Return));
+            keyMappingTestsPassed = false;
+        }
+        
+        if (static_cast<int>(KeyCode::Escape) != 0x1B) {
+            Logger::Error("SDL3Test", "❌ KeyCode::Escape mapping incorrect: expected {}, got {}", 0x1B, static_cast<int>(KeyCode::Escape));
+            keyMappingTestsPassed = false;
+        }
+        
+        // Test arrow keys (SDL3 compatible values)
+        if (static_cast<int>(KeyCode::Up) != 0x40000052) {
+            Logger::Error("SDL3Test", "❌ KeyCode::Up mapping incorrect: expected {}, got {}", 0x40000052, static_cast<int>(KeyCode::Up));
+            keyMappingTestsPassed = false;
+        }
+        
+        if (static_cast<int>(KeyCode::Down) != 0x40000051) {
+            Logger::Error("SDL3Test", "❌ KeyCode::Down mapping incorrect: expected {}, got {}", 0x40000051, static_cast<int>(KeyCode::Down));
+            keyMappingTestsPassed = false;
+        }
+        
+        // Test function keys
+        if (static_cast<int>(KeyCode::F1) != 0x4000003A) {
+            Logger::Error("SDL3Test", "❌ KeyCode::F1 mapping incorrect: expected {}, got {}", 0x4000003A, static_cast<int>(KeyCode::F1));
+            keyMappingTestsPassed = false;
+        }
+        
+        // Test modifier keys
+        if (static_cast<int>(KeyCode::LeftCtrl) != 0x400000E0) {
+            Logger::Error("SDL3Test", "❌ KeyCode::LeftCtrl mapping incorrect: expected {}, got {}", 0x400000E0, static_cast<int>(KeyCode::LeftCtrl));
+            keyMappingTestsPassed = false;
+        }
+        
+        if (static_cast<int>(KeyCode::RightCtrl) != 0x400000E3) {
+            Logger::Error("SDL3Test", "❌ KeyCode::RightCtrl mapping incorrect: expected {}, got {}", 0x400000E3, static_cast<int>(KeyCode::RightCtrl));
+            keyMappingTestsPassed = false;
+        }
+        
+        if (keyMappingTestsPassed) {
+            Logger::Info("SDL3Test", "✅ All key code mappings are correct and SDL3 compatible");
+        } else {
+            Logger::Error("SDL3Test", "❌ Some key code mappings are incorrect");
+        }
     }
     
     // Test durum değişkenleri

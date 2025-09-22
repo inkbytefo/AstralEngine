@@ -3,9 +3,9 @@
 #include "../Core/VulkanDevice.h"
 #include "VulkanBuffer.h"
 #include "../RendererTypes.h"
-#include "../VulkanMeshManager.h"
 #include "../Bounds.h"
 #include "../GraphicsDevice.h"
+#include "../../Asset/AssetData.h"
 #include <vulkan/vulkan.h>
 #include <vector>
 #include <memory>
@@ -103,7 +103,7 @@ public:
      * @return true Hazırsa (fence sinyal vermişse)
      * @return false Henüz hazır değilse
      */
-    bool IsReady() const { return true; }
+    bool IsReady() const;
 
     /**
      * @brief Mesh'in yükleme durumunu döndürür
@@ -141,8 +141,8 @@ private:
     /**
      * @brief Vertex ve index verilerini GPU'ya yükler
      *
-     * Bu metod, hem vertex hem de index verilerini tek bir staging buffer kullanarak
-     * GPU'ya asenkron olarak yükler.
+     * Bu metod, vertex ve index verilerini doğrudan buffer'lara kopyalar
+     * ve VulkanBuffer::CopyDataFromHost() metodunu kullanır.
      *
      * @return true Başarılı olursa
      * @return false Hata oluşursa
@@ -166,7 +166,6 @@ private:
     std::string m_lastError;                           // Son hata mesajı
     bool m_isInitialized;                              // Başlatma durumu
     mutable GpuResourceState m_state;                  // Mesh'in yükleme durumu
-    VkBuffer m_stagingBuffer = VK_NULL_HANDLE;         // Staging buffer
 };
 
 } // namespace AstralEngine

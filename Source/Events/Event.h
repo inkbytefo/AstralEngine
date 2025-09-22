@@ -1,207 +1,77 @@
 #pragma once
 
-#include "Subsystems/Platform/KeyCode.h"
+#include <functional>
 #include <string>
-#include <memory>
-#include <typeindex>
 
-namespace AstralEngine {
+namespace AstralEngine
+{
+	enum class EventType
+	{
+		None = 0,
+		WindowClose, WindowResize, WindowFocus, WindowLostFocus, WindowMoved,
+		AppTick, AppUpdate, AppRender,
+		KeyPressed, KeyReleased, KeyTyped,
+		MouseButtonPressed, MouseButtonReleased, MouseMoved, MouseScrolled
+	};
 
-/**
- * @brief Tüm olaylar için temel sınıf.
- * 
- * Motor genelindeki asenkron iletişim için event system'in temelini oluşturur.
- * Her olay türü bu sınıftan türemelidir.
- */
-class Event {
-public:
-    virtual ~Event() = default;
-    
-    // Olay türü bilgisi
-    virtual const char* GetName() const = 0;
-    virtual std::type_index GetType() const = 0;
-    
-    // Olay işlendi mi?
-    bool IsHandled() const { return m_handled; } 
-    void SetHandled(bool handled = true) { m_handled = handled; } 
-    
-    // Olay kategorileri (bitwise operations için)
-    enum Category {
-        None        = 0,
-        Application = 1 << 0,
-        Input       = 1 << 1, 
-        Keyboard    = 1 << 2,
-        Mouse       = 1 << 3,
-        Window      = 1 << 4,
-        Renderer    = 1 << 5,
-        Asset       = 1 << 6
-    };
-    
-    virtual int GetCategoryFlags() const = 0;
-    bool IsInCategory(Category category) const {
-        return GetCategoryFlags() & category;
-    }
+	enum EventCategory
+	{
+		None = 0,
+		EventCategoryApplication = 1 << 0,
+		EventCategoryInput = 1 << 1,
+		EventCategoryKeyboard = 1 << 2,
+		EventCategoryMouse = 1 << 3,
+		EventCategoryMouseButton = 1 << 4
+	};
 
-private:
-    bool m_handled = false;
-};
+#define EVENT_CLASS_TYPE(type) static EventType GetStaticType() { return EventType::type; }\
+							virtual EventType GetEventType() const override { return GetStaticType(); }\
+							virtual const char* GetName() const override { return #type; }
 
-// Event türü için makro yardımcısı
-#define EVENT_CLASS_TYPE(type) \
-    static std::type_index GetStaticType() { return typeid(type); } \
-    virtual std::type_index GetType() const override { return GetStaticType(); } \
-    virtual const char* GetName() const override { return #type; }
+#define EVENT_CLASS_CATEGORY(category) virtual int GetCategoryFlags() const override { return category; }
 
-#define EVENT_CLASS_CATEGORY(category) \
-    virtual int GetCategoryFlags() const override { return category; }
+	class Event
+	{
+	public:
+		virtual ~Event() = default;
 
-// Yaygın olay türleri
+		bool Handled = false;
 
-/**
- * @brief Pencere yeniden boyutlandırma olayı
- */
-class WindowResizeEvent : public Event {
-public:
-    WindowResizeEvent(int width, int height) 
-        : m_width(width), m_height(height) {}
-    
-    int GetWidth() const { return m_width; }
-    int GetHeight() const { return m_height; }
-    
-    EVENT_CLASS_TYPE(WindowResizeEvent)
-    EVENT_CLASS_CATEGORY(Window | Application)
+		virtual EventType GetEventType() const = 0;
+		virtual const char* GetName() const = 0;
+		virtual int GetCategoryFlags() const = 0;
+		virtual std::string ToString() const { return GetName(); }
 
-private:
-    int m_width, m_height;
-};
+		bool IsInCategory(EventCategory category)
+		{
+			return GetCategoryFlags() & category;
+		}
+	};
 
-/**
- * @brief Pencere kapatma olayı
- */
-class WindowCloseEvent : public Event {
-public:
-    WindowCloseEvent() = default;
-    
-    EVENT_CLASS_TYPE(WindowCloseEvent)
-    EVENT_CLASS_CATEGORY(Window | Application)
-};
+	class EventDispatcher
+	{
+	public:
+		EventDispatcher(Event& event)
+			: m_Event(event)
+		{
+		}
 
-/**
- * @brief Klavye tuşuna basma olayı
- */
-class KeyPressedEvent : public Event {
-public:
-    KeyPressedEvent(KeyCode keyCode, bool isRepeat = false)
-        : m_keyCode(keyCode), m_isRepeat(isRepeat) {}
-    
-    KeyCode GetKeyCode() const { return m_keyCode; }
-    bool IsRepeat() const { return m_isRepeat; }
-    
-    EVENT_CLASS_TYPE(KeyPressedEvent)
-    EVENT_CLASS_CATEGORY(Keyboard | Input)
+		template<typename T, typename F>
+		bool Dispatch(const F& func)
+		{
+			if (m_Event.GetEventType() == T::GetStaticType())
+			{
+				m_Event.Handled |= func(static_cast<T&>(m_Event));
+				return true;
+			}
+			return false;
+		}
+	private:
+		Event& m_Event;
+	};
 
-private:
-    KeyCode m_keyCode;
-    bool m_isRepeat;
-};
-
-/**
- * @brief Klavye tuşu bırakma olayı
- */
-class KeyReleasedEvent : public Event {
-public:
-    KeyReleasedEvent(KeyCode keyCode) : m_keyCode(keyCode) {}
-    
-    KeyCode GetKeyCode() const { return m_keyCode; }
-    
-    EVENT_CLASS_TYPE(KeyReleasedEvent)
-    EVENT_CLASS_CATEGORY(Keyboard | Input)
-
-private:
-    KeyCode m_keyCode;
-};
-
-/**
- * @brief Mouse düğmesi basma olayı
- */
-class MouseButtonPressedEvent : public Event {
-public:
-    MouseButtonPressedEvent(int button) : m_button(button) {}
-    
-    int GetMouseButton() const { return m_button; }
-    
-    EVENT_CLASS_TYPE(MouseButtonPressedEvent)
-    EVENT_CLASS_CATEGORY(Mouse | Input)
-
-private:
-    int m_button;
-};
-
-/**
- * @brief Mouse düğmesi bırakma olayı
- */
-class MouseButtonReleasedEvent : public Event {
-public:
-    MouseButtonReleasedEvent(int button) : m_button(button) {}
-    
-    int GetMouseButton() const { return m_button; }
-    
-    EVENT_CLASS_TYPE(MouseButtonReleasedEvent)
-    EVENT_CLASS_CATEGORY(Mouse | Input)
-
-private:
-    int m_button;
-};
-
-/**
- * @brief Mouse hareket olayı
- */
-class MouseMovedEvent : public Event {
-public:
-    MouseMovedEvent(int x, int y) : m_mouseX(x), m_mouseY(y) {}
-    
-    int GetX() const { return m_mouseX; }
-    int GetY() const { return m_mouseY; }
-    
-    EVENT_CLASS_TYPE(MouseMovedEvent)
-    EVENT_CLASS_CATEGORY(Mouse | Input)
-
-private:
-    int m_mouseX, m_mouseY;
-};
-
-/**
- * @brief Mouse tekerleği kaydırma olayı
- */
-class MouseScrolledEvent : public Event {
-public:
-    MouseScrolledEvent(float xOffset, float yOffset)
-        : m_xOffset(xOffset), m_yOffset(yOffset) {}
-
-    float GetXOffset() const { return m_xOffset; }
-    float GetYOffset() const { return m_yOffset; }
-
-    EVENT_CLASS_TYPE(MouseScrolledEvent)
-    EVENT_CLASS_CATEGORY(Mouse | Input)
-
-private:
-    float m_xOffset, m_yOffset;
-};
-
-/**
- * @brief Asset yükleme tamamlanma olayı
- */
-class AssetLoadedEvent : public Event {
-public:
-    AssetLoadedEvent(const std::string& assetPath) : m_assetPath(assetPath) {}
-    
-    const std::string& GetAssetPath() const { return m_assetPath; }
-    
-    EVENT_CLASS_TYPE(AssetLoadedEvent)
-    EVENT_CLASS_CATEGORY(Asset)
-
-private:
-    std::string m_assetPath;
-};
-
-} // namespace AstralEngine
+	inline std::ostream& operator<<(std::ostream& os, const Event& e)
+	{
+		return os << e.ToString();
+	}
+}

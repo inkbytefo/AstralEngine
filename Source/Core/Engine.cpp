@@ -31,80 +31,147 @@ void Engine::Run(IApplication* application) {
     }
 
     Logger::Info("Engine", "Starting engine...");
-    Initialize();
+    try {
+        Initialize();
+    } catch (const std::exception& e) {
+        Logger::Critical("Engine", "Engine initialization failed: {}", e.what());
+        return;
+    }
     
     Logger::Info("Engine", "Starting application...");
-    m_application->OnStart(this);
+    try {
+        m_application->OnStart(this);
+    } catch (const std::exception& e) {
+        Logger::Error("Engine", "Application OnStart failed: {}", e.what());
+        Shutdown();
+        return;
+    }
 
     m_isRunning = true;
     
     auto lastFrameTime = std::chrono::high_resolution_clock::now();
     
     while (m_isRunning) {
-        auto currentTime = std::chrono::high_resolution_clock::now();
-        auto deltaTime = std::chrono::duration<float>(currentTime - lastFrameTime).count();
-        lastFrameTime = currentTime;
-        
-        // 1. Update engine-level systems
-        Update();
-        
-        // 2. PreUpdate aşaması (Input, Platform Events)
-        auto preUpdateIt = m_subsystemsByStage.find(UpdateStage::PreUpdate);
-        if (preUpdateIt != m_subsystemsByStage.end()) {
-            for (auto& subsystem : preUpdateIt->second) {
-                subsystem->OnUpdate(deltaTime);
+        try {
+            auto currentTime = std::chrono::high_resolution_clock::now();
+            auto deltaTime = std::chrono::duration<float>(currentTime - lastFrameTime).count();
+            lastFrameTime = currentTime;
+            
+            // 1. Update engine-level systems
+            try {
+                Update();
+            } catch (const std::exception& e) {
+                Logger::Warning("Engine", "Engine update failed: {}", e.what());
             }
-        }
-        
-        // 3. Event processing
-        EventManager::GetInstance().ProcessEvents();
-        
-        // 4. Main Update aşaması (Game Logic, ECS Systems)
-        auto updateIt = m_subsystemsByStage.find(UpdateStage::Update);
-        if (updateIt != m_subsystemsByStage.end()) {
-            for (auto& subsystem : updateIt->second) {
-                subsystem->OnUpdate(deltaTime);
+            
+            // 2. PreUpdate aşaması (Input, Platform Events)
+            auto preUpdateIt = m_subsystemsByStage.find(UpdateStage::PreUpdate);
+            if (preUpdateIt != m_subsystemsByStage.end()) {
+                for (auto& subsystem : preUpdateIt->second) {
+                    try {
+                        subsystem->OnUpdate(deltaTime);
+                    } catch (const std::exception& e) {
+                        Logger::Error("Engine", "PreUpdate failed for subsystem {}: {}", subsystem->GetName(), e.what());
+                        // Continue with other subsystems
+                    }
+                }
             }
-        }
-        
-        // 5. Application Logic Update
-        m_application->OnUpdate(deltaTime);
-        
-        // 6. PostUpdate aşaması (Physics, etc.)
-        auto postUpdateIt = m_subsystemsByStage.find(UpdateStage::PostUpdate);
-        if (postUpdateIt != m_subsystemsByStage.end()) {
-            for (auto& subsystem : postUpdateIt->second) {
-                subsystem->OnUpdate(deltaTime);
+            
+            // 3. Event processing
+            try {
+                EventManager::GetInstance().ProcessEvents();
+            } catch (const std::exception& e) {
+                Logger::Warning("Engine", "Event processing failed: {}", e.what());
             }
-        }
+            
+            // 4. Main Update aşaması (Game Logic, ECS Systems)
+            auto updateIt = m_subsystemsByStage.find(UpdateStage::Update);
+            if (updateIt != m_subsystemsByStage.end()) {
+                for (auto& subsystem : updateIt->second) {
+                    try {
+                        subsystem->OnUpdate(deltaTime);
+                    } catch (const std::exception& e) {
+                        Logger::Error("Engine", "Update failed for subsystem {}: {}", subsystem->GetName(), e.what());
+                        // Continue with other subsystems
+                    }
+                }
+            }
+            
+            // 5. Application Logic Update
+            try {
+                m_application->OnUpdate(deltaTime);
+            } catch (const std::exception& e) {
+                Logger::Error("Engine", "Application update failed: {}", e.what());
+                // Continue running, don't crash the engine
+            }
+            
+            // 6. PostUpdate aşaması (Physics, etc.)
+            auto postUpdateIt = m_subsystemsByStage.find(UpdateStage::PostUpdate);
+            if (postUpdateIt != m_subsystemsByStage.end()) {
+                for (auto& subsystem : postUpdateIt->second) {
+                    try {
+                        subsystem->OnUpdate(deltaTime);
+                    } catch (const std::exception& e) {
+                        Logger::Error("Engine", "PostUpdate failed for subsystem {}: {}", subsystem->GetName(), e.what());
+                        // Continue with other subsystems
+                    }
+                }
+            }
 
-        // 7. UI aşaması (ImGui updates, command list generation)
-        auto uiIt = m_subsystemsByStage.find(UpdateStage::UI);
-        if (uiIt != m_subsystemsByStage.end()) {
-            for (auto& subsystem : uiIt->second) {
-                subsystem->OnUpdate(deltaTime);
+            // 7. UI aşaması (ImGui updates, command list generation)
+            auto uiIt = m_subsystemsByStage.find(UpdateStage::UI);
+            if (uiIt != m_subsystemsByStage.end()) {
+                for (auto& subsystem : uiIt->second) {
+                    try {
+                        subsystem->OnUpdate(deltaTime);
+                    } catch (const std::exception& e) {
+                        Logger::Error("Engine", "UI update failed for subsystem {}: {}", subsystem->GetName(), e.what());
+                        // Continue with other subsystems
+                    }
+                }
             }
-        }
 
-        // 8. Render aşaması
-        auto renderIt = m_subsystemsByStage.find(UpdateStage::Render);
-        if (renderIt != m_subsystemsByStage.end()) {
-            for (auto& subsystem : renderIt->second) {
-                subsystem->OnUpdate(deltaTime);
+            // 8. Render aşaması
+            auto renderIt = m_subsystemsByStage.find(UpdateStage::Render);
+            if (renderIt != m_subsystemsByStage.end()) {
+                for (auto& subsystem : renderIt->second) {
+                    try {
+                        subsystem->OnUpdate(deltaTime);
+                    } catch (const std::exception& e) {
+                        Logger::Error("Engine", "Render failed for subsystem {}: {}", subsystem->GetName(), e.what());
+                        // Continue with other subsystems
+                    }
+                }
             }
-        }
-        
-        // 8. Shutdown check
-        auto* platformSubsystem = GetSubsystem<PlatformSubsystem>();
-        if (platformSubsystem && platformSubsystem->GetWindow()->ShouldClose()) {
-            RequestShutdown();
+            
+            // 9. Shutdown check
+            auto* platformSubsystem = GetSubsystem<PlatformSubsystem>();
+            if (platformSubsystem && platformSubsystem->GetWindow()->ShouldClose()) {
+                RequestShutdown();
+            }
+            
+        } catch (const std::exception& e) {
+            Logger::Error("Engine", "Frame update failed: {}", e.what());
+            // Continue running, don't crash the engine
+            // The error might be transient
         }
     }
     
     Logger::Info("Engine", "Shutting down application...");
-    m_application->OnShutdown();
+    try {
+        m_application->OnShutdown();
+    } catch (const std::exception& e) {
+        Logger::Error("Engine", "Application OnShutdown failed: {}", e.what());
+        // Continue with engine shutdown
+    }
     
-    Shutdown();
+    try {
+        Shutdown();
+    } catch (const std::exception& e) {
+        Logger::Error("Engine", "Engine shutdown failed: {}", e.what());
+        // Log the error but don't throw
+    }
+    
     Logger::Info("Engine", "Engine shutdown complete");
 }
 
@@ -119,8 +186,14 @@ void Engine::Initialize() {
     // Tüm subsystem'leri başlat
     for (auto& [stage, subsystems] : m_subsystemsByStage) {
         for (auto& subsystem : subsystems) {
-            Logger::Info("Engine", "Initializing subsystem: {}", subsystem->GetName());
-            subsystem->OnInitialize(this);
+            try {
+                Logger::Info("Engine", "Initializing subsystem: {}", subsystem->GetName());
+                subsystem->OnInitialize(this);
+                Logger::Info("Engine", "Successfully initialized subsystem: {}", subsystem->GetName());
+            } catch (const std::exception& e) {
+                Logger::Error("Engine", "Failed to initialize subsystem {}: {}", subsystem->GetName(), e.what());
+                throw std::runtime_error(std::string("Subsystem initialization failed: ") + subsystem->GetName() + " - " + e.what());
+            }
         }
     }
     
@@ -138,15 +211,21 @@ void Engine::Shutdown() {
     // Subsystem'leri ters sırada kapat (LIFO)
     for (auto it = m_subsystemsByStage.rbegin(); it != m_subsystemsByStage.rend(); ++it) {
         for (auto subsystem_it = it->second.rbegin(); subsystem_it != it->second.rend(); ++subsystem_it) {
-            Logger::Info("Engine", "Shutting down subsystem: {}", (*subsystem_it)->GetName());
-            (*subsystem_it)->OnShutdown();
+            try {
+                Logger::Info("Engine", "Shutting down subsystem: {}", (*subsystem_it)->GetName());
+                (*subsystem_it)->OnShutdown();
+                Logger::Info("Engine", "Successfully shutdown subsystem: {}", (*subsystem_it)->GetName());
+            } catch (const std::exception& e) {
+                Logger::Error("Engine", "Failed to shutdown subsystem {}: {}", (*subsystem_it)->GetName(), e.what());
+                // Continue with other subsystems even if one fails
+            }
         }
     }
     
     m_initialized = false;
     m_isRunning = false;
     
-    Logger::Info("Engine", "Engine shutdown initiated");
+    Logger::Info("Engine", "Engine shutdown complete");
 }
 
 void Engine::Update() {

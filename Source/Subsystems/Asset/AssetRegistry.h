@@ -111,6 +111,9 @@ public:
     // Cleanup operations
     std::vector<AssetHandle> GetUnusedAssets(uint64_t olderThanMs = 0) const;
     void ClearAll();
+    
+    // Get all assets
+    std::vector<AssetHandle> GetAllAssets() const;
 
 private:
     mutable std::mutex m_mutex;

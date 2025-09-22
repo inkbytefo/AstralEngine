@@ -18,6 +18,9 @@ stbi_uc *stbi_load(char const *filename, int *x, int *y, int *channels_in_file, 
 stbi_uc *stbi_load_from_memory(stbi_uc const *buffer, int len, int *x, int *y, int *channels_in_file, int desired_channels);
 void stbi_image_free(void *retval_from_stbi_load);
 
+// Error reporting function
+const char *stbi_failure_reason(void);
+
 #define STBI_rgb 3
 #define STBI_rgb_alpha 4
 

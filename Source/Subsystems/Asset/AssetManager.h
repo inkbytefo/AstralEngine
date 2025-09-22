@@ -4,38 +4,19 @@
 #include <unordered_map>
 #include <memory>
 #include <future>
-#include <functional>
-#include <vector>
-#include <queue>
 #include <mutex>
 #include "AssetHandle.h"
 #include "AssetRegistry.h"
-#include "AssetData.h"
-#include "../../Core/Logger.h"
-#include "../../Core/ThreadPool.h" // Added for ThreadPool
-
-// Forward declarations
-namespace AstralEngine {
-class Texture {
-public:
-    Texture(const std::string& path) : m_filePath(path) {}
-    const std::string& GetFilePath() const { return m_filePath; }
-private:
-    std::string m_filePath;
-};
-
-class Model;
-class VulkanDevice;
-}
+#include "IAssetImporter.h"
+#include "../../Core/ThreadPool.h"
 
 namespace AstralEngine {
 
 /**
  * @brief Manages game assets using a handle-based asynchronous architecture.
- * 
- * Provides asynchronous asset loading, reference counting, and automatic memory management.
- * The system uses AssetHandle for asset identification and supports non-blocking
- * asset retrieval through GetAsset<T>(). Thread-safe design.
+ *
+ * This class is the central point for asset operations. It uses a system of
+ * importers (IAssetImporter) to load assets asynchronously from disk.
  */
 class AssetManager {
 public:
@@ -48,102 +29,98 @@ public:
 
     // Lifecycle management
     bool Initialize(const std::string& assetDirectory);
-    void Update(); // Controls async operations
     void Shutdown();
 
-    // CPU-side data loading methods (synchronous, used by async system)
-    std::shared_ptr<ModelData> LoadModel(const std::string& filePath);
-    std::shared_ptr<TextureData> LoadTexture(const std::string& filePath);
-    std::shared_ptr<ShaderData> LoadShader(const std::string& filePath, ShaderData::Type type = ShaderData::Type::Unknown);
-    std::shared_ptr<MaterialData> LoadMaterial(const std::string& filePath);
-    
-    // AssetHandle-based System
-    AssetHandle RegisterAsset(const std::string& filePath, AssetHandle::Type type);
+    // Asset Registration
+    AssetHandle RegisterAsset(const std::string& filePath);
     bool UnloadAsset(const AssetHandle& handle);
-    
-    // Asset Access
+
+    // Asynchronous Asset Access
     template<typename T>
     std::shared_ptr<T> GetAsset(const AssetHandle& handle);
-    
-    template<typename T>
+
+    // Asset State & Info
     bool IsAssetLoaded(const AssetHandle& handle) const;
-    
-    // Asset State Management
     AssetLoadState GetAssetState(const AssetHandle& handle) const;
-    float GetAssetLoadProgress(const AssetHandle& handle) const;
-    std::string GetAssetError(const AssetHandle& handle) const;
-    
+    const AssetMetadata* GetMetadata(const AssetHandle& handle) const;
+
     // Asset Registry Access
     AssetRegistry& GetRegistry() { return m_registry; }
     const AssetRegistry& GetRegistry() const { return m_registry; }
 
-    // Asynchronous Loading (non-blocking)
-	void LoadAssetAsync(const AssetHandle& handle);
-
-    // Cache Management
-    void ClearAssetCache();
-    size_t GetLoadedAssetCountByType(AssetHandle::Type type) const;
-    
-    // Statistics
-    size_t GetLoadedAssetCount() const;
-    size_t GetMemoryUsage() const;
+    // Utility
+    std::string GetFullPath(const std::string& relativePath) const;
 
 private:
-    // Handle-based asset cache for asynchronous loading
-    std::unordered_map<AssetHandle, std::shared_future<std::shared_ptr<void>>, AssetHandleHash> m_assetHandleCache;
-    
-    // Asset registry
-    AssetRegistry m_registry;
+    void RegisterImporters();
+    AssetHandle::Type GetAssetTypeFromFileExtension(const std::string& filePath) const;
+    void LoadAssetAsync(const AssetHandle& handle);
 
-    // Thread pool for async loading
-    std::unique_ptr<ThreadPool> m_threadPool;
+    template<typename T>
+    void RegisterImporter(AssetHandle::Type type);
 
-    // Helper functions
-    std::string GetFullPath(const std::string& relativePath) const;
-    std::string NormalizePath(const std::string& path) const;
-
-    // Asynchronous loading request
-    void RequestLoad(const AssetHandle& handle);
-
+private:
     std::string m_assetDirectory;
     bool m_initialized = false;
-    mutable std::mutex m_cacheMutex; // Thread safety
-    std::vector<AssetHandle> m_loadingAssets; // Track assets currently being loaded
+
+    AssetRegistry m_registry;
+    std::unique_ptr<ThreadPool> m_threadPool;
+
+    // Caches for loaded assets and in-flight promises
+    mutable std::mutex m_cacheMutex;
+    std::unordered_map<AssetHandle, std::shared_future<std::shared_ptr<void>>, AssetHandleHash> m_assetCache;
+
+    // Importer registration
+    std::unordered_map<AssetHandle::Type, std::unique_ptr<IAssetImporter>> m_importers;
 };
 
+// Template Implementations
 
-// Template implementations for GetAsset (Async version)
 template<typename T>
 std::shared_ptr<T> AssetManager::GetAsset(const AssetHandle& handle) {
     if (!handle.IsValid()) {
         return nullptr;
     }
 
-    // Ensure the loading process is initiated if the asset isn't loaded or loading.
-    if (m_registry.GetAssetState(handle) == AssetLoadState::NotLoaded || m_registry.GetAssetState(handle) == AssetLoadState::Unloaded) {
-        RequestLoad(handle);
-    }
-
-    // Check if the asset is fully loaded to CPU.
-    if (m_registry.GetAssetState(handle) != AssetLoadState::Loaded_CPU && m_registry.GetAssetState(handle) != AssetLoadState::Loaded) {
-        Logger::Trace("AssetManager", "Asset {} is not ready yet (State: {}). Returning nullptr for this frame.",
-                     handle.GetID(), static_cast<int>(m_registry.GetAssetState(handle)));
+    const AssetMetadata* metadata = m_registry.GetMetadata(handle);
+    if (!metadata) {
+        Logger::Warning("AssetManager", "Attempted to get asset with unregistered handle: {}", handle.GetID());
         return nullptr;
     }
 
-    // If loaded, retrieve it from the cache.
+    // If asset is not loaded, not queued, and not currently loading, start the loading process.
+    AssetLoadState currentState = metadata->state.load();
+    if (currentState == AssetLoadState::NotLoaded || currentState == AssetLoadState::Unloaded) {
+        LoadAssetAsync(handle);
+        // Return nullptr for now, the asset will be available in a future frame.
+        return nullptr;
+    }
+
+    // If the asset is still in the process of loading, return nullptr.
+    if (currentState == AssetLoadState::Queued || currentState == AssetLoadState::Loading) {
+        return nullptr;
+    }
+
+    // If loading failed, don't attempt to retrieve it.
+    if (currentState == AssetLoadState::Failed) {
+        return nullptr;
+    }
+
+    // At this point, the asset should be in the cache.
     std::shared_future<std::shared_ptr<void>> future;
     {
         std::lock_guard<std::mutex> lock(m_cacheMutex);
-        auto it = m_assetHandleCache.find(handle);
-        if (it == m_assetHandleCache.end()) {
-            Logger::Error("AssetManager", "Asset {} is marked as Loaded but not found in cache.", handle.GetID());
+        auto it = m_assetCache.find(handle);
+        if (it == m_assetCache.end()) {
+            // This can happen if the asset was just loaded but the cache hasn't been populated yet for this thread.
+            // Or it indicates a logic error.
+            Logger::Warning("AssetManager", "Asset {} is marked as loaded but not found in cache. It might become available next frame.", handle.GetID());
             return nullptr;
         }
         future = it->second;
     }
 
-    // The future should be ready if the state is Loaded.
+    // The future should be ready. A wait of 0 seconds is a non-blocking check.
     if (future.valid() && future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         std::shared_ptr<void> assetData = future.get();
         if (assetData) {
@@ -151,10 +128,19 @@ std::shared_ptr<T> AssetManager::GetAsset(const AssetHandle& handle) {
             return std::static_pointer_cast<T>(assetData);
         }
     }
-    
-    // This case indicates a state mismatch, which should be logged.
-    Logger::Warning("AssetManager", "Asset {} is marked as Loaded, but its future is not ready or data is null.", handle.GetID());
-    return nullptr;
+
+    return nullptr; // Should not be reached in normal operation if state is Loaded.
+}
+
+template<typename T>
+void AssetManager::RegisterImporter(AssetHandle::Type type) {
+    static_assert(std::is_base_of<IAssetImporter, T>::value, "Importer type must derive from IAssetImporter");
+    if (m_importers.find(type) != m_importers.end()) {
+        Logger::Warning("AssetManager", "Importer for type {} is already registered.", (int)type);
+        return;
+    }
+    m_importers[type] = std::make_unique<T>();
+    Logger::Debug("AssetManager", "Registered importer for asset type {}", (int)type);
 }
 
 } // namespace AstralEngine

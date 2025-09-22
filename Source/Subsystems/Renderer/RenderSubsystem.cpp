@@ -22,7 +22,7 @@
 
 // UI Integration includes
 #ifdef ASTRAL_USE_IMGUI
-    #include <imgui.h>
+    #include "ThirdParty/imgui.h"
     #include <imgui_impl_vulkan.h>
 #endif
 
@@ -48,53 +48,105 @@ void RenderSubsystem::OnInitialize(Engine* owner) {
     m_ecsSubsystem = m_owner->GetSubsystem<ECSSubsystem>();
     m_assetSubsystem = m_owner->GetSubsystem<AssetSubsystem>();
 
-    m_graphicsDevice = std::make_unique<GraphicsDevice>();
-    m_graphicsDevice->Initialize(m_window, m_owner);
-    
-    m_vulkanMeshManager = std::make_unique<VulkanMeshManager>();
-    m_vulkanMeshManager->Initialize(m_graphicsDevice->GetVulkanDevice(), m_assetSubsystem);
-    
-    m_vulkanTextureManager = std::make_unique<VulkanTextureManager>();
-    m_vulkanTextureManager->Initialize(m_graphicsDevice->GetVulkanDevice(), m_assetSubsystem);
-    
-    m_materialManager = std::make_unique<MaterialManager>();
-    m_materialManager->Initialize(m_graphicsDevice->GetVulkanDevice(), m_assetSubsystem->GetAssetManager());
-    
-    m_camera = std::make_unique<Camera>();
-    Camera::Config cameraConfig; cameraConfig.position = glm::vec3(0.0f, 2.0f, 5.0f); cameraConfig.aspectRatio = (float)m_window->GetWidth() / (float)m_window->GetHeight();
-    m_camera->Initialize(cameraConfig);
-    
-    CreateShadowPassResources();
-    CreateGBuffer();
-    CreateLightingPassResources();
-    
-    // PostProcessingSubsystem'i oluştur ve başlat
-    m_postProcessing = std::make_unique<PostProcessingSubsystem>();
-    if (m_postProcessing) {
-        m_postProcessing->Initialize(this);
-        // PostProcessingSubsystem'e VulkanRenderer pointer'ını geç
-        SetVulkanRenderer(m_graphicsDevice->GetVulkanRenderer());
-    }
-    
-    // Swapchain boyutlarını al
-    auto* swapchain = m_graphicsDevice->GetSwapchain();
-    uint32_t width = swapchain->GetWidth();
-    uint32_t height = swapchain->GetHeight();
-    
-    // Sahne rengi texture'ını oluştur
-    CreateSceneColorTexture(width, height);
-    
-    // PostProcessingSubsystem'e input texture'ı ayarla
-    if (m_postProcessing) {
-        m_postProcessing->SetInputTexture(m_sceneColorTexture.get());
+    if (!m_window) {
+        Logger::Error("RenderSubsystem", "Failed to get window from PlatformSubsystem");
+        throw std::runtime_error("RenderSubsystem initialization failed: Window not available");
     }
 
-    // UI resources oluştur
-#ifdef ASTRAL_USE_IMGUI
-    CreateUIRenderPass();
-    CreateUIFramebuffers();
-    CreateUICommandBuffers();
-#endif
+    if (!m_ecsSubsystem) {
+        Logger::Error("RenderSubsystem", "Failed to get ECSSubsystem");
+        throw std::runtime_error("RenderSubsystem initialization failed: ECSSubsystem not available");
+    }
+
+    if (!m_assetSubsystem) {
+        Logger::Error("RenderSubsystem", "Failed to get AssetSubsystem");
+        throw std::runtime_error("RenderSubsystem initialization failed: AssetSubsystem not available");
+    }
+
+    try {
+        m_graphicsDevice = std::make_unique<GraphicsDevice>();
+        if (!m_graphicsDevice->Initialize(m_window, m_owner)) {
+            Logger::Error("RenderSubsystem", "Failed to initialize GraphicsDevice");
+            throw std::runtime_error("GraphicsDevice initialization failed");
+        }
+        
+        m_vulkanMeshManager = std::make_unique<VulkanMeshManager>();
+        if (!m_vulkanMeshManager->Initialize(m_graphicsDevice->GetVulkanDevice(), m_assetSubsystem)) {
+            Logger::Error("RenderSubsystem", "Failed to initialize VulkanMeshManager");
+            throw std::runtime_error("VulkanMeshManager initialization failed");
+        }
+        
+        m_vulkanTextureManager = std::make_unique<VulkanTextureManager>();
+        if (!m_vulkanTextureManager->Initialize(m_graphicsDevice.get(), m_assetSubsystem)) {
+            Logger::Error("RenderSubsystem", "Failed to initialize VulkanTextureManager");
+            throw std::runtime_error("VulkanTextureManager initialization failed");
+        }
+        
+        m_materialManager = std::make_unique<MaterialManager>();
+        if (!m_materialManager->Initialize(m_graphicsDevice->GetVulkanDevice(), m_assetSubsystem->GetAssetManager())) {
+            Logger::Error("RenderSubsystem", "Failed to initialize MaterialManager");
+            throw std::runtime_error("MaterialManager initialization failed");
+        }
+        
+        m_camera = std::make_unique<Camera>();
+        Camera::Config cameraConfig; 
+        cameraConfig.position = glm::vec3(0.0f, 2.0f, 5.0f); 
+        cameraConfig.aspectRatio = (float)m_window->GetWidth() / (float)m_window->GetHeight();
+        if (!m_camera->Initialize(cameraConfig)) {
+            Logger::Error("RenderSubsystem", "Failed to initialize Camera");
+            throw std::runtime_error("Camera initialization failed");
+        }
+        
+        CreateShadowPassResources();
+        CreateGBuffer();
+        CreateLightingPassResources();
+        
+        // PostProcessingSubsystem'i oluştur ve başlat
+        m_postProcessing = std::make_unique<PostProcessingSubsystem>();
+        if (m_postProcessing) {
+            if (!m_postProcessing->Initialize(this)) {
+                Logger::Warning("RenderSubsystem", "Failed to initialize PostProcessingSubsystem, continuing without it");
+                m_postProcessing.reset();
+            } else {
+                // PostProcessingSubsystem'e VulkanRenderer pointer'ını geç
+                SetVulkanRenderer(m_graphicsDevice->GetVulkanRenderer());
+            }
+        }
+        
+        // Swapchain boyutlarını al
+        auto* swapchain = m_graphicsDevice->GetSwapchain();
+        if (!swapchain) {
+            Logger::Error("RenderSubsystem", "Failed to get swapchain from GraphicsDevice");
+            throw std::runtime_error("Swapchain not available");
+        }
+        
+        uint32_t width = swapchain->GetWidth();
+        uint32_t height = swapchain->GetHeight();
+        
+        // Sahne rengi texture'ını oluştur
+        CreateSceneColorTexture(width, height);
+        
+        // PostProcessingSubsystem'e input texture'ı ayarla
+        if (m_postProcessing) {
+            m_postProcessing->SetInputTexture(m_sceneColorTexture.get());
+        }
+
+        // UI resources oluştur
+    #ifdef ASTRAL_USE_IMGUI
+        CreateUIRenderPass();
+        CreateUIFramebuffers();
+        CreateUICommandBuffers();
+    #endif
+        
+        Logger::Info("RenderSubsystem", "RenderSubsystem initialized successfully");
+        
+    } catch (const std::exception& e) {
+        Logger::Error("RenderSubsystem", "Initialization failed: {}", e.what());
+        // Clean up any partially initialized resources
+        OnShutdown();
+        throw;
+    }
+}
     
     /* YENİ POST-PROCESSING KULLANIM ÖRNEKLERİ:
      
@@ -276,40 +328,75 @@ void RenderSubsystem::OnShutdown() {
 }
 
 void RenderSubsystem::ShadowPass() {
-    auto vulkanRenderer = m_graphicsDevice->GetVulkanRenderer();
-    if (!vulkanRenderer || !m_ecsSubsystem) return;
-
-    // Işığın bakış açısından frustum oluştur
-    Frustum lightFrustum;
-    const glm::mat4 transposed_vp = glm::transpose(m_lightSpaceMatrix);
-    lightFrustum.planes[0] = transposed_vp[3] + transposed_vp[0]; // Left
-    lightFrustum.planes[1] = transposed_vp[3] - transposed_vp[0]; // Right
-    lightFrustum.planes[2] = transposed_vp[3] + transposed_vp[1]; // Bottom
-    lightFrustum.planes[3] = transposed_vp[3] - transposed_vp[1]; // Top
-    lightFrustum.planes[4] = transposed_vp[3] + transposed_vp[2]; // Near
-    lightFrustum.planes[5] = transposed_vp[3] - transposed_vp[2]; // Far
-    for (auto& plane : lightFrustum.planes) {
-        plane = plane / glm::length(glm::vec3(plane));
-    }
-
-    std::vector<VulkanRenderer::ResolvedRenderItem> shadowCasters;
-    auto view = m_ecsSubsystem->GetRegistry().view<const RenderComponent, const TransformComponent>();
-    for (auto entity : view) {
-        const auto& renderComp = view.get<RenderComponent>(entity);
-        if (!renderComp.visible || !renderComp.castsShadows) continue;
-        
-        auto mesh = m_vulkanMeshManager->GetOrCreateMesh(renderComp.modelHandle);
-        if (mesh && mesh->IsReady()) {
-            const AABB& localAABB = mesh->GetBoundingBox();
-            const glm::mat4& transform = view.get<TransformComponent>(entity).GetWorldMatrix();
-            AABB worldAABB = localAABB.Transform(transform);
-
-            if (lightFrustum.Intersects(worldAABB)) {
-                shadowCasters.push_back({transform, mesh, nullptr});
-            }
+    try {
+        auto vulkanRenderer = m_graphicsDevice->GetVulkanRenderer();
+        if (!vulkanRenderer) {
+            Logger::Warning("RenderSubsystem", "Cannot perform shadow pass: VulkanRenderer is null");
+            return;
         }
+        
+        if (!m_ecsSubsystem) {
+            Logger::Warning("RenderSubsystem", "Cannot perform shadow pass: ECSSubsystem is null");
+            return;
+        }
+        
+        if (!m_vulkanMeshManager) {
+            Logger::Warning("RenderSubsystem", "Cannot perform shadow pass: VulkanMeshManager is null");
+            return;
+        }
+
+        // Işığın bakış açısından frustum oluştur
+        Frustum lightFrustum;
+        const glm::mat4 transposed_vp = glm::transpose(m_lightSpaceMatrix);
+        lightFrustum.planes[0] = transposed_vp[3] + transposed_vp[0]; // Left
+        lightFrustum.planes[1] = transposed_vp[3] - transposed_vp[0]; // Right
+        lightFrustum.planes[2] = transposed_vp[3] + transposed_vp[1]; // Bottom
+        lightFrustum.planes[3] = transposed_vp[3] - transposed_vp[1]; // Top
+        lightFrustum.planes[4] = transposed_vp[3] + transposed_vp[2]; // Near
+        lightFrustum.planes[5] = transposed_vp[3] - transposed_vp[2]; // Far
+        for (auto& plane : lightFrustum.planes) {
+            plane = plane / glm::length(glm::vec3(plane));
+        }
+
+        std::vector<VulkanRenderer::ResolvedRenderItem> shadowCasters;
+        try {
+            auto view = m_ecsSubsystem->GetRegistry().view<const RenderComponent, const TransformComponent>();
+            for (auto entity : view) {
+                const auto& renderComp = view.get<RenderComponent>(entity);
+                if (!renderComp.visible || !renderComp.castsShadows) continue;
+                
+                try {
+                    auto mesh = m_vulkanMeshManager->GetOrCreateMesh(renderComp.modelHandle);
+                    if (mesh && mesh->IsReady()) {
+                        const AABB& localAABB = mesh->GetBoundingBox();
+                        const glm::mat4& transform = view.get<TransformComponent>(entity).GetWorldMatrix();
+                        AABB worldAABB = localAABB.Transform(transform);
+
+                        if (lightFrustum.Intersects(worldAABB)) {
+                            shadowCasters.push_back({transform, mesh, nullptr});
+                        }
+                    }
+                } catch (const std::exception& e) {
+                    Logger::Warning("RenderSubsystem", "Failed to process entity {} for shadow casting: {}", 
+                                  static_cast<uint32_t>(entity), e.what());
+                    continue;
+                }
+            }
+        } catch (const std::exception& e) {
+            Logger::Warning("RenderSubsystem", "Failed to iterate ECS entities for shadow pass: {}", e.what());
+            return;
+        }
+        
+        if (!shadowCasters.empty()) {
+            vulkanRenderer->RecordShadowPassCommands(m_shadowFramebuffer.get(), m_lightSpaceMatrix, shadowCasters);
+            Logger::Debug("RenderSubsystem", "Recorded shadow pass commands for {} shadow casters", shadowCasters.size());
+        }
+        
+    } catch (const std::exception& e) {
+        Logger::Error("RenderSubsystem", "Shadow pass failed: {}", e.what());
+        // Don't throw here as this would crash the entire render loop
+        // Just log the error and continue without shadows
     }
-    vulkanRenderer->RecordShadowPassCommands(m_shadowFramebuffer.get(), m_lightSpaceMatrix, shadowCasters);
 }
 
 void RenderSubsystem::LightingPass() {
@@ -360,18 +447,66 @@ void RenderSubsystem::UpdateLightsAndShadows() {
 }
 
 void RenderSubsystem::CreateShadowPassResources() {
-    VulkanDevice* device = m_graphicsDevice->GetVulkanDevice();
-    m_shadowMapTexture = std::make_unique<VulkanTexture>();
-    m_shadowMapTexture->Initialize(device, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, VulkanUtils::FindDepthFormat(device->GetPhysicalDevice()), VK_IMAGE_TILING_OPTIMAL,
-                                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 
-                                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    m_shadowFramebuffer = std::make_unique<VulkanFramebuffer>();
-    VulkanFramebuffer::Config fbConfig;
-    fbConfig.device = device;
-    fbConfig.renderPass = m_graphicsDevice->GetVulkanRenderer()->GetShadowRenderPass();
-    fbConfig.width = SHADOW_MAP_SIZE; fbConfig.height = SHADOW_MAP_SIZE;
-    fbConfig.attachments = { m_shadowMapTexture->GetImageView() };
-    m_shadowFramebuffer->Initialize(fbConfig);
+    try {
+        if (!m_graphicsDevice) {
+            Logger::Error("RenderSubsystem", "Cannot create shadow pass resources: GraphicsDevice is null");
+            throw std::runtime_error("GraphicsDevice is null");
+        }
+
+        m_shadowMapTexture = std::make_unique<VulkanTexture>();
+        VkFormat depthFormat = VulkanUtils::FindDepthFormat(m_graphicsDevice->GetVulkanDevice()->GetPhysicalDevice());
+        if (depthFormat == VK_FORMAT_UNDEFINED) {
+            Logger::Error("RenderSubsystem", "Failed to find suitable depth format for shadow map");
+            throw std::runtime_error("No suitable depth format found");
+        }
+
+        // Configure shadow map texture using the new config-based approach
+        VulkanTexture::Config cfg;
+        cfg.width = SHADOW_MAP_SIZE;
+        cfg.height = SHADOW_MAP_SIZE;
+        cfg.format = depthFormat;
+        cfg.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        cfg.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        cfg.name = "ShadowMap";
+
+        if (!m_shadowMapTexture->Initialize(m_graphicsDevice.get(), cfg)) {
+            Logger::Error("RenderSubsystem", "Failed to initialize shadow map texture");
+            throw std::runtime_error("Shadow map texture initialization failed");
+        }
+
+        m_shadowFramebuffer = std::make_unique<VulkanFramebuffer>();
+        VulkanFramebuffer::Config fbConfig;
+        fbConfig.device = m_graphicsDevice->GetVulkanDevice();
+        
+        auto* vulkanRenderer = m_graphicsDevice->GetVulkanRenderer();
+        if (!vulkanRenderer) {
+            Logger::Error("RenderSubsystem", "Cannot get VulkanRenderer for shadow pass");
+            throw std::runtime_error("VulkanRenderer is null");
+        }
+        
+        fbConfig.renderPass = vulkanRenderer->GetShadowRenderPass();
+        if (fbConfig.renderPass == VK_NULL_HANDLE) {
+            Logger::Error("RenderSubsystem", "Shadow render pass is null");
+            throw std::runtime_error("Shadow render pass is null");
+        }
+        
+        fbConfig.width = SHADOW_MAP_SIZE; 
+        fbConfig.height = SHADOW_MAP_SIZE;
+        fbConfig.attachments = { m_shadowMapTexture->GetImageView() };
+        
+        if (!m_shadowFramebuffer->Initialize(fbConfig)) {
+            Logger::Error("RenderSubsystem", "Failed to initialize shadow framebuffer");
+            throw std::runtime_error("Shadow framebuffer initialization failed");
+        }
+        
+        Logger::Info("RenderSubsystem", "Shadow pass resources created successfully");
+        
+    } catch (const std::exception& e) {
+        Logger::Error("RenderSubsystem", "Failed to create shadow pass resources: {}", e.what());
+        // Clean up any partially created resources
+        DestroyShadowPassResources();
+        throw;
+    }
 }
 
 void RenderSubsystem::DestroyShadowPassResources() {
@@ -386,21 +521,33 @@ void RenderSubsystem::CreateLightingPassResources() { /* ... */ }
 void RenderSubsystem::DestroyLightingPassResources() { /* ... */ }
 
 void RenderSubsystem::CreateSceneColorTexture(uint32_t width, uint32_t height) {
-    VulkanTexture::Config config;
-    config.width = width;
-    config.height = height;
-    config.format = VK_FORMAT_R16G16B16A16_SFLOAT; // HDR format
-    config.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    config.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    config.name = "SceneColor";
-    
-    m_sceneColorTexture = std::make_unique<VulkanTexture>();
-    if (!m_sceneColorTexture->Initialize(m_graphicsDevice->GetVulkanDevice(), config)) {
-        Logger::Error("RenderSubsystem", "Failed to create scene color texture");
-        return;
+    try {
+        if (!m_graphicsDevice) {
+            Logger::Error("RenderSubsystem", "Cannot create scene color texture: GraphicsDevice is null");
+            throw std::runtime_error("GraphicsDevice is null");
+        }
+
+        VulkanTexture::Config config;
+        config.width = width;
+        config.height = height;
+        config.format = VK_FORMAT_R16G16B16A16_SFLOAT; // HDR format
+        config.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        config.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        config.name = "SceneColor";
+        
+        m_sceneColorTexture = std::make_unique<VulkanTexture>();
+        if (!m_sceneColorTexture->Initialize(m_graphicsDevice.get(), config)) {
+            Logger::Error("RenderSubsystem", "Failed to create scene color texture");
+            throw std::runtime_error("Scene color texture initialization failed");
+        }
+        
+        Logger::Info("RenderSubsystem", "Created scene color texture ({0}x{1})", width, height);
+        
+    } catch (const std::exception& e) {
+        Logger::Error("RenderSubsystem", "Failed to create scene color texture: {}", e.what());
+        m_sceneColorTexture.reset();
+        throw;
     }
-    
-    Logger::Info("RenderSubsystem", "Created scene color texture ({0}x{1})", width, height);
 }
 
 void RenderSubsystem::CreateUIRenderPass() {
@@ -511,72 +658,95 @@ void RenderSubsystem::GBufferPass() {
 }
 
 void RenderSubsystem::BlitToSwapchain(VkCommandBuffer commandBuffer, VulkanTexture* sourceTexture) {
-    if (!m_graphicsDevice || !sourceTexture) {
-        Logger::Error("RenderSubsystem", "Cannot blit to swapchain without graphics device or source texture!");
-        return;
+    try {
+        if (!m_graphicsDevice || !sourceTexture) {
+            Logger::Error("RenderSubsystem", "Cannot blit to swapchain without graphics device or source texture!");
+            throw std::invalid_argument("Invalid parameters for blit operation");
+        }
+        
+        auto* swapchain = m_graphicsDevice->GetSwapchain();
+        if (!swapchain) {
+            Logger::Error("RenderSubsystem", "Cannot blit to swapchain: swapchain is null");
+            throw std::runtime_error("Swapchain is null");
+        }
+        
+        // Validate source texture
+        if (sourceTexture->GetImage() == VK_NULL_HANDLE) {
+            Logger::Error("RenderSubsystem", "Source texture image is null");
+            throw std::runtime_error("Source texture image is null");
+        }
+        
+        VkImage swapchainImage = swapchain->GetCurrentImage();
+        if (swapchainImage == VK_NULL_HANDLE) {
+            Logger::Error("RenderSubsystem", "Swapchain image is null");
+            throw std::runtime_error("Swapchain image is null");
+        }
+        
+        // Image blit için barrier
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = sourceTexture->GetImage();
+        barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        
+        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                            0, 0, nullptr, 0, nullptr, 1, &barrier);
+        
+        // Swapchain image için barrier
+        barrier.image = swapchainImage;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        
+        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                            0, 0, nullptr, 0, nullptr, 1, &barrier);
+        
+        // Blit işlemi
+        VkImageBlit blit{};
+        blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        blit.srcOffsets[0] = {0, 0, 0};
+        blit.srcOffsets[1] = {static_cast<int32_t>(sourceTexture->GetWidth()),
+                             static_cast<int32_t>(sourceTexture->GetHeight()), 1};
+        blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        blit.dstOffsets[0] = {0, 0, 0};
+        blit.dstOffsets[1] = {static_cast<int32_t>(swapchain->GetWidth()),
+                             static_cast<int32_t>(swapchain->GetHeight()), 1};
+        
+        vkCmdBlitImage(commandBuffer, sourceTexture->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                      swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+        
+        // Swapchain image'i presentation için hazırla
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = 0;
+        
+        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                            0, 0, nullptr, 0, nullptr, 1, &barrier);
+        
+        // Source texture'ı eski haline döndür
+        barrier.image = sourceTexture->GetImage();
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        
+        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &barrier);
+        
+        Logger::Debug("RenderSubsystem", "Successfully blitted texture to swapchain");
+        
+    } catch (const std::exception& e) {
+        Logger::Error("RenderSubsystem", "Failed to blit to swapchain: {}", e.what());
+        // Don't throw here as this is called during normal rendering
+        // Just log the error and continue
     }
-    
-    auto* swapchain = m_graphicsDevice->GetSwapchain();
-    
-    // Image blit için barrier
-    VkImageMemoryBarrier barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = sourceTexture->GetImage();
-    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    
-    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                        0, 0, nullptr, 0, nullptr, 1, &barrier);
-    
-    // Swapchain image için barrier
-    VkImage swapchainImage = swapchain->GetCurrentImage();
-    
-    barrier.image = swapchainImage;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier.srcAccessMask = 0;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    
-    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                        0, 0, nullptr, 0, nullptr, 1, &barrier);
-    
-    // Blit işlemi
-    VkImageBlit blit{};
-    blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    blit.srcOffsets[0] = {0, 0, 0};
-    blit.srcOffsets[1] = {static_cast<int32_t>(sourceTexture->GetWidth()),
-                         static_cast<int32_t>(sourceTexture->GetHeight()), 1};
-    blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    blit.dstOffsets[0] = {0, 0, 0};
-    blit.dstOffsets[1] = {static_cast<int32_t>(swapchain->GetWidth()),
-                         static_cast<int32_t>(swapchain->GetHeight()), 1};
-    
-    vkCmdBlitImage(commandBuffer, sourceTexture->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                  swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
-    
-    // Swapchain image'i presentation için hazırla
-    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.dstAccessMask = 0;
-    
-    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                        0, 0, nullptr, 0, nullptr, 1, &barrier);
-    
-    // Source texture'ı eski haline döndür
-    barrier.image = sourceTexture->GetImage();
-    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    
-    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                         0, 0, nullptr, 0, nullptr, 1, &barrier);
 }
 
 void RenderSubsystem::DestroyUIResources() {

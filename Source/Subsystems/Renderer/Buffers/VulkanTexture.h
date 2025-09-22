@@ -7,6 +7,24 @@
 
 namespace AstralEngine {
 
+/**
+ * @class VulkanTexture
+ * @brief Modern Vulkan texture management class using centralized transfer system
+ *
+ * This class has been refactored to use GraphicsDevice* instead of VulkanDevice* directly
+ * and removes all manual staging buffer management. The new approach:
+ *
+ * - Uses GraphicsDevice as the primary interface for all Vulkan operations
+ * - Leverages the centralized VulkanTransferManager for texture data uploads
+ * - Eliminates manual staging buffer creation and cleanup
+ * - Provides a cleaner, more maintainable API
+ * - Reduces code duplication and potential memory leaks
+ *
+ * The GraphicsDevice provides access to:
+ * - VulkanDevice through GetVulkanDevice()
+ * - VulkanTransferManager through GetTransferManager()
+ * - All other Vulkan subsystems (memory manager, synchronization, etc.)
+ */
 class VulkanTexture {
 public:
     /**
@@ -24,9 +42,9 @@ public:
     VulkanTexture();
     ~VulkanTexture();
 
-    bool Initialize(VulkanDevice* device, const std::string& texturePath);
-    bool Initialize(VulkanDevice* device, const Config& config);
-    bool InitializeFromData(VulkanDevice* device, const void* data, uint32_t width, uint32_t height, VkFormat format);
+    bool Initialize(GraphicsDevice* device, const std::string& texturePath);
+    bool Initialize(GraphicsDevice* device, const Config& config);
+    bool InitializeFromData(GraphicsDevice* device, const void* data, uint32_t width, uint32_t height, VkFormat format);
     void Shutdown();
 
     VkImageView GetImageView() const { return m_textureImageView; }
@@ -57,15 +75,9 @@ private:
     void CreateTextureSampler();
     void TransitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
     
-    /**
-     * @brief Staging buffer kaynaklarını temizler
-     *
-     * Bu metod, staging buffer kaynaklarını temizlemek için kullanılır.
-     */
-    void CleanupStagingResources();
 
-    VulkanDevice* m_device = nullptr;
     GraphicsDevice* m_graphicsDevice = nullptr;       // GraphicsDevice için pointer
+    VulkanDevice* m_device = nullptr;                  // VulkanDevice için pointer (internal use)
     VkImage m_textureImage = VK_NULL_HANDLE;
     VkDeviceMemory m_textureImageMemory = VK_NULL_HANDLE;
     VkImageView m_textureImageView = VK_NULL_HANDLE;
@@ -77,7 +89,6 @@ private:
     void SetError(const std::string& error);
     
     // Transfer için üye değişkenler
-    VkBuffer m_stagingBuffer = VK_NULL_HANDLE;        // Geçici staging buffer
     GpuResourceState m_state = GpuResourceState::Unloaded; // Texture'in yükleme durumu
     
     // Geçici olarak saklanacak bilgiler

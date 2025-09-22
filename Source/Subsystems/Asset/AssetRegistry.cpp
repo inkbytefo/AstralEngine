@@ -337,6 +337,19 @@ void AssetRegistry::ClearAll() {
     m_registry.clear();
 }
 
+std::vector<AssetHandle> AssetRegistry::GetAllAssets() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    std::vector<AssetHandle> result;
+    result.reserve(m_registry.size());
+    
+    for (const auto& pair : m_registry) {
+        result.push_back(pair.first);
+    }
+    
+    return result;
+}
+
 // Private helper functions
 AssetMetadata* AssetRegistry::GetMetadataInternal(const AssetHandle& handle) {
     auto it = m_registry.find(handle);

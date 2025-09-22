@@ -35,17 +35,12 @@ public:
     virtual void Shutdown() = 0;
     
     /**
-     * @brief Efektin render durumunu uygular
+     * @brief Efektin durumunu günceller
      *
-     * @param commandBuffer Vulkan command buffer
      * @param input Girdi texture'ı
-     * @param output Çıktı framebuffer'ı
      * @param frameIndex Frame indeksi
      */
-    virtual void Apply(VkCommandBuffer commandBuffer,
-                      VulkanTexture* input,
-                      VulkanFramebuffer* output,
-                      uint32_t frameIndex) = 0;
+    virtual void Update(VulkanTexture* input, uint32_t frameIndex) = 0;
     
     /**
      * @brief Efektin adını döndürür

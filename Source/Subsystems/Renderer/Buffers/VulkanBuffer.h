@@ -1,9 +1,11 @@
 #pragma once
 
 #include "../Core/VulkanDevice.h"
-#include "../GraphicsDevice.h"
 #include <vulkan/vulkan.h>
 #include <cstdint>
+
+// Forward declaration to break circular dependency
+class GraphicsDevice;
 
 // GPU kaynak durumu enum'u
 enum class GpuResourceState {
@@ -17,11 +19,12 @@ namespace AstralEngine {
 
 /**
  * @class VulkanBuffer
- * @brief Vulkan buffer yönetimi için sınıf
+ * @brief Vulkan buffer yönetimi için RAII tabanlı sınıf.
  * 
  * Bu sınıf, VkBuffer ve VkDeviceMemory nesnelerini birlikte yönetir.
- * Vertex buffer, index buffer, staging buffer gibi farklı türlerde
- * buffer'lar oluşturmak için kullanılabilir.
+ * Vertex buffer, index buffer, uniform buffer gibi farklı türlerde
+ * buffer'lar oluşturmak için kullanılır. Veri transferleri için
+ * GraphicsDevice'daki merkezi VulkanTransferManager'ı kullanır.
  */
 class VulkanBuffer {
 public:
@@ -41,8 +44,20 @@ public:
     VulkanBuffer(const VulkanBuffer&) = delete;
     VulkanBuffer& operator=(const VulkanBuffer&) = delete;
 
-    // Yaşam döngüsü
-    bool Initialize(GraphicsDevice* graphicsDevice, VulkanDevice* device, const Config& config);
+    /**
+     * @brief Buffer'ı başlatır.
+     * @param graphicsDevice Geçerli GraphicsDevice.
+     * @param config Buffer yapılandırma ayarları.
+     * @return Başarılı olursa true.
+     */
+    bool Initialize(GraphicsDevice* graphicsDevice, const Config& config);
+    
+    /**
+     * @brief Buffer kaynaklarını serbest bırakır.
+     * 
+     * Kaynaklar anında serbest bırakılmaz, GraphicsDevice'ın
+     * frame-aware silme kuyruğuna eklenir.
+     */
     void Shutdown();
 
     // Bellek eşleme (mapping)
@@ -59,24 +74,17 @@ public:
     // Hata yönetimi
     const std::string& GetLastError() const { return m_lastError; }
 
-    // Sahipliği bırakmak için
-    void Release();
-
-    // Staging buffer ve veri kopyalama metotları
     /**
-     * @brief Host'tan gelen veriyi buffer'a kopyalar
+     * @brief Host'tan (CPU) gelen veriyi bu buffer'a (GPU) kopyalar.
      *
-     * Bu metod, staging buffer oluşturur, veriyi staging buffer'a kopyalar ve
-     * asenkron olarak GPU'ya transfer eder. async parametresi true ise fence döndürür,
-     * false ise senkron olarak bekler.
+     * Bu metod, merkezi transfer yöneticisini kullanarak veriyi asenkron olarak
+     * GPU'ya transfer eder. İşlem, transfer yöneticisinin bir sonraki
+     * SubmitTransfers() çağrısında işlenir.
      *
-     * @param device Vulkan device
-     * @param data Kopyalanacak veri
-     * @param dataSize Veri boyutu
-     * @param async Asenkron çalıştır (varsayılan: true)
-     * @return VkFence Asenkron ise fence handle, senkron ise VK_NULL_HANDLE
+     * @param data Kopyalanacak verinin başlangıç adresi.
+     * @param dataSize Kopyalanacak verinin boyutu.
      */
-    VkFence CopyDataFromHost(const void* data, VkDeviceSize dataSize, bool async = true);
+    void CopyDataFromHost(const void* data, VkDeviceSize dataSize);
 
 private:
     // Yardımcı metotlar
@@ -84,7 +92,7 @@ private:
 
     // Member değişkenler
     GraphicsDevice* m_graphicsDevice = nullptr;
-    VulkanDevice* m_device = nullptr;
+    VulkanDevice* m_device = nullptr; // Cached from GraphicsDevice
     VkBuffer m_buffer = VK_NULL_HANDLE;
     VkDeviceMemory m_bufferMemory = VK_NULL_HANDLE;
     VkDeviceSize m_size = 0;
@@ -95,11 +103,7 @@ private:
     bool m_isInitialized = false;
     bool m_mapped = false;
     
-    // Asenkron upload için üye değişkenler
-    VkBuffer m_stagingBuffer = VK_NULL_HANDLE;        // Geçici staging buffer
-    VkDeviceMemory m_stagingMemory = VK_NULL_HANDLE;  // Staging buffer için bellek
-    mutable GpuResourceState m_state = GpuResourceState::Unloaded; // Buffer'ın yükleme durumu
-    mutable bool m_autoCleanupStaging = true;         // Otomatik staging temizliği etkin mi?
+    mutable GpuResourceState m_state = GpuResourceState::Unloaded;
 };
 
 } // namespace AstralEngine

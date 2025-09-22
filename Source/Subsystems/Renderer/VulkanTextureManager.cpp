@@ -1,6 +1,7 @@
 #include "VulkanTextureManager.h"
-#include "../../Core/Logger.h"
+#include "Core/Logger.h"
 #include "../../Asset/AssetData.h"
+#include "../GraphicsDevice.h"
 #include <vulkan/vulkan.h>
 
 namespace AstralEngine {
@@ -13,13 +14,14 @@ VulkanTextureManager::~VulkanTextureManager() {
     Logger::Debug("VulkanTextureManager", "VulkanTextureManager destroyed");
 }
 
-bool VulkanTextureManager::Initialize(VulkanDevice* device, AssetSubsystem* assetSubsystem) {
-    if (!device || !assetSubsystem) {
-        SetError("Invalid parameters: device and assetSubsystem must not be null");
+bool VulkanTextureManager::Initialize(GraphicsDevice* graphicsDevice, AssetSubsystem* assetSubsystem) {
+    if (!graphicsDevice || !assetSubsystem) {
+        SetError("Invalid parameters: graphicsDevice and assetSubsystem must not be null");
         return false;
     }
 
-    m_device = device;
+    m_graphicsDevice = graphicsDevice;
+    m_device = graphicsDevice->GetVulkanDevice(); // Keep for backward compatibility
     m_assetSubsystem = assetSubsystem;
     m_initialized = true;
 
@@ -258,7 +260,7 @@ std::shared_ptr<VulkanTexture> VulkanTextureManager::CreateTextureFromData(const
     VkFormat format = DetermineVkFormat(textureData);
 
     // Texture'ı veriden başlat
-    if (!texture->InitializeFromData(m_device, textureData->data, textureData->width, textureData->height, format)) {
+    if (!texture->InitializeFromData(m_graphicsDevice, textureData->data, textureData->width, textureData->height, format)) {
         SetError("Failed to initialize VulkanTexture from data: " + texture->GetLastError());
         return nullptr;
     }

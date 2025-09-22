@@ -45,6 +45,8 @@ public:
     void RecordShadowPassCommands(VulkanFramebuffer* shadowFramebuffer, const glm::mat4& lightSpaceMatrix, const std::vector<ResolvedRenderItem>& renderItems);
     void RecordGBufferCommands(uint32_t frameIndex, VulkanFramebuffer* gBuffer, const std::map<MeshMaterialKey, std::vector<glm::mat4>>& renderQueue);
     void RecordLightingCommands(uint32_t frameIndex, VulkanFramebuffer* sceneFramebuffer);
+    // Post-processing effect rendering
+    void RenderPostProcessingEffect(VkCommandBuffer commandBuffer, IPostProcessingEffect* effect, VulkanTexture* inputTexture, VulkanFramebuffer* outputFramebuffer, uint32_t frameIndex);
     
     // Instance buffer management
     void ResetInstanceBuffer();

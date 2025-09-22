@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../Core/ISubsystem.h"
+#include "../../Core/Logger.h"
 #include "../../ECS/Components.h"
 #include "../Asset/AssetHandle.h"
 #include <unordered_map>

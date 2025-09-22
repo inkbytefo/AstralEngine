@@ -51,6 +51,18 @@ file(GLOB_RECURSE ASTRAL_SOURCES
     "Source/**/*.cpp" "Source/**/*.h"
 )
 
+# Exclude shader files from compilation - they should not be processed by C++ compiler
+file(GLOB_RECURSE SHADER_FILES
+    "Assets/Shaders/*.slang"
+    "Assets/Shaders/**/*.slang"
+)
+
+# Remove shader files from source list
+if(SHADER_FILES)
+    list(REMOVE_ITEM ASTRAL_SOURCES ${SHADER_FILES})
+    message(STATUS "Excluded ${SHADER_FILES} shader files from compilation")
+endif()
+
 if(ASTRAL_BUILD_SHARED)
     add_library(AstralEngine SHARED ${ASTRAL_SOURCES})
     target_compile_definitions(AstralEngine PRIVATE ASTRAL_BUILD_SHARED)
@@ -90,6 +102,9 @@ target_link_libraries(AstralEngine PUBLIC
     $<$<BOOL:${ASTRAL_USE_IMGUI}>:ImGui>
     $<$<BOOL:${ASTRAL_USE_JOLT_PHYSICS}>:Jolt>
 )
+
+# --- Add DevTools Subsystem ---
+add_subdirectory(Source/Subsystems/DevTools)
 
 # =====================================================================
 # SUB-PROJECTS (Examples, Tests, Tools)

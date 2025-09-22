@@ -1,6 +1,6 @@
 #include "GraphicsDevice.h"
 #include "../Platform/Window.h"
-#include "../../Core/Logger.h"
+#include "Core/Logger.h"
 #include "../../Core/Engine.h"
 #include "Buffers/VulkanBuffer.h"
 

@@ -1,5 +1,5 @@
 #include "VulkanSynchronization.h"
-#include "../../Core/Logger.h"
+#include "Core/Logger.h"
 #include <algorithm>
 #include <sstream>
 #include <iomanip>

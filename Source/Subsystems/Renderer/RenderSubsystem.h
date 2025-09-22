@@ -8,10 +8,14 @@
 #include "VulkanTextureManager.h"
 #include "Material/Material.h"
 #include "Core/VulkanFramebuffer.h"
-// PostProcessingSubsystem forward declaration
+#include "Passes/GBufferPass.h" // Include the new GBufferPass header
+
+// Forward declarations
 class PostProcessingSubsystem;
 class TonemappingEffect;
 class BloomEffect;
+class VulkanRenderer;
+
 #include "../../Assets/Shaders/Include/lighting_structs.slang"
 #include <memory>
 #include <vector>
@@ -25,17 +29,6 @@ class BloomEffect;
 
 namespace AstralEngine {
 
-struct MeshMaterialKey {
-    AssetHandle modelHandle;
-    AssetHandle materialHandle;
-
-    bool operator<(const MeshMaterialKey& other) const {
-        if (modelHandle < other.modelHandle) return true;
-        if (other.modelHandle < modelHandle) return false;
-        return materialHandle < other.materialHandle;
-    }
-};
-
 class Window;
 class ECSSubsystem;
 class AssetSubsystem;
@@ -43,6 +36,8 @@ class VulkanMeshManager;
 class VulkanTextureManager;
 class VulkanBuffer;
 class VulkanTexture;
+class MaterialManager;
+class Camera;
 
 class RenderSubsystem : public ISubsystem {
 public:
@@ -55,24 +50,32 @@ public:
     const char* GetName() const override { return "RenderSubsystem"; }
     UpdateStage GetUpdateStage() const override { return UpdateStage::Render; }
 
-    // Getters are omitted for brevity
+    // Getters
+    Engine* GetOwner() const { return m_owner; }
     GraphicsDevice* GetGraphicsDevice() const { return m_graphicsDevice.get(); }
     VulkanTexture* GetSceneColorTexture() const { return m_sceneColorTexture.get(); }
     VulkanBuffer* GetSceneUBO() const { return m_sceneUBO.get(); }
-    VulkanTexture* GetAlbedoTexture() const { return m_gBufferAlbedo.get(); }
-    VulkanTexture* GetNormalTexture() const { return m_gBufferNormal.get(); }
-    VulkanTexture* GetPBRTexture() const { return m_gBufferPBR.get(); }
-    VulkanTexture* GetDepthTexture() const { return m_gBufferDepth.get(); }
     VulkanTexture* GetShadowMapTexture() const { return m_shadowMapTexture.get(); }
+    MaterialManager* GetMaterialManager() const { return m_materialManager.get(); }
+    VulkanMeshManager* GetVulkanMeshManager() const { return m_vulkanMeshManager.get(); }
+    VulkanTextureManager* GetVulkanTextureManager() const { return m_vulkanTextureManager.get(); }
+    Camera* GetCamera() const { return m_camera.get(); }
+
+
+    // G-Buffer textures are now accessed through the GBufferPass
+    VulkanTexture* GetAlbedoTexture() const;
+    VulkanTexture* GetNormalTexture() const;
+    VulkanTexture* GetPBRTexture() const;
+    VulkanTexture* GetDepthTexture() const;
     
-    // Post-processing entegrasyonu için yeni metodlar
+    // Post-processing integration
     void SetPostProcessingInputTexture(VulkanTexture* sceneColorTexture);
     PostProcessingSubsystem* GetPostProcessingSubsystem() const { return m_postProcessing.get(); }
     
-    // VulkanRenderer bağlantısı için yeni metod
+    // VulkanRenderer connection
     void SetVulkanRenderer(VulkanRenderer* renderer);
     
-    // Swapchain'e blit işlemi için metod
+    // Swapchain blit
     void BlitToSwapchain(VkCommandBuffer commandBuffer, VulkanTexture* sourceTexture);
 
     // UI Integration
@@ -81,8 +84,7 @@ public:
     VkCommandBuffer GetCurrentUICommandBuffer() const;
 
 private:
-    void CreateGBuffer();
-    void DestroyGBuffer();
+    // Pass-related private methods are now removed or moved
     void CreateLightingPassResources();
     void DestroyLightingPassResources();
     void CreateShadowPassResources();
@@ -90,8 +92,9 @@ private:
     void CreateSceneColorTexture(uint32_t width, uint32_t height);
     void DestroySceneColorTexture();
 
+    // High-level pass execution logic
     void ShadowPass();
-    void GBufferPass();
+    // GBufferPass() is now handled by GBufferPass class
     void LightingPass();
     void UpdateLightsAndShadows();
 
@@ -113,9 +116,8 @@ private:
     std::unique_ptr<VulkanMeshManager> m_vulkanMeshManager;
     std::unique_ptr<VulkanTextureManager> m_vulkanTextureManager;
 
-    // G-Buffer Resources
-    std::unique_ptr<VulkanFramebuffer> m_gBufferFramebuffer;
-    std::unique_ptr<VulkanTexture> m_gBufferAlbedo, m_gBufferNormal, m_gBufferPBR, m_gBufferDepth;
+    // G-Buffer is now managed by its own pass
+    std::unique_ptr<GBufferPass> m_gBufferPass;
 
     // Lighting Pass Resources
     std::unique_ptr<VulkanFramebuffer> m_sceneFramebuffer;

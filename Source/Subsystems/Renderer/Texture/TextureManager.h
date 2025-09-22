@@ -5,6 +5,7 @@
 #include "../Buffers/VulkanTexture.h"
 #include "../Material/Material.h"
 #include "../Core/VulkanDevice.h"
+#include "../GraphicsDevice.h"
 #include <vulkan/vulkan.h>
 #include <string>
 #include <vector>
@@ -14,6 +15,9 @@
 #include <glm/glm.hpp>
 
 namespace AstralEngine {
+
+// Forward declarations
+class Texture;
 
 /**
  * @enum TextureFormat
@@ -123,7 +127,7 @@ public:
     TextureManager& operator=(const TextureManager&) = delete;
 
     // Yaşam döngüsü
-    bool Initialize(VulkanDevice* device, AssetManager* assetManager);
+    bool Initialize(GraphicsDevice* graphicsDevice, AssetManager* assetManager);
     void Shutdown();
     void Update();
 
@@ -180,7 +184,8 @@ private:
     bool IsTextureExpired(const std::shared_ptr<Texture>& texture, uint64_t currentTime) const;
     
     // Member değişkenler
-    VulkanDevice* m_device = nullptr;
+    GraphicsDevice* m_graphicsDevice = nullptr;
+    VulkanDevice* m_device = nullptr; // Keep for backward compatibility during transition
     AssetManager* m_assetManager = nullptr;
     
     // Texture önbelleği

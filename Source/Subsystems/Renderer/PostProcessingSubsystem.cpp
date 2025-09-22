@@ -59,24 +59,10 @@ bool PostProcessingSubsystem::Initialize(RenderSubsystem* owner) {
     m_currentWidth = m_width;
     m_currentHeight = m_height;
 
-    // Post-processing render pass'ini oluştur
-    CreateRenderPass();
-    if (m_postProcessRenderPass == VK_NULL_HANDLE) {
-        Logger::Error("PostProcessingSubsystem", "Failed to create post-processing render pass!");
-        return false;
-    }
-
-    // Ping-pong framebuffer'ları oluştur
+    // Ping-pong texture'ları oluştur
     CreateFramebuffers(m_width, m_height);
-    if (!m_pingFramebuffer || !m_pongFramebuffer) {
-        Logger::Error("PostProcessingSubsystem", "Failed to create ping-pong framebuffers!");
-        return false;
-    }
-
-    // Full-screen pipeline'ını oluştur
-    CreateFullScreenPipeline();
-    if (m_fullScreenPipeline == VK_NULL_HANDLE) {
-        Logger::Error("PostProcessingSubsystem", "Failed to create full-screen pipeline!");
+    if (!m_pingTexture || !m_pongTexture) {
+        Logger::Error("PostProcessingSubsystem", "Failed to create ping-pong textures!");
         return false;
     }
 
@@ -111,19 +97,13 @@ bool PostProcessingSubsystem::Initialize(RenderSubsystem* owner) {
 void PostProcessingSubsystem::Execute(VkCommandBuffer commandBuffer, uint32_t frameIndex) {
     if (!m_initialized || !m_inputTexture) {
         // Input texture yok veya efekt yoksa, doğrudan swapchain'e çiz
-        if (m_owner && m_owner->GetGraphicsDevice()) {
-            BlitToSwapchain(m_owner->GetGraphicsDevice()->GetCurrentCommandBuffer(), m_inputTexture);
-        }
+        // Bu işlem VulkanRenderer tarafından yapılacak
         return;
     }
 
     // VulkanRenderer bağımlılık kontrolü
     if (!m_renderer) {
         Logger::Error("PostProcessingSubsystem", "VulkanRenderer is not available! Skipping post-processing.");
-        // VulkanRenderer yoksa, input texture'ı doğrudan swapchain'e çiz
-        if (m_owner && m_owner->GetGraphicsDevice()) {
-            BlitToSwapchain(m_owner->GetGraphicsDevice()->GetCurrentCommandBuffer(), m_inputTexture);
-        }
         return;
     }
     
@@ -148,13 +128,13 @@ void PostProcessingSubsystem::Execute(VkCommandBuffer commandBuffer, uint32_t fr
     
     if (activeEffects.empty()) {
         // Aktif efekt yoksa, input texture'ı doğrudan swapchain'e kopyala
-        BlitToSwapchain(commandBuffer, m_inputTexture);
+        // Bu işlem VulkanRenderer tarafından yapılacak
         return;
     }
     
     // Efekt zincirini uygula
     VulkanTexture* currentInput = m_inputTexture;
-    VulkanFramebuffer* currentOutput = m_pingFramebuffer.get();
+    VulkanTexture* currentOutput = m_pingTexture.get();
     
     for (size_t i = 0; i < activeEffects.size(); ++i) {
         auto* effect = activeEffects[i];
@@ -162,18 +142,25 @@ void PostProcessingSubsystem::Execute(VkCommandBuffer commandBuffer, uint32_t fr
         // Son efekt mi kontrol et
         bool isLastEffect = (i == activeEffects.size() - 1);
         
+        // Efekt durumunu güncelle
+        effect->Update(currentInput, frameIndex);
+        
+        // Descriptor set'leri güncelle
+        effect->UpdateDescriptorSets(currentInput, frameIndex);
+        
+        // Render işlemini VulkanRenderer'a delegasyon et
         if (isLastEffect) {
             // Son efekt, doğrudan swapchain'e çiz
-            effect->RecordCommands(commandBuffer, currentInput, nullptr, frameIndex);
+            m_renderer->RenderPostProcessingEffect(commandBuffer, effect, currentInput, nullptr, frameIndex);
         } else {
-            // Ara efekt, ping-pong framebuffer'ına çiz
-            effect->RecordCommands(commandBuffer, currentInput, currentOutput, frameIndex);
+            // Ara efekt, ping-pong texture'ına çiz
+            m_renderer->RenderPostProcessingEffect(commandBuffer, effect, currentInput, currentOutput, frameIndex);
             
             // Input/output değiştir
-            currentInput = (currentOutput == m_pingFramebuffer.get()) ?
+            currentInput = (currentOutput == m_pingTexture.get()) ?
                           m_pongTexture.get() : m_pingTexture.get();
-            currentOutput = (currentOutput == m_pingFramebuffer.get()) ?
-                           m_pongFramebuffer.get() : m_pingFramebuffer.get();
+            currentOutput = (currentOutput == m_pingTexture.get()) ?
+                           m_pongTexture.get() : m_pingTexture.get();
         }
     }
     
@@ -198,11 +185,7 @@ void PostProcessingSubsystem::Shutdown() {
     m_effectNameMap.clear();
 
     // Vulkan kaynaklarını ters başlatma sırasında temizle
-    DestroyFullScreenPipeline();
-    DestroyDescriptorSets();
-    DestroyFullScreenQuadBuffers();
     DestroyFramebuffers();
-    DestroyRenderPass();
 
     m_initialized = false;
     Logger::Info("PostProcessingSubsystem", "Post-processing subsystem shutdown complete");
@@ -331,7 +314,7 @@ void PostProcessingSubsystem::CreateFramebuffers(uint32_t width, uint32_t height
     pingConfig.name = "PostProcessing_Ping";
     
     auto pingTexture = std::make_unique<VulkanTexture>();
-    if (!pingTexture->Initialize(vulkanDevice, pingConfig)) {
+    if (!pingTexture->Initialize(graphicsDevice, pingConfig)) {
         Logger::Error("PostProcessingSubsystem", "Failed to create ping texture for post-processing");
         return;
     }
@@ -346,561 +329,25 @@ void PostProcessingSubsystem::CreateFramebuffers(uint32_t width, uint32_t height
     pongConfig.name = "PostProcessing_Pong";
     
     auto pongTexture = std::make_unique<VulkanTexture>();
-    if (!pongTexture->Initialize(vulkanDevice, pongConfig)) {
+    if (!pongTexture->Initialize(graphicsDevice, pongConfig)) {
         Logger::Error("PostProcessingSubsystem", "Failed to create pong texture for post-processing");
         return;
     }
     
-    // Ping framebuffer'ını oluştur
-    VulkanFramebuffer::Config pingFbConfig;
-    pingFbConfig.device = vulkanDevice;
-    pingFbConfig.renderPass = m_postProcessRenderPass;
-    pingFbConfig.width = width;
-    pingFbConfig.height = height;
-    pingFbConfig.layers = 1;
-    pingFbConfig.attachments = { pingTexture->GetImageView() };
-    pingFbConfig.name = "PostProcessing_Ping_Framebuffer";
-    
-    m_pingFramebuffer = std::make_unique<VulkanFramebuffer>();
-    if (!m_pingFramebuffer->Initialize(pingFbConfig)) {
-        Logger::Error("PostProcessingSubsystem", "Failed to create ping framebuffer for post-processing: {}",
-                     m_pingFramebuffer->GetLastError());
-        return;
-    }
-    
-    // Pong framebuffer'ını oluştur
-    VulkanFramebuffer::Config pongFbConfig;
-    pongFbConfig.device = vulkanDevice;
-    pongFbConfig.renderPass = m_postProcessRenderPass;
-    pongFbConfig.width = width;
-    pongFbConfig.height = height;
-    pongFbConfig.layers = 1;
-    pongFbConfig.attachments = { pongTexture->GetImageView() };
-    pongFbConfig.name = "PostProcessing_Pong_Framebuffer";
-    
-    m_pongFramebuffer = std::make_unique<VulkanFramebuffer>();
-    if (!m_pongFramebuffer->Initialize(pongFbConfig)) {
-        Logger::Error("PostProcessingSubsystem", "Failed to create pong framebuffer for post-processing: {}",
-                     m_pongFramebuffer->GetLastError());
-        return;
-    }
-    
-    // Texture'ları framebuffer'lara taşı
+    // Texture'ları sınıf üyelerine taşı
     m_pingTexture = std::move(pingTexture);
     m_pongTexture = std::move(pongTexture);
     
-    Logger::Info("PostProcessingSubsystem", "Created ping-pong framebuffers for post-processing ({0}x{1})", width, height);
+    Logger::Info("PostProcessingSubsystem", "Created ping-pong textures for post-processing ({0}x{1})", width, height);
 }
 
-void PostProcessingSubsystem::CreateRenderPass() {
-    if (!m_owner || !m_owner->GetGraphicsDevice()) {
-        Logger::Error("PostProcessingSubsystem", "Cannot create render pass without graphics device!");
-        return;
-    }
 
-    auto device = m_owner->GetGraphicsDevice()->GetVulkanDevice();
-    if (!device) {
-        Logger::Error("PostProcessingSubsystem", "Vulkan device not available!");
-        return;
-    }
 
-    // Color attachment description
-    VkAttachmentDescription colorAttachment{};
-    colorAttachment.format = VK_FORMAT_R16G16B16A16_SFLOAT; // HDR format
-    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-    // Color attachment reference
-    VkAttachmentReference colorAttachmentRef{};
-    colorAttachmentRef.attachment = 0;
-    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-    // Subpass description
-    VkSubpassDescription subpass{};
-    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments = &colorAttachmentRef;
 
-    // Subpass dependency
-    VkSubpassDependency dependency{};
-    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-    dependency.dstSubpass = 0;
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.srcAccessMask = 0;
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-
-    // Render pass create info
-    VkRenderPassCreateInfo renderPassInfo{};
-    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    renderPassInfo.attachmentCount = 1;
-    renderPassInfo.pAttachments = &colorAttachment;
-    renderPassInfo.subpassCount = 1;
-    renderPassInfo.pSubpasses = &subpass;
-    renderPassInfo.dependencyCount = 1;
-    renderPassInfo.pDependencies = &dependency;
-
-    if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &m_postProcessRenderPass) != VK_SUCCESS) {
-        Logger::Error("PostProcessingSubsystem", "Failed to create render pass!");
-        m_postProcessRenderPass = VK_NULL_HANDLE;
-        return;
-    }
-
-    Logger::Info("PostProcessingSubsystem", "Created post-processing render pass");
-}
-
-void PostProcessingSubsystem::CreateFullScreenPipeline() {
-    if (!m_owner || !m_owner->GetGraphicsDevice()) {
-        Logger::Error("PostProcessingSubsystem", "Cannot create pipeline without graphics device!");
-        return;
-    }
-
-    auto device = m_owner->GetGraphicsDevice();
-    auto vulkanDevice = device->GetVulkanDevice();
-    if (!vulkanDevice) {
-        Logger::Error("PostProcessingSubsystem", "Vulkan device not available!");
-        return;
-    }
-
-    // VulkanRenderer bağımlılık kontrolü
-    if (!m_renderer) {
-        Logger::Error("PostProcessingSubsystem", "VulkanRenderer is not available! Cannot create full-screen pipeline.");
-        return;
-    }
-
-    Logger::Info("PostProcessingSubsystem", "Creating full-screen pipeline...");
-
-    // 1. Descriptor set layout oluştur (texture sampling için)
-    std::vector<VkDescriptorSetLayoutBinding> bindings;
-    
-    // Input texture binding (binding = 0)
-    VkDescriptorSetLayoutBinding textureBinding{};
-    textureBinding.binding = 0;
-    textureBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    textureBinding.descriptorCount = 1;
-    textureBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    textureBinding.pImmutableSamplers = nullptr;
-    bindings.push_back(textureBinding);
-
-    VkDescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
-    layoutInfo.pBindings = bindings.data();
-
-    if (vkCreateDescriptorSetLayout(vulkanDevice, &layoutInfo, nullptr, &m_descriptorSetLayout) != VK_SUCCESS) {
-        Logger::Error("PostProcessingSubsystem", "Failed to create descriptor set layout!");
-        return;
-    }
-
-    // 2. Pipeline layout oluştur
-    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipelineLayoutInfo.setLayoutCount = 1;
-    pipelineLayoutInfo.pSetLayouts = &m_descriptorSetLayout;
-    pipelineLayoutInfo.pushConstantRangeCount = 0;
-    pipelineLayoutInfo.pPushConstantRanges = nullptr;
-
-    if (vkCreatePipelineLayout(vulkanDevice, &pipelineLayoutInfo, nullptr, &m_fullScreenPipelineLayout) != VK_SUCCESS) {
-        Logger::Error("PostProcessingSubsystem", "Failed to create pipeline layout!");
-        return;
-    }
-
-    // 3. Shader modüllerini yükle
-    // Bloom shader'larını genel amaçlı tam ekran quad shader'ı olarak kullanacağız
-    m_vertexShader = std::make_unique<VulkanShader>();
-    m_fragmentShader = std::make_unique<VulkanShader>();
-
-    // Shader SPIR-V kodlarını dosyalardan yükle
-    std::vector<uint32_t> vertexSpirvCode;
-    std::vector<uint32_t> fragmentSpirvCode;
-    
-    // Base path'i al (shader dosyalarını bulmak için)
-    // Not: RenderSubsystem üzerinden executable path'e erişim gerekebilir
-    // Şimdilik boş bir path kullanıyoruz, ileride RenderSubsystem'e bu metot eklenebilir
-    std::filesystem::path basePath = std::filesystem::current_path();
-    
-    // Vertex shader dosyasını yükle
-    std::filesystem::path vertexShaderPath = basePath / "Assets/Shaders/PostProcessing/bloom.spv";
-    if (!LoadShaderCode(vertexShaderPath.string(), vertexSpirvCode)) {
-        Logger::Error("PostProcessingSubsystem", "Failed to load vertex shader from: {}", vertexShaderPath.string());
-        return;
-    }
-    
-    // Fragment shader dosyasını yükle
-    std::filesystem::path fragmentShaderPath = basePath / "Assets/Shaders/PostProcessing/bloom_frag.spv";
-    if (!LoadShaderCode(fragmentShaderPath.string(), fragmentSpirvCode)) {
-        Logger::Error("PostProcessingSubsystem", "Failed to load fragment shader from: {}", fragmentShaderPath.string());
-        return;
-    }
-
-    if (!m_vertexShader->Initialize(vulkanDevice, vertexSpirvCode, VK_SHADER_STAGE_VERTEX_BIT)) {
-        Logger::Error("PostProcessingSubsystem", "Failed to initialize vertex shader!");
-        return;
-    }
-
-    if (!m_fragmentShader->Initialize(vulkanDevice, fragmentSpirvCode, VK_SHADER_STAGE_FRAGMENT_BIT)) {
-        Logger::Error("PostProcessingSubsystem", "Failed to initialize fragment shader!");
-        return;
-    }
-
-    // 4. Tam ekran quad için vertex ve index buffer'ları oluştur
-    CreateFullScreenQuadBuffers();
-
-    // 5. Descriptor pool ve set'leri oluştur
-    if (!CreateDescriptorPoolAndSets()) {
-        Logger::Error("PostProcessingSubsystem", "Failed to create descriptor pool and sets!");
-        return;
-    }
-
-    // 6. Descriptor set'i input texture ile güncelle
-    if (m_inputTexture) {
-        UpdateDescriptorSet(m_inputTexture);
-    }
-
-    // 7. Graphics pipeline oluştur
-    if (!CreateGraphicsPipeline()) {
-        Logger::Error("PostProcessingSubsystem", "Failed to create graphics pipeline!");
-        return;
-    }
-
-    Logger::Info("PostProcessingSubsystem", "Full-screen pipeline created successfully");
-}
-
-bool PostProcessingSubsystem::CreateDescriptorPoolAndSets() {
-    if (!m_owner || !m_owner->GetGraphicsDevice()) {
-        Logger::Error("PostProcessingSubsystem", "Cannot create descriptor pool without graphics device!");
-        return false;
-    }
-
-    auto device = m_owner->GetGraphicsDevice();
-    auto vulkanDevice = device->GetVulkanDevice();
-    if (!vulkanDevice) {
-        Logger::Error("PostProcessingSubsystem", "Vulkan device not available!");
-        return false;
-    }
-
-    Logger::Info("PostProcessingSubsystem", "Creating descriptor pool and sets...");
-
-    // Descriptor pool oluşturma
-    std::vector<VkDescriptorPoolSize> poolSizes;
-    
-    // Combined image sampler için pool size
-    VkDescriptorPoolSize samplerPoolSize{};
-    samplerPoolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    samplerPoolSize.descriptorCount = 1; // Sadece input texture için
-    poolSizes.push_back(samplerPoolSize);
-
-    VkDescriptorPoolCreateInfo poolInfo{};
-    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
-    poolInfo.pPoolSizes = poolSizes.data();
-    poolInfo.maxSets = 1; // Sadece bir descriptor set
-
-    if (vkCreateDescriptorPool(vulkanDevice, &poolInfo, nullptr, &m_descriptorPool) != VK_SUCCESS) {
-        Logger::Error("PostProcessingSubsystem", "Failed to create descriptor pool!");
-        return false;
-    }
-
-    // Descriptor set allocation
-    VkDescriptorSetAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool = m_descriptorPool;
-    allocInfo.descriptorSetCount = 1;
-    allocInfo.pSetLayouts = &m_descriptorSetLayout;
-
-    if (vkAllocateDescriptorSets(vulkanDevice, &allocInfo, &m_descriptorSet) != VK_SUCCESS) {
-        Logger::Error("PostProcessingSubsystem", "Failed to allocate descriptor sets!");
-        return false;
-    }
-
-    Logger::Info("PostProcessingSubsystem", "Descriptor pool and sets created successfully");
-    return true;
-}
-
-bool PostProcessingSubsystem::UpdateDescriptorSet(VulkanTexture* inputTexture) {
-    if (!m_owner || !m_owner->GetGraphicsDevice() || !inputTexture) {
-        Logger::Error("PostProcessingSubsystem", "Cannot update descriptor set without valid parameters!");
-        return false;
-    }
-
-    auto device = m_owner->GetGraphicsDevice();
-    auto vulkanDevice = device->GetVulkanDevice();
-    if (!vulkanDevice || m_descriptorSet == VK_NULL_HANDLE) {
-        Logger::Error("PostProcessingSubsystem", "Invalid descriptor set or device!");
-        return false;
-    }
-
-    // Input texture için descriptor info
-    VkDescriptorImageInfo imageInfo{};
-    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    imageInfo.imageView = inputTexture->GetImageView();
-    imageInfo.sampler = inputTexture->GetSampler();
-
-    // Write descriptor set
-    VkWriteDescriptorSet descriptorWrite{};
-    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptorWrite.dstSet = m_descriptorSet;
-    descriptorWrite.dstBinding = 0; // Input texture binding
-    descriptorWrite.dstArrayElement = 0;
-    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    descriptorWrite.descriptorCount = 1;
-    descriptorWrite.pImageInfo = &imageInfo;
-
-    // Descriptor set'i güncelle
-    vkUpdateDescriptorSets(vulkanDevice, 1, &descriptorWrite, 0, nullptr);
-
-    Logger::Info("PostProcessingSubsystem", "Descriptor set updated successfully");
-    return true;
-}
-
-void PostProcessingSubsystem::CreateFullScreenQuadBuffers() {
-    if (!m_owner || !m_owner->GetGraphicsDevice()) {
-        Logger::Error("PostProcessingSubsystem", "Cannot create quad buffers without graphics device!");
-        return;
-    }
-
-    auto device = m_owner->GetGraphicsDevice();
-    auto vulkanDevice = device->GetVulkanDevice();
-    if (!vulkanDevice) {
-        Logger::Error("PostProcessingSubsystem", "Vulkan device not available!");
-        return;
-    }
-
-    Logger::Info("PostProcessingSubsystem", "Creating full-screen quad buffers...");
-
-    // Tam ekran quad vertex verileri - AssetData.h'daki Vertex yapısını kullan
-    std::vector<Vertex> vertices = {
-        {glm::vec3(-1.0f, -1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec2(0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(0.0f)},  // Sol alt
-        {glm::vec3( 1.0f, -1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec2(1.0f, 0.0f), glm::vec3(0.0f), glm::vec3(0.0f)},  // Sağ alt
-        {glm::vec3( 1.0f,  1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec2(1.0f, 1.0f), glm::vec3(0.0f), glm::vec3(0.0f)},  // Sağ üst
-        {glm::vec3(-1.0f,  1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec2(0.0f, 1.0f), glm::vec3(0.0f), glm::vec3(0.0f)}   // Sol üst
-    };
-
-    std::vector<uint16_t> indices = {
-        0, 1, 2,  // İlk üçgen
-        0, 2, 3   // İkinci üçgen
-    };
-
-    m_indexCount = static_cast<uint32_t>(indices.size());
-
-    // Vertex buffer'ı oluştur
-    VulkanBuffer::Config vertexBufferConfig{};
-    vertexBufferConfig.size = sizeof(Vertex) * vertices.size();
-    vertexBufferConfig.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    vertexBufferConfig.properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-
-    m_vertexBuffer = std::make_unique<VulkanBuffer>();
-    if (!m_vertexBuffer->Initialize(vulkanDevice, vertexBufferConfig)) {
-        Logger::Error("PostProcessingSubsystem", "Failed to create vertex buffer!");
-        return;
-    }
-
-    // Index buffer'ı oluştur
-    VulkanBuffer::Config indexBufferConfig{};
-    indexBufferConfig.size = sizeof(uint16_t) * indices.size();
-    indexBufferConfig.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    indexBufferConfig.properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-
-    m_indexBuffer = std::make_unique<VulkanBuffer>();
-    if (!m_indexBuffer->Initialize(vulkanDevice, indexBufferConfig)) {
-        Logger::Error("PostProcessingSubsystem", "Failed to create index buffer!");
-        return;
-    }
-
-    // Vertex verilerini buffer'a kopyala (staging buffer ile)
-    // Not: Gerçek implementasyonda burada staging buffer kullanılmalı
-    // Şimdilik doğrudan map ile kopyalıyoruz (basitlik için)
-    void* vertexData = m_vertexBuffer->Map();
-    if (vertexData) {
-        memcpy(vertexData, vertices.data(), sizeof(Vertex) * vertices.size());
-        m_vertexBuffer->Unmap();
-    }
-
-    // Index verilerini buffer'a kopyala
-    void* indexData = m_indexBuffer->Map();
-    if (indexData) {
-        memcpy(indexData, indices.data(), sizeof(uint16_t) * indices.size());
-        m_indexBuffer->Unmap();
-    }
-
-    Logger::Info("PostProcessingSubsystem", "Full-screen quad buffers created successfully ({} vertices, {} indices)",
-                vertices.size(), indices.size());
-}
-
-bool PostProcessingSubsystem::CreateGraphicsPipeline() {
-    if (!m_owner || !m_owner->GetGraphicsDevice()) {
-        Logger::Error("PostProcessingSubsystem", "Cannot create graphics pipeline without graphics device!");
-        return false;
-    }
-
-    auto device = m_owner->GetGraphicsDevice();
-    auto vulkanDevice = device->GetVulkanDevice();
-    if (!vulkanDevice) {
-        Logger::Error("PostProcessingSubsystem", "Vulkan device not available!");
-        return false;
-    }
-
-    Logger::Info("PostProcessingSubsystem", "Creating graphics pipeline...");
-
-    try {
-        // Shader aşamalarını oluştur
-        std::vector<VkPipelineShaderStageCreateInfo> shaderStages;
-
-        // Vertex shader stage
-        VkPipelineShaderStageCreateInfo vertexStageInfo{};
-        vertexStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        vertexStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
-        vertexStageInfo.module = m_vertexShader->GetModule();
-        vertexStageInfo.pName = "main";
-        shaderStages.push_back(vertexStageInfo);
-
-        // Fragment shader stage
-        VkPipelineShaderStageCreateInfo fragmentStageInfo{};
-        fragmentStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        fragmentStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        fragmentStageInfo.module = m_fragmentShader->GetModule();
-        fragmentStageInfo.pName = "main";
-        shaderStages.push_back(fragmentStageInfo);
-
-        // Vertex input state (tam ekran quad için)
-        VkVertexInputBindingDescription bindingDescription{};
-        bindingDescription.binding = 0;
-        bindingDescription.stride = sizeof(glm::vec3) + sizeof(glm::vec2); // position + texcoord
-        bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
-        // Position attribute
-        attributeDescriptions[0].binding = 0;
-        attributeDescriptions[0].location = 0;
-        attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[0].offset = 0;
-        // TexCoord attribute
-        attributeDescriptions[1].binding = 0;
-        attributeDescriptions[1].location = 1;
-        attributeDescriptions[1].format = VK_FORMAT_R32G32_SFLOAT;
-        attributeDescriptions[1].offset = sizeof(glm::vec3);
-
-        VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
-        vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        vertexInputInfo.vertexBindingDescriptionCount = 1;
-        vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
-        vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
-        vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
-
-        // Input assembly state
-        VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
-        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-        inputAssembly.primitiveRestartEnable = VK_FALSE;
-
-        // Viewport ve scissor (dynamic state)
-        std::vector<VkDynamicState> dynamicStates = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-        VkPipelineDynamicStateCreateInfo dynamicState{};
-        dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-        dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
-        dynamicState.pDynamicStates = dynamicStates.data();
-
-        // Viewport state
-        VkPipelineViewportStateCreateInfo viewportState{};
-        viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-        viewportState.viewportCount = 1;
-        viewportState.pViewports = nullptr; // Dynamic state
-        viewportState.scissorCount = 1;
-        viewportState.pScissors = nullptr; // Dynamic state
-
-        // Rasterization state
-        VkPipelineRasterizationStateCreateInfo rasterizer{};
-        rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-        rasterizer.depthClampEnable = VK_FALSE;
-        rasterizer.rasterizerDiscardEnable = VK_FALSE;
-        rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-        rasterizer.lineWidth = 1.0f;
-        rasterizer.cullMode = VK_CULL_MODE_NONE; // Tam ekran quad için culling yok
-        rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-        rasterizer.depthBiasEnable = VK_FALSE;
-
-        // Multisample state
-        VkPipelineMultisampleStateCreateInfo multisampling{};
-        multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-        multisampling.sampleShadingEnable = VK_FALSE;
-        multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-        multisampling.minSampleShading = 1.0f;
-
-        // Depth stencil state (post-processing'te depth test genellikle kapalıdır)
-        VkPipelineDepthStencilStateCreateInfo depthStencil{};
-        depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-        depthStencil.depthTestEnable = VK_FALSE;
-        depthStencil.depthWriteEnable = VK_FALSE;
-        depthStencil.depthCompareOp = VK_COMPARE_OP_ALWAYS;
-        depthStencil.stencilTestEnable = VK_FALSE;
-
-        // Color blend state
-        VkPipelineColorBlendAttachmentState colorBlendAttachment{};
-        colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-        colorBlendAttachment.blendEnable = VK_FALSE; // Başlangıçta blending kapalı
-
-        VkPipelineColorBlendStateCreateInfo colorBlending{};
-        colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        colorBlending.logicOpEnable = VK_FALSE;
-        colorBlending.attachmentCount = 1;
-        colorBlending.pAttachments = &colorBlendAttachment;
-
-        // Graphics pipeline create info
-        VkGraphicsPipelineCreateInfo pipelineInfo{};
-        pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-        pipelineInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
-        pipelineInfo.pStages = shaderStages.data();
-        pipelineInfo.pVertexInputState = &vertexInputInfo;
-        pipelineInfo.pInputAssemblyState = &inputAssembly;
-        pipelineInfo.pViewportState = &viewportState;
-        pipelineInfo.pRasterizationState = &rasterizer;
-        pipelineInfo.pMultisampleState = &multisampling;
-        pipelineInfo.pDepthStencilState = &depthStencil;
-        pipelineInfo.pColorBlendState = &colorBlending;
-        pipelineInfo.pDynamicState = &dynamicState;
-        pipelineInfo.layout = m_fullScreenPipelineLayout;
-        pipelineInfo.renderPass = m_postProcessRenderPass;
-        pipelineInfo.subpass = 0;
-
-        // VulkanPipeline sınıfını kullanarak pipeline oluştur
-        VulkanPipeline::Config pipelineConfig;
-        pipelineConfig.shaders = { m_vertexShader.get(), m_fragmentShader.get() };
-        pipelineConfig.swapchain = m_owner->GetGraphicsDevice()->GetSwapchain();
-        pipelineConfig.extent = { m_width, m_height };
-        pipelineConfig.descriptorSetLayout = m_descriptorSetLayout;
-        pipelineConfig.useMinimalVertexInput = false;
-        
-        m_fullScreenPipeline = std::make_unique<VulkanPipeline>();
-        if (!m_fullScreenPipeline->Initialize(vulkanDevice, pipelineConfig)) {
-            Logger::Error("PostProcessingSubsystem", "Failed to initialize VulkanPipeline: {}", m_fullScreenPipeline->GetLastError());
-            return false;
-        }
-
-        Logger::Info("PostProcessingSubsystem", "Graphics pipeline created successfully");
-        return true;
-
-    } catch (const std::exception& e) {
-        Logger::Error("PostProcessingSubsystem", "Exception during graphics pipeline creation: {}", e.what());
-        return false;
-    }
-}
 
 void PostProcessingSubsystem::DestroyFramebuffers() {
-    if (m_pingFramebuffer) {
-        m_pingFramebuffer->Shutdown();
-        m_pingFramebuffer.reset();
-    }
-    
-    if (m_pongFramebuffer) {
-        m_pongFramebuffer->Shutdown();
-        m_pongFramebuffer.reset();
-    }
-    
     if (m_pingTexture) {
         m_pingTexture->Shutdown();
         m_pingTexture.reset();
@@ -911,127 +358,13 @@ void PostProcessingSubsystem::DestroyFramebuffers() {
         m_pongTexture.reset();
     }
     
-    Logger::Info("PostProcessingSubsystem", "Destroyed ping-pong framebuffers for post-processing");
+    Logger::Info("PostProcessingSubsystem", "Destroyed ping-pong textures for post-processing");
 }
 
-void PostProcessingSubsystem::DestroyRenderPass() {
-    if (!m_owner || !m_owner->GetGraphicsDevice()) {
-        return;
-    }
 
-    auto device = m_owner->GetGraphicsDevice()->GetVulkanDevice();
-    if (device && m_postProcessRenderPass != VK_NULL_HANDLE) {
-        vkDestroyRenderPass(device, m_postProcessRenderPass, nullptr);
-        m_postProcessRenderPass = VK_NULL_HANDLE;
-        Logger::Info("PostProcessingSubsystem", "Destroyed post-processing render pass");
-    }
-}
 
-void PostProcessingSubsystem::DestroyFullScreenQuadBuffers() {
-    if (!m_owner || !m_owner->GetGraphicsDevice()) {
-        return;
-    }
 
-    // Vertex buffer'ı temizle
-    if (m_vertexBuffer) {
-        m_vertexBuffer->Shutdown();
-        m_vertexBuffer.reset();
-    }
-    
-    // Index buffer'ı temizle
-    if (m_indexBuffer) {
-        m_indexBuffer->Shutdown();
-        m_indexBuffer.reset();
-    }
-    
-    m_indexCount = 0;
-    
-    Logger::Info("PostProcessingSubsystem", "Destroyed full-screen quad buffers");
-}
 
-void PostProcessingSubsystem::DestroyDescriptorSets() {
-    if (!m_owner || !m_owner->GetGraphicsDevice()) {
-        return;
-    }
-
-    auto device = m_owner->GetGraphicsDevice()->GetVulkanDevice();
-    if (device) {
-        // Descriptor pool'u temizle
-        if (m_descriptorPool != VK_NULL_HANDLE) {
-            vkDestroyDescriptorPool(device, m_descriptorPool, nullptr);
-            m_descriptorPool = VK_NULL_HANDLE;
-        }
-        
-        // Descriptor set'leri temizle (otomatik olarak pool ile birlikte silinir)
-        m_descriptorSet = VK_NULL_HANDLE;
-        
-        Logger::Info("PostProcessingSubsystem", "Destroyed descriptor sets and pool");
-    }
-}
-
-void PostProcessingSubsystem::DestroyFullScreenPipeline() {
-    if (!m_owner || !m_owner->GetGraphicsDevice()) {
-        return;
-    }
-
-    auto device = m_owner->GetGraphicsDevice()->GetVulkanDevice();
-    if (device) {
-        // Pipeline'ı temizle
-        if (m_fullScreenPipeline) {
-            m_fullScreenPipeline->Shutdown();
-            m_fullScreenPipeline.reset();
-        }
-        
-        // Pipeline layout'ı temizle
-        if (m_fullScreenPipelineLayout != VK_NULL_HANDLE) {
-            vkDestroyPipelineLayout(device, m_fullScreenPipelineLayout, nullptr);
-            m_fullScreenPipelineLayout = VK_NULL_HANDLE;
-        }
-        
-        // Shader'ları temizle
-        if (m_vertexShader) {
-            m_vertexShader->Shutdown();
-            m_vertexShader.reset();
-        }
-        
-        if (m_fragmentShader) {
-            m_fragmentShader->Shutdown();
-            m_fragmentShader.reset();
-        }
-        
-        // Descriptor set layout'ı temizle
-        if (m_descriptorSetLayout != VK_NULL_HANDLE) {
-            vkDestroyDescriptorSetLayout(device, m_descriptorSetLayout, nullptr);
-            m_descriptorSetLayout = VK_NULL_HANDLE;
-        }
-        
-        Logger::Info("PostProcessingSubsystem", "Destroyed full-screen pipeline");
-    }
-}
-
-void PostProcessingSubsystem::ProcessEffectChain(uint32_t frameIndex) {
-    if (!m_inputTexture || m_effects.empty()) {
-        return;
-    }
-
-    // Aktif efektleri filtrele
-    std::vector<IPostProcessingEffect*> activeEffects;
-    for (const auto& effect : m_effects) {
-        if (effect->IsEnabled()) {
-            activeEffects.push_back(effect.get());
-        }
-    }
-
-    if (activeEffects.empty()) {
-        return;
-    }
-
-    // Not: Bu metod ileride implemente edilecek
-    // Command buffer kaydetme ve ping-pong mantığı burada olacak
-    // Şimdilik placeholder implementation
-    
-    Logger::Debug("PostProcessingSubsystem", "Processing {} active effects", activeEffects.size());
-}
 
 void PostProcessingSubsystem::RecreateFramebuffers() {
     // Önceki framebuffer'ları temizle
@@ -1042,70 +375,6 @@ void PostProcessingSubsystem::RecreateFramebuffers() {
     CreateFramebuffers(swapchain->GetWidth(), swapchain->GetHeight());
 }
 
-void PostProcessingSubsystem::BlitToSwapchain(VkCommandBuffer commandBuffer, VulkanTexture* sourceTexture) {
-    auto* graphicsDevice = m_owner->GetGraphicsDevice();
-    auto* swapchain = graphicsDevice->GetSwapchain();
-    
-    // Image blit için barrier
-    VkImageMemoryBarrier barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = sourceTexture->GetImage();
-    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    
-    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                        0, 0, nullptr, 0, nullptr, 1, &barrier);
-    
-    // Swapchain image için barrier
-    VkImage swapchainImage = swapchain->GetCurrentImage();
-    
-    barrier.image = swapchainImage;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier.srcAccessMask = 0;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    
-    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                        0, 0, nullptr, 0, nullptr, 1, &barrier);
-    
-    // Blit işlemi
-    VkImageBlit blit{};
-    blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    blit.srcOffsets[0] = {0, 0, 0};
-    blit.srcOffsets[1] = {static_cast<int32_t>(sourceTexture->GetWidth()),
-                         static_cast<int32_t>(sourceTexture->GetHeight()), 1};
-    blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    blit.dstOffsets[0] = {0, 0, 0};
-    blit.dstOffsets[1] = {static_cast<int32_t>(swapchain->GetWidth()),
-                         static_cast<int32_t>(swapchain->GetHeight()), 1};
-    
-    vkCmdBlitImage(commandBuffer, sourceTexture->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                  swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
-    
-    // Swapchain image'i presentation için hazırla
-    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.dstAccessMask = 0;
-    
-    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                        0, 0, nullptr, 0, nullptr, 1, &barrier);
-    
-    // Source texture'ı eski haline döndür
-    barrier.image = sourceTexture->GetImage();
-    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    
-    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                        0, 0, nullptr, 0, nullptr, 1, &barrier);
-}
 
 bool PostProcessingSubsystem::LoadShaderCode(const std::string& filePath, std::vector<uint32_t>& spirvCode) {
     Logger::Info("PostProcessingSubsystem", "Loading shader code from: {}", filePath);

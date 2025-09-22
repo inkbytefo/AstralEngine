@@ -13,10 +13,8 @@
 namespace AstralEngine {
 
 // Forward declarations
-class VulkanTexture;
-class VulkanDevice;
-class AssetManager;
-class VulkanShader;
+class ITexture;  // Generic texture interface
+class IShader;   // Generic shader interface
 
 /**
  * @enum MaterialType
@@ -80,7 +78,7 @@ struct MaterialProperties {
  * @brief Materyaldeki texture slot bilgisi
  */
 struct TextureSlot {
-    std::shared_ptr<VulkanTexture> texture;     ///< Texture pointer
+    std::shared_ptr<ITexture> texture;         ///< Generic texture interface
     TextureType type;                           ///< Texture tipi
     std::string name;                           ///< Texture adı
     uint32_t binding = 0;                       ///< Shader binding index
@@ -89,16 +87,18 @@ struct TextureSlot {
 
 /**
  * @class Material
- * @brief Materyal yönetimi için ana sınıf
+ * @brief Pure data container for material properties and resources
  *
- * Bu sınıf, materyal özelliklerini, texture'ları ve shader'ları
- * yönetir. Lazy initialization prensibi ile çalışır - Vulkan kaynaklarını
- * hemen oluşturmak yerine ihtiyaç duyulduğunda merkezi sistemden alır.
+ * This class serves as a pure data container that holds material properties,
+ * textures, and shader information. It contains no rendering logic or
+ * Vulkan-specific dependencies, making it a clean data structure that
+ * can be used by various rendering backends.
  *
- * Basitleştirilmiş Initialize() metodu sadece temel materyal verilerini
- * hazırlar ve merkezi rendering sistemlerine erişimi kontrol eder.
- * Descriptor set'ler, uniform buffer'lar ve diğer Vulkan kaynakları
- * merkezi VulkanFrameManager tarafından yönetilir.
+ * The Material class stores:
+ * - Material properties (colors, PBR parameters, transparency, etc.)
+ * - Texture slots with their types and binding information
+ * - Shader asset handles for vertex and fragment shaders
+ * - Material metadata (name, type, initialization state)
  */
 class Material {
 public:
@@ -142,18 +142,14 @@ public:
     MaterialProperties& GetProperties() { return m_properties; }
 
     // Texture yönetimi
-    void SetTexture(TextureType type, const std::string& texturePath);
-    void SetTexture(TextureType type, std::shared_ptr<VulkanTexture> texture);
-    std::shared_ptr<VulkanTexture> GetTexture(TextureType type) const;
+    void SetTexture(TextureType type, std::shared_ptr<ITexture> texture);
+    std::shared_ptr<ITexture> GetTexture(TextureType type) const;
     void RemoveTexture(TextureType type);
     bool HasTexture(TextureType type) const;
     
     // Texture slot erişimi
     const std::vector<TextureSlot>& GetTextureSlots() const { return m_textureSlots; }
     const TextureSlot* GetTextureSlot(TextureType type) const;
-
-    // Shader yönetimi
-    void SetShaders(const std::string& vertexPath, const std::string& fragmentPath);
 
     // Materyal bilgileri
     MaterialType GetType() const { return m_type; }
@@ -170,8 +166,7 @@ public:
     const std::string& GetLastError() const { return m_lastError; }
 
 private:
-    // Yardımcı metotlar
-    // CreateDescriptorSets metodu kaldırıldı - artık descriptor set'ler merkezi sistemden yönetiliyor
+    // Helper methods
     void UpdateTextureBindings();
     uint32_t GetTextureBinding(TextureType type) const;
     std::string GetTextureName(TextureType type) const;
@@ -214,7 +209,7 @@ public:
     MaterialManager& operator=(const MaterialManager&) = delete;
 
     // Yaşam döngüsü
-    bool Initialize(VulkanDevice* device, AssetManager* assetManager);
+    bool Initialize(AssetManager* assetManager);
     void Shutdown();
     void Update();
 
@@ -242,7 +237,6 @@ private:
     void CleanupUnusedMaterials();
     
     // Member değişkenler
-    VulkanDevice* m_device = nullptr;
     AssetManager* m_assetManager = nullptr;
     
     // Materyal önbelleği

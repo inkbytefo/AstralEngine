@@ -4,6 +4,7 @@
 #include "../../../Subsystems/Asset/AssetSubsystem.h"
 #include "../Buffers/VulkanTexture.h"
 #include "../Core/VulkanDevice.h"
+#include "../GraphicsDevice.h"
 #include "RendererTypes.h"
 #include <memory>
 #include <unordered_map>
@@ -44,7 +45,7 @@ public:
     VulkanTextureManager& operator=(const VulkanTextureManager&) = delete;
 
     // Yaşam döngüsü
-    bool Initialize(VulkanDevice* device, AssetSubsystem* assetSubsystem);
+    bool Initialize(GraphicsDevice* graphicsDevice, AssetSubsystem* assetSubsystem);
     void Shutdown();
 
     /**
@@ -144,7 +145,8 @@ private:
     void SetError(const std::string& error);
 
     // Member değişkenler
-    VulkanDevice* m_device = nullptr;
+    GraphicsDevice* m_graphicsDevice = nullptr;
+    VulkanDevice* m_device = nullptr; // Keep for backward compatibility during transition
     AssetSubsystem* m_assetSubsystem = nullptr;
     
     // Texture önbelleği

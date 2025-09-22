@@ -48,7 +48,10 @@ bool PostProcessingEffectBase::Initialize(VulkanRenderer* renderer) {
     }
     
     // Create shared resources
-    CreateFullScreenQuadBuffer();
+    if (!CreateFullScreenQuadBuffer()) {
+        Logger::Error("PostProcessingEffectBase", "Failed to create full-screen quad buffer");
+        return false;
+    }
     
     m_isInitialized = true;
     Logger::Info("PostProcessingEffectBase", "Post-processing efekti başarıyla başlatıldı: " + m_config.name);
@@ -73,13 +76,13 @@ void PostProcessingEffectBase::Shutdown() {
 
 // RecordCommands metodu kaldırıldı - artık renderer'ın sorumluluğunda
 
-void PostProcessingEffectBase::Apply(VkCommandBuffer commandBuffer, VulkanTexture* input, VulkanFramebuffer* output, uint32_t frameIndex) {
-    if (!m_isInitialized || !input || !output) {
-        Logger::Error("PostProcessingEffectBase", "Apply çağrısı için efekt başlatılmamış veya geçersiz parametreler");
+void PostProcessingEffectBase::Update(VulkanTexture* input, uint32_t frameIndex) {
+    if (!m_isInitialized || !input) {
+        Logger::Error("PostProcessingEffectBase", "Update çağrısı için efekt başlatılmamış veya geçersiz parametreler");
         return;
     }
     
-    // Efekt özel apply işlemleri burada yapılacak
+    // Efekt özel update işlemleri burada yapılacak
     // Bu metot türetilmiş sınıflar tarafından override edilecek
 }
 

@@ -2,7 +2,8 @@
 #include "../../../Core/Logger.h"
 #include "../Core/VulkanDevice.h"
 #include "../Buffers/VulkanBuffer.h"
-#include <stb_image.h>
+#include "../GraphicsDevice.h"
+#include "ThirdParty/stb_image.h"
 #include <stb_image_write.h>
 #include <algorithm>
 #include <chrono>
@@ -116,7 +117,7 @@ bool Texture::Initialize(VulkanDevice* device, const TextureInfo& info) {
     try {
         // Vulkan texture oluştur
         m_vulkanTexture = std::make_shared<VulkanTexture>();
-        if (!m_vulkanTexture->Initialize(m_device, m_info.filePath)) {
+        if (!m_vulkanTexture->Initialize(m_graphicsDevice, m_info.filePath)) {
             SetError("Failed to create Vulkan texture: " + m_vulkanTexture->GetLastError());
             return false;
         }
@@ -162,7 +163,7 @@ bool Texture::InitializeFromData(VulkanDevice* device, const TextureData& data, 
         // Vulkan texture oluştur
         VkFormat vkFormat = ConvertToVkFormat(data.format);
         m_vulkanTexture = std::make_shared<VulkanTexture>();
-        if (!m_vulkanTexture->InitializeFromData(m_device, data.data, data.width, data.height, vkFormat)) {
+        if (!m_vulkanTexture->InitializeFromData(m_graphicsDevice, data.data, data.width, data.height, vkFormat)) {
             SetError("Failed to create Vulkan texture from data: " + m_vulkanTexture->GetLastError());
             return false;
         }
@@ -300,7 +301,7 @@ bool Texture::CreateCheckerboard(uint32_t width, uint32_t height, uint32_t squar
             }
         }
         
-        if (!InitializeFromData(m_device, data, m_info)) {
+        if (!InitializeFromData(m_graphicsDevice, data, m_info)) {
             data.Free();
             return false;
         }
@@ -342,7 +343,7 @@ bool Texture::CreateGradient(uint32_t width, uint32_t height,
             }
         }
         
-        if (!InitializeFromData(m_device, data, m_info)) {
+        if (!InitializeFromData(m_graphicsDevice, data, m_info)) {
             data.Free();
             return false;
         }
@@ -402,7 +403,7 @@ bool Texture::CreateNoise(uint32_t width, uint32_t height, float scale, float pe
             }
         }
         
-        if (!InitializeFromData(m_device, data, m_info)) {
+        if (!InitializeFromData(m_graphicsDevice, data, m_info)) {
             data.Free();
             return false;
         }
@@ -686,7 +687,7 @@ bool Texture::LoadWithSTB(const std::string& filePath) {
     
     // Vulkan texture oluştur
     m_vulkanTexture = std::make_shared<VulkanTexture>();
-    if (!m_vulkanTexture->InitializeFromData(m_device, pixels, m_info.width, m_info.height, vkFormat)) {
+    if (!m_vulkanTexture->InitializeFromData(m_graphicsDevice, pixels, m_info.width, m_info.height, vkFormat)) {
         stbi_image_free(pixels);
         SetError("Failed to create Vulkan texture: " + m_vulkanTexture->GetLastError());
         return false;
@@ -711,7 +712,7 @@ bool Texture::SaveToMemory(const void* data, uint32_t width, uint32_t height, Te
     
     // Vulkan texture oluştur
     m_vulkanTexture = std::make_shared<VulkanTexture>();
-    if (!m_vulkanTexture->InitializeFromData(m_device, data, width, height, vkFormat)) {
+    if (!m_vulkanTexture->InitializeFromData(m_graphicsDevice, data, width, height, vkFormat)) {
         SetError("Failed to create Vulkan texture from memory: " + m_vulkanTexture->GetLastError());
         return false;
     }
@@ -742,18 +743,19 @@ TextureManager::~TextureManager() {
     Logger::Debug("TextureManager", "TextureManager destroyed");
 }
 
-bool TextureManager::Initialize(VulkanDevice* device, AssetManager* assetManager) {
+bool TextureManager::Initialize(GraphicsDevice* graphicsDevice, AssetManager* assetManager) {
     if (m_initialized) {
         Logger::Warning("TextureManager", "TextureManager already initialized");
         return true;
     }
-    
-    if (!device || !assetManager) {
-        Logger::Error("TextureManager", "Invalid device or asset manager pointer");
+
+    if (!graphicsDevice || !assetManager) {
+        Logger::Error("TextureManager", "Invalid graphicsDevice or asset manager pointer");
         return false;
     }
-    
-    m_device = device;
+
+    m_graphicsDevice = graphicsDevice;
+    m_device = graphicsDevice->GetVulkanDevice(); // Keep for backward compatibility
     m_assetManager = assetManager;
     
     Logger::Info("TextureManager", "Initializing TextureManager");
@@ -817,7 +819,7 @@ std::shared_ptr<Texture> TextureManager::CreateTexture(const TextureInfo& info) 
     
     try {
         auto texture = std::make_shared<Texture>();
-        if (!texture->Initialize(m_device, info)) {
+        if (!texture->Initialize(m_graphicsDevice, info)) {
             Logger::Error("TextureManager", "Failed to create texture: {}", info.name);
             return nullptr;
         }
@@ -875,7 +877,7 @@ std::shared_ptr<Texture> TextureManager::LoadTexture(const std::string& textureP
         
         // Texture oluştur
         auto texture = std::make_shared<Texture>();
-        if (!texture->Initialize(m_device, info)) {
+        if (!texture->Initialize(m_graphicsDevice, info)) {
             Logger::Error("TextureManager", "Failed to load texture: {}", texturePath);
             return nullptr;
         }
@@ -933,7 +935,7 @@ std::shared_ptr<Texture> TextureManager::CreateCheckerboard(const std::string& n
         info.sRGB = false;
         
         auto texture = std::make_shared<Texture>();
-        if (!texture->Initialize(m_device, info)) {
+        if (!texture->Initialize(m_graphicsDevice, info)) {
             Logger::Error("TextureManager", "Failed to initialize checkerboard texture: {}", name);
             return nullptr;
         }
@@ -968,7 +970,7 @@ std::shared_ptr<Texture> TextureManager::CreateGradient(const std::string& name,
         info.sRGB = false;
         
         auto texture = std::make_shared<Texture>();
-        if (!texture->Initialize(m_device, info)) {
+        if (!texture->Initialize(m_graphicsDevice, info)) {
             Logger::Error("TextureManager", "Failed to initialize gradient texture: {}", name);
             return nullptr;
         }
@@ -1003,7 +1005,7 @@ std::shared_ptr<Texture> TextureManager::CreateNoise(const std::string& name, ui
         info.sRGB = false;
         
         auto texture = std::make_shared<Texture>();
-        if (!texture->Initialize(m_device, info)) {
+        if (!texture->Initialize(m_graphicsDevice, info)) {
             Logger::Error("TextureManager", "Failed to initialize noise texture: {}", name);
             return nullptr;
         }

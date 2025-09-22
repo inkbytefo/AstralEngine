@@ -1,7 +1,7 @@
 #pragma once
 
 #include "PostProcessingEffectBase.h"
-#include "../Core/Logger.h"
+#include "../../Core/Logger.h"
 #include "Core/VulkanFramebuffer.h"
 #include "Buffers/VulkanTexture.h"
 #include <glm/glm.hpp>
@@ -59,10 +59,7 @@ public:
     // IPostProcessingEffect arayüz metodları (PostProcessingEffectBase tarafından implemente edilir)
     bool Initialize(VulkanRenderer* renderer) override;
     void Shutdown() override;
-    void RecordCommands(VkCommandBuffer commandBuffer, 
-                       VulkanTexture* inputTexture,
-                       VulkanFramebuffer* outputFramebuffer,
-                       uint32_t frameIndex) override;
+    void Update(VulkanTexture* inputTexture, uint32_t frameIndex) override;
     const std::string& GetName() const override;
     bool IsEnabled() const override;
     void SetEnabled(bool enabled) override;
@@ -93,10 +90,6 @@ protected:
     // PostProcessingEffectBase sanal metodları
     bool OnInitialize() override;
     void OnShutdown() override;
-    void OnRecordCommands(VkCommandBuffer commandBuffer,
-                         VulkanTexture* inputTexture,
-                         VulkanFramebuffer* outputFramebuffer,
-                         uint32_t frameIndex) override;
     bool CreateDescriptorSetLayout() override;
     void UpdateDescriptorSets(VulkanTexture* inputTexture, uint32_t frameIndex) override;
 

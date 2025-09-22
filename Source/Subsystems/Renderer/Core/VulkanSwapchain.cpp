@@ -1,4 +1,5 @@
 #include "VulkanSwapchain.h"
+#include "../VulkanUtils.h"
 #include <algorithm>
 #include <limits>
 #include <array>

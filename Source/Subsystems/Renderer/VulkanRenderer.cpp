@@ -10,6 +10,7 @@
 #include <vector>
 #include <cstring>
 #include <functional> // For std::hash
+#include <array> // For std::array
 
 namespace AstralEngine {
 

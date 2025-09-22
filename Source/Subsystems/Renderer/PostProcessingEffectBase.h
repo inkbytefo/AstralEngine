@@ -17,6 +17,15 @@ class VulkanRenderer;
 class VulkanTexture;
 class VulkanFramebuffer;
 
+// Vertex structure for full-screen quad
+struct Vertex {
+    glm::vec3 position;
+    glm::vec3 normal;
+    glm::vec2 texCoord;
+    glm::vec3 tangent;
+    glm::vec3 bitangent;
+};
+
 namespace AstralEngine {
 
 /**
@@ -64,12 +73,12 @@ public:
     bool Initialize(VulkanRenderer* renderer) override;
     void Shutdown() override;
     
-    // --- REMOVE RecordCommands from public interface ---
-    // This will now be an internal concern of the renderer.
-    // void RecordCommands(...) override;
-    
     // --- ADD methods for the renderer to query the effect's state ---
-    virtual void Apply(VkCommandBuffer commandBuffer, VulkanTexture* input, VulkanFramebuffer* output, uint32_t frameIndex) override;
+    virtual VulkanPipeline* GetPipeline() const { return m_pipeline.get(); }
+    virtual VkDescriptorSet GetCurrentDescriptorSet(uint32_t frameIndex) const {
+        return (frameIndex < m_descriptorSets.size()) ? m_descriptorSets[frameIndex] : VK_NULL_HANDLE;
+    }
+    virtual void UpdateDescriptorSets(VulkanTexture* inputTexture, uint32_t frameIndex) = 0;
     
     const std::string& GetName() const override;
     bool IsEnabled() const override;
@@ -95,14 +104,13 @@ protected:
      */
     virtual void OnShutdown() = 0;
 
-    // --- REMOVE OnRecordCommands ---
-    // virtual void OnRecordCommands(...) = 0;
 
     // --- MODIFY resource creation methods to be more abstract ---
     bool CreateShaders(const std::string& vertexPath, const std::string& fragmentPath);
     // Pipeline creation will be handled by the renderer based on the effect's state.
     // bool CreatePipeline();
     bool CreateUniformBuffers(size_t uboSize);
+    bool CreateFullScreenQuadBuffer();
     
     // --- REMOVE direct Vulkan resource management from protected interface ---
     // virtual bool CreateDescriptorSetLayout() = 0;

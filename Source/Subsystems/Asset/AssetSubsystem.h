@@ -22,6 +22,7 @@ public:
     void OnUpdate(float deltaTime) override;
     void OnShutdown() override;
     const char* GetName() const override { return "AssetSubsystem"; }
+    UpdateStage GetUpdateStage() const override { return UpdateStage::PreUpdate; }
 
     // Asset Manager erişimi
     AssetManager* GetAssetManager() const { return m_assetManager.get(); }

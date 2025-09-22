@@ -1,5 +1,5 @@
 #include "Camera.h"
-#include "../../Core/Logger.h"
+#include "Core/Logger.h"
 
 namespace AstralEngine {
 

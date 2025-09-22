@@ -8,7 +8,6 @@
 #include "RenderSubsystem.h"
 #include "VulkanRenderer.h"
 #include "GraphicsDevice.h"
-#include "Core/VulkanFramebuffer.h"
 #include "Buffers/VulkanTexture.h"
 #include "Commands/VulkanPipeline.h"
 #include "Shaders/VulkanShader.h"
@@ -69,23 +68,7 @@ public:
      */
     void EnableEffect(const std::string& effectName, bool enabled);
     
-    // Framebuffer erişimi
-    /**
-     * @brief Ping framebuffer'ını döndürür
-     * 
-     * @return VulkanFramebuffer* Ping framebuffer pointer'ı
-     */
-    VulkanFramebuffer* GetPingFramebuffer() const { return m_pingFramebuffer.get(); }
     
-    /**
-     * @brief Pong framebuffer'ını döndürür
-     * 
-     * @return VulkanFramebuffer* Pong framebuffer pointer'ı
-     */
-    VulkanFramebuffer* GetPongFramebuffer() const { return m_pongFramebuffer.get(); }
-    
-    // Swapchain'e blit işlemi
-    void BlitToSwapchain(VkCommandBuffer commandBuffer, VulkanTexture* sourceTexture);
     
     // VulkanRenderer bağlantısı için yeni metod
     void SetVulkanRenderer(VulkanRenderer* renderer);
@@ -109,43 +92,12 @@ public:
     }
 
 private:
-    // Vulkan kaynak yönetimi için yardımcı metodlar
-    void CreateFramebuffers(uint32_t width, uint32_t height);
-    void CreateRenderPass();
-    void CreateFullScreenPipeline();
-    void DestroyFramebuffers();
-    void DestroyRenderPass();
-    void DestroyFullScreenPipeline();
-    void DestroyFullScreenQuadBuffers();
-    void DestroyDescriptorSets();
-    
-    // Pipeline oluşturma için yardımcı metodlar
-    bool CreateGraphicsPipeline();
-    void CreateFullScreenQuadBuffers();
-    
-    // Shader yükleme yardımcı metodu
-    bool LoadShaderCode(const std::string& filePath, std::vector<uint32_t>& spirvCode);
-    
-    // Descriptor set ve pool yönetimi
-    bool CreateDescriptorPoolAndSets();
-    bool UpdateDescriptorSet(VulkanTexture* inputTexture);
-    
     // Framebuffer yeniden oluşturma metodu
     void RecreateFramebuffers();
-    
-    // Efekt zincirini işleme
-    void ProcessEffectChain(uint32_t frameIndex);
     
     // Üye değişkenler
     RenderSubsystem* m_owner = nullptr;
     VulkanRenderer* m_renderer = nullptr;
-    
-    // Tam ekran quad için
-    uint32_t m_indexCount = 0;
-    
-    // Ping-pong framebuffer'lar
-    std::unique_ptr<VulkanFramebuffer> m_pingFramebuffer;
-    std::unique_ptr<VulkanFramebuffer> m_pongFramebuffer;
     
     // Ping-pong texture'lar
     std::unique_ptr<VulkanTexture> m_pingTexture;
@@ -157,27 +109,6 @@ private:
     
     // Input texture (RenderSubsystem'den gelen)
     VulkanTexture* m_inputTexture = nullptr;
-    
-    // Vulkan kaynakları
-    VkRenderPass m_postProcessRenderPass = VK_NULL_HANDLE;
-    
-    // Shader modülleri
-    std::unique_ptr<VulkanShader> m_vertexShader;
-    std::unique_ptr<VulkanShader> m_fragmentShader;
-    
-    // Pipeline
-    std::unique_ptr<VulkanPipeline> m_fullScreenPipeline;
-    VkPipelineLayout m_fullScreenPipelineLayout = VK_NULL_HANDLE;
-    
-    // Tam ekran quad için buffer'lar
-    std::unique_ptr<VulkanBuffer> m_vertexBuffer;
-    std::unique_ptr<VulkanBuffer> m_indexBuffer;
-    uint32_t m_indexCount = 0;
-    
-    // Descriptor set ve layout
-    VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;
-    VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
-    VkDescriptorSet m_descriptorSet = VK_NULL_HANDLE;
     
     // Boyut bilgileri
     uint32_t m_width = 0;

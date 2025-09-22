@@ -1,9 +1,6 @@
 #include "Material.h"
-#include "../../../Core/Logger.h"
-#include "../Core/VulkanDevice.h"
-#include "../Buffers/VulkanBuffer.h"
+#include "Core/Logger.h"
 #include "../../Asset/AssetData.h"
-#include "../VulkanRenderer.h"
 #include <fstream>
 #include <sstream>
 #include <nlohmann/json.hpp>
@@ -13,10 +10,8 @@ using json = nlohmann::json;
 namespace AstralEngine {
 
 // Material sınıfı implementasyonu
-Material::Material() 
-    : m_device(nullptr)
-    , m_assetManager(nullptr)
-    , m_type(MaterialType::PBR)
+Material::Material()
+    : m_type(MaterialType::PBR)
     , m_name("UnnamedMaterial")
     , m_isInitialized(false) {
     
@@ -104,32 +99,13 @@ void Material::SetProperties(const MaterialProperties& props) {
     Logger::Debug("Material", "Material properties updated for: {}", m_name);
 }
 
-void Material::SetTexture(TextureType type, const std::string& texturePath) {
-    // TODO: This method relies on AssetManager::LoadVulkanTexture which is not implemented.
-    // Textures should also be managed via AssetHandles in the future.
-    Logger::Warning("Material", "SetTexture with path is deprecated or AssetManager::LoadVulkanTexture is missing.");
-    /*
-    if (!m_assetManager) {
-        Logger::Warning("Material", "AssetManager not available for texture loading: {}", texturePath);
-        return;
-    }
-    
-    auto texture = m_assetManager->LoadVulkanTexture(texturePath, m_device);
-    if (texture) {
-        SetTexture(type, texture);
-        Logger::Info("Material", "Texture loaded: {} -> {}", GetTextureName(type), texturePath);
-    } else {
-        Logger::Error("Material", "Failed to load texture: {}", texturePath);
-    }
-    */
-}
 
-void Material::SetTexture(TextureType type, std::shared_ptr<VulkanTexture> texture) {
+void Material::SetTexture(TextureType type, std::shared_ptr<ITexture> texture) {
     if (!texture) {
         Logger::Warning("Material", "Invalid texture pointer for type: {}", static_cast<int>(type));
         return;
     }
-    
+
     // Texture slot'ını bul veya oluştur
     auto it = m_textureMap.find(type);
     if (it != m_textureMap.end()) {
@@ -145,15 +121,15 @@ void Material::SetTexture(TextureType type, std::shared_ptr<VulkanTexture> textu
         slot.name = GetTextureName(type);
         slot.binding = GetTextureBinding(type);
         slot.enabled = true;
-        
+
         m_textureSlots.push_back(slot);
         m_textureMap[type] = m_textureSlots.size() - 1;
     }
-    
+
     Logger::Debug("Material", "Texture set: {} -> {}", GetTextureName(type), texture ? "valid" : "null");
 }
 
-std::shared_ptr<VulkanTexture> Material::GetTexture(TextureType type) const {
+std::shared_ptr<ITexture> Material::GetTexture(TextureType type) const {
     auto it = m_textureMap.find(type);
     if (it != m_textureMap.end()) {
         size_t index = it->second;
@@ -191,31 +167,6 @@ const TextureSlot* Material::GetTextureSlot(TextureType type) const {
     return nullptr;
 }
 
-void Material::SetShaders(const std::string& vertexPath, const std::string& fragmentPath) {
-    // TODO: This method is deprecated with the new AssetHandle-based approach.
-    // Shaders should be managed via AssetHandles and resolved by RenderSubsystem.
-    Logger::Warning("Material", "SetShaders with paths is deprecated. Use AssetHandles.");
-    /*
-    if (!m_assetManager) {
-        Logger::Warning("Material", "AssetManager not available for shader loading");
-        return;
-    }
-    
-    // Vertex shader'ı yükle
-    m_vertexShader = m_assetManager->LoadShader(vertexPath, m_device);
-    if (!m_vertexShader) {
-        Logger::Error("Material", "Failed to load vertex shader: {}", vertexPath);
-    }
-    
-    // Fragment shader'ı yükle
-    m_fragmentShader = m_assetManager->LoadShader(fragmentPath, m_device);
-    if (!m_fragmentShader) {
-        Logger::Error("Material", "Failed to load fragment shader: {}", fragmentPath);
-    }
-    
-    Logger::Info("Material", "Shaders loaded for material: {}", m_name);
-    */
-}
 
 
 
@@ -273,9 +224,8 @@ void Material::SetError(const std::string& error) {
 }
 
 // MaterialManager sınıfı implementasyonu
-MaterialManager::MaterialManager() 
-    : m_device(nullptr)
-    , m_assetManager(nullptr)
+MaterialManager::MaterialManager()
+    : m_assetManager(nullptr)
     , m_initialized(false) {
     
     Logger::Debug("MaterialManager", "MaterialManager created");
@@ -288,18 +238,17 @@ MaterialManager::~MaterialManager() {
     Logger::Debug("MaterialManager", "MaterialManager destroyed");
 }
 
-bool MaterialManager::Initialize(VulkanDevice* device, AssetManager* assetManager) {
+bool MaterialManager::Initialize(AssetManager* assetManager) {
     if (m_initialized) {
         Logger::Warning("MaterialManager", "MaterialManager already initialized");
         return true;
     }
-    
-    if (!device || !assetManager) {
-        Logger::Error("MaterialManager", "Invalid device or asset manager pointer");
+
+    if (!assetManager) {
+        Logger::Error("MaterialManager", "Invalid asset manager pointer");
         return false;
     }
-    
-    m_device = device;
+
     m_assetManager = assetManager;
     
     Logger::Info("MaterialManager", "Initializing MaterialManager");
@@ -332,8 +281,7 @@ void MaterialManager::Shutdown() {
     m_materials.clear();
     m_defaultPBRMaterial.reset();
     m_defaultUnlitMaterial.reset();
-    
-    m_device = nullptr;
+
     m_assetManager = nullptr;
     m_initialized = false;
     
@@ -420,13 +368,11 @@ std::shared_ptr<Material> MaterialManager::GetMaterial(const AssetHandle& materi
     config.type = MaterialType::PBR;
     
     // Register shader assets to get their handles
-    AssetHandle vsHandle = m_assetManager->RegisterAsset(materialData->vertexShaderPath, AssetHandle::Type::Shader);
-    AssetHandle fsHandle = m_assetManager->RegisterAsset(materialData->fragmentShaderPath, AssetHandle::Type::Shader);
+    AssetHandle vsHandle = m_assetManager->RegisterAsset(materialData->vertexShaderPath);
+    AssetHandle fsHandle = m_assetManager->RegisterAsset(materialData->fragmentShaderPath);
     
     config.vertexShaderHandle = vsHandle;
     config.fragmentShaderHandle = fsHandle;
-    config.device = m_device;
-    config.assetManager = m_assetManager;
     // RenderSubsystem will be set by the caller or during Material::Initialize if needed from a higher context.
     // For now, assuming RenderSubsystem is accessible or not strictly needed for Material initialization itself.
     // If it is needed, it should be passed down or Material needs a way to get it.
@@ -521,10 +467,10 @@ void MaterialManager::ClearUnusedMaterials() {
 
 bool MaterialManager::CreateDefaultMaterials() {
     // Register shader assets to get their handles for default materials
-    AssetHandle pbrVsHandle = m_assetManager->RegisterAsset("Assets/Shaders/Materials/pbr_material.vert", AssetHandle::Type::Shader);
-    AssetHandle pbrFsHandle = m_assetManager->RegisterAsset("Assets/Shaders/Materials/pbr_material.frag", AssetHandle::Type::Shader);
-    AssetHandle unlitVsHandle = m_assetManager->RegisterAsset("Assets/Shaders/Materials/unlit.vert", AssetHandle::Type::Shader);
-    AssetHandle unlitFsHandle = m_assetManager->RegisterAsset("Assets/Shaders/Materials/unlit.frag", AssetHandle::Type::Shader);
+    AssetHandle pbrVsHandle = m_assetManager->RegisterAsset("Assets/Shaders/Materials/pbr_material.vert");
+    AssetHandle pbrFsHandle = m_assetManager->RegisterAsset("Assets/Shaders/Materials/pbr_material.frag");
+    AssetHandle unlitVsHandle = m_assetManager->RegisterAsset("Assets/Shaders/Materials/unlit.vert");
+    AssetHandle unlitFsHandle = m_assetManager->RegisterAsset("Assets/Shaders/Materials/unlit.frag");
 
     // Default PBR Material
     Material::Config pbrConfig;
@@ -532,8 +478,6 @@ bool MaterialManager::CreateDefaultMaterials() {
     pbrConfig.type = MaterialType::PBR;
     pbrConfig.vertexShaderHandle = pbrVsHandle;
     pbrConfig.fragmentShaderHandle = pbrFsHandle;
-    pbrConfig.device = m_device;
-    pbrConfig.assetManager = m_assetManager;
     // RenderSubsystem needs to be passed here if Material requires it for initialization.
     // This assumes MaterialManager either has a reference to RenderSubsystem or default materials
     // are initialized in a context where RenderSubsystem can be provided.
@@ -551,8 +495,6 @@ bool MaterialManager::CreateDefaultMaterials() {
     unlitConfig.type = MaterialType::Unlit;
     unlitConfig.vertexShaderHandle = unlitVsHandle;
     unlitConfig.fragmentShaderHandle = unlitFsHandle;
-    unlitConfig.device = m_device;
-    unlitConfig.assetManager = m_assetManager;
     // unlitConfig.renderSubsystem = m_renderSubsystem;
     
     m_defaultUnlitMaterial = std::make_shared<Material>();

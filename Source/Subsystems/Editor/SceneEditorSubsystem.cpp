@@ -16,7 +16,7 @@
 // ImGui includes
 #ifdef ASTRAL_USE_IMGUI
     #include "../../Core/AstralImConfig.h"
-    #include <imgui.h>
+    #include "ThirdParty/imgui.h"
 #endif
 
 namespace AstralEngine {
