@@ -36,7 +36,7 @@ bool AssetRegistry::RegisterAsset(const AssetHandle& handle, const std::string& 
     metadata.lastAccessTime = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
     
-    m_registry[handle] = metadata;
+    m_registry[handle] = std::move(metadata);
     
     Logger::Debug("AssetRegistry", "Asset registered: {} (ID: {})", filePath, handle.GetID());
     return true;

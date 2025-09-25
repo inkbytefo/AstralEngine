@@ -28,7 +28,7 @@ GBufferPass::~GBufferPass() {
 bool GBufferPass::Initialize(RenderSubsystem* owner) {
     // Validation
     if (!owner) {
-        Logger::Error("GBufferPass::Initialize: Owner is null!");
+        Logger::Error("GBufferPass", "Initialize: Owner is null!");
         return false;
     }
     
@@ -36,12 +36,12 @@ bool GBufferPass::Initialize(RenderSubsystem* owner) {
     m_graphicsDevice = owner->GetGraphicsDevice();
     
     if (!m_graphicsDevice) {
-        Logger::Error("GBufferPass::Initialize: GraphicsDevice is null!");
+        Logger::Error("GBufferPass", "Initialize: GraphicsDevice is null!");
         return false;
     }
     
     if (!m_graphicsDevice->IsInitialized()) {
-        Logger::Error("GBufferPass::Initialize: GraphicsDevice is not initialized!");
+        Logger::Error("GBufferPass", "Initialize: GraphicsDevice is not initialized!");
         return false;
     }
 
@@ -49,11 +49,11 @@ bool GBufferPass::Initialize(RenderSubsystem* owner) {
     uint32_t height = m_graphicsDevice->GetSwapchain()->GetExtent().height;
     
     if (width == 0 || height == 0) {
-        Logger::Error("GBufferPass::Initialize: Invalid swapchain dimensions: %ux%u", width, height);
+        Logger::Error("GBufferPass", "Initialize: Invalid swapchain dimensions: {}x{}", width, height);
         return false;
     }
 
-    Logger::Info("Initializing GBufferPass with dimensions: %ux%u", width, height);
+    Logger::Info("GBufferPass", "Initializing GBufferPass with dimensions: {}x{}", width, height);
 
     // Get vertex buffer offset alignment from device limits
     VkPhysicalDeviceProperties deviceProperties;
@@ -62,19 +62,19 @@ bool GBufferPass::Initialize(RenderSubsystem* owner) {
     if (m_vertexBufferOffsetAlignment == 0) {
         m_vertexBufferOffsetAlignment = 1; // Fallback to 1 if alignment is 0
     }
-    Logger::Info("Vertex buffer offset alignment: %zu", m_vertexBufferOffsetAlignment);
+    Logger::Info("GBufferPass", "Vertex buffer offset alignment: {}", m_vertexBufferOffsetAlignment);
 
     // Create render pass
     CreateRenderPass();
     if (m_renderPass == VK_NULL_HANDLE) {
-        Logger::Error("GBufferPass::Initialize: Failed to create render pass!");
+        Logger::Error("GBufferPass", "Initialize: Failed to create render pass!");
         return false;
     }
 
     // Create framebuffer
     CreateFramebuffer(width, height);
     if (!m_framebuffer || !m_framebuffer->IsInitialized()) {
-        Logger::Error("GBufferPass::Initialize: Failed to create framebuffer!");
+        Logger::Error("GBufferPass", "Initialize: Failed to create framebuffer!");
         return false;
     }
 
@@ -88,12 +88,12 @@ bool GBufferPass::Initialize(RenderSubsystem* owner) {
 
         m_instanceBuffers[i] = std::make_unique<VulkanBuffer>();
         if (!m_instanceBuffers[i]->Initialize(m_graphicsDevice, bufferConfig)) {
-            Logger::Error("Failed to initialize instance buffer %zu: %s", i, m_instanceBuffers[i]->GetLastError().c_str());
+            Logger::Error("GBufferPass", "Failed to initialize instance buffer {}: {}", i, m_instanceBuffers[i]->GetLastError().c_str());
             return false;
         }
     }
 
-    Logger::Info("GBufferPass initialized successfully");
+    Logger::Info("GBufferPass", "GBufferPass initialized successfully");
     return true;
 }
 
@@ -309,7 +309,7 @@ void GBufferPass::CreateRenderPass() {
     renderPassInfo.pDependencies = dependencies.data();
 
     if (vkCreateRenderPass(m_graphicsDevice->GetVulkanDevice()->GetDevice(), &renderPassInfo, nullptr, &m_renderPass) != VK_SUCCESS) {
-        Logger::Error("Failed to create G-Buffer render pass!");
+        Logger::Error("GBufferPass", "Failed to create G-Buffer render pass!");
         return;
     }
 }
@@ -326,7 +326,7 @@ void GBufferPass::CreateFramebuffer(uint32_t width, uint32_t height) {
 
     m_gBufferAlbedo = std::make_unique<VulkanTexture>();
     if (!m_gBufferAlbedo->Initialize(m_graphicsDevice, albedoConfig)) {
-        Logger::Error("Failed to initialize G-Buffer Albedo texture: %s", m_gBufferAlbedo->GetLastError().c_str());
+        Logger::Error("GBufferPass", "Failed to initialize G-Buffer Albedo texture: {}", m_gBufferAlbedo->GetLastError());
         return;
     }
 
@@ -341,7 +341,7 @@ void GBufferPass::CreateFramebuffer(uint32_t width, uint32_t height) {
 
     m_gBufferNormal = std::make_unique<VulkanTexture>();
     if (!m_gBufferNormal->Initialize(m_graphicsDevice, normalConfig)) {
-        Logger::Error("Failed to initialize G-Buffer Normal texture: %s", m_gBufferNormal->GetLastError().c_str());
+        Logger::Error("GBufferPass", "Failed to initialize G-Buffer Normal texture: {}", m_gBufferNormal->GetLastError());
         return;
     }
 
@@ -356,7 +356,7 @@ void GBufferPass::CreateFramebuffer(uint32_t width, uint32_t height) {
 
     m_gBufferPBR = std::make_unique<VulkanTexture>();
     if (!m_gBufferPBR->Initialize(m_graphicsDevice, pbrConfig)) {
-        Logger::Error("Failed to initialize G-Buffer PBR texture: %s", m_gBufferPBR->GetLastError().c_str());
+        Logger::Error("GBufferPass", "Failed to initialize G-Buffer PBR texture: {}", m_gBufferPBR->GetLastError());
         return;
     }
 
@@ -371,7 +371,7 @@ void GBufferPass::CreateFramebuffer(uint32_t width, uint32_t height) {
 
     m_gBufferDepth = std::make_unique<VulkanTexture>();
     if (!m_gBufferDepth->Initialize(m_graphicsDevice, depthConfig)) {
-        Logger::Error("Failed to initialize G-Buffer Depth texture: %s", m_gBufferDepth->GetLastError().c_str());
+        Logger::Error("GBufferPass", "Failed to initialize G-Buffer Depth texture: {}", m_gBufferDepth->GetLastError());
         return;
     }
 
@@ -394,7 +394,7 @@ void GBufferPass::CreateFramebuffer(uint32_t width, uint32_t height) {
 
     m_framebuffer = std::make_unique<VulkanFramebuffer>();
     if (!m_framebuffer->Initialize(framebufferConfig)) {
-        Logger::Error("Failed to initialize G-Buffer framebuffer: %s", m_framebuffer->GetLastError().c_str());
+        Logger::Error("GBufferPass", "Failed to initialize G-Buffer framebuffer: {}", m_framebuffer->GetLastError());
         return;
     }
 }
@@ -427,19 +427,19 @@ std::shared_ptr<VulkanPipeline> GBufferPass::GetOrCreatePipeline(const Material&
 
     VkDescriptorSetLayout descriptorSetLayout = GetOrCreateDescriptorSetLayout(material);
     if (descriptorSetLayout == VK_NULL_HANDLE) {
-        Logger::Error("Failed to create descriptor set layout for pipeline!");
+        Logger::Error("GBufferPass", "Failed to create descriptor set layout for pipeline!");
         return nullptr;
     }
 
     config.pipelineLayout = GetOrCreatePipelineLayout(descriptorSetLayout);
     if (config.pipelineLayout == VK_NULL_HANDLE) {
-        Logger::Error("Failed to create pipeline layout!");
+        Logger::Error("GBufferPass", "Failed to create pipeline layout!");
         return nullptr;
     }
 
     auto pipeline = std::make_shared<VulkanPipeline>();
     if (!pipeline->Initialize(config)) {
-        Logger::Error("Failed to initialize pipeline!");
+        Logger::Error("GBufferPass", "Failed to initialize pipeline!");
         return nullptr;
     }
     m_pipelineCache[hash] = pipeline;
@@ -494,13 +494,13 @@ VkDescriptorSetLayout GBufferPass::GetOrCreateDescriptorSetLayout(const Material
     
     VkDescriptorSetLayout descriptorSetLayout;
     if (vkCreateDescriptorSetLayout(m_graphicsDevice->GetVulkanDevice()->GetDevice(), &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS) {
-        Logger::Error("Failed to create descriptor set layout for material!");
+        Logger::Error("GBufferPass", "Failed to create descriptor set layout for material!");
         return VK_NULL_HANDLE;
     }
     
     // Cache the layout
     m_descriptorSetLayoutCache[hash] = descriptorSetLayout;
-    Logger::Info("Created descriptor set layout for material (hash: %zu)", hash);
+    Logger::Info("GBufferPass", "Created descriptor set layout for material (hash: {})", hash);
     
     return descriptorSetLayout;
 }
@@ -532,13 +532,13 @@ VkPipelineLayout GBufferPass::GetOrCreatePipelineLayout(VkDescriptorSetLayout de
     
     VkPipelineLayout pipelineLayout;
     if (vkCreatePipelineLayout(m_graphicsDevice->GetVulkanDevice()->GetDevice(), &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
-        Logger::Error("Failed to create pipeline layout!");
+        Logger::Error("GBufferPass", "Failed to create pipeline layout!");
         return VK_NULL_HANDLE;
     }
     
     // Cache the layout
     m_pipelineLayoutCache[hash] = pipelineLayout;
-    Logger::Info("Created pipeline layout (hash: %zu)", hash);
+    Logger::Info("GBufferPass", "Created pipeline layout (hash: {})", hash);
     
     return pipelineLayout;
 }

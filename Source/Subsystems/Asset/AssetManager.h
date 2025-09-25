@@ -8,6 +8,7 @@
 #include "AssetHandle.h"
 #include "AssetRegistry.h"
 #include "IAssetImporter.h"
+#include "AssetData.h"
 #include "../../Core/ThreadPool.h"
 #include "../../Core/Logger.h"
 
@@ -35,7 +36,11 @@ public:
     // Modern Asset Loading API
     template<typename T>
     AssetHandle Load(const std::string& filePath) {
-        static_assert(std::is_base_of<IAssetData, T>::value, "T must derive from IAssetData");
+        static_assert(std::is_base_of_v<ModelData, T> ||
+                     std::is_base_of_v<TextureData, T> ||
+                     std::is_base_of_v<ShaderData, T> ||
+                     std::is_base_of_v<MaterialData, T>,
+                     "T must be a valid asset data type (ModelData, TextureData, ShaderData, or MaterialData)");
         AssetHandle handle = RegisterAsset(filePath);
         if (handle.IsValid()) {
             GetAsset<T>(handle); // Trigger async loading
@@ -45,8 +50,12 @@ public:
 
     template<typename T>
     std::future<AssetHandle> LoadAsync(const std::string& filePath) {
-        static_assert(std::is_base_of<IAssetData, T>::value, "T must derive from IAssetData");
-        return m_threadPool->EnqueueTask<AssetHandle>([this, filePath]() {
+        static_assert(std::is_base_of_v<ModelData, T> ||
+                     std::is_base_of_v<TextureData, T> ||
+                     std::is_base_of_v<ShaderData, T> ||
+                     std::is_base_of_v<MaterialData, T>,
+                     "T must be a valid asset data type (ModelData, TextureData, ShaderData, or MaterialData)");
+        return m_threadPool->Submit([this, filePath]() {
             return Load<T>(filePath);
         });
     }
@@ -70,6 +79,10 @@ public:
 
     // Utility
     std::string GetFullPath(const std::string& relativePath) const;
+
+    // Update and monitoring
+    void Update();
+    void CheckForAssetChanges();
 
 private:
     void RegisterImporters();

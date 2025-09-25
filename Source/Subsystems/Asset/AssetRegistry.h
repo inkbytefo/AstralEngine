@@ -48,6 +48,41 @@ struct AssetMetadata {
         , loadTimeMs(0.0)
         , lastAccessTime(0) {
     }
+    
+    // Move constructor
+    AssetMetadata(AssetMetadata&& other) noexcept
+        : handle(std::move(other.handle))
+        , filePath(std::move(other.filePath))
+        , type(other.type)
+        , state(other.state.load(std::memory_order_relaxed))
+        , memorySize(other.memorySize)
+        , refCount(other.refCount)
+        , lastError(std::move(other.lastError))
+        , loadProgress(other.loadProgress)
+        , loadTimeMs(other.loadTimeMs)
+        , lastAccessTime(other.lastAccessTime) {
+    }
+    
+    // Move assignment operator
+    AssetMetadata& operator=(AssetMetadata&& other) noexcept {
+        if (this != &other) {
+            handle = std::move(other.handle);
+            filePath = std::move(other.filePath);
+            type = other.type;
+            state.store(other.state.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            memorySize = other.memorySize;
+            refCount = other.refCount;
+            lastError = std::move(other.lastError);
+            loadProgress = other.loadProgress;
+            loadTimeMs = other.loadTimeMs;
+            lastAccessTime = other.lastAccessTime;
+        }
+        return *this;
+    }
+    
+    // Non-copyable
+    AssetMetadata(const AssetMetadata&) = delete;
+    AssetMetadata& operator=(const AssetMetadata&) = delete;
 };
 
 /**

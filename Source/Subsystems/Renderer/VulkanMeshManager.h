@@ -2,8 +2,8 @@
 
 #include "../Asset/AssetHandle.h"
 #include "../Asset/AssetSubsystem.h"
-#include "../Core/VulkanDevice.h"
-#include "../RendererTypes.h"
+#include "GraphicsDevice.h"
+#include "RendererTypes.h"
 #include <memory>
 #include <unordered_map>
 #include <mutex>

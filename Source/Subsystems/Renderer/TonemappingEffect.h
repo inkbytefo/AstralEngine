@@ -67,8 +67,6 @@ protected:
     // PostProcessingEffectBase sanal metodları
     bool OnInitialize() override;
     void OnShutdown() override;
-    bool CreateDescriptorSetLayout() override;
-    void UpdateDescriptorSets(VulkanTexture* inputTexture, uint32_t frameIndex) override;
 
     // Tonemapping parametreleri için getter/setter metodları
     float GetExposure() const { return m_uboData.exposure; }

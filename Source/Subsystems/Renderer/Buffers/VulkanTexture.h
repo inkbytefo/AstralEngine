@@ -33,6 +33,7 @@ public:
     struct Config {
         uint32_t width = 0;                          ///< Texture genişliği
         uint32_t height = 0;                         ///< Texture yüksekliği
+        uint32_t mipLevels = 1;                      ///< Mipmap seviyeleri
         VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;   ///< Texture formatı
         VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT; ///< Kullanım amaçları
         VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_COLOR_BIT; ///< Aspect mask
@@ -66,6 +67,22 @@ public:
     GpuResourceState GetState() const { return m_state; }
     
     const std::string& GetLastError() const { return m_lastError; }
+
+    /**
+     * @brief Descriptor set'ler için texture bilgisi döndürür.
+     * 
+     * Bu metod, texture'ların descriptor set'lerde kullanılması için
+     * gerekli VkDescriptorImageInfo yapısını oluşturur.
+     * 
+     * @return VkDescriptorImageInfo Texture descriptor bilgisi
+     */
+    VkDescriptorImageInfo GetDescriptorInfo() const {
+        VkDescriptorImageInfo imageInfo{};
+        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageInfo.imageView = m_textureImageView;
+        imageInfo.sampler = m_textureSampler;
+        return imageInfo;
+    }
 
 private:
     void CreateTextureImage(const std::string& path);

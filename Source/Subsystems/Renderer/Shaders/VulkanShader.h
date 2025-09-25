@@ -31,7 +31,6 @@ public:
 
     // Yaşam döngüsü
     bool Initialize(VulkanDevice* device, const std::vector<uint32_t>& spirvCode, VkShaderStageFlagBits stage);
-    void Shutdown();
 
     // Getter'lar
     VkShaderModule GetModule() const { return m_shaderModule; }

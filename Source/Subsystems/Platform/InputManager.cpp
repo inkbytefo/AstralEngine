@@ -3,6 +3,8 @@
 #include "Core/Logger.h"
 #include "../../Events/EventManager.h"
 #include "../../Events/Event.h"
+#include "../../Events/KeyEvent.h"
+#include "../../Events/MouseEvent.h"
 
 // SDL3 key mapping
 #ifdef ASTRAL_USE_SDL3

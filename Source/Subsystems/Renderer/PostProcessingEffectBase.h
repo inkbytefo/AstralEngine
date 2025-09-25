@@ -126,7 +126,6 @@ protected:
     VulkanDevice* GetDevice() const { return m_device; }
     VulkanShader* GetVertexShader() const { return m_vertexShader.get(); }
     VulkanShader* GetFragmentShader() const { return m_fragmentShader.get(); }
-    VulkanPipeline* GetPipeline() const { return m_pipeline.get(); }
     VkDescriptorSetLayout GetDescriptorSetLayout() const { return m_descriptorSetLayout; }
     VkDescriptorPool GetDescriptorPool() const { return m_descriptorPool; }
     const std::vector<VkDescriptorSet>& GetDescriptorSets() const { return m_descriptorSets; }
@@ -145,7 +144,7 @@ protected:
     void SetWidth(uint32_t width) { m_width = width; }
     void SetHeight(uint32_t height) { m_height = height; }
 
-private:
+protected:
     // Member değişkenler
     VulkanRenderer* m_renderer = nullptr;
     VulkanDevice* m_device = nullptr;
@@ -168,6 +167,10 @@ private:
     static std::shared_ptr<class VulkanBuffer> s_vertexBuffer;
     static uint32_t s_vertexCount;
     // static uint32_t s_referenceCount; // No longer needed
+    
+    // Vertex buffer for full-screen quad
+    std::unique_ptr<VulkanBuffer> m_vertexBuffer;
+    uint32_t m_vertexCount = 0;
     
     // Durum yönetimi
     bool m_isInitialized = false;

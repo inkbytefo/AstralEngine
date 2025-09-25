@@ -50,16 +50,16 @@ void BloomEffect::Update(VulkanTexture* inputTexture, uint32_t frameIndex) {
 
     // Uniform buffer'ı güncelle
     void* data;
-    vkMapMemory(GetDevice()->GetDevice(), GetUniformBuffers()[frameIndex]->GetBufferMemory(), 0, sizeof(BloomUBO), 0, &data);
+    vkMapMemory(GetDevice()->GetDevice(), GetUniformBuffers()[frameIndex]->GetMemory(), 0, sizeof(BloomUBO), 0, &data);
     memcpy(data, &m_uboData, sizeof(BloomUBO));
-    vkUnmapMemory(GetDevice()->GetDevice(), GetUniformBuffers()[frameIndex]->GetBufferMemory());
+    vkUnmapMemory(GetDevice()->GetDevice(), GetUniformBuffers()[frameIndex]->GetMemory());
 
     // Descriptor set'leri güncelle
     UpdateDescriptorSets(inputTexture, frameIndex);
 }
 
 const std::string& BloomEffect::GetName() const {
-    return m_name;
+    return m_config.name;
 }
 
 bool BloomEffect::IsEnabled() const {

@@ -35,6 +35,7 @@ public:
         VkDeviceSize size;                    ///< Buffer boyutu
         VkBufferUsageFlags usage;              ///< Buffer kullanım amacı
         VkMemoryPropertyFlags properties;      ///< Bellek özellikleri
+        std::string name = "UnnamedBuffer";    ///< Buffer adı (debug için)
     };
 
     VulkanBuffer();
@@ -85,6 +86,22 @@ public:
      * @param dataSize Kopyalanacak verinin boyutu.
      */
     void CopyDataFromHost(const void* data, VkDeviceSize dataSize);
+
+    /**
+     * @brief Descriptor set'ler için buffer bilgisi döndürür.
+     * 
+     * Bu metod, uniform buffer'ların descriptor set'lerde kullanılması için
+     * gerekli VkDescriptorBufferInfo yapısını oluşturur.
+     * 
+     * @return VkDescriptorBufferInfo Buffer descriptor bilgisi
+     */
+    VkDescriptorBufferInfo GetDescriptorInfo() const {
+        VkDescriptorBufferInfo bufferInfo{};
+        bufferInfo.buffer = m_buffer;
+        bufferInfo.offset = 0;
+        bufferInfo.range = m_size;
+        return bufferInfo;
+    }
 
 private:
     // Yardımcı metotlar

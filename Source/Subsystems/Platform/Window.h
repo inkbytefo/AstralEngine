@@ -37,6 +37,10 @@
 // Vulkan headers (conditionally included)
 #ifdef ASTRAL_USE_VULKAN
     #include <vulkan/vulkan.h>
+#else
+    // Forward declarations for Vulkan handles when Vulkan is not enabled
+    struct VkInstance_T; using VkInstance = VkInstance_T*;
+    struct VkSurfaceKHR_T; using VkSurfaceKHR = VkSurfaceKHR_T*;
 #endif
 
 namespace AstralEngine {

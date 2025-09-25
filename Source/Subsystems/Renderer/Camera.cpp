@@ -143,6 +143,28 @@ const Frustum& Camera::GetFrustum() {
     return m_frustum;
 }
 
+// Const versiyonlar
+const glm::mat4& Camera::GetViewMatrix() const {
+    if (m_viewDirty) {
+        UpdateViewMatrixInternal();
+    }
+    return m_viewMatrix;
+}
+
+const glm::mat4& Camera::GetProjectionMatrix() const {
+    if (m_projectionDirty) {
+        UpdateProjectionMatrixInternal();
+    }
+    return m_projectionMatrix;
+}
+
+const Frustum& Camera::GetFrustum() const {
+    if (m_frustumDirty) {
+        ExtractFrustumPlanesInternal();
+    }
+    return m_frustum;
+}
+
 void Camera::UpdateViewMatrixInternal() const {
     if (!m_isInitialized) {
         Logger::Warning("Camera", "Cannot update view matrix - camera not initialized");

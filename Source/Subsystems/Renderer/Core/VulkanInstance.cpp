@@ -11,6 +11,11 @@
 // Ensure Vulkan platform-specific headers are included
 #include <vulkan/vulkan.h>
 
+// Platform-specific Vulkan headers
+#ifdef _WIN32
+    #include <vulkan/vulkan_win32.h>
+#endif
+
 // Vulkan debug callback
 static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
     VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -64,7 +69,7 @@ VulkanInstance::VulkanInstance()
     
     // Set default configuration
     m_config = Config{};
-    m_config.apiVersion = VK_API_VERSION_1_4;
+    m_config.apiVersion = VK_API_VERSION_1_3; // Changed from 1.4 to 1.3 for better compatibility
     m_config.validationLayers = {"VK_LAYER_KHRONOS_validation"};
     m_config.instanceExtensions = {
         VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
@@ -237,8 +242,6 @@ bool VulkanInstance::CreateInstance() {
     
     return true;
 }
-
-
 
 bool VulkanInstance::QueryPhysicalDevices() {
     uint32_t deviceCount = 0;

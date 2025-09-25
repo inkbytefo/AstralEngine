@@ -674,7 +674,7 @@ void VulkanRenderer::RecordGBufferCommands(uint32_t frameIndex, VulkanFramebuffe
         VkDeviceSize offsets[] = { m_instanceBufferOffset };
         vkCmdBindVertexBuffers(commandBuffer, 1, 1, instanceBuffers, offsets);
 
-        vkCmdDrawIndexedInstanced(commandBuffer, mesh->GetIndexCount(), instanceCount, 0, 0, 0);
+        vkCmdDrawIndexed(commandBuffer, mesh->GetIndexCount(), instanceCount, 0, 0, 0);
 
         // Advance the offset for the next draw call
         m_instanceBufferOffset += dataSize;

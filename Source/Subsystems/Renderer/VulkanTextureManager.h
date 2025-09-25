@@ -1,10 +1,9 @@
 #pragma once
 
-#include "../../../Subsystems/Asset/AssetHandle.h"
-#include "../../../Subsystems/Asset/AssetSubsystem.h"
-#include "../Buffers/VulkanTexture.h"
-#include "../Core/VulkanDevice.h"
-#include "../GraphicsDevice.h"
+#include "../Asset/AssetHandle.h"
+#include "../Asset/AssetSubsystem.h"
+#include "Buffers/VulkanTexture.h"
+#include "GraphicsDevice.h"
 #include "RendererTypes.h"
 #include <memory>
 #include <unordered_map>

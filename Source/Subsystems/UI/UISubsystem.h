@@ -11,10 +11,10 @@
     #include "../../Core/AstralImConfig.h" // Our custom config must be included first
     #include <imgui.h>
     #ifdef ASTRAL_USE_SDL3
-        #include <imgui_impl_sdl3.h>
+        #include "backends/imgui_impl_sdl3.h"
     #endif
     #ifdef ASTRAL_USE_VULKAN
-        #include <imgui_impl_vulkan.h>
+        #include "backends/imgui_impl_vulkan.h"
     #endif
 #endif
 
@@ -74,8 +74,13 @@ private:
     void ShutdownImGui();
     void SetupStyle();
 
+public:
 #ifdef ASTRAL_USE_IMGUI
     void ProcessSDLEvent(const void* event);
+#endif
+
+private:
+#ifdef ASTRAL_USE_IMGUI
     void SetupFonts();
     void UpdateViewport();
 #endif

@@ -33,21 +33,21 @@ bool PostProcessingSubsystem::Initialize(RenderSubsystem* owner) {
     // GraphicsDevice ve renderer'ı al
     auto graphicsDevice = m_owner->GetGraphicsDevice();
     if (!graphicsDevice) {
-        Logger::Fatal("PostProcessingSubsystem", "GraphicsDevice not available!");
+        Logger::Critical("PostProcessingSubsystem", "GraphicsDevice not available!");
         return false;
     }
 
     // VulkanRenderer'ı al
     m_renderer = m_owner->GetVulkanRenderer();
     if (!m_renderer) {
-        Logger::Fatal("PostProcessingSubsystem", "VulkanRenderer not available!");
+        Logger::Critical("PostProcessingSubsystem", "VulkanRenderer not available!");
         return false;
     }
 
     // Swapchain boyutlarını al
     auto swapchain = graphicsDevice->GetSwapchain();
     if (!swapchain) {
-        Logger::Fatal("PostProcessingSubsystem", "Swapchain not available!");
+        Logger::Critical("PostProcessingSubsystem", "Swapchain not available!");
         return false;
     }
 

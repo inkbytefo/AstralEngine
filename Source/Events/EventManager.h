@@ -27,6 +27,22 @@ namespace AstralEngine {
             return instance;
         }
 
+        void ProcessEvents() {
+            DispatchQueuedEvents();
+        }
+
+        template<typename T, typename... Args>
+        void PublishEvent(Args&&... args) {
+            auto event = std::make_unique<T>(std::forward<Args>(args)...);
+            QueueEvent(std::move(event));
+        }
+
+        template<typename T>
+        EventHandlerID Subscribe(const EventCallback& handler) {
+            AddListener<T>(handler);
+            return static_cast<EventHandlerID>(m_Listeners[T::GetStaticType()].size() - 1);
+        }
+
         template<typename T>
         void AddListener(const EventCallback& callback) {
             std::lock_guard<std::mutex> lock(m_Mutex);

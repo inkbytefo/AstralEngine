@@ -27,7 +27,8 @@ public:
         Info = 2,
         Warning = 3,
         Error = 4,
-        Critical = 5
+        Critical = 5,
+        Fatal = 6
     };
 
     // Static interface
@@ -48,6 +49,9 @@ public:
     
     template<typename... Args>
     static void Critical(const std::string& category, const std::string& format, Args&&... args);
+    
+    template<typename... Args>
+    static void Fatal(const std::string& category, const std::string& format, Args&&... args);
 
     // Log seviyesini ayarla
     static void SetLogLevel(LogLevel level);
@@ -117,6 +121,15 @@ void Logger::Critical(const std::string& category, const std::string& format, Ar
         Log(LogLevel::Critical, category, std::vformat(format, std::make_format_args(args...)));
     } else {
         Log(LogLevel::Critical, category, format);
+    }
+}
+
+template<typename... Args>
+void Logger::Fatal(const std::string& category, const std::string& format, Args&&... args) {
+    if constexpr (sizeof...(args) > 0) {
+        Log(LogLevel::Fatal, category, std::vformat(format, std::make_format_args(args...)));
+    } else {
+        Log(LogLevel::Fatal, category, format);
     }
 }
 

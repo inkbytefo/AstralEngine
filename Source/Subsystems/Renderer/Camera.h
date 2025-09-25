@@ -44,6 +44,11 @@ public:
     const glm::mat4& GetViewMatrix();
     const glm::mat4& GetProjectionMatrix();
     const Frustum& GetFrustum();
+    
+    // Const getter'lar
+    const glm::mat4& GetViewMatrix() const;
+    const glm::mat4& GetProjectionMatrix() const;
+    const Frustum& GetFrustum() const;
     const glm::vec3& GetPosition() const { return m_config.position; }
     const glm::vec3& GetTarget() const { return m_config.target; }
     const glm::vec3& GetUp() const { return m_config.up; }
