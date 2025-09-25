@@ -15,35 +15,35 @@ namespace AstralEngine {
     class EventManager {
     public:
         using EventCallback = std::function<void(Event&)>;
+        using EventHandlerID = size_t;
 
-        static void Init() {
-            s_Instance = new EventManager();
+        EventManager(const EventManager&) = delete;
+        EventManager& operator=(const EventManager&) = delete;
+        EventManager(EventManager&&) = delete;
+        EventManager& operator=(EventManager&&) = delete;
+
+        static EventManager& GetInstance() {
+            static EventManager instance;
+            return instance;
         }
 
-        static void Shutdown() {
-            delete s_Instance;
-            s_Instance = nullptr;
-        }
-
-        static EventManager* GetInstance() { return s_Instance; }
-
-        void AddListener(EventType type, const EventCallback& callback) {
+        template<typename T>
+        void AddListener(const EventCallback& callback) {
             std::lock_guard<std::mutex> lock(m_Mutex);
-            m_Listeners[type].push_back(callback);
+            m_Listeners[T::GetStaticType()].push_back(callback);
         }
 
         void TriggerEvent(Event& event) {
-            EventDispatcher dispatcher(event);
-            dispatcher.Dispatch<Event>([this](Event& e) {
-                if (m_Listeners.find(e.GetEventType()) == m_Listeners.end()) {
-                    return false;
-                }
+            std::type_index type = event.GetType();
+            auto it = m_Listeners.find(type);
+            if (it == m_Listeners.end()) {
+                return;
+            }
 
-                for (auto const& callback : m_Listeners.at(e.GetEventType())) {
-                    callback(e);
-                }
-                return true;
-            });
+            for (auto const& callback : it->second) {
+                callback(event);
+                if (event.Handled) break;
+            }
         }
 
         void QueueEvent(std::unique_ptr<Event> event) {
@@ -63,8 +63,7 @@ namespace AstralEngine {
     private:
         EventManager() = default;
 
-        static EventManager* s_Instance;
-        std::unordered_map<EventType, std::vector<EventCallback>> m_Listeners;
+        std::unordered_map<std::type_index, std::vector<EventCallback>> m_Listeners;
         std::queue<std::unique_ptr<Event>> m_EventQueue;
         std::mutex m_Mutex;
     };

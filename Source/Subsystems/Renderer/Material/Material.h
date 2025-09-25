@@ -2,19 +2,21 @@
 
 #include "../../Asset/AssetHandle.h"
 #include "../RendererTypes.h"
-#include <vulkan/vulkan.h>
 #include <string>
 #include <vector>
 #include <memory>
 #include <unordered_map>
 #include <glm/glm.hpp>
 #include <mutex>
+#include "../Shaders/IShader.h"
 
 namespace AstralEngine {
 
 // Forward declarations
-class ITexture;  // Generic texture interface
-class IShader;   // Generic shader interface
+class ITexture;         // Generic texture interface
+class IShader;          // Generic shader interface
+class AssetManager;     // Asset management system
+class MaterialManager;  // Material management system
 
 /**
  * @enum MaterialType
@@ -160,17 +162,57 @@ public:
     // Shader handle erişimi
     AssetHandle GetVertexShaderHandle() const { return m_vertexShaderHandle; }
     AssetHandle GetFragmentShaderHandle() const { return m_fragmentShaderHandle; }
-    
+
+    // Shader caching and validation methods
+    /**
+     * @brief Get the cached shader hash for comparison and validation
+     * @return 64-bit hash of the current shader combination
+     */
+    uint64_t GetShaderHash() const;
+
+    /**
+     * @brief Get the cached vertex shader object
+     * @return Pointer to the vertex shader, nullptr if not loaded
+     */
+    std::shared_ptr<IShader> GetVertexShader() const;
+
+    /**
+     * @brief Get the cached fragment shader object
+     * @return Pointer to the fragment shader, nullptr if not loaded
+     */
+    std::shared_ptr<IShader> GetFragmentShader() const;
 
     // Hata yönetimi
     const std::string& GetLastError() const { return m_lastError; }
 
+    // MaterialManager erişimi
+    void SetMaterialManager(MaterialManager* manager) { m_materialManager = manager; }
+    MaterialManager* GetMaterialManager() const { return m_materialManager; }
+
 private:
     // Helper methods
-    void UpdateTextureBindings();
     uint32_t GetTextureBinding(TextureType type) const;
     std::string GetTextureName(TextureType type) const;
     void SetError(const std::string& error);
+
+    /**
+     * @brief Lazy loading method for shaders to improve performance
+     *
+     * This method loads and caches the vertex and fragment shaders when they are
+     * first requested, rather than loading them during material initialization.
+     * This approach improves startup time and memory usage by only loading
+     * shaders when they are actually needed.
+     *
+     * The method will:
+     * - Load shaders from asset handles if not already loaded
+     * - Cache the loaded shader objects for future use
+     * - Calculate and cache the combined shader hash
+     * - Set the m_shadersLoaded flag to true on success
+     *
+     * @note This method is thread-safe and can be called from const methods
+     * @note If shader loading fails, the cached pointers remain null
+     */
+    void LoadShadersIfNeeded() const;
 
     // Member değişkenler
     
@@ -186,68 +228,20 @@ private:
     // Texture'lar
     std::vector<TextureSlot> m_textureSlots;
     std::unordered_map<TextureType, size_t> m_textureMap;
-    
-    
+
+    // Shader caching system
+    mutable std::shared_ptr<IShader> m_vertexShader;    ///< Cached vertex shader object
+    mutable std::shared_ptr<IShader> m_fragmentShader;  ///< Cached fragment shader object
+    mutable uint64_t m_shaderHash = 0;                   ///< Cached shader hash for validation
+    mutable bool m_shadersLoaded = false;               ///< Flag indicating if shaders are loaded
+    mutable std::mutex m_shaderLoadMutex;               ///< Mutex for thread-safe shader loading
+
     bool m_isInitialized = false;
     std::string m_lastError;
+
+    // MaterialManager reference for shader loading
+    MaterialManager* m_materialManager = nullptr;
 };
 
-/**
- * @class MaterialManager
- * @brief Materyal yönetimi ve önbellekleme sistemi
- * 
- * Bu sınıf, tüm materyalleri yönetir, önbellekte tutar ve
- * materyal asset'lerinin yüklenmesini sağlar.
- */
-class MaterialManager {
-public:
-    MaterialManager();
-    ~MaterialManager();
-
-    // Non-copyable
-    MaterialManager(const MaterialManager&) = delete;
-    MaterialManager& operator=(const MaterialManager&) = delete;
-
-    // Yaşam döngüsü
-    bool Initialize(AssetManager* assetManager);
-    void Shutdown();
-    void Update();
-
-    // Materyal oluşturma ve yükleme
-    std::shared_ptr<Material> CreateMaterial(const Material::Config& config);
-    std::shared_ptr<Material> GetMaterial(const std::string& materialName) const;
-    std::shared_ptr<Material> GetMaterial(const AssetHandle& materialHandle);
-    
-    // Materyal yönetimi
-    void RegisterMaterial(const std::string& name, std::shared_ptr<Material> material);
-    void UnregisterMaterial(const std::string& name);
-    bool HasMaterial(const std::string& name) const;
-    
-    // Varsayılan materyaller
-    std::shared_ptr<Material> GetDefaultPBRMaterial() const { return m_defaultPBRMaterial; }
-    std::shared_ptr<Material> GetDefaultUnlitMaterial() const { return m_defaultUnlitMaterial; }
-    
-    // İstatistikler
-    size_t GetMaterialCount() const { return m_materials.size(); }
-    void ClearUnusedMaterials();
-
-private:
-    // Yardımcı metotlar
-    bool CreateDefaultMaterials();
-    void CleanupUnusedMaterials();
-    
-    // Member değişkenler
-    AssetManager* m_assetManager = nullptr;
-    
-    // Materyal önbelleği
-    std::unordered_map<std::string, std::shared_ptr<Material>> m_materials;
-    
-    // Varsayılan materyaller
-    std::shared_ptr<Material> m_defaultPBRMaterial;
-    std::shared_ptr<Material> m_defaultUnlitMaterial;
-    
-    bool m_initialized = false;
-    mutable std::mutex m_mutex;
-};
 
 } // namespace AstralEngine

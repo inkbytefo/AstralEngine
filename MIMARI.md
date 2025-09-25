@@ -126,7 +126,7 @@ Bu sıra, bağımlılıklar tarafından zorunlu kılınır - [`RenderSubsystem`]
 **Bileşenler:**
 -   **[`GraphicsDevice`](Source/Subsystems/Renderer/GraphicsDevice.h):** Vulkan instance, device ve kuyruklarını yönetir
 -   **[`VulkanRenderer`](Source/Subsystems/Renderer/VulkanRenderer.h:27):** Deferred rendering pipeline implementasyonu
--   **[`MaterialManager`](Source/Subsystems/Renderer/Material/Material.h):** Malzeme verilerini (PBR parametreleri, doku haritaları) yönetir
+-   **[`MaterialManager`](Source/Subsystems/Renderer/Material/MaterialManager.h):** Gelişmiş malzeme ve shader yönetim sistemi
 -   **[`VulkanMeshManager`](Source/Subsystems/Renderer/VulkanMeshManager.h):** Model verilerini (vertex/index buffer) GPU'ya yükler ve yönetir
 -   **[`VulkanTextureManager`](Source/Subsystems/Renderer/VulkanTextureManager.h):** Doku (texture) verilerini GPU'ya yükler ve yönetir
 -   **[`PostProcessingSubsystem`](Source/Subsystems/Renderer/PostProcessingSubsystem.h):** Bloom, tonemapping gibi post-processing efektleri

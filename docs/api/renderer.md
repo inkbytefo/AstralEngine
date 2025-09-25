@@ -1070,27 +1070,6 @@ class VulkanRenderer {
 };
 ```
 
-### Descriptor Set Caching
-```cpp
-class MaterialManager {
-    std::unordered_map<MaterialHandle, VkDescriptorSet> m_descriptorSetCache;
-    
-    VkDescriptorSet GetOrCreateDescriptorSet(const Material& material) {
-        MaterialHandle handle = material.GetHandle();
-        
-        auto it = m_descriptorSetCache.find(handle);
-        if (it != m_descriptorSetCache.end()) {
-            return it->second;
-        }
-        
-        // Yeni descriptor set oluştur
-        VkDescriptorSet descriptorSet = CreateDescriptorSet(material);
-        m_descriptorSetCache[handle] = descriptorSet;
-        
-        return descriptorSet;
-    }
-};
-```
 
 ## Sık Karşılaşılan Sorular
 

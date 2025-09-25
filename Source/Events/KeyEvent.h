@@ -10,15 +10,15 @@ namespace AstralEngine {
 	class KeyEvent : public Event
 	{
 	public:
-		KeyCode GetKeyCode() const { return m_KeyCode; }
+KeyCode GetKeyCode() const { return m_KeyCode; }
 
-		EVENT_CLASS_CATEGORY(EventCategoryKeyboard | EventCategoryInput)
-	protected:
-		KeyEvent(const KeyCode keycode)
-			: m_KeyCode(keycode) {}
+int GetCategoryFlags() const override { return EventCategoryKeyboard | EventCategoryInput; }
+protected:
+KeyEvent(const KeyCode keycode)
+: m_KeyCode(keycode) {}
 
-		KeyCode m_KeyCode;
-	};
+KeyCode m_KeyCode;
+};
 
 	class KeyPressedEvent : public KeyEvent
 	{
@@ -28,17 +28,19 @@ namespace AstralEngine {
 
 		bool IsRepeat() const { return m_IsRepeat; }
 
-		std::string ToString() const override
-		{
-			std::stringstream ss;
-			ss << "KeyPressedEvent: " << m_KeyCode << " (repeat = " << m_IsRepeat << ")";
-			return ss.str();
-		}
+std::string ToString() const override
+{
+std::stringstream ss;
+ss << "KeyPressedEvent: " << static_cast<int>(m_KeyCode) << " (repeat = " << m_IsRepeat << ")";
+return ss.str();
+}
 
-		EVENT_CLASS_TYPE(KeyPressed)
-	private:
-		bool m_IsRepeat;
-	};
+std::type_index GetType() const override { return typeid(KeyPressedEvent); }
+static std::type_index GetStaticType() { return typeid(KeyPressedEvent); }
+const char* GetName() const override { return "KeyPressed"; }
+private:
+bool m_IsRepeat;
+};
 
 	class KeyReleasedEvent : public KeyEvent
 	{
@@ -46,15 +48,17 @@ namespace AstralEngine {
 		KeyReleasedEvent(const KeyCode keycode)
 			: KeyEvent(keycode) {}
 
-		std::string ToString() const override
-		{
-			std::stringstream ss;
-			ss << "KeyReleasedEvent: " << m_KeyCode;
-			return ss.str();
-		}
+std::string ToString() const override
+{
+std::stringstream ss;
+ss << "KeyReleasedEvent: " << static_cast<int>(m_KeyCode);
+return ss.str();
+}
 
-		EVENT_CLASS_TYPE(KeyReleased)
-	};
+std::type_index GetType() const override { return typeid(KeyReleasedEvent); }
+static std::type_index GetStaticType() { return typeid(KeyReleasedEvent); }
+const char* GetName() const override { return "KeyReleased"; }
+};
 
 	class KeyTypedEvent : public KeyEvent
 	{
@@ -62,13 +66,15 @@ namespace AstralEngine {
 		KeyTypedEvent(const KeyCode keycode)
 			: KeyEvent(keycode) {}
 
-		std::string ToString() const override
-		{
-			std::stringstream ss;
-			ss << "KeyTypedEvent: " << m_KeyCode;
-			return ss.str();
-		}
+std::string ToString() const override
+{
+std::stringstream ss;
+ss << "KeyTypedEvent: " << static_cast<int>(m_KeyCode);
+return ss.str();
+}
 
-		EVENT_CLASS_TYPE(KeyTyped)
-	};
+std::type_index GetType() const override { return typeid(KeyTypedEvent); }
+static std::type_index GetStaticType() { return typeid(KeyTypedEvent); }
+const char* GetName() const override { return "KeyTyped"; }
+};
 }

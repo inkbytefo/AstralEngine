@@ -46,22 +46,98 @@ include(cmake/ProjectConfiguration.cmake) # Defines the 'astral_common_settings'
 # ASTRAL ENGINE LIBRARY TARGET
 # =====================================================================
 
-file(GLOB_RECURSE ASTRAL_SOURCES
-    "Source/*.cpp" "Source/*.h"
-    "Source/**/*.cpp" "Source/**/*.h"
-)
+# Explicitly list all source files for better build system reliability
+set(ASTRAL_SOURCES
+    # Core
+    Source/Core/AstralImConfig.h
+    Source/Core/Engine.cpp
+    Source/Core/Engine.h
+    Source/Core/FileLogger.cpp
+    Source/Core/FileLogger.h
+    Source/Core/IApplication.h
+    Source/Core/ISubsystem.h
+    Source/Core/Logger.cpp
+    Source/Core/Logger.h
+    Source/Core/MemoryManager.cpp
+    Source/Core/MemoryManager.h
+    Source/Core/ThreadPool.cpp
+    Source/Core/ThreadPool.h
+    Source/Core/Math/Vector2.h
+    Source/Core/Math/Vector4.h
 
-# Exclude shader files from compilation - they should not be processed by C++ compiler
-file(GLOB_RECURSE SHADER_FILES
-    "Assets/Shaders/*.slang"
-    "Assets/Shaders/**/*.slang"
-)
+    # Events
+    Source/Events/ApplicationEvent.h
+    Source/Events/Event.h
+    Source/Events/EventManager.cpp
+    Source/Events/EventManager.h
+    Source/Events/KeyEvent.h
+    Source/Events/MouseEvent.h
 
-# Remove shader files from source list
-if(SHADER_FILES)
-    list(REMOVE_ITEM ASTRAL_SOURCES ${SHADER_FILES})
-    message(STATUS "Excluded ${SHADER_FILES} shader files from compilation")
-endif()
+    # ECS
+    Source/ECS/Components.h
+    Source/Subsystems/ECS/ECSSubsystem.cpp
+    Source/Subsystems/ECS/ECSSubsystem.h
+
+    # Asset System
+    Source/Subsystems/Asset/AssetData.h
+    Source/Subsystems/Asset/AssetHandle.cpp
+    Source/Subsystems/Asset/AssetHandle.h
+    Source/Subsystems/Asset/AssetManager.cpp
+    Source/Subsystems/Asset/AssetManager.h
+    Source/Subsystems/Asset/AssetRegistry.cpp
+    Source/Subsystems/Asset/AssetRegistry.h
+    Source/Subsystems/Asset/AssetSubsystem.cpp
+    Source/Subsystems/Asset/AssetSubsystem.h
+    Source/Subsystems/Asset/IAssetImporter.h
+    Source/Subsystems/Asset/MaterialImporter.cpp
+    Source/Subsystems/Asset/MaterialImporter.h
+    Source/Subsystems/Asset/Model.cpp
+    Source/Subsystems/Asset/Model.h
+    Source/Subsystems/Asset/ModelImporter.cpp
+    Source/Subsystems/Asset/ModelImporter.h
+    Source/Subsystems/Asset/ShaderImporter.cpp
+    Source/Subsystems/Asset/ShaderImporter.h
+    Source/Subsystems/Asset/ShaderProgram.h
+    Source/Subsystems/Asset/TextureImporter.cpp
+    Source/Subsystems/Asset/TextureImporter.h
+
+    # Platform
+    Source/Subsystems/Platform/InputManager.cpp
+    Source/Subsystems/Platform/InputManager.h
+    Source/Subsystems/Platform/KeyCode.h
+    Source/Subsystems/Platform/PlatformSubsystem.cpp
+    Source/Subsystems/Platform/PlatformSubsystem.h
+    Source/Subsystems/Platform/Window.cpp
+    Source/Subsystems/Platform/Window.h
+
+    # Renderer
+    Source/Subsystems/Renderer/BloomEffect.cpp
+    Source/Subsystems/Renderer/BloomEffect.h
+    Source/Subsystems/Renderer/Bounds.h
+    Source/Subsystems/Renderer/Camera.cpp
+    Source/Subsystems/Renderer/Camera.h
+    Source/Subsystems/Renderer/GraphicsDevice.cpp
+    Source/Subsystems/Renderer/GraphicsDevice.h
+    Source/Subsystems/Renderer/IPostProcessingEffect.h
+    Source/Subsystems/Renderer/IRenderer.h
+    Source/Subsystems/Renderer/PostProcessingEffectBase.cpp
+    Source/Subsystems/Renderer/PostProcessingEffectBase.h
+    Source/Subsystems/Renderer/PostProcessingSubsystem.cpp
+    Source/Subsystems/Renderer/PostProcessingSubsystem.h
+    Source/Subsystems/Renderer/RendererTypes.h
+    Source/Subsystems/Renderer/RenderSubsystem.cpp
+    Source/Subsystems/Renderer/RenderSubsystem.h
+    Source/Subsystems/Renderer/TonemappingEffect.cpp
+    Source/Subsystems/Renderer/TonemappingEffect.h
+
+    # Third Party
+    Source/ThirdParty/stb_image.cpp
+    Source/ThirdParty/stb_image.h
+
+    # Main
+    Source/main.cpp
+    Source/test_sdl3.cpp
+)
 
 if(ASTRAL_BUILD_SHARED)
     add_library(AstralEngine SHARED ${ASTRAL_SOURCES})
@@ -171,81 +247,36 @@ write_basic_package_version_file(
     COMPATIBILITY SameMajorVersion
 )
 
-# Install the library
-install(TARGETS AstralEngine
+
+# Create a list of optional dependency targets
+set(ASTRAL_DEPENDENCY_TARGETS
+    SDL3_Headers
+    SDL3-shared
+    glm-header-only
+    glm
+    VulkanMemoryAllocator
+    VMA
+    nlohmann_json
+    assimp
+    ImGui
+    Jolt
+)
+
+# Install all available dependency targets in a single command
+foreach(dep IN LISTS ASTRAL_DEPENDENCY_TARGETS)
+    if(TARGET ${dep})
+        list(APPEND EXPORT_TARGETS ${dep})
+    endif()
+endforeach()
+
+# Install the AstralEngine target along with all dependencies in a single export set
+install(TARGETS AstralEngine astral_common_settings ${EXPORT_TARGETS}
     EXPORT AstralEngineTargets
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
-
-# Install the common settings target
-install(TARGETS astral_common_settings
-    EXPORT AstralEngineTargets
-)
-
-# Install dependencies that need to be exported
-# Include ALL dependency targets in the export set to resolve dependency chains
-if(TARGET SDL3_Headers)
-    install(TARGETS SDL3_Headers
-        EXPORT AstralEngineTargets
-    )
-endif()
-
-if(TARGET SDL3-shared)
-    install(TARGETS SDL3-shared
-        EXPORT AstralEngineTargets
-    )
-endif()
-
-if(TARGET glm-header-only)
-    install(TARGETS glm-header-only
-        EXPORT AstralEngineTargets
-    )
-endif()
-
-if(TARGET glm)
-    install(TARGETS glm
-        EXPORT AstralEngineTargets
-    )
-endif()
-
-if(TARGET VulkanMemoryAllocator)
-    install(TARGETS VulkanMemoryAllocator
-        EXPORT AstralEngineTargets
-    )
-endif()
-
-if(TARGET VMA)
-    install(TARGETS VMA
-        EXPORT AstralEngineTargets
-    )
-endif()
-
-if(TARGET nlohmann_json)
-    install(TARGETS nlohmann_json
-        EXPORT AstralEngineTargets
-    )
-endif()
-
-if(TARGET assimp)
-    install(TARGETS assimp
-        EXPORT AstralEngineTargets
-    )
-endif()
-
-if(TARGET ImGui)
-    install(TARGETS ImGui
-        EXPORT AstralEngineTargets
-    )
-endif()
-
-if(TARGET Jolt)
-    install(TARGETS Jolt
-        EXPORT AstralEngineTargets
-    )
-endif()
 
 # Install the header files
 install(DIRECTORY Source/

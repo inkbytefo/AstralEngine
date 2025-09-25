@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 #include <array>
+#include "../Asset/AssetHandle.h"
 
 namespace AstralEngine {
 
@@ -146,16 +147,20 @@ struct TextureFormatInfo {
  * @brief Mesh material anahtarı için yapı
  */
 struct MeshMaterialKey {
-    uint32_t meshId;
-    uint32_t materialId;
+    AssetHandle meshId;
+    AssetHandle materialId;
     
     bool operator<(const MeshMaterialKey& other) const {
-        return (meshId < other.meshId) || 
+        return (meshId < other.meshId) ||
                (meshId == other.meshId && materialId < other.materialId);
     }
     
     bool operator==(const MeshMaterialKey& other) const {
         return meshId == other.meshId && materialId == other.materialId;
+    }
+    
+    bool operator!=(const MeshMaterialKey& other) const {
+        return !(*this == other);
     }
 };
 
@@ -166,7 +171,7 @@ namespace std {
     template<>
     struct hash<AstralEngine::MeshMaterialKey> {
         size_t operator()(const AstralEngine::MeshMaterialKey& key) const {
-            return hash<uint32_t>()(key.meshId) ^ (hash<uint32_t>()(key.materialId) << 1);
+            return hash<AstralEngine::AssetHandle>()(key.meshId) ^ (hash<AstralEngine::AssetHandle>()(key.materialId) << 1);
         }
     };
 }

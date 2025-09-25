@@ -67,6 +67,8 @@ public:
     VulkanTexture* GetNormalTexture() const;
     VulkanTexture* GetPBRTexture() const;
     VulkanTexture* GetDepthTexture() const;
+    // G-Buffer framebuffer access
+    VulkanFramebuffer* GetGBufferFramebuffer() const;
     
     // Post-processing integration
     void SetPostProcessingInputTexture(VulkanTexture* sceneColorTexture);
@@ -99,6 +101,9 @@ private:
     void UpdateLightsAndShadows();
 
     bool CheckAssetReadiness(const AssetHandle& modelHandle, const AssetHandle& materialHandle) const;
+    
+    // G-Buffer validation
+    void EnsureGBufferPassInitialized();
 
     void CreateUIRenderPass();
     void CreateUIFramebuffers();
@@ -116,6 +121,7 @@ private:
     std::unique_ptr<VulkanMeshManager> m_vulkanMeshManager;
     std::unique_ptr<VulkanTextureManager> m_vulkanTextureManager;
 
+    std::unique_ptr<VulkanFramebuffer> m_gBufferFramebuffer;
     // G-Buffer is now managed by its own pass
     std::unique_ptr<GBufferPass> m_gBufferPass;
 

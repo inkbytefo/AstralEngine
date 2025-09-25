@@ -9,6 +9,7 @@
 #include "AssetRegistry.h"
 #include "IAssetImporter.h"
 #include "../../Core/ThreadPool.h"
+#include "../../Core/Logger.h"
 
 namespace AstralEngine {
 
@@ -31,7 +32,26 @@ public:
     bool Initialize(const std::string& assetDirectory);
     void Shutdown();
 
-    // Asset Registration
+    // Modern Asset Loading API
+    template<typename T>
+    AssetHandle Load(const std::string& filePath) {
+        static_assert(std::is_base_of<IAssetData, T>::value, "T must derive from IAssetData");
+        AssetHandle handle = RegisterAsset(filePath);
+        if (handle.IsValid()) {
+            GetAsset<T>(handle); // Trigger async loading
+        }
+        return handle;
+    }
+
+    template<typename T>
+    std::future<AssetHandle> LoadAsync(const std::string& filePath) {
+        static_assert(std::is_base_of<IAssetData, T>::value, "T must derive from IAssetData");
+        return m_threadPool->EnqueueTask<AssetHandle>([this, filePath]() {
+            return Load<T>(filePath);
+        });
+    }
+
+    // Legacy Asset Registration (for backwards compatibility)
     AssetHandle RegisterAsset(const std::string& filePath);
     bool UnloadAsset(const AssetHandle& handle);
 
