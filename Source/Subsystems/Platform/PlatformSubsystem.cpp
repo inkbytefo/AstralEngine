@@ -39,10 +39,7 @@ void PlatformSubsystem::OnInitialize(Engine* owner) {
         throw std::runtime_error("InputManager initialization failed");
     }
     
-    // Render context oluştur
-    if (!m_window->CreateRenderContext()) {
-        Logger::Warning("PlatformSubsystem", "Failed to create render context - continuing without it");
-    }
+    // Render context creation is now handled by the RenderSubsystem.
     
     Logger::Info("PlatformSubsystem", "Platform subsystem initialized successfully");
     Logger::Info("PlatformSubsystem", "Window: {}x{}, VSync: enabled", 

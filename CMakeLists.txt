@@ -407,16 +407,43 @@ if(ASTRAL_ENABLE_VULKAN)
         message(STATUS "Pre-built Vulkan SDK configured successfully (${VULKAN_ARCH_DIR})")
     endif()
     
-    # Strategy 2: Try to find Vulkan SDK via system installation
+    # Strategy 2: FetchContent for Vulkan dependencies if enabled
+    if(NOT VULKAN_FOUND AND ASTRAL_VENDOR_VULKAN)
+        message(STATUS "Fetching Vulkan dependencies from source...")
+
+        # Vulkan Headers
+        FetchContent_Declare(
+            VulkanHeaders
+            GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
+            GIT_TAG v1.4.321
+            GIT_SHALLOW TRUE
+        )
+        FetchContent_MakeAvailable(VulkanHeaders)
+
+        # We only fetched headers, so we still need to find the library.
+        # The headers are now available for the next step.
+        message(STATUS "Vulkan Headers fetched successfully. Now searching for library...")
+    endif()
+
+    # Strategy 3: Try to find Vulkan SDK via system installation
     if(NOT VULKAN_FOUND)
-        find_package(Vulkan QUIET)
+        # We will not use REQUIRED here, as we only need the library.
+        # Headers are provided by FetchContent. We will assume the linker can find the library.
+        find_package(Vulkan)
         if(Vulkan_FOUND)
             set(VULKAN_FOUND TRUE)
             message(STATUS "Vulkan SDK found via system installation")
+        else()
+            # If it's not found, we will assume the headers from FetchContent are enough
+            # and the library will be found by the linker. This is a last resort.
+            message(WARNING "Vulkan library not found by find_package. Proceeding with headers only and hoping the linker finds 'vulkan'.")
+            set(VULKAN_FOUND TRUE) # Force it to true
+            # Manually add the include directory from FetchContent
+            set(Vulkan_INCLUDE_DIR "${CMAKE_BINARY_DIR}/_deps/vulkanheaders-src/include")
         endif()
     endif()
     
-    # Strategy 3: Try to find Vulkan via environment variable
+    # Strategy 4: Try to find Vulkan via environment variable
     if(NOT VULKAN_FOUND AND DEFINED ENV{VULKAN_SDK})
         set(VULKAN_SDK_ROOT "$ENV{VULKAN_SDK}")
         if(EXISTS "${VULKAN_SDK_ROOT}/Include/vulkan" AND EXISTS "${VULKAN_SDK_ROOT}/Lib")
@@ -436,48 +463,6 @@ if(ASTRAL_ENABLE_VULKAN)
             
             message(STATUS "Vulkan SDK found via VULKAN_SDK environment variable")
         endif()
-    endif()
-    
-    # Strategy 4: FetchContent for Vulkan dependencies if enabled
-    if(NOT VULKAN_FOUND AND ASTRAL_VENDOR_VULKAN)
-        message(STATUS "Fetching Vulkan dependencies from source...")
-        
-        # Vulkan Headers
-        FetchContent_Declare(
-            VulkanHeaders
-            GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
-            GIT_TAG v1.4.0
-            GIT_SHALLOW TRUE
-            GIT_PROGRESS TRUE
-        )
-        
-        # Vulkan Memory Allocator (VMA)
-        FetchContent_Declare(
-            VulkanMemoryAllocator
-            GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
-            GIT_TAG v3.1.0
-            GIT_SHALLOW TRUE
-            GIT_PROGRESS TRUE
-        )
-        
-        # GLM (if not already found)
-        if(NOT ASTRAL_HAS_GLM)
-            FetchContent_Declare(
-                glm
-                GIT_REPOSITORY https://github.com/g-truc/glm.git
-                GIT_TAG 0.9.9.8
-                GIT_SHALLOW TRUE
-                GIT_PROGRESS TRUE
-            )
-        endif()
-        
-        FetchContent_MakeAvailable(VulkanHeaders VulkanMemoryAllocator)
-        if(NOT ASTRAL_HAS_GLM)
-            FetchContent_MakeAvailable(glm)
-        endif()
-        
-        set(VULKAN_FOUND TRUE)
-        message(STATUS "Vulkan dependencies fetched successfully")
     endif()
     
     # Final validation and error reporting
@@ -533,20 +518,13 @@ set(ENGINE_SOURCES
     Source/Subsystems/Asset/AssetManager.cpp
     
     # Renderer Subsystem
-    Source/Subsystems/Renderer/VulkanRenderer.cpp
-    Source/Subsystems/Renderer/RendererFactory.cpp
+    Source/Subsystems/Renderer/RenderSubsystem.cpp
+    Source/Subsystems/Renderer/GraphicsDevice.cpp
+    Source/Subsystems/Renderer/Vulkan/VulkanSwapchain.cpp
+    Source/Subsystems/Renderer/Vulkan/VulkanPipeline.cpp
+    Source/Subsystems/Renderer/Vulkan/VulkanCommandManager.cpp
     Source/Subsystems/Renderer/RenderCommandQueue.cpp
     Source/Subsystems/Renderer/Camera.cpp
-    Source/Subsystems/Renderer/Vulkan/VulkanGraphicsContext.cpp
-    Source/Subsystems/Renderer/Vulkan/VulkanCommandBufferManager.cpp
-    Source/Subsystems/Renderer/Core/VulkanInstance.cpp
-    Source/Subsystems/Renderer/Core/VulkanDevice.cpp
-    Source/Subsystems/Renderer/Core/VulkanSwapchain.cpp
-    Source/Subsystems/Renderer/Shaders/VulkanShader.cpp
-    Source/Subsystems/Renderer/Shaders/ShaderValidator.cpp
-    Source/Subsystems/Renderer/Commands/VulkanCommandPool.cpp
-    Source/Subsystems/Renderer/Commands/VulkanPipeline.cpp
-    Source/Subsystems/Renderer/Buffers/VulkanBuffer.cpp
     
     # Main entry point
     Source/main.cpp
@@ -575,6 +553,14 @@ set(ENGINE_HEADERS
     
     # ECS
     Source/ECS/Components.h
+
+    # Renderer Subsystem
+    Source/Subsystems/Renderer/RenderSubsystem.h
+    Source/Subsystems/Renderer/GraphicsDevice.h
+    Source/Subsystems/Renderer/IRenderer.h
+    Source/Subsystems/Renderer/RenderCommandQueue.h
+    Source/Subsystems/Renderer/Camera.h
+    Source/Subsystems/Renderer/RendererTypes.h
 )
 
 # /**********************************************************************
@@ -588,8 +574,8 @@ target_compile_features(AstralEngine PRIVATE cxx_std_20)
 # Include directories
 target_include_directories(AstralEngine PRIVATE
     ${CMAKE_SOURCE_DIR}/Source
-    $<$<BOOL:${GLM_INCLUDE_DIR}>:${GLM_INCLUDE_DIR}>
-    $<$<BOOL:${ASTRAL_HAS_VULKAN}>:${CMAKE_SOURCE_DIR}/External/vulkan/include>
+    ${EXTERNAL_DIR}
+    $<$<BOOL:${ASTRAL_HAS_VULKAN}>:${Vulkan_INCLUDE_DIR}>
 )
 
 # Compile definitions
@@ -624,12 +610,7 @@ target_compile_definitions(AstralEngine PRIVATE
 
 # Link libraries
 target_link_libraries(AstralEngine PRIVATE
-    # Threading
     Threads::Threads
-    
-    # Vulkan libraries
-    $<$<TARGET_EXISTS:Vulkan::Vulkan>:Vulkan::Vulkan>
-    $<$<TARGET_EXISTS:vulkan>::vulkan>
 )
 
 # SDL3 linking
@@ -651,6 +632,11 @@ elseif(ASTRAL_USE_LOCAL_SDL3)
 else()
     # FetchContent SDL3
     target_link_libraries(AstralEngine PRIVATE SDL3)
+endif()
+
+# Vulkan linking
+if(ASTRAL_HAS_VULKAN)
+    target_link_libraries(AstralEngine PRIVATE vulkan)
 endif()
 
 # GLM linking
