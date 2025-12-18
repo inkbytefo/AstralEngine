@@ -2,8 +2,8 @@
 #  * Astral Engine - Professional AAA Game Engine CMake Configuration
 #  * Purpose: Modern, modular, and target-centric CMake configuration.
 #  * Author: Astral Engine Development Team
-#  * Version: 0.2.0-alpha
-#  * Date: 2025-09-19
+#  * Version: 0.2.1-alpha (Refactored)
+#  * Date: 2025-12-18
 #  **********************************************************************/
 
 cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
@@ -45,113 +45,23 @@ else()
 endif()
 
 # --- Dependency Management ---
-include(cmake/Dependencies.cmake) # Handles finding or fetching all dependencies
+# Handles finding or fetching all dependencies
+include(cmake/Dependencies.cmake)
 
 # --- Project-Wide Configuration ---
-include(cmake/ProjectConfiguration.cmake) # Defines the 'astral_common_settings' INTERFACE target
+# Defines the 'astral_common_settings' INTERFACE target
+include(cmake/ProjectConfiguration.cmake)
 
 # =====================================================================
 # ASTRAL ENGINE LIBRARY TARGET
 # =====================================================================
 
-# Explicitly list all source files for better build system reliability
-set(ASTRAL_SOURCES
-    # Core
-    Source/Core/AstralImConfig.h
-    Source/Core/Engine.cpp
-    Source/Core/Engine.h
-    Source/Core/FileLogger.cpp
-    Source/Core/FileLogger.h
-    Source/Core/IApplication.h
-    Source/Core/ISubsystem.h
-    Source/Core/Logger.cpp
-    Source/Core/Logger.h
-    Source/Core/MemoryManager.cpp
-    Source/Core/MemoryManager.h
-    Source/Core/ThreadPool.cpp
-    Source/Core/ThreadPool.h
-    Source/Core/Math/Vector2.h
-    Source/Core/Math/Vector4.h
-
-    # Events
-    Source/Events/ApplicationEvent.h
-    Source/Events/Event.h
-    Source/Events/EventManager.cpp
-    Source/Events/EventManager.h
-    Source/Events/KeyEvent.h
-    Source/Events/MouseEvent.h
-
-    # ECS
-    Source/ECS/Components.h
-    Source/Subsystems/ECS/ECSSubsystem.cpp
-    Source/Subsystems/ECS/ECSSubsystem.h
-
-    # Asset System
-    Source/Subsystems/Asset/AssetData.h
-    Source/Subsystems/Asset/AssetHandle.cpp
-    Source/Subsystems/Asset/AssetHandle.h
-    Source/Subsystems/Asset/AssetManager.cpp
-    Source/Subsystems/Asset/AssetManager.h
-    Source/Subsystems/Asset/AssetRegistry.cpp
-    Source/Subsystems/Asset/AssetRegistry.h
-    Source/Subsystems/Asset/AssetSubsystem.cpp
-    Source/Subsystems/Asset/AssetSubsystem.h
-    Source/Subsystems/Asset/IAssetImporter.h
-    Source/Subsystems/Asset/MaterialImporter.cpp
-    Source/Subsystems/Asset/MaterialImporter.h
-    Source/Subsystems/Asset/Model.cpp
-    Source/Subsystems/Asset/Model.h
-    Source/Subsystems/Asset/ModelImporter.cpp
-    Source/Subsystems/Asset/ModelImporter.h
-    Source/Subsystems/Asset/ShaderImporter.cpp
-    Source/Subsystems/Asset/ShaderImporter.h
-    Source/Subsystems/Asset/ShaderProgram.h
-    Source/Subsystems/Asset/TextureImporter.cpp
-    Source/Subsystems/Asset/TextureImporter.h
-
-    # Platform
-    Source/Subsystems/Platform/InputManager.cpp
-    Source/Subsystems/Platform/InputManager.h
-    Source/Subsystems/Platform/KeyCode.h
-    Source/Subsystems/Platform/PlatformSubsystem.cpp
-    Source/Subsystems/Platform/PlatformSubsystem.h
-    Source/Subsystems/Platform/Window.cpp
-    Source/Subsystems/Platform/Window.h
-
-    # Renderer
-    Source/Subsystems/Renderer/BloomEffect.cpp
-    Source/Subsystems/Renderer/BloomEffect.h
-    Source/Subsystems/Renderer/Bounds.h
-    Source/Subsystems/Renderer/Camera.cpp
-    Source/Subsystems/Renderer/Camera.h
-    Source/Subsystems/Renderer/GraphicsDevice.cpp
-    Source/Subsystems/Renderer/GraphicsDevice.h
-    Source/Subsystems/Renderer/IPostProcessingEffect.h
-    Source/Subsystems/Renderer/IRenderer.h
-    Source/Subsystems/Renderer/PostProcessingEffectBase.cpp
-    Source/Subsystems/Renderer/PostProcessingEffectBase.h
-    Source/Subsystems/Renderer/PostProcessingSubsystem.cpp
-    Source/Subsystems/Renderer/PostProcessingSubsystem.h
-    Source/Subsystems/Renderer/RendererTypes.h
-    Source/Subsystems/Renderer/RenderSubsystem.cpp
-    Source/Subsystems/Renderer/RenderSubsystem.h
-    Source/Subsystems/Renderer/TonemappingEffect.cpp
-    Source/Subsystems/Renderer/TonemappingEffect.h
-
-    # Third Party
-    Source/ThirdParty/stb_image.cpp
-    Source/ThirdParty/stb_image.h
-
-    # Main
-    Source/main.cpp
-    Source/test_sdl3.cpp
-)
-
+# Define the library target first so subdirectories can link to/modify it
 if(ASTRAL_BUILD_SHARED)
-    add_library(AstralEngine SHARED ${ASTRAL_SOURCES})
+    add_library(AstralEngine SHARED)
     target_compile_definitions(AstralEngine PRIVATE ASTRAL_BUILD_SHARED)
 else()
-    add_library(AstralEngine STATIC ${ASTRAL_SOURCES})
+    add_library(AstralEngine STATIC)
     target_compile_definitions(AstralEngine PRIVATE ASTRAL_BUILD_STATIC)
 endif()
 
@@ -187,8 +97,9 @@ target_link_libraries(AstralEngine PUBLIC
     $<$<BOOL:${ASTRAL_USE_JOLT_PHYSICS}>:Jolt>
 )
 
-# --- Add DevTools Subsystem ---
-add_subdirectory(Source/Subsystems/DevTools)
+# --- Add Source Subdirectories ---
+# This will recursively populate the sources for AstralEngine
+add_subdirectory(Source)
 
 # =====================================================================
 # SUB-PROJECTS (Examples, Tests, Tools)
@@ -254,7 +165,6 @@ write_basic_package_version_file(
     VERSION ${PROJECT_VERSION}
     COMPATIBILITY SameMajorVersion
 )
-
 
 # Create a list of optional dependency targets
 set(ASTRAL_DEPENDENCY_TARGETS

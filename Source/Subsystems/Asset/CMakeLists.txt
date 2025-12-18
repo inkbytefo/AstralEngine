@@ -1,0 +1,23 @@
+target_sources(AstralEngine PRIVATE
+    AssetData.h
+    AssetHandle.cpp
+    AssetHandle.h
+    AssetManager.cpp
+    AssetManager.h
+    AssetRegistry.cpp
+    AssetRegistry.h
+    AssetSubsystem.cpp
+    AssetSubsystem.h
+    IAssetImporter.h
+    MaterialImporter.cpp
+    MaterialImporter.h
+    Model.cpp
+    Model.h
+    ModelImporter.cpp
+    ModelImporter.h
+    ShaderImporter.cpp
+    ShaderImporter.h
+    ShaderProgram.h
+    TextureImporter.cpp
+    TextureImporter.h
+)

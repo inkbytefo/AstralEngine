@@ -1,0 +1,20 @@
+target_sources(AstralEngine PRIVATE
+    BloomEffect.cpp
+    BloomEffect.h
+    Bounds.h
+    Camera.cpp
+    Camera.h
+    GraphicsDevice.cpp
+    GraphicsDevice.h
+    IPostProcessingEffect.h
+    IRenderer.h
+    PostProcessingEffectBase.cpp
+    PostProcessingEffectBase.h
+    PostProcessingSubsystem.cpp
+    PostProcessingSubsystem.h
+    RendererTypes.h
+    RenderSubsystem.cpp
+    RenderSubsystem.h
+    TonemappingEffect.cpp
+    TonemappingEffect.h
+)
