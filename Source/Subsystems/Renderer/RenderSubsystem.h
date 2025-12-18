@@ -8,7 +8,6 @@
 #include "VulkanTextureManager.h"
 #include "Material/Material.h"
 #include "Core/VulkanFramebuffer.h"
-#include "Passes/GBufferPass.h" // Include the new GBufferPass header
 
 // Forward declarations
 class PostProcessingSubsystem;
@@ -121,9 +120,10 @@ private:
     std::unique_ptr<VulkanMeshManager> m_vulkanMeshManager;
     std::unique_ptr<VulkanTextureManager> m_vulkanTextureManager;
 
-    std::unique_ptr<VulkanFramebuffer> m_gBufferFramebuffer;
-    // G-Buffer is now managed by its own pass
-    std::unique_ptr<GBufferPass> m_gBufferPass;
+    std::unique_ptr<VulkanTexture> m_gbAlbedoTexture;
+    std::unique_ptr<VulkanTexture> m_gbNormalTexture;
+    std::unique_ptr<VulkanTexture> m_gbPBRTexture;
+    std::unique_ptr<VulkanTexture> m_gbDepthTexture;
 
     // Lighting Pass Resources
     std::unique_ptr<VulkanFramebuffer> m_sceneFramebuffer;

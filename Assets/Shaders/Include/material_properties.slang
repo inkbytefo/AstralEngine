@@ -21,6 +21,14 @@ struct MaterialData
     float alphaCutoff;
     int alphaMode; // Corresponds to AlphaMode enum
     bool doubleSided;
+    
+    // Bindless texture indices
+    uint albedoIndex;
+    uint normalIndex;
+    uint metallicIndex;
+    uint roughnessIndex;
+    uint aoIndex;
+    uint emissiveIndex;
 };
 
 // A struct to hold sampled and computed PBR surface parameters.

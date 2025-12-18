@@ -1,33 +1,8 @@
-# Astral Engine Configuration File
-# This file is used by CMake's find_package() to locate AstralEngine
-
 @PACKAGE_INIT@
 
-# Set the AstralEngine version
-set(ASTRAL_VERSION_MAJOR @PROJECT_VERSION_MAJOR@)
-set(ASTRAL_VERSION_MINOR @PROJECT_VERSION_MINOR@)
-set(ASTRAL_VERSION_PATCH @PROJECT_VERSION_PATCH@)
-
-# Import the targets
 include("${CMAKE_CURRENT_LIST_DIR}/AstralEngineTargets.cmake")
 
-# Set legacy variables for compatibility
-set(ASTRALENGINE_FOUND TRUE)
-set(ASTRALENGINE_VERSION "@PROJECT_VERSION@")
-set(ASTRALENGINE_VERSION_MAJOR @PROJECT_VERSION_MAJOR@)
-set(ASTRALENGINE_VERSION_MINOR @PROJECT_VERSION_MINOR@)
-set(ASTRALENGINE_VERSION_PATCH @PROJECT_VERSION_PATCH@)
+set_and_check(ASTRALE_ENGINE_INCLUDE_DIRS "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
+set_and_check(ASTRALE_ENGINE_LIBRARY_DIRS "@PACKAGE_CMAKE_INSTALL_LIBDIR@")
 
-# Check required components
 check_required_components(AstralEngine)
-
-# Provide helpful messages
-if(ASTRALENGINE_FOUND)
-    if(NOT AstralEngine_FIND_QUIETLY)
-        message(STATUS "Found AstralEngine: ${ASTRALENGINE_VERSION}")
-    endif()
-else()
-    if(AstralEngine_FIND_REQUIRED)
-        message(FATAL_ERROR "AstralEngine required but not found")
-    endif()
-endif()

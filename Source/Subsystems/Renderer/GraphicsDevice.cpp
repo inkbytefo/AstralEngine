@@ -93,18 +93,19 @@ bool GraphicsDevice::Initialize(Window* window, Engine* owner, const GraphicsDev
         return false;
     }
     
-    // Descriptor set layout'ı oluştur (frame'den bağımsız)
-    Logger::Info("GraphicsDevice", "Creating descriptor set layout...");
-    if (!CreateDescriptorSetLayout()) {
-        Logger::Error("GraphicsDevice", "Failed to create descriptor set layout");
-        return false;
-    }
-    
     // Frame manager'ı oluştur ve başlat
     Logger::Info("GraphicsDevice", "Creating frame manager...");
     m_frameManager = std::make_unique<VulkanFrameManager>();
-    if (!m_frameManager->Initialize(m_vulkanDevice.get(), m_swapchain.get(), m_descriptorSetLayout, m_config.maxFramesInFlight)) {
+    if (!m_frameManager->Initialize(m_vulkanDevice.get(), m_swapchain.get(), VK_NULL_HANDLE, m_config.maxFramesInFlight)) {
         Logger::Error("GraphicsDevice", "Failed to initialize frame manager: {}", m_frameManager->GetLastError());
+        return false;
+    }
+
+    // Bindless System'ı başlat
+    Logger::Info("GraphicsDevice", "Initializing Bindless System...");
+    m_bindlessSystem = std::make_unique<VulkanBindlessSystem>();
+    if (!m_bindlessSystem->Initialize(this)) {
+        Logger::Error("GraphicsDevice", "Failed to initialize bindless system");
         return false;
     }
     

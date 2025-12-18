@@ -11,13 +11,23 @@ ConstantBuffer<CameraData> g_camera : register(b0);
 // Constant buffer for material data, bound at register 1.
 ConstantBuffer<MaterialData> g_material : register(b1);
 
-// Push constants for dynamic per-draw data.
 [[vk::push_constant]]
-cbuffer PushConstants 
+struct PushConstants 
 {
     float4x4 modelMatrix;
-    int materialID;
+    float3 baseColorFactor;
+    float metallicFactor;
+    float roughnessFactor;
+    float aoFactor;
+    float3 emissiveFactor;
+    uint albedoIndex;
+    uint normalIndex;
+    uint metallicIndex;
+    uint roughnessIndex;
+    uint aoIndex;
+    uint emissiveIndex;
 };
+PushConstants pushConstants;
 
 // Outputs from the vertex shader to the fragment shader.
 struct VertexOutput 
@@ -54,10 +64,8 @@ VertexOutput main(
 {
     VertexOutput output;
 
-    // Combine model matrix with instance matrix.
-    float4x4 finalModelMatrix = mul(modelMatrix, GetInstanceMatrix(instanceIn));
-
-    float4 worldPos = mul(finalModelMatrix, float4(vertexIn.position, 1.0));
+    float4 worldPos = mul(pushConstants.modelMatrix, GetInstanceMatrix(instanceIn));
+    worldPos = mul(worldPos, float4(vertexIn.position, 1.0));
     
     // Apply skinning if enabled.
 #ifdef HAS_SKINNING
@@ -87,7 +95,7 @@ VertexOutput main(
 
     // Pass through texture coordinates and color.
     output.texCoord = vertexIn.texCoord;
-    output.color = vertexIn.color * g_material.baseColorFactor;
+    output.color = vertexIn.color * float4(pushConstants.baseColorFactor, 1.0);
 
     // Calculate view direction.
     output.viewDir = normalize(g_camera.position - output.worldPos);

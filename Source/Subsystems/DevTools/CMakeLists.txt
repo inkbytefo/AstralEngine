@@ -52,5 +52,5 @@ target_include_directories(AstralEngine PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-message(STATUS "DevTools Subsystem: ${DEVTOOLS_SOURCES} kaynak dosyası eklendi")
-message(STATUS "DevTools Subsystem: ${DEVTOOLS_HEADERS} başlık dosyası eklendi")
+message(STATUS "DevTools Subsystem: Sources added")
+message(STATUS "DevTools Subsystem: Headers added")

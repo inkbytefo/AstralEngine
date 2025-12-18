@@ -8,10 +8,11 @@
 #include "Material/Material.h"
 #include "VulkanMeshManager.h"
 #include "VulkanTextureManager.h"
-#include "Core/VulkanFramebuffer.h"
 #include "Buffers/VulkanTexture.h"
 #include "Buffers/VulkanBuffer.h"
 #include "VulkanRenderer.h"
+#include "GraphicsDevice.h"
+#include "VulkanBindlessSystem.h"
 #include "VulkanUtils.h"
 #include "Bounds.h"
 #include "PostProcessingSubsystem.h"
@@ -83,7 +84,7 @@ void RenderSubsystem::OnInitialize(Engine* owner) {
         }
         
         m_materialManager = std::make_unique<MaterialManager>();
-        if (!m_materialManager->Initialize(m_graphicsDevice->GetVulkanDevice(), m_assetSubsystem->GetAssetManager())) {
+        if (!m_materialManager->Initialize(m_graphicsDevice->GetVulkanDevice(), m_assetSubsystem->GetAssetManager(), m_graphicsDevice->GetBindlessSystem())) {
             Logger::Error("RenderSubsystem", "Failed to initialize MaterialManager");
             throw std::runtime_error("MaterialManager initialization failed");
         }
@@ -97,13 +98,7 @@ void RenderSubsystem::OnInitialize(Engine* owner) {
             throw std::runtime_error("Camera initialization failed");
         }
         
-        // Initialize GBufferPass
-        m_gBufferPass = std::make_unique<GBufferPass>();
-        if (!m_gBufferPass->Initialize(this)) {
-            Logger::Error("RenderSubsystem", "Failed to initialize GBufferPass");
-            throw std::runtime_error("GBufferPass initialization failed");
-        }
-        Logger::Info("RenderSubsystem", "GBufferPass initialized successfully");
+        Logger::Info("RenderSubsystem", "Modern Dynamic Rendering pipeline active");
         
         CreateShadowPassResources();
         CreateGBuffer();
@@ -326,7 +321,6 @@ void RenderSubsystem::OnShutdown() {
     
     DestroyShadowPassResources();
     DestroyLightingPassResources();
-    DestroyGBuffer();
     DestroySceneColorTexture();
     if (m_materialManager) m_materialManager->Shutdown();
     if (m_vulkanTextureManager) m_vulkanTextureManager->Shutdown();
@@ -410,8 +404,12 @@ void RenderSubsystem::ShadowPass() {
 void RenderSubsystem::LightingPass() {
     auto vulkanRenderer = m_graphicsDevice->GetVulkanRenderer();
     if (vulkanRenderer) {
-        // Lighting pass komutlarını kaydet - m_sceneFramebuffer kullanarak
-        vulkanRenderer->RecordLightingCommands(m_graphicsDevice->GetCurrentFrameIndex(), m_sceneFramebuffer.get());
+        std::vector<VulkanTexture*> gbufferInputs = {
+            m_gbAlbedoTexture.get(),
+            m_gbNormalTexture.get(),
+            m_gbPBRTexture.get()
+        };
+        vulkanRenderer->RecordLightingCommands(m_graphicsDevice->GetCurrentFrameIndex(), m_sceneColorTexture.get(), gbufferInputs, m_gbDepthTexture.get());
     }
 }
 
@@ -524,68 +522,40 @@ void RenderSubsystem::DestroyShadowPassResources() {
 
 // Other resource creation/destruction and pass implementations are omitted for brevity.
 void RenderSubsystem::CreateGBuffer() {
-    try {
-        if (!m_graphicsDevice) {
-            Logger::Error("RenderSubsystem", "Cannot create G-Buffer: GraphicsDevice is null");
-            throw std::runtime_error("GraphicsDevice is null");
-        }
+        m_gbAlbedoTexture = std::make_unique<VulkanTexture>();
+        VulkanTexture::Config albedoCfg;
+        albedoCfg.width = width; albedoCfg.height = height;
+        albedoCfg.format = VK_FORMAT_R8G8B8A8_UNORM;
+        albedoCfg.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        albedoCfg.name = "GBufferAlbedo";
+        m_gbAlbedoTexture->Initialize(m_graphicsDevice.get(), albedoCfg);
 
-        if (!m_gBufferPass) {
-            Logger::Error("RenderSubsystem", "Cannot create G-Buffer: GBufferPass is null");
-            throw std::runtime_error("GBufferPass is null");
-        }
+        m_gbNormalTexture = std::make_unique<VulkanTexture>();
+        VulkanTexture::Config normalCfg;
+        normalCfg.width = width; normalCfg.height = height;
+        normalCfg.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+        normalCfg.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        normalCfg.name = "GBufferNormal";
+        m_gbNormalTexture->Initialize(m_graphicsDevice.get(), normalCfg);
 
-        // Swapchain boyutlarını al
-        auto* swapchain = m_graphicsDevice->GetSwapchain();
-        if (!swapchain) {
-            Logger::Error("RenderSubsystem", "Failed to get swapchain from GraphicsDevice");
-            throw std::runtime_error("Swapchain not available");
-        }
-        
-        uint32_t width = swapchain->GetWidth();
-        uint32_t height = swapchain->GetHeight();
-        
-        // GBufferPass'i başlat ve G-Buffer kaynaklarını oluştur
-        // Not: GBufferPass zaten OnInitialize() içinde başlatıldı, burada sadece resize yapıyoruz
-        m_gBufferPass->OnResize(width, height);
-        
-        // G-Buffer framebuffer'ını oluştur
-        m_gBufferFramebuffer = std::make_unique<VulkanFramebuffer>();
-        VulkanFramebuffer::Config fbConfig;
-        fbConfig.device = m_graphicsDevice->GetVulkanDevice();
-        fbConfig.renderPass = m_gBufferPass->GetVkRenderPass();
-        
-        if (fbConfig.renderPass == VK_NULL_HANDLE) {
-            Logger::Error("RenderSubsystem", "G-Buffer render pass is null");
-            throw std::runtime_error("G-Buffer render pass is null");
-        }
-        
-        fbConfig.width = width;
-        fbConfig.height = height;
-        
-        // G-Buffer texture'larını framebuffer'a ekle
-        std::vector<VkImageView> attachments;
-        if (m_gBufferPass->GetAlbedoTexture()) {
-            attachments.push_back(m_gBufferPass->GetAlbedoTexture()->GetImageView());
-        }
-        if (m_gBufferPass->GetNormalTexture()) {
-            attachments.push_back(m_gBufferPass->GetNormalTexture()->GetImageView());
-        }
-        if (m_gBufferPass->GetPBRTexture()) {
-            attachments.push_back(m_gBufferPass->GetPBRTexture()->GetImageView());
-        }
-        if (m_gBufferPass->GetDepthTexture()) {
-            attachments.push_back(m_gBufferPass->GetDepthTexture()->GetImageView());
-        }
-        
-        fbConfig.attachments = attachments;
-        
-        if (!m_gBufferFramebuffer->Initialize(fbConfig)) {
-            Logger::Error("RenderSubsystem", "Failed to initialize G-Buffer framebuffer");
-            throw std::runtime_error("G-Buffer framebuffer initialization failed");
-        }
-        
-        Logger::Info("RenderSubsystem", "G-Buffer created successfully ({0}x{1})", width, height);
+        m_gbPBRTexture = std::make_unique<VulkanTexture>();
+        VulkanTexture::Config pbrCfg;
+        pbrCfg.width = width; pbrCfg.height = height;
+        pbrCfg.format = VK_FORMAT_R8G8B8A8_UNORM;
+        pbrCfg.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        pbrCfg.name = "GBufferPBR";
+        m_gbPBRTexture->Initialize(m_graphicsDevice.get(), pbrCfg);
+
+        m_gbDepthTexture = std::make_unique<VulkanTexture>();
+        VulkanTexture::Config depthCfg;
+        depthCfg.width = width; depthCfg.height = height;
+        depthCfg.format = VulkanUtils::FindDepthFormat(m_graphicsDevice->GetVulkanDevice()->GetPhysicalDevice());
+        depthCfg.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        depthCfg.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        depthCfg.name = "GBufferDepth";
+        m_gbDepthTexture->Initialize(m_graphicsDevice.get(), depthCfg);
+
+        Logger::Info("RenderSubsystem", "Modern G-Buffer textures created successfully ({0}x{1})", width, height);
         
     } catch (const std::exception& e) {
         Logger::Error("RenderSubsystem", "Failed to create G-Buffer: {}", e.what());
@@ -595,28 +565,10 @@ void RenderSubsystem::CreateGBuffer() {
     }
 }
 void RenderSubsystem::DestroyGBuffer() {
-    try {
-        // G-Buffer framebuffer'ını temizle
-        if (m_gBufferFramebuffer) {
-            m_gBufferFramebuffer->Shutdown();
-            m_gBufferFramebuffer.reset();
-            Logger::Debug("RenderSubsystem", "G-Buffer framebuffer destroyed");
-        }
-        
-        // GBufferPass kaynaklarını temizle
-        if (m_gBufferPass) {
-            m_gBufferPass->Shutdown();
-            m_gBufferPass.reset();
-            Logger::Debug("RenderSubsystem", "GBufferPass shutdown completed");
-        }
-        
-        Logger::Info("RenderSubsystem", "G-Buffer destroyed successfully");
-        
-    } catch (const std::exception& e) {
-        Logger::Error("RenderSubsystem", "Failed to destroy G-Buffer: {}", e.what());
-        // Don't throw here as this is called during shutdown
-        // Just log the error and continue
-    }
+    if (m_gbAlbedoTexture) m_gbAlbedoTexture->Shutdown();
+    if (m_gbNormalTexture) m_gbNormalTexture->Shutdown();
+    if (m_gbPBRTexture) m_gbPBRTexture->Shutdown();
+    if (m_gbDepthTexture) m_gbDepthTexture->Shutdown();
 }
 void RenderSubsystem::CreateLightingPassResources() { /* ... */ }
 void RenderSubsystem::DestroyLightingPassResources() { /* ... */ }
@@ -721,31 +673,41 @@ void RenderSubsystem::SetVulkanRenderer(VulkanRenderer* renderer) {
     }
 }
 void RenderSubsystem::GBufferPass() {
-    if (!m_graphicsDevice || !m_ecsSubsystem || !m_gBufferPass) {
+    if (!m_graphicsDevice || !m_ecsSubsystem) {
         Logger::Warning("RenderSubsystem", "Cannot perform G-Buffer pass: Required subsystems are null");
         return;
     }
 
     try {
-        // Command buffer ve frame index'i al
-        VkCommandBuffer commandBuffer = m_graphicsDevice->GetCurrentCommandBuffer();
-        uint32_t frameIndex = m_graphicsDevice->GetCurrentFrameIndex();
+        auto* vulkanRenderer = m_graphicsDevice->GetVulkanRenderer();
+        if (!vulkanRenderer) return;
+
+        std::vector<VulkanTexture*> targets = {
+            m_gbAlbedoTexture.get(),
+            m_gbNormalTexture.get(),
+            m_gbPBRTexture.get()
+        };
         
-        if (commandBuffer == VK_NULL_HANDLE) {
-            Logger::Error("RenderSubsystem", "Command buffer is null in GBufferPass");
-            return;
+        // Render queue oluştur
+        std::map<MeshMaterialKey, std::vector<glm::mat4>> renderQueue;
+        auto view = m_ecsSubsystem->GetRegistry().view<const RenderComponent, const TransformComponent>();
+        for (auto entity : view) {
+            const auto& renderComp = view.get<RenderComponent>(entity);
+            if (!renderComp.visible) continue;
+            
+            auto mesh = m_vulkanMeshManager->GetOrCreateMesh(renderComp.modelHandle);
+            auto mat = m_materialManager->GetMaterial(renderComp.materialHandle);
+            
+            if (mesh && mat && mesh->IsReady() && mat->IsInitialized()) {
+                MeshMaterialKey key{mesh, mat};
+                renderQueue[key].push_back(view.get<TransformComponent>(entity).GetWorldMatrix());
+            }
         }
 
-        // GBufferPass'i kullanarak G-Buffer'ı kaydet
-        // Not: GBufferPass kendi içinde ECS verilerini işleyecek ve render queue oluşturacak
-        m_gBufferPass->Record(commandBuffer, frameIndex);
-        
-        Logger::Debug("RenderSubsystem", "G-Buffer pass completed successfully");
+        vulkanRenderer->RecordGBufferCommands(m_graphicsDevice->GetCurrentFrameIndex(), targets, m_gbDepthTexture.get(), renderQueue);
         
     } catch (const std::exception& e) {
         Logger::Error("RenderSubsystem", "G-Buffer pass failed: {}", e.what());
-        // Don't throw here as this would crash the entire render loop
-        // Just log the error and continue without G-Buffer
     }
 }
 

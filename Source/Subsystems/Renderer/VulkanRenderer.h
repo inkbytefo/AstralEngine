@@ -5,7 +5,6 @@
 #include "Camera.h"
 #include "Subsystems/ECS/ECSSubsystem.h"
 #include "Material/Material.h"
-#include "Core/VulkanFramebuffer.h"
 #include "RenderSubsystem.h" // For MeshMaterialKey
 #include <vulkan/vulkan.h>
 #include <memory>
@@ -15,8 +14,8 @@
 #include <unordered_map>
 #include <glm/glm.hpp>
 
-// Forward declarations
 namespace AstralEngine {
+
 class GraphicsDevice;
 class VulkanShader;
 class VulkanPipeline;
@@ -24,6 +23,7 @@ class VulkanBuffer;
 class VulkanMesh;
 class VulkanTexture;
 class RenderSubsystem;
+class VulkanFramebuffer; // Still used for custom texture targets, but not as VkFramebuffer
 
 class VulkanRenderer : public IRenderer {
 public:
@@ -31,6 +31,22 @@ public:
         glm::mat4 transform;
         std::shared_ptr<VulkanMesh> mesh;
         std::shared_ptr<Material> material;
+    };
+
+    struct PushConstants {
+        glm::mat4 model;               // 64
+        glm::vec3 baseColorFactor;     // 12
+        float metallicFactor;          // 4
+        float roughnessFactor;         // 4
+        float aoFactor;                // 4
+        glm::vec3 emissiveFactor;      // 12
+        uint32_t albedoIndex;          // 4
+        uint32_t normalIndex;          // 4
+        uint32_t metallicIndex;        // 4
+        uint32_t roughnessIndex;       // 4
+        uint32_t aoIndex;              // 4
+        uint32_t emissiveIndex;        // 4
+        // Total: 64 + 12 + 4 + 4 + 4 + 12 + 24 = 124 bytes
     };
 
     VulkanRenderer();
@@ -41,21 +57,14 @@ public:
 
     void SetCamera(Camera* camera) { m_camera = camera; }
     
-    // Command recording for different passes
-    void RecordShadowPassCommands(VulkanFramebuffer* shadowFramebuffer, const glm::mat4& lightSpaceMatrix, const std::vector<ResolvedRenderItem>& renderItems);
-    void RecordGBufferCommands(uint32_t frameIndex, VulkanFramebuffer* gBuffer, const std::map<MeshMaterialKey, std::vector<glm::mat4>>& renderQueue);
-    void RecordLightingCommands(uint32_t frameIndex, VulkanFramebuffer* sceneFramebuffer);
-    // Post-processing effect rendering
-    void RenderPostProcessingEffect(VkCommandBuffer commandBuffer, IPostProcessingEffect* effect, VulkanTexture* inputTexture, VulkanFramebuffer* outputFramebuffer, uint32_t frameIndex);
+    // Modern Command recording with Dynamic Rendering
+    void RecordShadowPassCommands(VulkanTexture* depthTarget, const glm::mat4& lightSpaceMatrix, const std::vector<ResolvedRenderItem>& renderItems);
+    void RecordGBufferCommands(uint32_t frameIndex, const std::vector<VulkanTexture*>& colorTargets, VulkanTexture* depthTarget, const std::map<MeshMaterialKey, std::vector<glm::mat4>>& renderQueue);
+    void RecordLightingCommands(uint32_t frameIndex, VulkanTexture* outputTarget, const std::vector<VulkanTexture*>& gbufferInputs, VulkanTexture* depthInput);
     
-    // Instance buffer management
     void ResetInstanceBuffer();
 
-    VkRenderPass GetGBufferRenderPass() const { return m_gBufferRenderPass; }
-    VkRenderPass GetLightingRenderPass() const { return m_lightingRenderPass; }
-    VkRenderPass GetShadowRenderPass() const { return m_shadowRenderPass; }
-
-    // Unused interface methods are omitted for brevity
+    // Interface implementations
     void BeginFrame() override {};
     void EndFrame() override;
     void Present() override {};
@@ -65,58 +74,21 @@ public:
     RendererAPI GetAPI() const override { return RendererAPI::Vulkan; };
     void SetClearColor(float r, float g, float b, float a) override {};
     void SetViewport(uint32_t x, uint32_t y, uint32_t width, uint32_t height) override {};
+    
+    // G-Buffer texture accessors for post-processing or lighting
+    VulkanTexture* GetGBufferAlbedo() const;
+    VulkanTexture* GetGBufferNormal() const;
+    VulkanTexture* GetGBufferPBR() const;
+    VulkanTexture* GetGBufferDepth() const;
 
 private:
     bool InitializeRenderingComponents();
     void ShutdownRenderingComponents();
     
-    void CreateGBufferRenderPass();
-    void CreateLightingPass();
-    void CreateShadowPass();
-
-    // Pipeline cache management
-    std::shared_ptr<VulkanPipeline> GetOrCreatePipeline(const Material& material);
-    
-    /**
-     * @brief Merkezi layout yönetimi metodları
-     *
-     * Bu metodlar, shader kombinasyonlarına göre layout'ları oluşturur veya cache'den alır.
-     * Aynı shader kombinasyonu için aynı layout'un paylaşılmasını sağlarlar.
-     */
-    
-    /**
-     * @brief Shader özelliklerinden descriptor set layout oluşturur veya cache'den alır
-     *
-     * Bu metot, verilen materyalin shader handle'larını kullanarak bir hash oluşturur.
-     * Bu hash değerini cache'de arar, eğer varsa mevcut layout'u döndürür.
-     * Yoksa yeni bir VkDescriptorSetLayout oluşturur, cache'e ekler ve döndürür.
-     *
-     * @param material Layout'u oluşturulacak materyal
-     * @return VkDescriptorSetLayout Oluşturulan veya cache'den alınan descriptor set layout
-     *
-     * @par Performans Avantajları
-     * - Aynı shader kombinasyonu için layout paylaşımı
-     * - Tekrar tekrar layout oluşturma maliyetinin önlenmesi
-     * - Bellek kullanımının optimizasyonu
-     */
-    VkDescriptorSetLayout GetOrCreateDescriptorSetLayout(const Material& material);
-    
-    /**
-     * @brief Descriptor set layout hash'inden pipeline layout oluşturur veya cache'den alır
-     *
-     * Bu metot, verilen descriptor set layout pointer'ını kullanarak bir hash oluşturur.
-     * Bu hash değerini cache'de arar, eğer varsa mevcut pipeline layout'u döndürür.
-     * Yoksa yeni bir VkPipelineLayout oluşturur, cache'e ekler ve döndürür.
-     *
-     * @param descriptorSetLayout Pipeline layout oluşturmak için kullanılacak descriptor set layout
-     * @return VkPipelineLayout Oluşturulan veya cache'den alınan pipeline layout
-     *
-     * @par Performans Avantajları
-     * - Aynı descriptor set layout için pipeline layout paylaşımı
-     * - Pipeline layout oluşturma maliyetinin azaltılması
-     * - Vulkan pipeline oluşturma sürecinin hızlandırılması
-     */
-    VkPipelineLayout GetOrCreatePipelineLayout(VkDescriptorSetLayout descriptorSetLayout);
+    // Pipeline management
+    std::shared_ptr<VulkanPipeline> GetOrCreatePipeline(const Material& material, bool isShadowPass = false);
+    VkDescriptorSetLayout GetGlobalDescriptorSetLayout();
+    VkPipelineLayout GetGlobalPipelineLayout();
 
     GraphicsDevice* m_graphicsDevice = nullptr;
     RenderSubsystem* m_renderSubsystem = nullptr;
@@ -125,48 +97,20 @@ private:
     bool m_isInitialized = false;
     Camera* m_camera = nullptr;
     
-    // Pass Resources
-    VkRenderPass m_gBufferRenderPass = VK_NULL_HANDLE;
-    VkRenderPass m_lightingRenderPass = VK_NULL_HANDLE;
-    VkRenderPass m_shadowRenderPass = VK_NULL_HANDLE;
-
+    // Pipelines
     std::shared_ptr<VulkanPipeline> m_lightingPipeline;
-    VkDescriptorSetLayout m_lightingDescriptorSetLayout = VK_NULL_HANDLE;
-    VkDescriptorSet m_lightingDescriptorSet = VK_NULL_HANDLE;
-
     std::shared_ptr<VulkanPipeline> m_shadowPipeline;
     
-    // Pipeline cache for material-based pipeline management
+    // Caches
     std::map<size_t, std::shared_ptr<VulkanPipeline>> m_pipelineCache;
+    VkDescriptorSetLayout m_globalDescriptorSetLayout = VK_NULL_HANDLE;
+    VkPipelineLayout m_globalPipelineLayout = VK_NULL_HANDLE;
     
-    /**
-     * @defgroup MerkeziLayoutYonetimi Merkezi Layout Yönetim Sistemi
-     * @brief VulkanRenderer'da descriptor set ve pipeline layout'larını merkezi olarak yöneten sistem
-     *
-     * Bu sistem, aynı shader kombinasyonunu kullanan materyaller arasında layout paylaşımını sağlar.
-     * Bu sayede:
-     * - Bellek kullanımı optimize edilir (aynı layout için tekrar tekrar oluşturma önlenir)
-     * - Performans artar (layout oluşturma maliyeti azalır)
-     * - Material sınıfı lightweight bir veri konteyneri olarak kalabilir
-     * - Vulkan kaynakları merkezi olarak yönetilir ve temizlenir
-     *
-     * @par Cache Mekanizması
-     * - Shader handle'larından benzersiz hash değerleri oluşturulur
-     * - Aynı hash değerine sahip istekler cache'den karşılanır
-     * - Cache'de bulunmayan layout'lar oluşturulur ve cache'e eklenir
-     * - Shutdown() sırasında tüm cache kaynakları düzgün şekilde temizlenir
-     */
-    
-    // Aynı shader kombinasyonu için descriptor set layout'ları paylaşır
-    std::unordered_map<size_t, VkDescriptorSetLayout> m_descriptorSetLayoutCache;
-    // Aynı shader kombinasyonu için pipeline layout'ları paylaşır
-    std::unordered_map<size_t, VkPipelineLayout> m_pipelineLayoutCache;
-    
-    // Frame-ringed instance buffer for performance optimization
+    // Instance buffers
     std::vector<std::unique_ptr<VulkanBuffer>> m_instanceBuffers;
     void* m_instanceBufferMapped = nullptr;
     uint32_t m_instanceBufferOffset = 0;
-    static const uint32_t INSTANCE_BUFFER_SIZE = 1024 * 1024; // 1MB, adjust as needed
+    static const uint32_t INSTANCE_BUFFER_SIZE = 1024 * 1024;
 };
 
 } // namespace AstralEngine

@@ -1,9 +1,12 @@
 #include "Material.h"
+#include "MaterialManager.h"
 #include "Core/Logger.h"
 #include "../../Asset/AssetData.h"
 #include "../../Asset/AssetManager.h"
 #include "../Shaders/VulkanShader.h"
 #include "../Core/VulkanDevice.h"
+#include "../Buffers/VulkanTexture.h"
+#include "../VulkanBindlessSystem.h"
 #include <fstream>
 #include <sstream>
 #include <nlohmann/json.hpp>
@@ -201,6 +204,26 @@ void Material::SetTexture(TextureType type, std::shared_ptr<ITexture> texture) {
     }
 
     Logger::Debug("Material", "Texture set: {} -> {}", GetTextureName(type), texture ? "valid" : "null");
+
+    // Integration with Bindless System
+    if (m_materialManager && texture) {
+        auto* bindless = m_materialManager->GetBindlessSystem();
+        if (bindless) {
+            auto* vTex = static_cast<VulkanTexture*>(texture.get());
+            uint32_t index = bindless->RegisterTexture(vTex);
+            
+            switch (type) {
+                case TextureType::Albedo: m_albedoIndex = index; break;
+                case TextureType::Normal: m_normalIndex = index; break;
+                case TextureType::Metallic: m_metallicIndex = index; break;
+                case TextureType::Roughness: m_roughnessIndex = index; break;
+                case TextureType::AO: m_aoIndex = index; break;
+                case TextureType::Emissive: m_emissiveIndex = index; break;
+                default: break;
+            }
+            Logger::Debug("Material", "Registered texture {} in Bindless System at index {}", GetTextureName(type), index);
+        }
+    }
 }
 
 std::shared_ptr<ITexture> Material::GetTexture(TextureType type) const {

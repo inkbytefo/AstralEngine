@@ -32,11 +32,6 @@ bool VulkanPipeline::Initialize(VulkanDevice* device, const Config& config) {
         return false;
     }
     
-    if (!config.swapchain) {
-        SetError("Invalid swapchain pointer");
-        return false;
-    }
-    
     if (config.shaders.empty()) {
         SetError("No shaders provided");
         return false;
@@ -118,8 +113,13 @@ bool VulkanPipeline::CreatePipelineLayout() {
         Logger::Debug("VulkanPipeline", "Creating pipeline layout without descriptor sets");
     }
     
-    layoutInfo.pushConstantRangeCount = 0;
-    layoutInfo.pPushConstantRanges = nullptr;
+    if (!m_config.pushConstantRanges.empty()) {
+        layoutInfo.pushConstantRangeCount = static_cast<uint32_t>(m_config.pushConstantRanges.size());
+        layoutInfo.pPushConstantRanges = m_config.pushConstantRanges.data();
+    } else {
+        layoutInfo.pushConstantRangeCount = 0;
+        layoutInfo.pPushConstantRanges = nullptr;
+    }
     
     VkResult result = vkCreatePipelineLayout(m_device->GetDevice(), &layoutInfo, nullptr, &m_pipelineLayout);
     
@@ -237,8 +237,9 @@ bool VulkanPipeline::CreateGraphicsPipeline() {
         pipelineInfo.pColorBlendState = &colorBlending;
         pipelineInfo.pDynamicState = &dynamicState;
         pipelineInfo.layout = m_pipelineLayout;
-        pipelineInfo.renderPass = m_config.swapchain->GetRenderPass();
-        pipelineInfo.subpass = 0;  // İlk subpass
+        pipelineInfo.renderPass = VK_NULL_HANDLE; // Dynamic Rendering
+        pipelineInfo.pNext = &m_config.renderingInfo;
+        pipelineInfo.subpass = 0;
         
         Logger::Info("VulkanPipeline", "Pipeline layout: {}", reinterpret_cast<uintptr_t>(m_pipelineLayout));
         Logger::Info("VulkanPipeline", "Render pass: {}", reinterpret_cast<uintptr_t>(m_config.swapchain->GetRenderPass()));
@@ -253,8 +254,7 @@ bool VulkanPipeline::CreateGraphicsPipeline() {
         Logger::Info("VulkanPipeline", "Pipeline create info validation:");
         Logger::Info("VulkanPipeline", "  - Stage count: {}", pipelineInfo.stageCount);
         Logger::Info("VulkanPipeline", "  - Layout: {}", reinterpret_cast<uintptr_t>(pipelineInfo.layout));
-        Logger::Info("VulkanPipeline", "  - Render pass: {}", reinterpret_cast<uintptr_t>(pipelineInfo.renderPass));
-        Logger::Info("VulkanPipeline", "  - Subpass: {}", pipelineInfo.subpass);
+        Logger::Info("VulkanPipeline", "  - Using Dynamic Rendering (renderPass is NULL)");
         
         // Shader modüllerini kontrol et
         for (uint32_t i = 0; i < pipelineInfo.stageCount; i++) {

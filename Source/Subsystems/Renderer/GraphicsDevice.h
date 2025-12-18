@@ -14,6 +14,7 @@
     #include "VulkanMemoryManager.h"
     #include "VulkanSynchronization.h"
     #include "VulkanRenderer.h"
+    #include "VulkanBindlessSystem.h"
     #include "Core/VulkanFrameManager.h"
     #include "Core/VulkanTransferManager.h"
 #endif
@@ -141,7 +142,8 @@ public:
     VkCommandBuffer GetCurrentCommandBuffer() const { 
         return m_frameManager ? m_frameManager->GetCurrentCommandBuffer() : VK_NULL_HANDLE; 
     }
-    VkDescriptorSetLayout GetDescriptorSetLayout() const { return m_descriptorSetLayout; }
+    VkDescriptorSetLayout GetDescriptorSetLayout() const { return VK_NULL_HANDLE; }
+    VulkanBindlessSystem* GetBindlessSystem() const { return m_bindlessSystem.get(); }
     VkDescriptorPool GetDescriptorPool() const { return m_frameManager ? m_frameManager->GetDescriptorPool() : VK_NULL_HANDLE; }
     VkDescriptorSet GetCurrentDescriptorSet(uint32_t frameIndex) const { 
         return m_frameManager ? m_frameManager->GetCurrentDescriptorSet(frameIndex) : VK_NULL_HANDLE; 
@@ -245,9 +247,7 @@ private:
     std::unique_ptr<VulkanRenderer> m_vulkanRenderer;
     std::unique_ptr<VulkanFrameManager> m_frameManager;
     std::unique_ptr<VulkanTransferManager> m_transferManager;
-    
-    // Descriptor set layout (frame'den bağımsız, pipeline tarafından kullanılır)
-    VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;
+    std::unique_ptr<VulkanBindlessSystem> m_bindlessSystem;
 #endif
     
     // Validation layers

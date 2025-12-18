@@ -73,6 +73,14 @@ struct MaterialProperties {
     float tilingY = 1.0f;                       ///< Y axis tiling
     float offsetX = 0.0f;                       ///< X axis offset
     float offsetY = 0.0f;                       ///< Y axis offset
+    
+    // Bindless texture indices
+    uint32_t albedoIndex = 0;
+    uint32_t normalIndex = 0;
+    uint32_t metallicIndex = 0;
+    uint32_t roughnessIndex = 0;
+    uint32_t aoIndex = 0;
+    uint32_t emissiveIndex = 0;
 };
 
 /**
@@ -148,6 +156,14 @@ public:
     std::shared_ptr<ITexture> GetTexture(TextureType type) const;
     void RemoveTexture(TextureType type);
     bool HasTexture(TextureType type) const;
+    
+    // Bindless texture index accessors
+    uint32_t GetAlbedoIndex() const { return m_albedoIndex; }
+    uint32_t GetNormalIndex() const { return m_normalIndex; }
+    uint32_t GetMetallicIndex() const { return m_metallicIndex; }
+    uint32_t GetRoughnessIndex() const { return m_roughnessIndex; }
+    uint32_t GetAOIndex() const { return m_aoIndex; }
+    uint32_t GetEmissiveIndex() const { return m_emissiveIndex; }
     
     // Texture slot erişimi
     const std::vector<TextureSlot>& GetTextureSlots() const { return m_textureSlots; }
@@ -228,6 +244,14 @@ private:
     // Texture'lar
     std::vector<TextureSlot> m_textureSlots;
     std::unordered_map<TextureType, size_t> m_textureMap;
+    
+    // Bindless Indices
+    uint32_t m_albedoIndex = 0;
+    uint32_t m_normalIndex = 0;
+    uint32_t m_metallicIndex = 0;
+    uint32_t m_roughnessIndex = 0;
+    uint32_t m_aoIndex = 0;
+    uint32_t m_emissiveIndex = 0;
 
     // Shader caching system
     mutable std::shared_ptr<IShader> m_vertexShader;    ///< Cached vertex shader object

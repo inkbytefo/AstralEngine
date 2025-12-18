@@ -105,11 +105,12 @@ public:
     // Lifecycle management
     /**
      * @brief Initialize the MaterialManager with required dependencies
-     * @param assetManager Pointer to the AssetManager for asset loading
      * @param vulkanDevice Pointer to VulkanDevice for shader creation
+     * @param assetManager Pointer to the AssetManager for asset loading
+     * @param dynamicRenderer Pointer to the VulkanRenderer for context
      * @return true if initialization successful, false otherwise
      */
-    bool Initialize(AssetManager* assetManager, VulkanDevice* vulkanDevice);
+    bool Initialize(VulkanDevice* vulkanDevice, AssetManager* assetManager, class VulkanBindlessSystem* bindlessSystem = nullptr);
 
     /**
      * @brief Shutdown the MaterialManager and clean up resources
@@ -296,6 +297,12 @@ public:
      * @return String containing the last error
      */
     const std::string& GetLastError() const { return m_lastError; }
+    
+    /**
+     * @brief Get the Bindless system
+     * @return Pointer to BindlessSystem, nullptr if not available
+     */
+    class VulkanBindlessSystem* GetBindlessSystem() const { return m_bindlessSystem; }
 
 private:
     // Helper methods
@@ -398,6 +405,7 @@ private:
     // Member variables
     AssetManager* m_assetManager = nullptr;     ///< Pointer to AssetManager
     VulkanDevice* m_vulkanDevice = nullptr;     ///< Pointer to VulkanDevice
+    class VulkanBindlessSystem* m_bindlessSystem = nullptr; ///< Pointer to BindlessSystem
 
     // Shader cache with thread safety
     std::unordered_map<AssetHandle, ShaderCacheEntry, AssetHandleHash> m_shaderCache;

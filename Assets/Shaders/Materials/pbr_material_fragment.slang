@@ -59,6 +59,25 @@ struct LightUBO {
     float padding;
 };
 
+// Push constants matching C++ struct
+[[vk::push_constant]]
+struct PushConstants 
+{
+    float4x4 model;
+    float3 baseColorFactor;
+    float metallicFactor;
+    float roughnessFactor;
+    float aoFactor;
+    float3 emissiveFactor;
+    uint albedoIndex;
+    uint normalIndex;
+    uint metallicIndex;
+    uint roughnessIndex;
+    uint aoIndex;
+    uint emissiveIndex;
+};
+PushConstants pushConstants;
+
 struct ShadowUBO {
     ShadowCascade cascades[MAX_SHADOW_CASCADES];
     ShadowSettings settings;
@@ -86,37 +105,8 @@ struct TextureFlags {
     int usePackedTextures;
 };
 
-// Texture samplers
-Texture2D albedoMap : register(t14);
-SamplerState albedoSampler : register(s14);
-
-Texture2D normalMap : register(t15);
-SamplerState normalSampler : register(s15);
-
-Texture2D metallicMap : register(t16);
-SamplerState metallicSampler : register(s16);
-
-Texture2D roughnessMap : register(t17);
-SamplerState roughnessSampler : register(s17);
-
-Texture2D aoMap : register(t18);
-SamplerState aoSampler : register(s18);
-
-Texture2D emissiveMap : register(t19);
-SamplerState emissiveSampler : register(s19);
-
-Texture2D heightMap : register(t20);
-SamplerState heightSampler : register(s20);
-
-// PBR textures
-TextureCube irradianceMap : register(t21);
-SamplerState irradianceSampler : register(s21);
-
-TextureCube prefilterMap : register(t22);
-SamplerState prefilterSampler : register(s22);
-
-Texture2D brdfLUT : register(t23);
-SamplerState brdfLUTSampler : register(s23);
+// Bindless texture array
+[[vk::binding(0, 1)]] Sampler2D globalTextures[];
 
 // Shadow maps - separate bindings to avoid dynamic indexing
 Texture2D shadowMap0 : register(t24);
@@ -258,7 +248,7 @@ FragmentOutput main(VertexOutput input,
     
     // Alpha testing
     if (material.alphaMode == 1) { // MASK
-        float4 albedoSample = albedoMap.Sample(albedoSampler, input.texCoord);
+        float4 albedoSample = globalTextures[material.albedoIndex].Sample(input.texCoord);
         if (albedoSample.a < material.alphaCutoff) {
             discard;
         }
@@ -275,11 +265,11 @@ FragmentOutput main(VertexOutput input,
     
     // Albedo
     if (textureFlags.hasAlbedoMap > 0) {
-        float4 albedoSample = albedoMap.Sample(albedoSampler, texCoords);
+        float4 albedoSample = globalTextures[pushConstants.albedoIndex].Sample(texCoords);
         pbrMaterial.albedo = SRGBToLinear(albedoSample.rgb);
         pbrMaterial.alpha = albedoSample.a;
     } else {
-        pbrMaterial.albedo = material.baseColorFactor.rgb;
+        pbrMaterial.albedo = pushConstants.baseColorFactor;
         pbrMaterial.alpha = material.baseColorFactor.a;
     }
     
@@ -291,7 +281,7 @@ FragmentOutput main(VertexOutput input,
     
     // Normal mapping
     if (textureFlags.hasNormalMap > 0) {
-        float3 normalSample = normalMap.Sample(normalSampler, texCoords).rgb * 2.0 - 1.0;
+        float3 normalSample = globalTextures[pushConstants.normalIndex].Sample(texCoords).rgb * 2.0 - 1.0;
         normalSample.xy *= material.normalScale;
         
         // Create TBN matrix using column-wise assignment to avoid MAT2 syntax error
@@ -312,36 +302,36 @@ FragmentOutput main(VertexOutput input,
     // Metallic and roughness
     if (textureFlags.usePackedTextures > 0) {
         // Packed texture (metallic in R, roughness in G, AO in B)
-        float3 mraSample = metallicMap.Sample(metallicSampler, texCoords).rgb;
-        pbrMaterial.metallic = mraSample.r * material.metallicFactor * material.metallicFactor;
-        pbrMaterial.roughness = mraSample.g * material.roughnessFactor * material.roughnessFactor;
-        pbrMaterial.ao = mraSample.b * material.occlusionStrength;
+        float3 mraSample = globalTextures[pushConstants.metallicIndex].Sample(texCoords).rgb;
+        pbrMaterial.metallic = mraSample.r * pushConstants.metallicFactor * pushConstants.metallicFactor;
+        pbrMaterial.roughness = mraSample.g * pushConstants.roughnessFactor * pushConstants.roughnessFactor;
+        pbrMaterial.ao = mraSample.b * pushConstants.aoFactor;
     } else {
         // Separate textures
         if (textureFlags.hasMetallicMap > 0) {
-            pbrMaterial.metallic = metallicMap.Sample(metallicSampler, texCoords).r * material.metallicFactor * material.metallicFactor;
+            pbrMaterial.metallic = globalTextures[pushConstants.metallicIndex].Sample(texCoords).r * material.metallicFactor * material.metallicFactor;
         } else {
             pbrMaterial.metallic = material.metallicFactor * material.metallicFactor;
         }
         
         if (textureFlags.hasRoughnessMap > 0) {
-            pbrMaterial.roughness = roughnessMap.Sample(roughnessSampler, texCoords).r * material.roughnessFactor * material.roughnessFactor;
+            pbrMaterial.roughness = globalTextures[pushConstants.roughnessIndex].Sample(texCoords).r * material.roughnessFactor * material.roughnessFactor;
         } else {
             pbrMaterial.roughness = material.roughnessFactor * material.roughnessFactor;
         }
         
-        if (textureFlags.hasAOMap > 0) {
-            pbrMaterial.ao = aoMap.Sample(aoSampler, texCoords).r * material.occlusionStrength;
+        if (pushConstants.aoIndex > 0) {
+            pbrMaterial.ao = globalTextures[pushConstants.aoIndex].Sample(texCoords).r * pushConstants.aoFactor;
         } else {
-            pbrMaterial.ao = material.occlusionStrength;
+            pbrMaterial.ao = pushConstants.aoFactor;
         }
     }
     
     // Emissive
     if (textureFlags.hasEmissiveMap > 0) {
-        pbrMaterial.emissive = SRGBToLinear(emissiveMap.Sample(emissiveSampler, texCoords).rgb) * material.emissiveFactor;
+        pbrMaterial.emissive = SRGBToLinear(globalTextures[pushConstants.emissiveIndex].Sample(texCoords).rgb) * pushConstants.emissiveFactor;
     } else {
-        pbrMaterial.emissive = material.emissiveFactor;
+        pbrMaterial.emissive = pushConstants.emissiveFactor;
     }
     
     // Validate material parameters

@@ -25,13 +25,13 @@ public:
      * @brief Pipeline yapılandırma parametreleri
      */
     struct Config {
-        std::vector<VulkanShader*> shaders;      ///< Kullanılacak shader'lar
-        VulkanSwapchain* swapchain;             ///< Swapchain (render pass için)
-        VkExtent2D extent;                      ///< Pencere boyutu
-        VkDescriptorSetLayout descriptorSetLayout; ///< Descriptor set layout (uniform buffer için)
+        std::vector<VulkanShader*> shaders;      ///< Shader stages
+        VkPipelineRenderingCreateInfo renderingInfo{}; ///< For Dynamic Rendering
+        VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
         std::vector<VkVertexInputBindingDescription> vertexBindingDescriptions;
         std::vector<VkVertexInputAttributeDescription> vertexAttributeDescriptions;
-        bool useMinimalVertexInput = false;     ///< For debugging - bypass vertex attributes
+        std::vector<VkPushConstantRange> pushConstantRanges;
+        bool useMinimalVertexInput = false;
     };
 
     VulkanPipeline();

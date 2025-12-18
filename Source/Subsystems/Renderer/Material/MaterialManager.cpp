@@ -79,7 +79,7 @@ MaterialManager::~MaterialManager() {
 
 // ===== LIFECYCLE MANAGEMENT =====
 
-bool MaterialManager::Initialize(AssetManager* assetManager, VulkanDevice* vulkanDevice) {
+bool MaterialManager::Initialize(VulkanDevice* vulkanDevice, AssetManager* assetManager, VulkanBindlessSystem* bindlessSystem) {
     if (m_initialized) {
         Logger::Warning("MaterialManager", "MaterialManager already initialized");
         return true;
@@ -95,10 +95,11 @@ bool MaterialManager::Initialize(AssetManager* assetManager, VulkanDevice* vulka
         return false;
     }
 
-    Logger::Info("MaterialManager", "Initializing MaterialManager");
+    Logger::Info("MaterialManager", "Initializing MaterialManager with Bindless Support: {}", bindlessSystem != nullptr);
 
     m_assetManager = assetManager;
     m_vulkanDevice = vulkanDevice;
+    m_bindlessSystem = bindlessSystem;
 
     // Initialize cache statistics
     m_cacheHits = 0;

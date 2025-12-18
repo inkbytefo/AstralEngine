@@ -8,6 +8,14 @@
 
 cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
 
+# Compatibility policy for older dependency projects
+if(POLICY CMP0000)
+    cmake_policy(SET CMP0000 NEW)
+endif()
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.5)
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+endif()
+
 # --- Project Definition ---
 project(AstralEngine
     VERSION 0.2.0
