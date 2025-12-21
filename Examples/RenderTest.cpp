@@ -40,6 +40,15 @@ public:
 
     void OnShutdown() override {
         Logger::Info("RenderTest", "Shutting down...");
+        
+        // Ensure GPU is idle before destroying resources!
+        if (m_engine) {
+            auto* renderSystem = m_engine->GetSubsystem<RenderSubsystem>();
+            if (renderSystem && renderSystem->GetDevice()) {
+                 renderSystem->GetDevice()->WaitIdle();
+            }
+        }
+
         m_resources.clear();
     }
 
