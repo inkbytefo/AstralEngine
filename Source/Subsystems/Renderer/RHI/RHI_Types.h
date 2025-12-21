@@ -98,6 +98,27 @@ struct RHIOffset3D {
     int32_t z;
 };
 
+enum class RHIDescriptorType {
+    Sampler,
+    CombinedImageSampler,
+    SampledImage,
+    StorageImage,
+    UniformTexelBuffer,
+    StorageTexelBuffer,
+    UniformBuffer,
+    StorageBuffer,
+    UniformBufferDynamic,
+    StorageBufferDynamic,
+    InputAttachment
+};
+
+struct RHIDescriptorSetLayoutBinding {
+    uint32_t binding;
+    RHIDescriptorType descriptorType;
+    uint32_t descriptorCount;
+    RHIShaderStage stageFlags;
+};
+
 struct RHIViewport {
     float x;
     float y;

@@ -3,6 +3,7 @@
 #include "Core/ISubsystem.h"
 #include "../RHI/IRHIDevice.h"
 #include <memory>
+#include <functional>
 
 namespace AstralEngine {
 
@@ -28,9 +29,13 @@ public:
     // RHI Device Access
     IRHIDevice* GetDevice() const { return m_device.get(); }
 
+    using RenderCallback = std::function<void(IRHICommandList*)>;
+    void SetRenderCallback(RenderCallback callback) { m_renderCallback = callback; }
+
 private:
     Engine* m_engine = nullptr;
     std::shared_ptr<IRHIDevice> m_device;
+    RenderCallback m_renderCallback;
 };
 
 } // namespace AstralEngine

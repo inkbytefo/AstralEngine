@@ -62,7 +62,10 @@ void RenderSubsystem::OnUpdate(float /*deltaTime*/) {
         // ignoring the attachment arguments for the main pass.
         cmdList->BeginRendering({}, nullptr, renderArea);
         
-        // Here we would dispatch render passes...
+        // Dispatch render callback if set
+        if (m_renderCallback) {
+            m_renderCallback(cmdList.get());
+        }
         
         cmdList->EndRendering();
     }

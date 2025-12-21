@@ -19,12 +19,19 @@ struct RHIVertexInputBinding {
     bool isInstanced;
 };
 
+struct RHIPushConstantRange {
+    RHIShaderStage stageFlags;
+    uint32_t offset;
+    uint32_t size;
+};
+
 struct RHIPipelineStateDescriptor {
     IRHIShader* vertexShader = nullptr;
     IRHIShader* fragmentShader = nullptr;
     
     std::vector<RHIVertexInputBinding> vertexBindings;
     std::vector<RHIVertexInputAttribute> vertexAttributes;
+    std::vector<RHIPushConstantRange> pushConstants;
     
     RHICullMode cullMode = RHICullMode::Back;
     RHIFrontFace frontFace = RHIFrontFace::CounterClockwise;

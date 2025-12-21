@@ -172,11 +172,39 @@ VulkanPipeline::VulkanPipeline(VulkanDevice* device, const RHIPipelineStateDescr
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     
-    // Placeholder for input bindings/attributes mapping
-    // In a real implementation, we map descriptor.vertexBindings and descriptor.vertexAttributes to Vulkan structs
-    // For now, assuming empty or manual setup
-    vertexInputInfo.vertexBindingDescriptionCount = 0;
-    vertexInputInfo.vertexAttributeDescriptionCount = 0;
+    std::vector<VkVertexInputBindingDescription> bindingDescriptions;
+    std::vector<VkVertexInputAttributeDescription> attributeDescriptions;
+
+    // Map Bindings
+    for (const auto& binding : descriptor.vertexBindings) {
+        VkVertexInputBindingDescription desc{};
+        desc.binding = binding.binding;
+        desc.stride = binding.stride;
+        desc.inputRate = binding.isInstanced ? VK_VERTEX_INPUT_RATE_INSTANCE : VK_VERTEX_INPUT_RATE_VERTEX;
+        bindingDescriptions.push_back(desc);
+    }
+
+    // Map Attributes
+    for (const auto& attribute : descriptor.vertexAttributes) {
+        VkVertexInputAttributeDescription desc{};
+        desc.binding = attribute.binding;
+        desc.location = attribute.location;
+        desc.offset = attribute.offset;
+        
+        // Map RHIFormat to VkFormat
+        // TODO: Move this mapping to a helper function
+        if (attribute.format == RHIFormat::R32G32B32_FLOAT) desc.format = VK_FORMAT_R32G32B32_SFLOAT;
+        else if (attribute.format == RHIFormat::R32G32_FLOAT) desc.format = VK_FORMAT_R32G32_SFLOAT;
+        else if (attribute.format == RHIFormat::R32G32B32A32_FLOAT) desc.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+        else desc.format = VK_FORMAT_UNDEFINED; // Fallback
+
+        attributeDescriptions.push_back(desc);
+    }
+
+    vertexInputInfo.vertexBindingDescriptionCount = static_cast<uint32_t>(bindingDescriptions.size());
+    vertexInputInfo.pVertexBindingDescriptions = bindingDescriptions.data();
+    vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
 
     // Input Assembly
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
@@ -235,7 +263,21 @@ VulkanPipeline::VulkanPipeline(VulkanDevice* device, const RHIPipelineStateDescr
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutInfo.setLayoutCount = 0; // Push descriptors later
-    pipelineLayoutInfo.pushConstantRangeCount = 0;
+    
+    // Map Push Constants
+    std::vector<VkPushConstantRange> vkPushConstants;
+    for (const auto& pc : descriptor.pushConstants) {
+        VkPushConstantRange range{};
+        range.stageFlags = 0;
+        if ((int)pc.stageFlags & (int)RHIShaderStage::Vertex) range.stageFlags |= VK_SHADER_STAGE_VERTEX_BIT;
+        if ((int)pc.stageFlags & (int)RHIShaderStage::Fragment) range.stageFlags |= VK_SHADER_STAGE_FRAGMENT_BIT;
+        range.offset = pc.offset;
+        range.size = pc.size;
+        vkPushConstants.push_back(range);
+    }
+
+    pipelineLayoutInfo.pushConstantRangeCount = static_cast<uint32_t>(vkPushConstants.size());
+    pipelineLayoutInfo.pPushConstantRanges = vkPushConstants.data();
 
     if (vkCreatePipelineLayout(device->GetVkDevice(), &pipelineLayoutInfo, nullptr, &m_layout) != VK_SUCCESS) {
         throw std::runtime_error("failed to create pipeline layout!");
