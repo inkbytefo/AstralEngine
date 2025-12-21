@@ -64,6 +64,8 @@ private:
     void CreateFramebuffers();
     void CreateCommandPool();
     void CreateSyncObjects();
+    void CleanupSwapchain();
+    void RecreateSwapchain();
 
     Window* m_window;
     VkInstance m_instance = VK_NULL_HANDLE;

@@ -452,7 +452,7 @@ void VulkanDevice::CreateCommandPool() {
 
 void VulkanDevice::CreateSyncObjects() {
     m_imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-    m_renderFinishedSemaphores.resize(m_swapchainImages.size()); // Per swapchain image
+    m_renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
     m_inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
 
     VkSemaphoreCreateInfo semaphoreInfo{};
@@ -464,13 +464,8 @@ void VulkanDevice::CreateSyncObjects() {
 
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         if (vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_imageAvailableSemaphores[i]) != VK_SUCCESS ||
+            vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_renderFinishedSemaphores[i]) != VK_SUCCESS ||
             vkCreateFence(m_device, &fenceInfo, nullptr, &m_inFlightFences[i]) != VK_SUCCESS) {
-            throw std::runtime_error("failed to create synchronization objects!");
-        }
-    }
-
-    for (size_t i = 0; i < m_swapchainImages.size(); i++) {
-        if (vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_renderFinishedSemaphores[i]) != VK_SUCCESS) {
             throw std::runtime_error("failed to create synchronization objects!");
         }
     }
@@ -523,7 +518,7 @@ void VulkanDevice::SubmitCommandList(IRHICommandList* commandList) {
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffer;
 
-    VkSemaphore signalSemaphores[] = { m_renderFinishedSemaphores[m_imageIndex] };
+    VkSemaphore signalSemaphores[] = { m_renderFinishedSemaphores[m_currentFrame] };
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = signalSemaphores;
 
@@ -538,7 +533,7 @@ void VulkanDevice::BeginFrame() {
     VkResult result = vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX, m_imageAvailableSemaphores[m_currentFrame], VK_NULL_HANDLE, &m_imageIndex);
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-        // Recreate swapchain
+        RecreateSwapchain();
         return;
     } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
         throw std::runtime_error("failed to acquire swapchain image!");
@@ -556,7 +551,7 @@ void VulkanDevice::Present() {
     VkPresentInfoKHR presentInfo{};
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 
-    VkSemaphore signalSemaphores[] = { m_renderFinishedSemaphores[m_imageIndex] };
+    VkSemaphore signalSemaphores[] = { m_renderFinishedSemaphores[m_currentFrame] };
     presentInfo.waitSemaphoreCount = 1;
     presentInfo.pWaitSemaphores = signalSemaphores;
 
@@ -568,7 +563,7 @@ void VulkanDevice::Present() {
     VkResult result = vkQueuePresentKHR(m_presentQueue, &presentInfo);
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-        // Recreate swapchain
+        RecreateSwapchain();
     } else if (result != VK_SUCCESS) {
         throw std::runtime_error("failed to present swapchain image!");
     }
@@ -584,6 +579,42 @@ IRHITexture* VulkanDevice::GetCurrentBackBuffer() {
 
 void VulkanDevice::WaitIdle() {
     vkDeviceWaitIdle(m_device);
+}
+
+void VulkanDevice::CleanupSwapchain() {
+    for (auto framebuffer : m_swapchainFramebuffers) {
+        vkDestroyFramebuffer(m_device, framebuffer, nullptr);
+    }
+    m_swapchainFramebuffers.clear();
+
+    for (auto imageView : m_swapchainImageViews) {
+        vkDestroyImageView(m_device, imageView, nullptr);
+    }
+    m_swapchainImageViews.clear();
+    m_swapchainTextures.clear();
+
+    if (m_swapchain) {
+        vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
+        m_swapchain = VK_NULL_HANDLE;
+    }
+}
+
+void VulkanDevice::RecreateSwapchain() {
+    int width = 0, height = 0;
+    SDL_GetWindowSizeInPixels(m_window->GetSDLWindow(), &width, &height);
+    while (width == 0 || height == 0) {
+        SDL_GetWindowSizeInPixels(m_window->GetSDLWindow(), &width, &height);
+        SDL_Event event;
+        SDL_WaitEvent(&event);
+    }
+
+    vkDeviceWaitIdle(m_device);
+
+    CleanupSwapchain();
+
+    CreateSwapchain();
+    CreateImageViews();
+    CreateFramebuffers();
 }
 
 } // namespace AstralEngine
