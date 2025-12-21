@@ -5,6 +5,5 @@ add_subdirectory(ThirdParty)
 add_subdirectory(Subsystems)
 
 target_sources(AstralEngine PRIVATE
-    main.cpp
-    test_sdl3.cpp
+    # Internal sources if any
 )

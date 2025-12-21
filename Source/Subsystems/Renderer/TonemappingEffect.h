@@ -1,7 +1,7 @@
 #pragma once
 
 #include "PostProcessingEffectBase.h"
-#include "../Core/Logger.h"
+#include "../../Core/Logger.h"
 #include "Shaders/VulkanShader.h"
 #include "Commands/VulkanPipeline.h"
 #include "Buffers/VulkanBuffer.h"

@@ -94,6 +94,8 @@ public:
 private:
     // Framebuffer yeniden oluşturma metodu
     void RecreateFramebuffers();
+    void CreateFramebuffers(uint32_t width, uint32_t height);
+    void DestroyFramebuffers();
     
     // Üye değişkenler
     RenderSubsystem* m_owner = nullptr;

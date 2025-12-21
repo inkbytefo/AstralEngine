@@ -107,12 +107,10 @@ void RenderSubsystem::OnInitialize(Engine* owner) {
         // PostProcessingSubsystem'i oluştur ve başlat
         m_postProcessing = std::make_unique<PostProcessingSubsystem>();
         if (m_postProcessing) {
+            SetVulkanRenderer(m_graphicsDevice->GetVulkanRenderer());
             if (!m_postProcessing->Initialize(this)) {
                 Logger::Warning("RenderSubsystem", "Failed to initialize PostProcessingSubsystem, continuing without it");
                 m_postProcessing.reset();
-            } else {
-                // PostProcessingSubsystem'e VulkanRenderer pointer'ını geç
-                SetVulkanRenderer(m_graphicsDevice->GetVulkanRenderer());
             }
         }
         
@@ -129,10 +127,7 @@ void RenderSubsystem::OnInitialize(Engine* owner) {
         // Sahne rengi texture'ını oluştur
         CreateSceneColorTexture(width, height);
         
-        // PostProcessingSubsystem'e input texture'ı ayarla
-        if (m_postProcessing) {
-            m_postProcessing->SetInputTexture(m_sceneColorTexture.get());
-        }
+        SetPostProcessingInputTexture(m_sceneColorTexture.get());
 
         // UI resources oluştur
     #ifdef ASTRAL_USE_IMGUI
@@ -671,6 +666,14 @@ void RenderSubsystem::SetVulkanRenderer(VulkanRenderer* renderer) {
     } else {
         Logger::Warning("RenderSubsystem", "PostProcessingSubsystem is not available, cannot set VulkanRenderer");
     }
+}
+
+void RenderSubsystem::SetPostProcessingInputTexture(VulkanTexture* sceneColorTexture) {
+    if (!m_postProcessing) {
+        return;
+    }
+
+    m_postProcessing->SetInputTexture(sceneColorTexture);
 }
 void RenderSubsystem::GBufferPass() {
     if (!m_graphicsDevice || !m_ecsSubsystem) {

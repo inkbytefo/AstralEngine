@@ -8,6 +8,7 @@
 #include "VulkanTextureManager.h"
 #include "Material/Material.h"
 #include "Core/VulkanFramebuffer.h"
+#include <glm/glm.hpp>
 
 // Forward declarations
 class PostProcessingSubsystem;
@@ -15,7 +16,6 @@ class TonemappingEffect;
 class BloomEffect;
 class VulkanRenderer;
 
-#include "../../Assets/Shaders/Include/lighting_structs.slang"
 #include <memory>
 #include <vector>
 #include <map>
@@ -37,6 +37,30 @@ class VulkanBuffer;
 class VulkanTexture;
 class MaterialManager;
 class Camera;
+
+static constexpr int LIGHT_TYPE_DIRECTIONAL = 0;
+static constexpr int LIGHT_TYPE_POINT = 1;
+static constexpr int LIGHT_TYPE_SPOT = 2;
+
+struct alignas(16) GPULight {
+    glm::mat4 lightSpaceMatrix{1.0f};
+    glm::vec3 position{0.0f};
+    int type = LIGHT_TYPE_POINT;
+    glm::vec3 direction{0.0f, 0.0f, -1.0f};
+    float range = 0.0f;
+    glm::vec3 color{1.0f};
+    float intensity = 1.0f;
+    float constant = 1.0f;
+    float linear = 0.0f;
+    float quadratic = 0.0f;
+    float innerConeCos = 0.0f;
+    float outerConeCos = 0.0f;
+    float castsShadows = 0.0f;
+    float _padding0 = 0.0f;
+    float _padding1 = 0.0f;
+};
+
+static_assert(sizeof(GPULight) % 16 == 0, "GPULight must be 16-byte aligned");
 
 class RenderSubsystem : public ISubsystem {
 public:

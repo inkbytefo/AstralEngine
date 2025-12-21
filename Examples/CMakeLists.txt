@@ -17,14 +17,13 @@ target_link_libraries(BasicExample PRIVATE AstralEngine)
 # gerekli tüm ayarları (include'lar, define'lar, linklemeler) yap
 configure_astral_target(BasicExample)
 
-# Target için IDE özelliklerini ayarla
 set_target_properties(BasicExample PROPERTIES
-    OUTPUT_NAME "BasicExample$<$<CONFIG:Debug>:_Debug>"
+    OUTPUT_NAME "BasicExample"
     DESCRIPTION "Astral Engine Basic Example Application"
     VERSION ${PROJECT_VERSION}
-    $<$<PLATFORM_ID:Windows>:WIN32_EXECUTABLE OFF>
-    $<$<CONFIG:Debug>:DEBUG_POSTFIX "_d">
-    $<$<CONFIG:RelWithDebInfo>:RELWITHDEBINFO_POSTFIX "_rd">
+    WIN32_EXECUTABLE OFF
+    DEBUG_POSTFIX "_d"
+    RELWITHDEBINFO_POSTFIX "_rd"
 )
 
 # Copy assets for BasicExample application

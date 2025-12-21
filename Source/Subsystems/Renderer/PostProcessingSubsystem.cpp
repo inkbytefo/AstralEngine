@@ -38,7 +38,7 @@ bool PostProcessingSubsystem::Initialize(RenderSubsystem* owner) {
     }
 
     // VulkanRenderer'ı al
-    m_renderer = m_owner->GetVulkanRenderer();
+    m_renderer = graphicsDevice->GetVulkanRenderer();
     if (!m_renderer) {
         Logger::Critical("PostProcessingSubsystem", "VulkanRenderer not available!");
         return false;

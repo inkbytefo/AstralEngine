@@ -38,6 +38,8 @@ include(cmake/ProjectOptions.cmake) # Include our custom build options
 # --- VCPKG Integration ---
 if(DEFINED ENV{VCPKG_ROOT})
     set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "Vcpkg toolchain file")
+elseif(WIN32 AND EXISTS "C:/vcpkg/scripts/buildsystems/vcpkg.cmake")
+    set(CMAKE_TOOLCHAIN_FILE "C:/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "Vcpkg toolchain file")
 elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake")
     set(CMAKE_TOOLCHAIN_FILE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "Vcpkg toolchain file")
 else()
@@ -137,83 +139,95 @@ if(ASTRAL_BUILD_EXAMPLES)
 endif()
 
 if(ASTRAL_BUILD_TESTS)
-    enable_testing()
-    add_subdirectory(Tests)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Tests/CMakeLists.txt")
+        enable_testing()
+        add_subdirectory(Tests)
+    else()
+        message(WARNING "ASTRAL_BUILD_TESTS is ON but 'Tests' directory is missing; skipping.")
+    endif()
 endif()
 
 if(ASTRAL_BUILD_TOOLS)
-    add_subdirectory(Tools)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Tools/CMakeLists.txt")
+        add_subdirectory(Tools)
+    else()
+        message(WARNING "ASTRAL_BUILD_TOOLS is ON but 'Tools' directory is missing; skipping.")
+    endif()
 endif()
 
 # =====================================================================
 # INSTALLATION & PACKAGING
 # =====================================================================
 
-# --- Install Configuration ---
-include(CMakePackageConfigHelpers)
+option(ASTRAL_ENABLE_INSTALL "Enable installation targets" OFF)
 
-# Generate the config file
-configure_package_config_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/AstralEngineConfig.cmake.in
-    ${CMAKE_CURRENT_BINARY_DIR}/AstralEngineConfig.cmake
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/AstralEngine
-)
+if(ASTRAL_ENABLE_INSTALL)
+    # --- Install Configuration ---
+    include(CMakePackageConfigHelpers)
 
-# Generate the version file
-write_basic_package_version_file(
-    ${CMAKE_CURRENT_BINARY_DIR}/AstralEngineConfigVersion.cmake
-    VERSION ${PROJECT_VERSION}
-    COMPATIBILITY SameMajorVersion
-)
+    # Generate the config file
+    configure_package_config_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/AstralEngineConfig.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/AstralEngineConfig.cmake
+        INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/AstralEngine
+    )
 
-# Create a list of optional dependency targets
-set(ASTRAL_DEPENDENCY_TARGETS
-    SDL3_Headers
-    SDL3-shared
-    glm-header-only
-    glm
-    VulkanMemoryAllocator
-    VMA
-    nlohmann_json
-    assimp
-    ImGui
-    Jolt
-)
+    # Generate the version file
+    write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/AstralEngineConfigVersion.cmake
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY SameMajorVersion
+    )
 
-# Install all available dependency targets in a single command
-foreach(dep IN LISTS ASTRAL_DEPENDENCY_TARGETS)
-    if(TARGET ${dep})
-        list(APPEND EXPORT_TARGETS ${dep})
-    endif()
-endforeach()
+    # Create a list of optional dependency targets
+    set(ASTRAL_DEPENDENCY_TARGETS
+        SDL3_Headers
+        SDL3-shared
+        glm-header-only
+        glm
+        VulkanMemoryAllocator
+        VMA
+        nlohmann_json
+        assimp
+        ImGui
+        Jolt
+    )
 
-# Install the AstralEngine target along with all dependencies in a single export set
-install(TARGETS AstralEngine astral_common_settings ${EXPORT_TARGETS}
-    EXPORT AstralEngineTargets
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-)
+    # Install all available dependency targets in a single command
+    foreach(dep IN LISTS ASTRAL_DEPENDENCY_TARGETS)
+        if(TARGET ${dep})
+            list(APPEND EXPORT_TARGETS ${dep})
+        endif()
+    endforeach()
 
-# Install the header files
-install(DIRECTORY Source/
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-    FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp"
-)
+    # Install the AstralEngine target along with all dependencies in a single export set
+    install(TARGETS AstralEngine astral_common_settings ${EXPORT_TARGETS}
+        EXPORT AstralEngineTargets
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    )
 
-# Install the config files
-install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/AstralEngineConfig.cmake
-    ${CMAKE_CURRENT_BINARY_DIR}/AstralEngineConfigVersion.cmake
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/AstralEngine
-)
+    # Install the header files
+    install(DIRECTORY Source/
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp"
+    )
 
-# Install the export targets
-install(EXPORT AstralEngineTargets
-    FILE AstralEngineTargets.cmake
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/AstralEngine
-)
+    # Install the config files
+    install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/AstralEngineConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/AstralEngineConfigVersion.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/AstralEngine
+    )
+
+    # Install the export targets
+    install(EXPORT AstralEngineTargets
+        FILE AstralEngineTargets.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/AstralEngine
+    )
+endif()
 
 # =====================================================================
 # PACKAGING (CPack)
