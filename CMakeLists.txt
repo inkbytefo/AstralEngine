@@ -92,7 +92,7 @@ target_link_libraries(AstralEngine PUBLIC
     glm # GLM uses 'glm' target name, not 'GLM::GLM'
     nlohmann_json::nlohmann_json
     assimp::assimp
-    VMA
+    VulkanMemoryAllocator
 
     # Optional dependencies
     $<$<BOOL:${ASTRAL_USE_IMGUI}>:ImGui>

@@ -1,10 +1,1 @@
-.NET Framework i├ğin MSBuild s├╝r├╝m 17.15.0-preview-25421-07+49758e5ba
-
-  glm_shared.vcxproj -> C:\Users\tpoyr\OneDrive\Desktop\AstralEngine\build\_deps\glm-build\glm\Debug\glm_sharedd.dll
-  SDL3_test.vcxproj -> C:\Users\tpoyr\OneDrive\Desktop\AstralEngine\build\_deps\sdl3-build\Debug\SDL3_testd.lib
-  SDL_uclibc.vcxproj -> C:\Users\tpoyr\OneDrive\Desktop\AstralEngine\build\_deps\sdl3-build\Debug\SDL_uclibcd.lib
-  zlibstatic.vcxproj -> C:\Users\tpoyr\OneDrive\Desktop\AstralEngine\build\_deps\assimp-build\contrib\zlib\Debug\zlibstaticd.lib
-  assimp.vcxproj -> C:\Users\tpoyr\OneDrive\Desktop\AstralEngine\build\_deps\assimp-build\bin\Debug\assimp-vc145-mtd.dll
-  SDL3-shared.vcxproj -> C:\Users\tpoyr\OneDrive\Desktop\AstralEngine\build\_deps\sdl3-build\Debug\SDL3d.dll
-  ImGui.vcxproj -> C:\Users\tpoyr\OneDrive\Desktop\AstralEngine\build\Debug\ImGuid.lib
-  Engine.cpp
+  Kod ├£retiliyor...

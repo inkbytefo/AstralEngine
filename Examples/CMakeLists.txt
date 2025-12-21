@@ -2,51 +2,35 @@
 #  * Astral Engine - Examples CMake Configuration
 #  * Purpose: Modern CMake configuration for example applications
 #  * Author: Astral Engine Development Team
-#  * Version: 0.1.0-alpha
-#  * Date: 2025-09-17
-#  * Signature: inkbytefo
+#  * Version: 0.2.0 (Refactored)
+#  * Date: 2025-12-21
 #  **********************************************************************/
 
-# Basic Example uygulaması için bir executable hedefi oluştur
-add_executable(BasicExample BasicExample.cpp)
+# RenderTest Application
+add_executable(RenderTest RenderTest.cpp)
 
-# BasicExample hedefini, ana motor kütüphanesi olan AstralEngine'e bağla
-target_link_libraries(BasicExample PRIVATE AstralEngine)
+# Link against the main engine library
+target_link_libraries(RenderTest PRIVATE AstralEngine)
 
-# configure_astral_target fonksiyonunu BasicExample için de çağırarak
-# gerekli tüm ayarları (include'lar, define'lar, linklemeler) yap
-configure_astral_target(BasicExample)
+# Apply standard configuration (includes, defines, etc.)
+configure_astral_target(RenderTest)
 
-set_target_properties(BasicExample PROPERTIES
-    OUTPUT_NAME "BasicExample"
-    DESCRIPTION "Astral Engine Basic Example Application"
+set_target_properties(RenderTest PROPERTIES
+    OUTPUT_NAME "RenderTest"
+    DESCRIPTION "Astral Engine Render Module Verification Test"
     VERSION ${PROJECT_VERSION}
-    WIN32_EXECUTABLE OFF
+    WIN32_EXECUTABLE OFF # Keep console for logging
     DEBUG_POSTFIX "_d"
     RELWITHDEBINFO_POSTFIX "_rd"
 )
 
-# Copy assets for BasicExample application
-add_custom_command(TARGET BasicExample POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:BasicExample>/Assets
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_SOURCE_DIR}/Assets
-        $<TARGET_FILE_DIR:BasicExample>/Assets
-    COMMENT "Copying assets to BasicExample output directory"
-)
+# Copy assets for RenderTest application
+# add_custom_command(TARGET RenderTest POST_BUILD
+#    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:RenderTest>/Assets
+#    COMMAND ${CMAKE_COMMAND} -E copy_directory
+#        ${CMAKE_SOURCE_DIR}/Assets
+#        $<TARGET_FILE_DIR:RenderTest>/Assets
+#    COMMENT "Copying assets to RenderTest output directory"
+# )
 
-# Copy compiled shaders to BasicExample output directory (if Vulkan is enabled)
-if(ASTRAL_HAS_VULKAN)
-    add_custom_command(TARGET BasicExample POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:BasicExample>/Assets/Shaders
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_BINARY_DIR}/shaders/triangle.vert.spv
-            $<TARGET_FILE_DIR:BasicExample>/Assets/Shaders/
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_BINARY_DIR}/shaders/triangle.frag.spv
-            $<TARGET_FILE_DIR:BasicExample>/Assets/Shaders/
-        COMMENT "Copying compiled shaders to BasicExample output directory"
-    )
-endif()
-
-message(STATUS "BasicExample application target created")
+message(STATUS "RenderTest application target created")

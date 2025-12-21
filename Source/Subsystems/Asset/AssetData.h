@@ -5,7 +5,7 @@
 #include <memory>
 #include <array>
 #include <glm/glm.hpp>
-#include "../Renderer/Bounds.h"
+#include "../../Core/Math/Bounds.h"
 
 namespace AstralEngine {
 
