@@ -2,6 +2,7 @@
 
 #include "IRHIResource.h"
 #include "IRHIPipeline.h"
+#include "IRHIDescriptor.h"
 
 namespace AstralEngine {
 
@@ -28,6 +29,7 @@ public:
 
     // Push constants, descriptors, etc.
     virtual void PushConstants(IRHIPipeline* pipeline, RHIShaderStage stage, uint32_t offset, uint32_t size, const void* data) = 0;
+    virtual void BindDescriptorSet(IRHIPipeline* pipeline, IRHIDescriptorSet* descriptorSet, uint32_t setIndex) = 0;
 };
 
 } // namespace AstralEngine

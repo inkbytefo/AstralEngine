@@ -5,6 +5,33 @@
 
 namespace AstralEngine {
 
+// Helper to convert RHIDescriptorType to VkDescriptorType
+VkDescriptorType GetVkDescriptorType(RHIDescriptorType type) {
+    switch (type) {
+        case RHIDescriptorType::Sampler: return VK_DESCRIPTOR_TYPE_SAMPLER;
+        case RHIDescriptorType::CombinedImageSampler: return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        case RHIDescriptorType::SampledImage: return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        case RHIDescriptorType::StorageImage: return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        case RHIDescriptorType::UniformTexelBuffer: return VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+        case RHIDescriptorType::StorageTexelBuffer: return VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+        case RHIDescriptorType::UniformBuffer: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        case RHIDescriptorType::StorageBuffer: return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        case RHIDescriptorType::UniformBufferDynamic: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+        case RHIDescriptorType::StorageBufferDynamic: return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
+        case RHIDescriptorType::InputAttachment: return VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+        default: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    }
+}
+
+// Helper to convert RHIShaderStage to VkShaderStageFlags
+VkShaderStageFlags GetVkShaderStageFlags(RHIShaderStage stage) {
+    VkShaderStageFlags flags = 0;
+    if (static_cast<int>(stage) & static_cast<int>(RHIShaderStage::Vertex)) flags |= VK_SHADER_STAGE_VERTEX_BIT;
+    if (static_cast<int>(stage) & static_cast<int>(RHIShaderStage::Fragment)) flags |= VK_SHADER_STAGE_FRAGMENT_BIT;
+    if (static_cast<int>(stage) & static_cast<int>(RHIShaderStage::Compute)) flags |= VK_SHADER_STAGE_COMPUTE_BIT;
+    return flags;
+}
+
 // --- VulkanBuffer ---
 
 VulkanBuffer::VulkanBuffer(VulkanDevice* device, uint64_t size, RHIBufferUsage usage, RHIMemoryProperty memoryProperties)
@@ -16,20 +43,20 @@ VulkanBuffer::VulkanBuffer(VulkanDevice* device, uint64_t size, RHIBufferUsage u
     bufferInfo.usage = 0;
     
     // Map RHI usage to Vulkan usage
-    if (usage == RHIBufferUsage::Vertex) bufferInfo.usage |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    if (usage == RHIBufferUsage::Index) bufferInfo.usage |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-    if (usage == RHIBufferUsage::Uniform) bufferInfo.usage |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-    if (usage == RHIBufferUsage::Storage) bufferInfo.usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-    if (usage == RHIBufferUsage::TransferSrc) bufferInfo.usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-    if (usage == RHIBufferUsage::TransferDst) bufferInfo.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    if (static_cast<int>(usage & RHIBufferUsage::Vertex)) bufferInfo.usage |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    if (static_cast<int>(usage & RHIBufferUsage::Index)) bufferInfo.usage |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    if (static_cast<int>(usage & RHIBufferUsage::Uniform)) bufferInfo.usage |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    if (static_cast<int>(usage & RHIBufferUsage::Storage)) bufferInfo.usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    if (static_cast<int>(usage & RHIBufferUsage::TransferSrc)) bufferInfo.usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    if (static_cast<int>(usage & RHIBufferUsage::TransferDst)) bufferInfo.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
     VmaAllocationCreateInfo allocInfo{};
-    if (memoryProperties == RHIMemoryProperty::DeviceLocal) allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-    if (memoryProperties == RHIMemoryProperty::HostVisible) {
+    if (static_cast<int>(memoryProperties & RHIMemoryProperty::DeviceLocal)) allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    if (static_cast<int>(memoryProperties & RHIMemoryProperty::HostVisible)) {
         allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
         allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
     }
-    if (memoryProperties == RHIMemoryProperty::HostCoherent) {
+    if (static_cast<int>(memoryProperties & RHIMemoryProperty::HostCoherent)) {
         allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
         allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
     }
@@ -80,10 +107,10 @@ VulkanTexture::VulkanTexture(VulkanDevice* device, uint32_t width, uint32_t heig
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     
     imageInfo.usage = 0;
-    if (usage == RHITextureUsage::Sampled) imageInfo.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
-    if (usage == RHITextureUsage::ColorAttachment) imageInfo.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-    if (usage == RHITextureUsage::DepthStencilAttachment) imageInfo.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-    if (usage == RHITextureUsage::TransferDst) imageInfo.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    if (static_cast<int>(usage & RHITextureUsage::Sampled)) imageInfo.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
+    if (static_cast<int>(usage & RHITextureUsage::ColorAttachment)) imageInfo.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    if (static_cast<int>(usage & RHITextureUsage::DepthStencilAttachment)) imageInfo.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    if (static_cast<int>(usage & RHITextureUsage::TransferDst)) imageInfo.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -102,8 +129,9 @@ VulkanTexture::VulkanTexture(VulkanDevice* device, uint32_t width, uint32_t heig
     viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
     viewInfo.format = vkFormat;
     viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    if (format == RHIFormat::D32_FLOAT) viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-    
+    if (format == RHIFormat::D32_FLOAT || format == RHIFormat::D24_UNORM_S8_UINT) {
+        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    }
     viewInfo.subresourceRange.baseMipLevel = 0;
     viewInfo.subresourceRange.levelCount = 1;
     viewInfo.subresourceRange.baseArrayLayer = 0;
@@ -115,7 +143,7 @@ VulkanTexture::VulkanTexture(VulkanDevice* device, uint32_t width, uint32_t heig
 }
 
 VulkanTexture::VulkanTexture(VulkanDevice* device, VkImage image, VkImageView view, uint32_t width, uint32_t height, RHIFormat format)
-    : m_device(device), m_width(width), m_height(height), m_format(format), m_image(image), m_imageView(view), m_ownsImage(false) {
+    : m_device(device), m_image(image), m_imageView(view), m_width(width), m_height(height), m_format(format), m_ownsImage(false) {
 }
 
 VulkanTexture::~VulkanTexture() {
@@ -144,38 +172,101 @@ VulkanShader::~VulkanShader() {
     vkDestroyShaderModule(m_device->GetVkDevice(), m_module, nullptr);
 }
 
+// --- VulkanDescriptorSetLayout ---
+
+VulkanDescriptorSetLayout::VulkanDescriptorSetLayout(VulkanDevice* device, const std::vector<RHIDescriptorSetLayoutBinding>& bindings)
+    : m_device(device) {
+    
+    std::vector<VkDescriptorSetLayoutBinding> vkBindings;
+    for (const auto& binding : bindings) {
+        VkDescriptorSetLayoutBinding vkBinding{};
+        vkBinding.binding = binding.binding;
+        vkBinding.descriptorType = GetVkDescriptorType(binding.descriptorType);
+        vkBinding.descriptorCount = binding.descriptorCount;
+        vkBinding.stageFlags = GetVkShaderStageFlags(binding.stageFlags);
+        vkBinding.pImmutableSamplers = nullptr;
+        vkBindings.push_back(vkBinding);
+    }
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = static_cast<uint32_t>(vkBindings.size());
+    layoutInfo.pBindings = vkBindings.data();
+
+    if (vkCreateDescriptorSetLayout(device->GetVkDevice(), &layoutInfo, nullptr, &m_layout) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create descriptor set layout!");
+    }
+}
+
+VulkanDescriptorSetLayout::~VulkanDescriptorSetLayout() {
+    vkDestroyDescriptorSetLayout(m_device->GetVkDevice(), m_layout, nullptr);
+}
+
+// --- VulkanDescriptorSet ---
+
+VulkanDescriptorSet::VulkanDescriptorSet(VulkanDevice* device, VulkanDescriptorSetLayout* layout, VkDescriptorPool pool)
+    : m_device(device), m_pool(pool) {
+    
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool = pool;
+    allocInfo.descriptorSetCount = 1;
+    VkDescriptorSetLayout vkLayout = layout->GetVkLayout();
+    allocInfo.pSetLayouts = &vkLayout;
+
+    if (vkAllocateDescriptorSets(device->GetVkDevice(), &allocInfo, &m_set) != VK_SUCCESS) {
+        throw std::runtime_error("failed to allocate descriptor set!");
+    }
+}
+
+VulkanDescriptorSet::~VulkanDescriptorSet() {
+    // vkFreeDescriptorSets(m_device->GetVkDevice(), m_pool, 1, &m_set);
+}
+
+void VulkanDescriptorSet::UpdateUniformBuffer(uint32_t binding, IRHIBuffer* buffer, uint64_t offset, uint64_t range) {
+    VkDescriptorBufferInfo bufferInfo{};
+    bufferInfo.buffer = static_cast<VulkanBuffer*>(buffer)->GetBuffer();
+    bufferInfo.offset = offset;
+    bufferInfo.range = range;
+
+    VkWriteDescriptorSet descriptorWrite{};
+    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrite.dstSet = m_set;
+    descriptorWrite.dstBinding = binding;
+    descriptorWrite.dstArrayElement = 0;
+    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptorWrite.descriptorCount = 1;
+    descriptorWrite.pBufferInfo = &bufferInfo;
+
+    vkUpdateDescriptorSets(m_device->GetVkDevice(), 1, &descriptorWrite, 0, nullptr);
+}
+
 // --- VulkanPipeline ---
 
 VulkanPipeline::VulkanPipeline(VulkanDevice* device, const RHIPipelineStateDescriptor& descriptor, VkRenderPass renderPass)
     : m_device(device) {
     
-    // Shader Stages
-    std::vector<VkPipelineShaderStageCreateInfo> shaderStages;
-    if (descriptor.vertexShader) {
-        VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
-        vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
-        vertShaderStageInfo.module = static_cast<VulkanShader*>(descriptor.vertexShader)->GetModule();
-        vertShaderStageInfo.pName = "main";
-        shaderStages.push_back(vertShaderStageInfo);
-    }
-    if (descriptor.fragmentShader) {
-        VkPipelineShaderStageCreateInfo fragShaderStageInfo{};
-        fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        fragShaderStageInfo.module = static_cast<VulkanShader*>(descriptor.fragmentShader)->GetModule();
-        fragShaderStageInfo.pName = "main";
-        shaderStages.push_back(fragShaderStageInfo);
-    }
+    // Vertex Shader
+    VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
+    vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+    vertShaderStageInfo.module = static_cast<VulkanShader*>(descriptor.vertexShader)->GetModule();
+    vertShaderStageInfo.pName = "main"; // Entry point fixed to main for now, or use specialization
+
+    // Fragment Shader
+    VkPipelineShaderStageCreateInfo fragShaderStageInfo{};
+    fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    fragShaderStageInfo.module = static_cast<VulkanShader*>(descriptor.fragmentShader)->GetModule();
+    fragShaderStageInfo.pName = "main";
+
+    std::vector<VkPipelineShaderStageCreateInfo> shaderStages = {vertShaderStageInfo, fragShaderStageInfo};
 
     // Vertex Input
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     
     std::vector<VkVertexInputBindingDescription> bindingDescriptions;
-    std::vector<VkVertexInputAttributeDescription> attributeDescriptions;
-
-    // Map Bindings
     for (const auto& binding : descriptor.vertexBindings) {
         VkVertexInputBindingDescription desc{};
         desc.binding = binding.binding;
@@ -184,20 +275,18 @@ VulkanPipeline::VulkanPipeline(VulkanDevice* device, const RHIPipelineStateDescr
         bindingDescriptions.push_back(desc);
     }
 
-    // Map Attributes
-    for (const auto& attribute : descriptor.vertexAttributes) {
+    std::vector<VkVertexInputAttributeDescription> attributeDescriptions;
+    for (const auto& attr : descriptor.vertexAttributes) {
         VkVertexInputAttributeDescription desc{};
-        desc.binding = attribute.binding;
-        desc.location = attribute.location;
-        desc.offset = attribute.offset;
+        desc.binding = attr.binding;
+        desc.location = attr.location;
+        desc.format = static_cast<VkFormat>(0); // Mapping needed!
         
-        // Map RHIFormat to VkFormat
-        // TODO: Move this mapping to a helper function
-        if (attribute.format == RHIFormat::R32G32B32_FLOAT) desc.format = VK_FORMAT_R32G32B32_SFLOAT;
-        else if (attribute.format == RHIFormat::R32G32_FLOAT) desc.format = VK_FORMAT_R32G32_SFLOAT;
-        else if (attribute.format == RHIFormat::R32G32B32A32_FLOAT) desc.format = VK_FORMAT_R32G32B32A32_SFLOAT;
-        else desc.format = VK_FORMAT_UNDEFINED; // Fallback
-
+        // Quick map for now (same as in VulkanResources.cpp original)
+        if (attr.format == RHIFormat::R32G32B32_FLOAT) desc.format = VK_FORMAT_R32G32B32_SFLOAT;
+        else if (attr.format == RHIFormat::R32G32_FLOAT) desc.format = VK_FORMAT_R32G32_SFLOAT;
+        
+        desc.offset = attr.offset;
         attributeDescriptions.push_back(desc);
     }
 
@@ -262,7 +351,16 @@ VulkanPipeline::VulkanPipeline(VulkanDevice* device, const RHIPipelineStateDescr
     // Pipeline Layout
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipelineLayoutInfo.setLayoutCount = 0; // Push descriptors later
+    
+    // Descriptor Set Layouts
+    std::vector<VkDescriptorSetLayout> setLayouts;
+    for (auto* layout : descriptor.descriptorSetLayouts) {
+        if (layout) {
+            setLayouts.push_back(static_cast<VulkanDescriptorSetLayout*>(layout)->GetVkLayout());
+        }
+    }
+    pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
+    pipelineLayoutInfo.pSetLayouts = setLayouts.data();
     
     // Map Push Constants
     std::vector<VkPushConstantRange> vkPushConstants;
@@ -298,6 +396,7 @@ VulkanPipeline::VulkanPipeline(VulkanDevice* device, const RHIPipelineStateDescr
     pipelineInfo.layout = m_layout;
     pipelineInfo.renderPass = renderPass;
     pipelineInfo.subpass = 0;
+    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 
     if (vkCreateGraphicsPipelines(device->GetVkDevice(), VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_pipeline) != VK_SUCCESS) {
         throw std::runtime_error("failed to create graphics pipeline!");

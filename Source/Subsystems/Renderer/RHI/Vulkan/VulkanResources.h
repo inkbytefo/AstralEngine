@@ -2,6 +2,7 @@
 
 #include "../IRHIResource.h"
 #include "../IRHIPipeline.h"
+#include "../IRHIDescriptor.h"
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 
@@ -66,6 +67,33 @@ private:
     VulkanDevice* m_device;
     RHIShaderStage m_stage;
     VkShaderModule m_module = VK_NULL_HANDLE;
+};
+
+class VulkanDescriptorSetLayout : public IRHIDescriptorSetLayout {
+public:
+    VulkanDescriptorSetLayout(VulkanDevice* device, const std::vector<RHIDescriptorSetLayoutBinding>& bindings);
+    ~VulkanDescriptorSetLayout() override;
+
+    VkDescriptorSetLayout GetVkLayout() const { return m_layout; }
+
+private:
+    VulkanDevice* m_device;
+    VkDescriptorSetLayout m_layout = VK_NULL_HANDLE;
+};
+
+class VulkanDescriptorSet : public IRHIDescriptorSet {
+public:
+    VulkanDescriptorSet(VulkanDevice* device, VulkanDescriptorSetLayout* layout, VkDescriptorPool pool);
+    ~VulkanDescriptorSet() override;
+
+    void UpdateUniformBuffer(uint32_t binding, IRHIBuffer* buffer, uint64_t offset, uint64_t range) override;
+
+    VkDescriptorSet GetVkDescriptorSet() const { return m_set; }
+
+private:
+    VulkanDevice* m_device;
+    VkDescriptorSet m_set = VK_NULL_HANDLE;
+    VkDescriptorPool m_pool;
 };
 
 class VulkanPipeline : public IRHIPipeline {

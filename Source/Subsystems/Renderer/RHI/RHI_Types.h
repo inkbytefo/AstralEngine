@@ -35,27 +35,27 @@ enum class RHIShaderStage {
 };
 
 enum class RHIBufferUsage {
-    Vertex,
-    Index,
-    Uniform,
-    Storage,
-    TransferSrc,
-    TransferDst
+    Vertex = 1 << 0,
+    Index = 1 << 1,
+    Uniform = 1 << 2,
+    Storage = 1 << 3,
+    TransferSrc = 1 << 4,
+    TransferDst = 1 << 5
 };
 
 enum class RHITextureUsage {
-    TransferSrc,
-    TransferDst,
-    Sampled,
-    Storage,
-    ColorAttachment,
-    DepthStencilAttachment
+    TransferSrc = 1 << 0,
+    TransferDst = 1 << 1,
+    Sampled = 1 << 2,
+    Storage = 1 << 3,
+    ColorAttachment = 1 << 4,
+    DepthStencilAttachment = 1 << 5
 };
 
 enum class RHIMemoryProperty {
-    DeviceLocal,
-    HostVisible,
-    HostCoherent
+    DeviceLocal = 1 << 0,
+    HostVisible = 1 << 1,
+    HostCoherent = 1 << 2
 };
 
 enum class RHICullMode {
@@ -97,6 +97,43 @@ struct RHIOffset3D {
     int32_t y;
     int32_t z;
 };
+
+inline RHIMemoryProperty operator|(RHIMemoryProperty a, RHIMemoryProperty b) {
+    return static_cast<RHIMemoryProperty>(static_cast<int>(a) | static_cast<int>(b));
+}
+
+inline RHIMemoryProperty operator&(RHIMemoryProperty a, RHIMemoryProperty b) {
+    return static_cast<RHIMemoryProperty>(static_cast<int>(a) & static_cast<int>(b));
+}
+
+inline bool operator&&(RHIMemoryProperty a, RHIMemoryProperty b) {
+    return static_cast<int>(a) & static_cast<int>(b);
+}
+
+inline RHIBufferUsage operator|(RHIBufferUsage a, RHIBufferUsage b) {
+    return static_cast<RHIBufferUsage>(static_cast<int>(a) | static_cast<int>(b));
+}
+
+inline RHIBufferUsage operator&(RHIBufferUsage a, RHIBufferUsage b) {
+    return static_cast<RHIBufferUsage>(static_cast<int>(a) & static_cast<int>(b));
+}
+
+inline RHITextureUsage operator|(RHITextureUsage a, RHITextureUsage b) {
+    return static_cast<RHITextureUsage>(static_cast<int>(a) | static_cast<int>(b));
+}
+
+inline RHITextureUsage operator&(RHITextureUsage a, RHITextureUsage b) {
+    return static_cast<RHITextureUsage>(static_cast<int>(a) & static_cast<int>(b));
+}
+
+inline RHIShaderStage operator|(RHIShaderStage a, RHIShaderStage b) {
+    return static_cast<RHIShaderStage>(static_cast<int>(a) | static_cast<int>(b));
+}
+
+inline RHIShaderStage operator&(RHIShaderStage a, RHIShaderStage b) {
+    return static_cast<RHIShaderStage>(static_cast<int>(a) & static_cast<int>(b));
+}
+
 
 enum class RHIDescriptorType {
     Sampler,

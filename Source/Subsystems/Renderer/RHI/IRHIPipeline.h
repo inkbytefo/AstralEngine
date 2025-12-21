@@ -1,6 +1,7 @@
 #pragma once
 
 #include "IRHIResource.h"
+#include "IRHIDescriptor.h"
 #include <vector>
 
 namespace AstralEngine {
@@ -32,6 +33,7 @@ struct RHIPipelineStateDescriptor {
     std::vector<RHIVertexInputBinding> vertexBindings;
     std::vector<RHIVertexInputAttribute> vertexAttributes;
     std::vector<RHIPushConstantRange> pushConstants;
+    std::vector<IRHIDescriptorSetLayout*> descriptorSetLayouts;
     
     RHICullMode cullMode = RHICullMode::Back;
     RHIFrontFace frontFace = RHIFrontFace::CounterClockwise;

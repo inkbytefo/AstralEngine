@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../IRHICommandList.h"
+#include "../IRHIDescriptor.h"
 #include <vulkan/vulkan.h>
 
 namespace AstralEngine {
@@ -19,6 +20,8 @@ public:
     void EndRendering() override;
 
     void BindPipeline(IRHIPipeline* pipeline) override;
+    
+    void BindDescriptorSet(IRHIPipeline* pipeline, IRHIDescriptorSet* descriptorSet, uint32_t setIndex) override;
     
     void SetViewport(const RHIViewport& viewport) override;
     void SetScissor(const RHIRect2D& scissor) override;

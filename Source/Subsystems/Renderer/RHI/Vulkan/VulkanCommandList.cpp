@@ -68,6 +68,12 @@ void VulkanCommandList::BindPipeline(IRHIPipeline* pipeline) {
     vkCmdBindPipeline(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, static_cast<VulkanPipeline*>(pipeline)->GetPipeline());
 }
 
+void VulkanCommandList::BindDescriptorSet(IRHIPipeline* pipeline, IRHIDescriptorSet* descriptorSet, uint32_t setIndex) {
+    VkDescriptorSet vkSet = static_cast<VulkanDescriptorSet*>(descriptorSet)->GetVkDescriptorSet();
+    VkPipelineLayout layout = static_cast<VulkanPipeline*>(pipeline)->GetLayout();
+    vkCmdBindDescriptorSets(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, setIndex, 1, &vkSet, 0, nullptr);
+}
+
 void VulkanCommandList::SetViewport(const RHIViewport& viewport) {
     VkViewport vkViewport{};
     vkViewport.x = viewport.x;

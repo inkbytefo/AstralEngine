@@ -1,45 +1,37 @@
-// SimpleTriangle.slang
-// A simple test shader for verifying the render pipeline.
 
-struct VSInput
+struct VertexInput
 {
-    float3 position : POSITION;
+    float2 position : POSITION;
     float3 color : COLOR;
 };
 
-struct VSOutput
+struct VertexOutput
 {
     float4 position : SV_Position;
     float3 color : COLOR;
 };
 
-// Push Constants for lightweight data (Model Matrix)
-struct PushConstants
+struct UBO
 {
-    float4x4 modelMatrix;
+    float4x4 model;
 };
 
-[[vk::push_constant]]
-PushConstants pc;
+[[vk::binding(0, 0)]]
+ConstantBuffer<UBO> ubo;
 
 [shader("vertex")]
-VSOutput vertexMain(VSInput input)
+VertexOutput vertexMain(VertexInput input)
 {
-    VSOutput output;
-    
-    // Apply model rotation
-    // Note: We assume view and projection are identity/simple for this test
-    float4 pos = float4(input.position, 1.0);
-    output.position = mul(pc.modelMatrix, pos);
-    
-    // Pass color through
+    VertexOutput output;
+    float4 pos = float4(input.position, 0.0, 1.0);
+    // Rotate around Z axis (2D rotation)
+    output.position = mul(ubo.model, pos);
     output.color = input.color;
-    
     return output;
 }
 
 [shader("fragment")]
-float4 fragmentMain(VSOutput input) : SV_Target
+float4 fragmentMain(VertexOutput input) : SV_Target
 {
     return float4(input.color, 1.0);
 }

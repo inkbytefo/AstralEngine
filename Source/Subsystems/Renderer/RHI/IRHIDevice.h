@@ -4,6 +4,7 @@
 #include "IRHIResource.h"
 #include "IRHIPipeline.h"
 #include "IRHICommandList.h"
+#include "IRHIDescriptor.h"
 #include <memory>
 #include <vector>
 #include <span>
@@ -24,6 +25,10 @@ public:
     virtual std::shared_ptr<IRHITexture> CreateTexture2D(uint32_t width, uint32_t height, RHIFormat format, RHITextureUsage usage) = 0;
     virtual std::shared_ptr<IRHIShader> CreateShader(RHIShaderStage stage, std::span<const uint8_t> code) = 0;
     virtual std::shared_ptr<IRHIPipeline> CreateGraphicsPipeline(const RHIPipelineStateDescriptor& descriptor) = 0;
+
+    // Descriptors
+    virtual std::shared_ptr<IRHIDescriptorSetLayout> CreateDescriptorSetLayout(const std::vector<RHIDescriptorSetLayoutBinding>& bindings) = 0;
+    virtual std::shared_ptr<IRHIDescriptorSet> AllocateDescriptorSet(IRHIDescriptorSetLayout* layout) = 0;
 
     // Command List
     virtual std::shared_ptr<IRHICommandList> CreateCommandList() = 0;

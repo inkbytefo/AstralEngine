@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../IRHIDevice.h"
+#include "../IRHIDescriptor.h"
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 #include <vector>
@@ -25,6 +26,10 @@ public:
     std::shared_ptr<IRHIPipeline> CreateGraphicsPipeline(const RHIPipelineStateDescriptor& descriptor) override;
     std::shared_ptr<IRHICommandList> CreateCommandList() override;
     void SubmitCommandList(IRHICommandList* commandList) override;
+
+    // Descriptor Set Support
+    std::shared_ptr<IRHIDescriptorSetLayout> CreateDescriptorSetLayout(const std::vector<RHIDescriptorSetLayoutBinding>& bindings) override;
+    std::shared_ptr<IRHIDescriptorSet> AllocateDescriptorSet(IRHIDescriptorSetLayout* layout) override;
 
     void BeginFrame() override;
     void Present() override;
@@ -55,6 +60,7 @@ private:
     void CreateSwapchain();
     void CreateImageViews();
     void CreateRenderPass(); // Legacy support or for simple start
+    void CreateDescriptorPool();
     void CreateFramebuffers();
     void CreateCommandPool();
     void CreateSyncObjects();
@@ -79,6 +85,7 @@ private:
     std::vector<std::shared_ptr<IRHITexture>> m_swapchainTextures; // Wrappers
 
     VkRenderPass m_renderPass = VK_NULL_HANDLE;
+    VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
     std::vector<VkFramebuffer> m_swapchainFramebuffers;
 
     std::vector<VkCommandPool> m_commandPools; // Per-frame command pools

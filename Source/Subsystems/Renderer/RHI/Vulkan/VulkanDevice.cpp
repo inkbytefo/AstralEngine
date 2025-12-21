@@ -46,6 +46,7 @@ bool VulkanDevice::Initialize() {
         CreateSwapchain();
         CreateImageViews();
         CreateRenderPass();
+        CreateDescriptorPool();
         CreateFramebuffers();
         CreateCommandPool();
         CreateSyncObjects();
@@ -68,6 +69,11 @@ void VulkanDevice::Shutdown() {
     }
 
     if (m_device) {
+        if (m_descriptorPool) {
+            vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
+            m_descriptorPool = VK_NULL_HANDLE;
+        }
+
         for (auto semaphore : m_imageAvailableSemaphores) vkDestroySemaphore(m_device, semaphore, nullptr);
         for (auto semaphore : m_renderFinishedSemaphores) vkDestroySemaphore(m_device, semaphore, nullptr);
         for (auto fence : m_inFlightFences) vkDestroyFence(m_device, fence, nullptr);
@@ -379,6 +385,33 @@ void VulkanDevice::CreateRenderPass() {
     }
 }
 
+void VulkanDevice::CreateDescriptorPool() {
+    std::vector<VkDescriptorPoolSize> poolSizes = {
+        {VK_DESCRIPTOR_TYPE_SAMPLER, 1000},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
+        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000},
+        {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000},
+        {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000}
+    };
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT; 
+    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+    poolInfo.pPoolSizes = poolSizes.data();
+    poolInfo.maxSets = 1000 * poolSizes.size(); 
+
+    if (vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_descriptorPool) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create descriptor pool!");
+    }
+}
+
 void VulkanDevice::CreateFramebuffers() {
     m_swapchainFramebuffers.resize(m_swapchainImageViews.size());
 
@@ -460,6 +493,14 @@ std::shared_ptr<IRHIPipeline> VulkanDevice::CreateGraphicsPipeline(const RHIPipe
     return std::make_shared<VulkanPipeline>(this, descriptor, m_renderPass);
 }
 
+std::shared_ptr<IRHIDescriptorSetLayout> VulkanDevice::CreateDescriptorSetLayout(const std::vector<RHIDescriptorSetLayoutBinding>& bindings) {
+    return std::make_shared<VulkanDescriptorSetLayout>(this, bindings);
+}
+
+std::shared_ptr<IRHIDescriptorSet> VulkanDevice::AllocateDescriptorSet(IRHIDescriptorSetLayout* layout) {
+    return std::make_shared<VulkanDescriptorSet>(this, static_cast<VulkanDescriptorSetLayout*>(layout), m_descriptorPool);
+}
+
 std::shared_ptr<IRHICommandList> VulkanDevice::CreateCommandList() {
     return std::make_shared<VulkanCommandList>(this, m_commandPools[m_currentFrame]);
 }
@@ -493,22 +534,20 @@ void VulkanDevice::SubmitCommandList(IRHICommandList* commandList) {
 
 void VulkanDevice::BeginFrame() {
     vkWaitForFences(m_device, 1, &m_inFlightFences[m_currentFrame], VK_TRUE, UINT64_MAX);
-    
-    // Reset command pool to free all command buffers allocated in previous cycle for this frame
-    vkResetCommandPool(m_device, m_commandPools[m_currentFrame], 0);
 
     VkResult result = vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX, m_imageAvailableSemaphores[m_currentFrame], VK_NULL_HANDLE, &m_imageIndex);
-    
+
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-        // TODO: Recreate swapchain
-        m_frameValid = false;
+        // Recreate swapchain
         return;
     } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
         throw std::runtime_error("failed to acquire swapchain image!");
     }
-    
-    m_frameValid = true;
+
     vkResetFences(m_device, 1, &m_inFlightFences[m_currentFrame]);
+    vkResetCommandPool(m_device, m_commandPools[m_currentFrame], 0);
+
+    m_frameValid = true;
 }
 
 void VulkanDevice::Present() {
@@ -517,9 +556,9 @@ void VulkanDevice::Present() {
     VkPresentInfoKHR presentInfo{};
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 
-    VkSemaphore waitSemaphores[] = { m_renderFinishedSemaphores[m_imageIndex] };
+    VkSemaphore signalSemaphores[] = { m_renderFinishedSemaphores[m_imageIndex] };
     presentInfo.waitSemaphoreCount = 1;
-    presentInfo.pWaitSemaphores = waitSemaphores;
+    presentInfo.pWaitSemaphores = signalSemaphores;
 
     VkSwapchainKHR swapchains[] = { m_swapchain };
     presentInfo.swapchainCount = 1;
@@ -529,15 +568,17 @@ void VulkanDevice::Present() {
     VkResult result = vkQueuePresentKHR(m_presentQueue, &presentInfo);
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-        // TODO: Recreate swapchain
+        // Recreate swapchain
     } else if (result != VK_SUCCESS) {
         throw std::runtime_error("failed to present swapchain image!");
     }
 
     m_currentFrame = (m_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+    m_frameValid = false;
 }
 
 IRHITexture* VulkanDevice::GetCurrentBackBuffer() {
+    if (!m_frameValid) return nullptr;
     return m_swapchainTextures[m_imageIndex].get();
 }
 
