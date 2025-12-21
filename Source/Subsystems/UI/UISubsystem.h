@@ -102,6 +102,7 @@ private:
     // Vulkan resources
 #ifdef ASTRAL_USE_VULKAN
     VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
+    VkCommandPool m_uiCommandPool = VK_NULL_HANDLE; // Dedicated command pool for UI
     VkRenderPass m_renderPass = VK_NULL_HANDLE;
     std::vector<VkFramebuffer> m_framebuffers;
     std::vector<VkCommandBuffer> m_commandBuffers;

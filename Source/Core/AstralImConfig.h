@@ -15,7 +15,7 @@
 
 // Integration features
 #define IMGUI_DEFINE_MATH_OPERATORS          // Math operatörleri etkinleştir
-#define IMGUI_ENABLE_FREETYPE                // FreeType font rendering
+// #define IMGUI_ENABLE_FREETYPE                // FreeType font rendering - Disabled until FreeType dependency is added
 
 // Platform specific configurations
 #ifdef ASTRAL_DEBUG

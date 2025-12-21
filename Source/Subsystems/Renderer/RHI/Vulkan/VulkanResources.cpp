@@ -25,7 +25,10 @@ VulkanBuffer::VulkanBuffer(VulkanDevice* device, uint64_t size, RHIBufferUsage u
 
     VmaAllocationCreateInfo allocInfo{};
     if (memoryProperties == RHIMemoryProperty::DeviceLocal) allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-    if (memoryProperties == RHIMemoryProperty::HostVisible) allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+    if (memoryProperties == RHIMemoryProperty::HostVisible) {
+        allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+        allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    }
     if (memoryProperties == RHIMemoryProperty::HostCoherent) {
         allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
         allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;

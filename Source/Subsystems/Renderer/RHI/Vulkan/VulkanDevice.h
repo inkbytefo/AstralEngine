@@ -81,7 +81,7 @@ private:
     VkRenderPass m_renderPass = VK_NULL_HANDLE;
     std::vector<VkFramebuffer> m_swapchainFramebuffers;
 
-    VkCommandPool m_commandPool = VK_NULL_HANDLE;
+    std::vector<VkCommandPool> m_commandPools; // Per-frame command pools
     VmaAllocator m_allocator = VK_NULL_HANDLE;
 
     // Frame synchronization
@@ -91,6 +91,7 @@ private:
     std::vector<VkFence> m_inFlightFences;
     uint32_t m_currentFrame = 0;
     uint32_t m_imageIndex = 0;
+    bool m_frameValid = false; // Indicates if the current frame successfully acquired an image
 };
 
 } // namespace AstralEngine

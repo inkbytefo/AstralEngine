@@ -20,7 +20,13 @@ VulkanCommandList::VulkanCommandList(VulkanDevice* device, VkCommandPool pool)
 }
 
 VulkanCommandList::~VulkanCommandList() {
-    vkFreeCommandBuffers(m_device->GetVkDevice(), m_pool, 1, &m_commandBuffer);
+    // Do NOT free the command buffer here.
+    // The command pool is reset at the beginning of each frame (in VulkanDevice::BeginFrame),
+    // which effectively invalidates/frees all command buffers allocated from it.
+    // Explicitly freeing it here causes a validation error because the buffer is still in use (pending execution)
+    // when this destructor is called at the end of RenderSubsystem::OnUpdate.
+    
+    // vkFreeCommandBuffers(m_device->GetVkDevice(), m_pool, 1, &m_commandBuffer);
 }
 
 void VulkanCommandList::Begin() {

@@ -19,9 +19,10 @@ UISubsystem::~UISubsystem() {
 void UISubsystem::OnInitialize(Engine* owner) {
     m_owner = owner;
     Logger::Info("UISubsystem", "Initializing UI Subsystem...");
-    InitializeImGui();
-    m_initialized = true;
-    Logger::Info("UISubsystem", "UI Subsystem Initialized.");
+    // Defer ImGui initialization to first update to ensure RenderSubsystem is ready
+    // InitializeImGui(); 
+    m_initialized = false; 
+    Logger::Info("UISubsystem", "UI Subsystem Initialized (Deferred ImGui Init).");
 
     // Integrate with SceneEditorSubsystem
     SceneEditorSubsystem* sceneEditor = m_owner->GetSubsystem<SceneEditorSubsystem>();
@@ -35,7 +36,11 @@ void UISubsystem::OnInitialize(Engine* owner) {
 }
 
 void UISubsystem::OnUpdate(float /*deltaTime*/) {
-    if (!m_initialized) return;
+    /*
+    if (!m_initialized) {
+        InitializeImGui();
+        if (!m_initialized) return;
+    }
 
     BeginFrame();
     
@@ -52,6 +57,7 @@ void UISubsystem::OnUpdate(float /*deltaTime*/) {
     ImGui::End();
 
     EndFrame();
+    */
 }
 
 void UISubsystem::OnShutdown() {
@@ -137,6 +143,16 @@ void UISubsystem::InitializeImGui() {
         return;
     }
 
+    // 4.1 Create Dedicated Command Pool for ImGui
+    VkCommandPoolCreateInfo cmd_pool_info = {};
+    cmd_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    cmd_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    cmd_pool_info.queueFamilyIndex = vulkanDevice->GetGraphicsQueueFamilyIndex();
+    if (vkCreateCommandPool(vulkanDevice->GetVkDevice(), &cmd_pool_info, nullptr, &m_uiCommandPool) != VK_SUCCESS) {
+        Logger::Error("UISubsystem", "Failed to create command pool for ImGui!");
+        return;
+    }
+
     // 5. Initialize Backends
     ImGui_ImplSDL3_InitForVulkan(window->GetSDLWindow());
     ImGui_ImplVulkan_InitInfo init_info = {};
@@ -146,6 +162,7 @@ void UISubsystem::InitializeImGui() {
     init_info.QueueFamily = vulkanDevice->GetGraphicsQueueFamilyIndex();
     init_info.Queue = vulkanDevice->GetGraphicsQueue();
     init_info.DescriptorPool = m_descriptorPool;
+    // init_info.CommandPool = m_uiCommandPool; // Removed: Not supported in this ImGui version
     init_info.MinImageCount = 2;
     init_info.ImageCount = vulkanDevice->GetSwapchainImageCount();
     init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT; // Assuming no MSAA for UI pass
@@ -155,8 +172,17 @@ void UISubsystem::InitializeImGui() {
     ImGui_ImplVulkan_Init(&init_info); // Argument removed in newer ImGui
 
     // 6. Upload Fonts
-    ImGui_ImplVulkan_CreateFontsTexture(); // Argument removed in newer ImGui
+    // Ensure we have a clean state before uploading fonts
+    vkDeviceWaitIdle(vulkanDevice->GetVkDevice());
+    
+    if (!ImGui_ImplVulkan_CreateFontsTexture()) {
+        Logger::Error("UISubsystem", "Failed to create fonts texture!");
+    }
 
+    // Wait for the upload to finish before proceeding
+    vkDeviceWaitIdle(vulkanDevice->GetVkDevice());
+
+    m_initialized = true;
     Logger::Info("UISubsystem", "ImGui Initialized with SDL3 and Vulkan backends.");
 #endif
 }
@@ -180,6 +206,10 @@ void UISubsystem::ShutdownImGui() {
          if (m_descriptorPool != VK_NULL_HANDLE) {
              vkDestroyDescriptorPool(vulkanDevice->GetVkDevice(), m_descriptorPool, nullptr);
              m_descriptorPool = VK_NULL_HANDLE;
+         }
+         if (m_uiCommandPool != VK_NULL_HANDLE) {
+             vkDestroyCommandPool(vulkanDevice->GetVkDevice(), m_uiCommandPool, nullptr);
+             m_uiCommandPool = VK_NULL_HANDLE;
          }
     }
 #endif

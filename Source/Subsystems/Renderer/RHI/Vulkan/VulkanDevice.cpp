@@ -69,7 +69,7 @@ void VulkanDevice::Shutdown() {
         for (auto semaphore : m_renderFinishedSemaphores) vkDestroySemaphore(m_device, semaphore, nullptr);
         for (auto fence : m_inFlightFences) vkDestroyFence(m_device, fence, nullptr);
 
-        vkDestroyCommandPool(m_device, m_commandPool, nullptr);
+        for (auto pool : m_commandPools) vkDestroyCommandPool(m_device, pool, nullptr);
         for (auto framebuffer : m_swapchainFramebuffers) vkDestroyFramebuffer(m_device, framebuffer, nullptr);
         vkDestroyRenderPass(m_device, m_renderPass, nullptr);
         for (auto imageView : m_swapchainImageViews) vkDestroyImageView(m_device, imageView, nullptr);
@@ -393,13 +393,17 @@ void VulkanDevice::CreateFramebuffers() {
 }
 
 void VulkanDevice::CreateCommandPool() {
+    m_commandPools.resize(MAX_FRAMES_IN_FLIGHT);
+
     VkCommandPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     poolInfo.queueFamilyIndex = m_graphicsQueueFamilyIndex;
 
-    if (vkCreateCommandPool(m_device, &poolInfo, nullptr, &m_commandPool) != VK_SUCCESS) {
-        throw std::runtime_error("failed to create command pool!");
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        if (vkCreateCommandPool(m_device, &poolInfo, nullptr, &m_commandPools[i]) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create command pool!");
+        }
     }
 }
 
@@ -442,10 +446,12 @@ std::shared_ptr<IRHIPipeline> VulkanDevice::CreateGraphicsPipeline(const RHIPipe
 }
 
 std::shared_ptr<IRHICommandList> VulkanDevice::CreateCommandList() {
-    return std::make_shared<VulkanCommandList>(this, m_commandPool);
+    return std::make_shared<VulkanCommandList>(this, m_commandPools[m_currentFrame]);
 }
 
 void VulkanDevice::SubmitCommandList(IRHICommandList* commandList) {
+    if (!m_frameValid) return;
+
     VulkanCommandList* vulkanCmd = static_cast<VulkanCommandList*>(commandList);
     VkCommandBuffer commandBuffer = vulkanCmd->GetCommandBuffer();
 
@@ -472,12 +478,27 @@ void VulkanDevice::SubmitCommandList(IRHICommandList* commandList) {
 
 void VulkanDevice::BeginFrame() {
     vkWaitForFences(m_device, 1, &m_inFlightFences[m_currentFrame], VK_TRUE, UINT64_MAX);
-    vkResetFences(m_device, 1, &m_inFlightFences[m_currentFrame]);
+    
+    // Reset command pool to free all command buffers allocated in previous cycle for this frame
+    vkResetCommandPool(m_device, m_commandPools[m_currentFrame], 0);
 
-    vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX, m_imageAvailableSemaphores[m_currentFrame], VK_NULL_HANDLE, &m_imageIndex);
+    VkResult result = vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX, m_imageAvailableSemaphores[m_currentFrame], VK_NULL_HANDLE, &m_imageIndex);
+    
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+        // TODO: Recreate swapchain
+        m_frameValid = false;
+        return;
+    } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+        throw std::runtime_error("failed to acquire swapchain image!");
+    }
+    
+    m_frameValid = true;
+    vkResetFences(m_device, 1, &m_inFlightFences[m_currentFrame]);
 }
 
 void VulkanDevice::Present() {
+    if (!m_frameValid) return;
+
     VkPresentInfoKHR presentInfo{};
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 
@@ -490,7 +511,13 @@ void VulkanDevice::Present() {
     presentInfo.pSwapchains = swapchains;
     presentInfo.pImageIndices = &m_imageIndex;
 
-    vkQueuePresentKHR(m_presentQueue, &presentInfo);
+    VkResult result = vkQueuePresentKHR(m_presentQueue, &presentInfo);
+
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+        // TODO: Recreate swapchain
+    } else if (result != VK_SUCCESS) {
+        throw std::runtime_error("failed to present swapchain image!");
+    }
 
     m_currentFrame = (m_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 }

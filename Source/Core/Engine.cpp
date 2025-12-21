@@ -1,6 +1,9 @@
 #include "Engine.h"
 #include "Logger.h"
 #include "Subsystems/Platform/PlatformSubsystem.h"
+#include "Subsystems/Renderer/Core/RenderSubsystem.h"
+#include "Subsystems/UI/UISubsystem.h"
+#include "Subsystems/Asset/AssetSubsystem.h"
 #include "Events/EventManager.h"
 #include <chrono>
 #include <thread>
@@ -9,6 +12,15 @@ namespace AstralEngine {
 
 Engine::Engine() {
     Logger::Info("Engine", "Engine instance created");
+
+    // Core Subsystems Registration
+    RegisterSubsystem<PlatformSubsystem>();
+    RegisterSubsystem<RenderSubsystem>();
+    RegisterSubsystem<AssetSubsystem>();
+    
+#ifdef ASTRAL_USE_IMGUI
+    RegisterSubsystem<UISubsystem>();
+#endif
 }
 
 Engine::~Engine() {

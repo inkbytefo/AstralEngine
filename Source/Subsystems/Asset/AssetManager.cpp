@@ -189,4 +189,12 @@ namespace AstralEngine {
         return AssetHandle::Type::Unknown;
     }
 
+    void AssetManager::Update() {
+        // Process loaded assets, handle garbage collection, etc.
+    }
+
+    void AssetManager::CheckForAssetChanges() {
+        // Hot-reload logic
+    }
+
 } // namespace AstralEngine

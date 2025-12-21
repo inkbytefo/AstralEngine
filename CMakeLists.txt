@@ -93,6 +93,7 @@ target_link_libraries(AstralEngine PUBLIC
     nlohmann_json::nlohmann_json
     assimp::assimp
     VulkanMemoryAllocator
+    stb
 
     # Optional dependencies
     $<$<BOOL:${ASTRAL_USE_IMGUI}>:ImGui>
@@ -126,11 +127,12 @@ function(configure_astral_target target)
 
     # Copy compiled shaders if Vulkan is enabled
     if(ASTRAL_USE_VULKAN)
-        add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-                ${CMAKE_BINARY_DIR}/shaders $<TARGET_FILE_DIR:${target}>/Assets/Shaders
-            COMMENT "Copying compiled shaders to ${target} output directory"
-        )
+        # TODO: Enable this when shader compilation is implemented
+        # add_custom_command(TARGET ${target} POST_BUILD
+        #     COMMAND ${CMAKE_COMMAND} -E copy_directory
+        #         ${CMAKE_BINARY_DIR}/shaders $<TARGET_FILE_DIR:${target}>/Assets/Shaders
+        #     COMMENT "Copying compiled shaders to ${target} output directory"
+        # )
     endif()
 endfunction()
 
