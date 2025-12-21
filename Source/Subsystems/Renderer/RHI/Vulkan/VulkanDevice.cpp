@@ -452,7 +452,7 @@ void VulkanDevice::CreateCommandPool() {
 
 void VulkanDevice::CreateSyncObjects() {
     m_imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-    m_renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+    m_renderFinishedSemaphores.resize(m_swapchainImages.size());
     m_inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
 
     VkSemaphoreCreateInfo semaphoreInfo{};
@@ -464,8 +464,13 @@ void VulkanDevice::CreateSyncObjects() {
 
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         if (vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_imageAvailableSemaphores[i]) != VK_SUCCESS ||
-            vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_renderFinishedSemaphores[i]) != VK_SUCCESS ||
             vkCreateFence(m_device, &fenceInfo, nullptr, &m_inFlightFences[i]) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create synchronization objects!");
+        }
+    }
+
+    for (size_t i = 0; i < m_swapchainImages.size(); i++) {
+        if (vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_renderFinishedSemaphores[i]) != VK_SUCCESS) {
             throw std::runtime_error("failed to create synchronization objects!");
         }
     }
@@ -518,7 +523,7 @@ void VulkanDevice::SubmitCommandList(IRHICommandList* commandList) {
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffer;
 
-    VkSemaphore signalSemaphores[] = { m_renderFinishedSemaphores[m_currentFrame] };
+    VkSemaphore signalSemaphores[] = { m_renderFinishedSemaphores[m_imageIndex] };
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = signalSemaphores;
 
@@ -551,7 +556,7 @@ void VulkanDevice::Present() {
     VkPresentInfoKHR presentInfo{};
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 
-    VkSemaphore signalSemaphores[] = { m_renderFinishedSemaphores[m_currentFrame] };
+    VkSemaphore signalSemaphores[] = { m_renderFinishedSemaphores[m_imageIndex] };
     presentInfo.waitSemaphoreCount = 1;
     presentInfo.pWaitSemaphores = signalSemaphores;
 
@@ -593,6 +598,11 @@ void VulkanDevice::CleanupSwapchain() {
     m_swapchainImageViews.clear();
     m_swapchainTextures.clear();
 
+    for (auto semaphore : m_renderFinishedSemaphores) {
+        vkDestroySemaphore(m_device, semaphore, nullptr);
+    }
+    m_renderFinishedSemaphores.clear();
+
     if (m_swapchain) {
         vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
         m_swapchain = VK_NULL_HANDLE;
@@ -615,6 +625,16 @@ void VulkanDevice::RecreateSwapchain() {
     CreateSwapchain();
     CreateImageViews();
     CreateFramebuffers();
+
+    // Recreate semaphores for new swapchain images
+    m_renderFinishedSemaphores.resize(m_swapchainImages.size());
+    VkSemaphoreCreateInfo semaphoreInfo{};
+    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    for (size_t i = 0; i < m_swapchainImages.size(); i++) {
+        if (vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_renderFinishedSemaphores[i]) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create synchronization objects!");
+        }
+    }
 }
 
 } // namespace AstralEngine
