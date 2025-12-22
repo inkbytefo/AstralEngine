@@ -43,21 +43,15 @@ void UISubsystem::OnUpdate(float /*deltaTime*/) {
 
     BeginFrame();
     
-    // Example UI Window (can be removed later)
-    ImGui::ShowDemoWindow();
-    
-    // Custom Engine Stats Window
-    if (ImGui::Begin("Astral Engine Stats")) {
-        ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
-        ImGui::Text("Frame Time: %.3f ms", 1000.0f / ImGui::GetIO().Framerate);
-        ImGui::Separator();
-        // Add more stats here later (memory, draw calls, etc.)
-    }
-    ImGui::End();
-
-    // Execute registered draw callbacks
-    for (const auto& callback : m_drawCallbacks) {
-        callback();
+    try {
+        // Execute registered draw callbacks (like SceneEditorSubsystem::DrawUI)
+        for (const auto& callback : m_drawCallbacks) {
+            callback();
+        }
+    } catch (const std::exception& e) {
+        Logger::Error("UISubsystem", "Error during UI draw: {}", e.what());
+    } catch (...) {
+        Logger::Error("UISubsystem", "Unknown error during UI draw");
     }
 
     EndFrame();

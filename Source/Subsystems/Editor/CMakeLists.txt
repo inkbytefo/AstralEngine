@@ -6,4 +6,12 @@ target_sources(AstralEngine PRIVATE
     SceneHierarchyPanel.h
     PropertiesPanel.cpp
     PropertiesPanel.h
+    ViewportPanel.cpp
+    ViewportPanel.h
+    MainToolbarPanel.cpp
+    MainToolbarPanel.h
+    ContentBrowserPanel.cpp
+    ContentBrowserPanel.h
+    OutputLogPanel.cpp
+    OutputLogPanel.h
 )

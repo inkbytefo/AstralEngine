@@ -9,6 +9,7 @@ class Scene;
 
 class SceneHierarchyPanel : public EditorPanel {
 public:
+    SceneHierarchyPanel();
     SceneHierarchyPanel(std::shared_ptr<Scene> context);
     virtual ~SceneHierarchyPanel() override = default;
 

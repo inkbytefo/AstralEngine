@@ -7,6 +7,10 @@
 
 namespace AstralEngine {
 
+SceneHierarchyPanel::SceneHierarchyPanel()
+    : EditorPanel("World Outliner") {
+}
+
 SceneHierarchyPanel::SceneHierarchyPanel(std::shared_ptr<Scene> context)
     : EditorPanel("World Outliner"), m_context(context) {
 }
