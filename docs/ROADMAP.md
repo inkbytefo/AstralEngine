@@ -18,41 +18,41 @@ This document outlines the strategic development plan for **Astral Engine**. It 
 
 ---
 
-## Phase 2: Content Pipeline & Basic Rendering (🚧 Current Focus)
+## Phase 2: Content Pipeline & Basic Rendering (✅ Completed)
 *Objective: Move from hardcoded geometry to a data-driven rendering pipeline capable of loading and displaying 3D assets.*
 
-### 1. Mesh Loading & Rendering (Priority: High)
-- [ ] **Geometry Abstraction:** Create `Mesh` class in Renderer that holds `VertexBuffer` and `IndexBuffer`.
-- [ ] **Asset Integration:** Connect `AssetSubsystem` (Assimp) with RHI to upload loaded models to GPU.
-- [ ] **Vertex Layout:** Abstract vertex input descriptions (Position, Normal, UV).
+### 1. Mesh Loading & Rendering (✅ Completed)
+- [x] **Geometry Abstraction:** Create `Mesh` class in Renderer that holds `VertexBuffer` and `IndexBuffer`.
+- [x] **Asset Integration:** Connect `AssetSubsystem` (Assimp) with RHI to upload loaded models to GPU.
+- [x] **Vertex Layout:** Abstract vertex input descriptions (Position, Normal, UV).
 
-### 2. Camera System (Priority: High)
-- [ ] **Camera Component:** ECS component for Camera properties (FOV, Near/Far, Aspect).
-- [ ] **Camera Controller:** Free-look / Orbit camera script.
-- [ ] **View/Projection Matrices:** Feed camera data to the Render System automatically.
+### 2. Camera System (✅ Completed)
+- [x] **Camera Component:** Camera class with view/projection calculation.
+- [x] **Camera Controller:** Free-look / Orbit camera input handling.
+- [x] **View/Projection Matrices:** Feed camera data to the Render System automatically.
 
-### 3. Material System (Priority: Medium)
-- [ ] **Material Asset:** Define a `Material` class that binds a Shader and its parameters (Textures, Colors).
-- [ ] **Texture Support:** Integrate `stb_image` loading with RHI Texture creation.
-- [ ] **Shader Reflection (Optional):** Automatic uniform layout detection (SPIR-V Reflect).
+### 3. Material System (✅ Completed)
+- [x] **Material Asset:** Define a `Material` class that binds a Shader and its parameters (Textures, Colors).
+- [x] **Texture Support:** Integrate `stb_image` loading with RHI Texture creation.
+- [x] **Shader Reflection (Optional):** Automatic uniform layout detection (SPIR-V Reflect).
 
-### 4. Basic Lighting (Priority: Medium)
-- [ ] **Phong/Blinn-Phong:** Simple lighting model implementation.
-- [ ] **Light Components:** Directional, Point, and Spot lights in ECS.
+### 4. Basic Lighting (✅ Completed)
+- [x] **Phong/Blinn-Phong:** Simple lighting model implementation.
+- [x] **Light Components:** Directional, Point, and Spot lights in ECS.
 
 ---
 
-## Phase 3: Scene Management & ECS
+## Phase 3: Scene Management & ECS (✅ Completed)
 *Objective: Transition to a fully Entity-Component-System (ECS) driven architecture.*
 
-- [ ] **Transform Hierarchy:** Implement parent-child relationships in `TransformComponent`.
-- [ ] **Scene Graph:** System to traverse and render the scene hierarchy.
-- [ ] **Serialization:** Save and Load scenes to/from disk (JSON/YAML).
-- [ ] **Selection System:** Raycasting to select entities in the 3D world.
+- [x] **Transform Hierarchy:** Implement parent-child relationships in `TransformComponent`.
+- [x] **Scene Graph:** System to traverse and render the scene hierarchy.
+- [x] **Serialization:** Save and Load scenes to/from disk (JSON/YAML).
+- [x] **Selection System:** Raycasting to select entities in the 3D world.
 
 ---
 
-## Phase 4: Editor Development
+## Phase 4: Editor Development (🚧 Current Focus)
 *Objective: Create a usable WYSIWYG editor environment.*
 
 - [ ] **Editor Viewport:** Render the game scene into an ImGui window (Texture ID).

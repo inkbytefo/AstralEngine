@@ -4,6 +4,7 @@
 #include "../RHI/IRHIDevice.h"
 #include "../RHI/IRHICommandList.h"
 #include "../../Asset/AssetData.h"
+#include "Core/Math/Bounds.h"
 
 #include <memory>
 
@@ -19,6 +20,7 @@ namespace AstralEngine {
 
         uint32_t GetVertexCount() const { return m_vertexCount; }
         uint32_t GetIndexCount() const { return m_indexCount; }
+        const AABB& GetAABB() const { return m_boundingBox; }
 
     private:
         IRHIDevice* m_device;
@@ -26,6 +28,7 @@ namespace AstralEngine {
         std::shared_ptr<IRHIBuffer> m_indexBuffer;
         uint32_t m_vertexCount;
         uint32_t m_indexCount;
+        AABB m_boundingBox;
     };
 
 }

@@ -12,6 +12,8 @@ target_sources(AstralEngine PRIVATE
     MemoryManager.h
     ThreadPool.cpp
     ThreadPool.h
+    UUID.cpp
+    UUID.h
     Math/Vector2.h
     Math/Vector4.h
 )

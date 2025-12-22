@@ -2,6 +2,7 @@
 
 #include <glm/glm.hpp>
 #include <vector>
+#include <limits>
 
 namespace AstralEngine {
 
@@ -9,7 +10,7 @@ struct AABB {
     glm::vec3 min;
     glm::vec3 max;
 
-    AABB() : min(0.0f), max(0.0f) {}
+    AABB() : min(std::numeric_limits<float>::max()), max(std::numeric_limits<float>::lowest()) {}
     AABB(const glm::vec3& min, const glm::vec3& max) : min(min), max(max) {}
 
     bool IsValid() const {

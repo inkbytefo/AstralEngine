@@ -4,6 +4,7 @@
 #include "Subsystems/Renderer/Core/RenderSubsystem.h"
 #include "Subsystems/Renderer/Core/Mesh.h"
 #include "Subsystems/Renderer/Core/Texture.h"
+#include "Subsystems/Renderer/Core/Material.h"
 #include "Subsystems/Renderer/RHI/IRHIDevice.h"
 #include "Subsystems/Renderer/RHI/IRHIResource.h"
 #include "Subsystems/Renderer/RHI/IRHIPipeline.h"
@@ -12,6 +13,8 @@
 #include "Subsystems/Asset/AssetManager.h"
 #include <iostream>
 #include <fstream>
+#include <glm/gtx/matrix_decompose.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <vector>
 #include <cmath>
 #include <cstring>
@@ -21,13 +24,29 @@
 #include "Subsystems/Renderer/Core/Camera.h"
 #include "Subsystems/Platform/PlatformSubsystem.h"
 #include "Subsystems/Platform/InputManager.h"
+#include "ECS/Components.h"
+#include "Subsystems/Scene/Scene.h"
+#include "Subsystems/Scene/Entity.h"
+#include "Subsystems/Scene/SceneSerializer.h"
+#include "Core/Math/Ray.h"
+#include <limits>
 
 using namespace AstralEngine;
+
+struct LightGPU {
+    alignas(16) glm::vec4 position; // w = type (0=Directional, 1=Point, 2=Spot)
+    alignas(16) glm::vec4 direction; // w = range
+    alignas(16) glm::vec4 color;     // w = intensity
+    alignas(16) glm::vec4 params;    // x = innerCone, y = outerCone
+};
 
 struct UniformBufferObject {
     alignas(16) glm::mat4 model;
     alignas(16) glm::mat4 view;
     alignas(16) glm::mat4 proj;
+    alignas(16) glm::vec4 viewPos;
+    alignas(16) int lightCount; // Use alignas(16) for safety in std140, even if it wastes space
+    alignas(16) LightGPU lights[4];
 };
 
 class RenderTestApp : public IApplication {
@@ -56,6 +75,15 @@ public:
             return;
         }
 
+        // Create Global Descriptor Set Layout (Set 0: Camera/Object Data)
+        CreateGlobalLayout();
+
+        // Create UBOs (Independent of layout)
+        CreateUBOs(device);
+
+        // Create Global Descriptor Sets
+        CreateGlobalDescriptorSets();
+
         // Load Cube Model Async
         Logger::Info("RenderTest", "Loading Models/Cube.obj...");
         m_modelHandle = m_assetManager.Load<ModelData>("Models/Cube.obj");
@@ -64,11 +92,48 @@ public:
         Logger::Info("RenderTest", "Loading Texture...");
         m_textureHandle = m_assetManager.Load<TextureData>("Models/testobject/VAZ2101_Body_BaseColor.png");
 
-        // Create Resources (UBO, Layouts) - Independent of mesh content
-        CreateResources(device);
+        // Load Material Async
+        Logger::Info("RenderTest", "Loading Material...");
+        m_materialHandle = m_assetManager.Load<MaterialData>("Materials/Default.amat");
+
+        // Initialize Scene
+        m_activeScene = std::make_unique<Scene>();
+
+        // Create Cube Entity
+        m_cubeEntity = m_activeScene->CreateEntity("Cube");
         
-        // Pipeline creation depends on layout, so we can create it now too
-        CreatePipeline(device);
+        // Add RenderComponent to Cube
+        if (m_materialHandle.IsValid() && m_modelHandle.IsValid()) {
+            m_cubeEntity.AddComponent<RenderComponent>(m_materialHandle, m_modelHandle);
+        } else {
+            Logger::Warning("RenderTest", "Material or Model handle invalid, cannot add RenderComponent to Cube.");
+        }
+        
+        // Initialize Lights (Using Scene ECS)
+        Entity dirLightEntity = m_activeScene->CreateEntity("DirectionalLight");
+        auto& dirTransform = dirLightEntity.GetComponent<TransformComponent>();
+        dirTransform.rotation = glm::vec3(glm::radians(-45.0f), glm::radians(-30.0f), 0.0f);
+        
+        auto& dirLight = dirLightEntity.AddComponent<LightComponent>();
+        dirLight.type = LightComponent::LightType::Directional;
+        dirLight.color = glm::vec3(1.0f, 1.0f, 1.0f);
+        dirLight.intensity = 0.5f;
+
+        Entity pointLightEntity = m_activeScene->CreateEntity("PointLight");
+        auto& pointTransform = pointLightEntity.GetComponent<TransformComponent>();
+        pointTransform.position = glm::vec3(2.0f, 2.0f, 2.0f);
+
+        auto& pointLight = pointLightEntity.AddComponent<LightComponent>();
+        pointLight.type = LightComponent::LightType::Point;
+        pointLight.color = glm::vec3(1.0f, 0.0f, 0.0f);
+        pointLight.intensity = 2.0f;
+        pointLight.range = 10.0f;
+
+        // Hierarchy Test: Parent PointLight to Cube
+        // The point light will rotate with the cube
+        m_activeScene->ParentEntity(pointLightEntity, m_cubeEntity);
+        // Reset local position to be relative to parent
+        pointTransform.position = glm::vec3(2.5f, 0.0f, 0.0f); 
 
         renderSystem->SetRenderCallback([this](IRHICommandList* cmdList) {
             OnRender(cmdList);
@@ -94,10 +159,8 @@ public:
             if (m_assetManager.IsAssetLoaded(m_textureHandle)) {
                 try {
                     auto textureData = m_assetManager.GetAsset<TextureData>(m_textureHandle);
-                    if (textureData && !m_textureCreated) {
-                        m_texture = std::make_unique<Texture>(m_device, *textureData);
-                        m_textureCreated = true;
-                        UpdateDescriptorSets(); // Update descriptors with new texture
+                    if (textureData) {
+                        m_texture = std::make_shared<Texture>(m_device, *textureData);
                         Logger::Info("RenderTest", "Texture created successfully from async asset.");
                     }
                 } catch (const std::exception& e) {
@@ -110,7 +173,39 @@ public:
             }
         }
 
-        m_rotationAngle += deltaTime * 1.0f; 
+        if (!m_material && m_materialHandle.IsValid()) {
+             if (m_assetManager.IsAssetLoaded(m_materialHandle)) {
+                try {
+                    auto matData = m_assetManager.GetAsset<MaterialData>(m_materialHandle);
+                    if (matData) {
+                        // Pass global layout to Material
+                        m_material = std::make_unique<Material>(m_device, *matData, m_globalDescriptorSetLayout.get());
+                        Logger::Info("RenderTest", "Material created successfully.");
+                    }
+                } catch (const std::exception& e) {
+                    Logger::Error("RenderTest", std::string("Failed to load material: ") + e.what());
+                    m_materialHandle = AssetHandle();
+                }
+             }
+        }
+
+        if (m_material && m_texture && !m_textureCreated) {
+            m_material->SetAlbedoMap(m_texture);
+            m_material->UpdateDescriptorSet();
+            m_textureCreated = true;
+        }
+
+        m_rotationAngle += deltaTime * 1.0f;
+        
+        if (m_activeScene) {
+            // Rotate the cube
+            if (m_cubeEntity) {
+                auto& tc = m_cubeEntity.GetComponent<TransformComponent>();
+                tc.rotation.y = m_rotationAngle;
+            }
+            m_activeScene->OnUpdate(deltaTime);
+        }
+
         m_assetManager.Update(); // Update asset manager (for async tasks cleanup)
 
         if (m_engine) {
@@ -133,6 +228,111 @@ public:
                         input->GetMouseDelta(dx, dy);
                         m_camera.ProcessMouseMovement((float)dx, -(float)dy);
                     }
+
+                    if (input->IsMouseButtonJustPressed(MouseButton::Left)) {
+                        int mouseX, mouseY;
+                        input->GetMousePosition(mouseX, mouseY);
+                        
+                        int width = 800; int height = 600;
+                        if (platform->GetWindow()) {
+                            width = platform->GetWindow()->GetWidth();
+                            height = platform->GetWindow()->GetHeight();
+                        }
+
+                        // Convert to NDC
+                        float x = (2.0f * mouseX) / width - 1.0f;
+                        float y = 1.0f - (2.0f * mouseY) / height; // OpenGL Convention (Y up)
+                        
+                        // Ray Generation
+                        glm::mat4 proj = m_camera.GetProjectionMatrix((float)width / height);
+                        glm::mat4 view = m_camera.GetViewMatrix();
+                        
+                        glm::mat4 invProj = glm::inverse(proj);
+                        glm::mat4 invView = glm::inverse(view);
+
+                        glm::vec4 rayClip = glm::vec4(x, y, -1.0f, 1.0f);
+                        glm::vec4 rayEye = invProj * rayClip;
+                        rayEye = glm::vec4(rayEye.x, rayEye.y, -1.0f, 0.0f);
+                        glm::vec3 rayWor = glm::vec3(invView * rayEye);
+                        rayWor = glm::normalize(rayWor);
+                        
+                        Ray ray(m_camera.GetPosition(), rayWor);
+                        Logger::Info("RenderTest", "Ray Cast: Origin({}, {}, {}), Dir({}, {}, {})", 
+                            ray.Origin.x, ray.Origin.y, ray.Origin.z,
+                            ray.Direction.x, ray.Direction.y, ray.Direction.z);
+
+                        // Raycast against all renderable entities
+                        float closestT = std::numeric_limits<float>::max();
+                        Entity closestEntity;
+
+                        auto renderView = m_activeScene->Reg().view<RenderComponent>();
+                        for (auto entityID : renderView) {
+                            Entity entity = { entityID, m_activeScene.get() };
+                            auto& rc = entity.GetComponent<RenderComponent>();
+                            
+                            // Get Model Data for AABB
+                            if (!rc.modelHandle.IsValid()) continue;
+                            
+                            auto modelData = m_assetManager.GetAsset<ModelData>(rc.modelHandle);
+                            if (!modelData) continue;
+                            
+                            // Get Transform
+                            glm::mat4 modelMatrix = glm::mat4(1.0f);
+                            if (entity.HasComponent<WorldTransformComponent>()) {
+                                modelMatrix = entity.GetComponent<WorldTransformComponent>().Transform;
+                            } else if (entity.HasComponent<TransformComponent>()) {
+                                auto& tc = entity.GetComponent<TransformComponent>();
+                                modelMatrix = tc.GetLocalMatrix();
+                            }
+                            
+                            // Ray-AABB Test
+                            glm::mat4 invModel = glm::inverse(modelMatrix);
+                            glm::vec3 rayOriginModel = glm::vec3(invModel * glm::vec4(ray.Origin, 1.0f));
+                            glm::vec3 rayDirModel = glm::normalize(glm::vec3(invModel * glm::vec4(ray.Direction, 0.0f)));
+                            
+                            Ray localRay(rayOriginModel, rayDirModel);
+                            float tMin, tMax;
+                            if (RayIntersectsAABB(localRay, modelData->boundingBox, tMin, tMax)) {
+                                if (tMin < closestT) {
+                                    closestT = tMin;
+                                    closestEntity = entity;
+                                }
+                            }
+                        }
+
+                        if (closestEntity) {
+                            std::string name = "Unknown";
+                            if (closestEntity.HasComponent<TagComponent>()) {
+                                name = closestEntity.GetComponent<TagComponent>().tag;
+                            }
+                            Logger::Info("RenderTest", "HIT! Selected Entity: {} (Distance: {})", name, closestT);
+                            m_cubeEntity = closestEntity; // Select it
+                        } else {
+                            Logger::Info("RenderTest", "Missed.");
+                        }
+                    }
+
+                    if (input->IsKeyJustPressed(KeyCode::K)) {
+                        SceneSerializer serializer(m_activeScene.get());
+                        serializer.Serialize("scene.json");
+                        Logger::Info("RenderTest", "Scene saved to scene.json");
+                    }
+
+                    if (input->IsKeyJustPressed(KeyCode::L)) {
+                        m_activeScene = std::make_unique<Scene>();
+                        SceneSerializer serializer(m_activeScene.get());
+                        if (serializer.Deserialize("scene.json")) {
+                            Logger::Info("RenderTest", "Scene loaded from scene.json");
+                            m_cubeEntity = {};
+                            auto view = m_activeScene->Reg().view<TagComponent>();
+                            for (auto [entity, tag] : view.each()) {
+                                if (tag.tag == "Cube") {
+                                    m_cubeEntity = { entity, m_activeScene.get() };
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -151,24 +351,26 @@ public:
             }
         }
 
-        m_descriptorSets.clear();
-        m_descriptorSetLayout.reset();
+        m_globalDescriptorSets.clear();
         m_uniformBuffers.clear();
-        m_pipeline.reset();
+        m_globalDescriptorSetLayout.reset();
+        
         m_mesh.reset();
         m_texture.reset();
+        m_material.reset();
         m_resources.clear();
+        m_activeScene.reset();
         m_assetManager.Shutdown();
     }
 
 private:
-    std::shared_ptr<IRHIPipeline> m_pipeline;
     std::unique_ptr<Mesh> m_mesh;
-    std::unique_ptr<Texture> m_texture;
-    std::shared_ptr<IRHIDescriptorSetLayout> m_descriptorSetLayout;
+    std::shared_ptr<Texture> m_texture;
+    std::unique_ptr<Material> m_material;
     
+    std::shared_ptr<IRHIDescriptorSetLayout> m_globalDescriptorSetLayout;
     std::vector<std::shared_ptr<IRHIBuffer>> m_uniformBuffers;
-    std::vector<std::shared_ptr<IRHIDescriptorSet>> m_descriptorSets;
+    std::vector<std::shared_ptr<IRHIDescriptorSet>> m_globalDescriptorSets;
     static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
     
     std::vector<std::shared_ptr<IRHIResource>> m_resources;
@@ -180,160 +382,60 @@ private:
     
     AssetHandle m_modelHandle;
     AssetHandle m_textureHandle;
+    AssetHandle m_materialHandle;
     bool m_textureCreated = false;
+    
+    std::unique_ptr<Scene> m_activeScene;
+    Entity m_cubeEntity;
 
-    std::vector<uint8_t> ReadFile(const std::string& filename) {
-        std::ifstream file(filename, std::ios::ate | std::ios::binary);
-        if (!file.is_open()) {
-            throw std::runtime_error("failed to open file: " + filename);
-        }
-        size_t fileSize = (size_t)file.tellg();
-        std::vector<uint8_t> buffer(fileSize);
-        file.seekg(0);
-        file.read((char*)buffer.data(), fileSize);
-        file.close();
-        return buffer;
-    }
-
-    void UpdateDescriptorSets() {
-        if (!m_texture) return;
-        for (auto& set : m_descriptorSets) {
-            if (set) {
-                set->UpdateCombinedImageSampler(1, m_texture->GetRHITexture(), m_texture->GetRHISampler());
-            }
-        }
-    }
-
-    void CreateResources(IRHIDevice* device) {
-        // Descriptor Set Layout
+    void CreateGlobalLayout() {
         std::vector<RHIDescriptorSetLayoutBinding> bindings;
         RHIDescriptorSetLayoutBinding uboBinding{};
         uboBinding.binding = 0;
         uboBinding.descriptorType = RHIDescriptorType::UniformBuffer;
         uboBinding.descriptorCount = 1;
-        uboBinding.stageFlags = RHIShaderStage::Vertex;
+        uboBinding.stageFlags = RHIShaderStage::Vertex | RHIShaderStage::Fragment;
         bindings.push_back(uboBinding);
+        
+        m_globalDescriptorSetLayout = m_device->CreateDescriptorSetLayout(bindings);
+    }
 
-        RHIDescriptorSetLayoutBinding samplerBinding{};
-        samplerBinding.binding = 1;
-        samplerBinding.descriptorType = RHIDescriptorType::CombinedImageSampler;
-        samplerBinding.descriptorCount = 1;
-        samplerBinding.stageFlags = RHIShaderStage::Fragment;
-        bindings.push_back(samplerBinding);
-        
-        m_descriptorSetLayout = device->CreateDescriptorSetLayout(bindings);
-        
-        // Create Uniform Buffers and Descriptor Sets per frame
+    void CreateUBOs(IRHIDevice* device) {
         m_uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-        m_descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             m_uniformBuffers[i] = device->CreateBuffer(
                 sizeof(UniformBufferObject),
                 RHIBufferUsage::Uniform,
                 RHIMemoryProperty::HostVisible | RHIMemoryProperty::HostCoherent
             );
-            
-            m_descriptorSets[i] = device->AllocateDescriptorSet(m_descriptorSetLayout.get());
-            m_descriptorSets[i]->UpdateUniformBuffer(0, m_uniformBuffers[i].get(), 0, sizeof(UniformBufferObject));
-            
-            if (m_texture) {
-                m_descriptorSets[i]->UpdateCombinedImageSampler(1, m_texture->GetRHITexture(), m_texture->GetRHISampler());
-            }
         }
     }
 
-    void CreatePipeline(IRHIDevice* device) {
-        try {
-            // Use SimpleMesh shaders (compile them first via CMake)
-            auto vertCode = ReadFile("Assets/Shaders/Bin/Test/SimpleMesh.vert.spv");
-            auto fragCode = ReadFile("Assets/Shaders/Bin/Test/SimpleMesh.frag.spv");
-            
-            auto vertexShader = device->CreateShader(RHIShaderStage::Vertex, vertCode);
-            auto fragmentShader = device->CreateShader(RHIShaderStage::Fragment, fragCode);
-            
-            m_resources.push_back(vertexShader);
-            m_resources.push_back(fragmentShader);
-
-            RHIPipelineStateDescriptor pipelineDesc{};
-            pipelineDesc.vertexShader = vertexShader.get();
-            pipelineDesc.fragmentShader = fragmentShader.get();
-            
-            // Vertex Bindings
-            RHIVertexInputBinding binding{};
-            binding.binding = 0;
-            binding.stride = sizeof(Vertex); // 56 bytes
-            binding.isInstanced = false;
-            pipelineDesc.vertexBindings.push_back(binding);
-
-            // Vertex Attributes
-            // Location 0: Position (vec3)
-            RHIVertexInputAttribute posAttr{};
-            posAttr.location = 0;
-            posAttr.binding = 0;
-            posAttr.format = RHIFormat::R32G32B32_FLOAT;
-            posAttr.offset = offsetof(Vertex, position);
-            pipelineDesc.vertexAttributes.push_back(posAttr);
-
-            // Location 1: Normal (vec3)
-            RHIVertexInputAttribute normAttr{};
-            normAttr.location = 1;
-            normAttr.binding = 0;
-            normAttr.format = RHIFormat::R32G32B32_FLOAT;
-            normAttr.offset = offsetof(Vertex, normal);
-            pipelineDesc.vertexAttributes.push_back(normAttr);
-
-            // Location 2: TexCoord (vec2)
-            RHIVertexInputAttribute uvAttr{};
-            uvAttr.location = 2;
-            uvAttr.binding = 0;
-            uvAttr.format = RHIFormat::R32G32_FLOAT;
-            uvAttr.offset = offsetof(Vertex, texCoord);
-            pipelineDesc.vertexAttributes.push_back(uvAttr);
-            
-            // Location 3: Tangent (vec3)
-            RHIVertexInputAttribute tanAttr{};
-            tanAttr.location = 3;
-            tanAttr.binding = 0;
-            tanAttr.format = RHIFormat::R32G32B32_FLOAT;
-            tanAttr.offset = offsetof(Vertex, tangent);
-            pipelineDesc.vertexAttributes.push_back(tanAttr);
-
-            // Location 4: Bitangent (vec3)
-            RHIVertexInputAttribute bitanAttr{};
-            bitanAttr.location = 4;
-            bitanAttr.binding = 0;
-            bitanAttr.format = RHIFormat::R32G32B32_FLOAT;
-            bitanAttr.offset = offsetof(Vertex, bitangent);
-            pipelineDesc.vertexAttributes.push_back(bitanAttr);
-            
-            // Descriptor Set Layouts
-            pipelineDesc.descriptorSetLayouts.push_back(m_descriptorSetLayout.get());
-
-            pipelineDesc.cullMode = RHICullMode::Back; // Cull back faces for cube
-            pipelineDesc.frontFace = RHIFrontFace::CounterClockwise; // OBJ uses CCW
-            
-            pipelineDesc.depthTestEnabled = true;
-            pipelineDesc.depthWriteEnabled = true;
-            pipelineDesc.depthCompareOp = RHICompareOp::Less; 
-
-            m_pipeline = device->CreateGraphicsPipeline(pipelineDesc);
-            Logger::Info("RenderTest", "Pipeline created successfully.");
-
-        } catch (const std::exception& e) {
-            Logger::Error("RenderTest", std::string("Failed to create pipeline: ") + e.what());
+    void CreateGlobalDescriptorSets() {
+        m_globalDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            m_globalDescriptorSets[i] = m_device->AllocateDescriptorSet(m_globalDescriptorSetLayout.get());
+            m_globalDescriptorSets[i]->UpdateUniformBuffer(0, m_uniformBuffers[i].get(), 0, sizeof(UniformBufferObject));
         }
+        Logger::Info("RenderTest", "Global Descriptor Sets created.");
     }
 
     void OnRender(IRHICommandList* cmdList) {
-        if (!m_pipeline || !m_mesh || !m_texture || m_descriptorSets.empty()) return;
+        if (!m_material || !m_mesh || !m_texture || m_globalDescriptorSets.empty()) return;
 
         uint32_t currentFrame = m_device->GetCurrentFrameIndex();
         if (currentFrame >= m_uniformBuffers.size()) currentFrame = 0;
 
         // Update UBO
         UniformBufferObject ubo{};
-        ubo.model = glm::rotate(glm::mat4(1.0f), m_rotationAngle, glm::vec3(0.0f, 1.0f, 0.0f));
+        
+        // Use WorldTransform if available (from Scene system)
+        if (m_cubeEntity && m_cubeEntity.HasComponent<WorldTransformComponent>()) {
+             ubo.model = m_cubeEntity.GetComponent<WorldTransformComponent>().Transform;
+        } else {
+             ubo.model = glm::rotate(glm::mat4(1.0f), m_rotationAngle, glm::vec3(0.0f, 1.0f, 0.0f));
+        }
+
         ubo.view = m_camera.GetViewMatrix();
 
         float aspect = 800.0f / 600.0f;
@@ -345,6 +447,37 @@ private:
         }
         ubo.proj = m_camera.GetProjectionMatrix(aspect);
         
+        // Lighting
+        ubo.viewPos = glm::vec4(m_camera.GetPosition(), 1.0f);
+        
+        ubo.lightCount = 0;
+        auto view = m_activeScene->Reg().view<const WorldTransformComponent, const LightComponent>();
+        for (auto [entity, transform, light] : view.each()) {
+            if (ubo.lightCount >= 4) break;
+            
+            LightGPU& gpuLight = ubo.lights[ubo.lightCount];
+            // Use World Position
+            gpuLight.position = glm::vec4(glm::vec3(transform.Transform[3]), (float)light.type);
+            
+            // Calculate direction from World Rotation
+            // Extract rotation from World Matrix
+            glm::vec3 scale;
+            glm::quat rotation;
+            glm::vec3 translation;
+            glm::vec3 skew;
+            glm::vec4 perspective;
+            glm::decompose(transform.Transform, scale, rotation, translation, skew, perspective);
+            
+            // Rotate the forward vector by the orientation quaternion
+            glm::vec3 direction = rotation * glm::vec3(0.0f, 0.0f, -1.0f);
+            
+            gpuLight.direction = glm::vec4(direction, light.range);
+            gpuLight.color = glm::vec4(light.color, light.intensity);
+            gpuLight.params = glm::vec4(light.innerConeAngle, light.outerConeAngle, 0.0f, 0.0f);
+            
+            ubo.lightCount++;
+        }
+
         void* data = m_uniformBuffers[currentFrame]->Map();
         if (data) {
             std::memcpy(data, &ubo, sizeof(ubo));
@@ -364,7 +497,7 @@ private:
              }
         }
 
-        cmdList->BindPipeline(m_pipeline.get());
+        cmdList->BindPipeline(m_material->GetPipeline());
         
         RHIViewport viewport{};
         viewport.x = 0;
@@ -377,8 +510,13 @@ private:
 
         cmdList->SetScissor(renderArea);
         
-        // Bind Descriptor Set
-        cmdList->BindDescriptorSet(m_pipeline.get(), m_descriptorSets[currentFrame].get(), 0);
+        // Bind Descriptor Sets
+        // Set 0: Global (Camera)
+        cmdList->BindDescriptorSet(m_material->GetPipeline(), m_globalDescriptorSets[currentFrame].get(), 0);
+        // Set 1: Material
+        if (m_material->GetDescriptorSet()) {
+            cmdList->BindDescriptorSet(m_material->GetPipeline(), m_material->GetDescriptorSet(), 1);
+        }
 
         // Bind and Draw Mesh
         m_mesh->Draw(cmdList);

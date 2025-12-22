@@ -198,25 +198,35 @@ Logger::SetLogLevel(Logger::LogLevel::Error); // Sadece hatalar
 
 ## 📋 Roadmap
 
-### v0.2.0 (Q1 2024)
-- [ ] SDL3 Entegrasyonu
-- [ ] Temel Vulkan Renderer
-- [ ] Window Management
+### v0.2.0 (Completed)
+- [x] SDL3 Entegrasyonu
+- [x] Temel Vulkan Renderer
+- [x] Window Management
 
-### v0.3.0 (Q2 2024)
-- [ ] Model Loading (OBJ/glTF)
-- [ ] Texture System
-- [ ] Basic Shader System
+### v0.3.0 (Completed)
+- [x] Model Loading (OBJ/glTF)
+- [x] Texture System
+- [x] Basic Shader System
+- [x] ImGui Editor Interface
 
-### v0.4.0 (Q3 2024)
-- [ ] ECS Subsystem
-- [ ] Scene Management
-- [ ] Transform Hierarchy
+### v0.4.0 (Completed)
+- [x] ECS Subsystem (EnTT Integration)
+- [x] Scene Management (Entity Creation, Registry Wrapper)
+- [x] Scene Serialization (JSON) (Save/Load Scene State)
+- [x] Transform Hierarchy (Parent-Child, World Transform)
+- [x] Raycasting Selection System (AABB Intersection)
 
-### v1.0.0 (Q4 2024)
-- [ ] Physics Integration
+### v0.5.0 (Upcoming)
+- [ ] Physics Integration (Jolt)
 - [ ] Audio System
 - [ ] Performance Profiler
+- [ ] Asset Pipeline Improvements
+
+### v1.0.0 (Target)
+- [ ] Full Editor
+- [ ] Scripting Support
+- [ ] Networking
+- [ ] Animation System
 
 ## 🤝 Katkıda Bulunma
 

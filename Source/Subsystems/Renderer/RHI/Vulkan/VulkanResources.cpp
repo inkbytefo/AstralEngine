@@ -143,7 +143,7 @@ VulkanTexture::VulkanTexture(VulkanDevice* device, uint32_t width, uint32_t heig
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = m_image;
     viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format = VK_FORMAT_R8G8B8A8_SRGB; // TODO: Map properly
+    viewInfo.format = imageInfo.format;
     viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     viewInfo.subresourceRange.baseMipLevel = 0;
     viewInfo.subresourceRange.levelCount = 1;
@@ -407,8 +407,19 @@ VulkanPipeline::VulkanPipeline(VulkanDevice* device, const RHIPipelineStateDescr
     rasterizer.rasterizerDiscardEnable = VK_FALSE;
     rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
     rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE; // OBJ/OpenGL standard
+    
+    // Cull Mode
+    switch (descriptor.cullMode) {
+        case RHICullMode::None: rasterizer.cullMode = VK_CULL_MODE_NONE; break;
+        case RHICullMode::Front: rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT; break;
+        case RHICullMode::Back: rasterizer.cullMode = VK_CULL_MODE_BACK_BIT; break;
+        case RHICullMode::FrontAndBack: rasterizer.cullMode = VK_CULL_MODE_FRONT_AND_BACK; break;
+        default: rasterizer.cullMode = VK_CULL_MODE_BACK_BIT; break;
+    }
+
+    // Front Face
+    rasterizer.frontFace = (descriptor.frontFace == RHIFrontFace::Clockwise) ? VK_FRONT_FACE_CLOCKWISE : VK_FRONT_FACE_COUNTER_CLOCKWISE;
+
     rasterizer.depthBiasEnable = VK_FALSE;
 
     // Multisampling
@@ -422,7 +433,23 @@ VulkanPipeline::VulkanPipeline(VulkanDevice* device, const RHIPipelineStateDescr
     depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
     depthStencil.depthTestEnable = descriptor.depthTestEnabled ? VK_TRUE : VK_FALSE;
     depthStencil.depthWriteEnable = descriptor.depthWriteEnabled ? VK_TRUE : VK_FALSE;
-    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS; // Standard
+    
+    // Depth Compare Op
+    auto GetVkCompareOp = [](RHICompareOp op) {
+        switch (op) {
+            case RHICompareOp::Never: return VK_COMPARE_OP_NEVER;
+            case RHICompareOp::Less: return VK_COMPARE_OP_LESS;
+            case RHICompareOp::Equal: return VK_COMPARE_OP_EQUAL;
+            case RHICompareOp::LessOrEqual: return VK_COMPARE_OP_LESS_OR_EQUAL;
+            case RHICompareOp::Greater: return VK_COMPARE_OP_GREATER;
+            case RHICompareOp::NotEqual: return VK_COMPARE_OP_NOT_EQUAL;
+            case RHICompareOp::GreaterOrEqual: return VK_COMPARE_OP_GREATER_OR_EQUAL;
+            case RHICompareOp::Always: return VK_COMPARE_OP_ALWAYS;
+            default: return VK_COMPARE_OP_LESS;
+        }
+    };
+    depthStencil.depthCompareOp = GetVkCompareOp(descriptor.depthCompareOp);
+
     depthStencil.depthBoundsTestEnable = VK_FALSE;
     depthStencil.stencilTestEnable = VK_FALSE;
 

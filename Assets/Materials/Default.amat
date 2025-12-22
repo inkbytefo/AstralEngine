@@ -1,8 +1,8 @@
 {
   "name": "DefaultPBR",
   "type": 0,
-  "vertexShader": "Assets/Shaders/Materials/pbr_material.slang",
-  "fragmentShader": "Assets/Shaders/Materials/pbr_material_frag.slang",
+  "vertexShader": "Assets/Shaders/Bin/Test/SimpleMesh.vert.spv",
+  "fragmentShader": "Assets/Shaders/Bin/Test/SimpleMesh.frag.spv",
   "properties": {
     "baseColor": [1.0, 1.0, 1.0],
     "metallic": 0.0,

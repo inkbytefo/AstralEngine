@@ -4,6 +4,11 @@
 #include "Subsystems/Platform/PlatformSubsystem.h"
 #include <stdexcept>
 
+#ifdef ASTRAL_USE_IMGUI
+#include "../../UI/UISubsystem.h"
+#include "../RHI/Vulkan/VulkanCommandList.h"
+#endif
+
 namespace AstralEngine {
 
 RenderSubsystem::RenderSubsystem() = default;

@@ -6,8 +6,35 @@
 #include <vector>
 #include <memory>
 #include "../Subsystems/Asset/AssetHandle.h"
+#include "../Core/UUID.h"
+#include <entt/entt.hpp>
 
 namespace AstralEngine {
+
+struct IDComponent {
+    UUID ID;
+
+    IDComponent() = default;
+    IDComponent(const IDComponent&) = default;
+    IDComponent(UUID uuid) : ID(uuid) {}
+};
+
+struct RelationshipComponent {
+    entt::entity Parent{entt::null};
+    std::vector<entt::entity> Children;
+
+    RelationshipComponent() = default;
+    RelationshipComponent(const RelationshipComponent&) = default;
+};
+
+struct WorldTransformComponent {
+    glm::mat4 Transform{1.0f};
+
+    WorldTransformComponent() = default;
+    WorldTransformComponent(const glm::mat4& transform) : Transform(transform) {}
+    operator glm::mat4& () { return Transform; }
+    operator const glm::mat4& () const { return Transform; }
+};
 
 /**
  * @brief Transform bileşeni - Her entity'nin pozisyon, rotasyon ve ölçek bilgisi
@@ -17,8 +44,8 @@ struct TransformComponent {
     glm::vec3 rotation{0.0f}; // Euler angles in radians
     glm::vec3 scale{1.0f};
 
-    // World matrix hesaplama
-    glm::mat4 GetWorldMatrix() const {
+    // Local matrix calculation
+    glm::mat4 GetLocalMatrix() const {
         glm::mat4 translation = glm::translate(glm::mat4(1.0f), position);
         glm::mat4 rotX = glm::rotate(glm::mat4(1.0f), rotation.x, glm::vec3(1.0f, 0.0f, 0.0f));
         glm::mat4 rotY = glm::rotate(glm::mat4(1.0f), rotation.y, glm::vec3(0.0f, 1.0f, 0.0f));
@@ -27,6 +54,9 @@ struct TransformComponent {
         
         return translation * rotY * rotX * rotZ * scaling;
     }
+    
+    // Deprecated: Use GetLocalMatrix or WorldTransformComponent
+    glm::mat4 GetWorldMatrix() const { return GetLocalMatrix(); }
 };
 
 /**
@@ -103,6 +133,29 @@ struct MovementComponent {
 };
 
 /**
+ * @brief Light Component
+ */
+struct LightComponent {
+    enum class LightType {
+        Directional = 0,
+        Point = 1,
+        Spot = 2
+    };
+
+    LightType type = LightType::Point;
+    glm::vec3 color{1.0f};
+    float intensity = 1.0f;
+    float range = 10.0f;           // For Point/Spot
+    float innerConeAngle = 20.0f;  // For Spot (degrees)
+    float outerConeAngle = 30.0f;  // For Spot (degrees)
+    
+    // For shader convenience
+    glm::vec3 GetRadiance() const {
+        return color * intensity;
+    }
+};
+
+/**
  * @brief Camera bileşeni - Kamera özellikleri
  */
 struct CameraComponent {
@@ -134,34 +187,6 @@ struct CameraComponent {
 };
 
 /**
- * @brief Light bileşeni - Işık kaynakları için
- */
-struct LightComponent {
-    enum class LightType { Directional, Point, Spot };
-    
-    LightType type = LightType::Point;
-    glm::vec3 color{1.0f};
-    float intensity = 1.0f;
-    
-    // Point ve Spot light için
-    float range = 10.0f;
-    float constant = 1.0f;
-    float linear = 0.09f;
-    float quadratic = 0.032f;
-    
-    // Spot light için
-    float innerCone = 30.0f; // degrees
-    float outerCone = 45.0f; // degrees
-    
-    // Shadow casting
-    bool castsShadows = false;
-    
-    LightComponent() = default;
-    LightComponent(LightType t, const glm::vec3& col, float intens)
-        : type(t), color(col), intensity(intens) {}
-};
-
-/**
  * @brief Script bileşeni - Entity'ye script bağlamak için
  */
 struct ScriptComponent {
@@ -174,17 +199,6 @@ struct ScriptComponent {
     
     ScriptComponent() = default;
     ScriptComponent(const std::string& path) : scriptPath(path) {}
-};
-
-/**
- * @brief Hierarchy bileşeni - Entity hiyerarşisi için
- */
-struct HierarchyComponent {
-    uint32_t parent = 0;  // 0 = no parent
-    std::vector<uint32_t> children;
-    
-    HierarchyComponent() = default;
-    HierarchyComponent(uint32_t parentId) : parent(parentId) {}
 };
 
 } // namespace AstralEngine

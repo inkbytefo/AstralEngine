@@ -79,6 +79,7 @@ set_target_properties(AstralEngine PROPERTIES
 target_include_directories(AstralEngine PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Source>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    $<$<BOOL:${ASTRAL_USE_IMGUI}>:${imgui_SOURCE_DIR}>
 )
 
 # --- Link Dependencies and Common Settings ---
@@ -94,9 +95,10 @@ target_link_libraries(AstralEngine PUBLIC
     assimp::assimp
     VulkanMemoryAllocator
     stb
+    EnTT::EnTT
 
     # Optional dependencies
-    $<$<BOOL:${ASTRAL_USE_IMGUI}>:ImGui>
+    # $<$<BOOL:${ASTRAL_USE_IMGUI}>:imgui> # Built from source in Source/Subsystems/UI
     $<$<BOOL:${ASTRAL_USE_JOLT_PHYSICS}>:Jolt>
 )
 

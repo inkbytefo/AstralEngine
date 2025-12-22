@@ -36,7 +36,6 @@ void UISubsystem::OnInitialize(Engine* owner) {
 }
 
 void UISubsystem::OnUpdate(float /*deltaTime*/) {
-    /*
     if (!m_initialized) {
         InitializeImGui();
         if (!m_initialized) return;
@@ -57,7 +56,6 @@ void UISubsystem::OnUpdate(float /*deltaTime*/) {
     ImGui::End();
 
     EndFrame();
-    */
 }
 
 void UISubsystem::OnShutdown() {

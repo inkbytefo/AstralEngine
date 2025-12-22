@@ -4,7 +4,7 @@
 namespace AstralEngine {
 
     Mesh::Mesh(IRHIDevice* device, const ModelData& modelData)
-        : m_device(device), m_vertexCount(0), m_indexCount(0) {
+        : m_device(device), m_vertexCount(0), m_indexCount(0), m_boundingBox(modelData.boundingBox) {
 
         if (modelData.vertices.empty()) {
             Logger::Warning("Mesh", "Attempted to create mesh with no vertices.");
