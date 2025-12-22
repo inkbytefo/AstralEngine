@@ -3,5 +3,6 @@ add_subdirectory(ECS)
 add_subdirectory(Platform)
 add_subdirectory(Renderer)
 add_subdirectory(Scene)
+add_subdirectory(Editor)
 add_subdirectory(UI)
 

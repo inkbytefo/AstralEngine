@@ -611,4 +611,196 @@ void SceneEditorSubsystem::RedoNextCommand() {}
 void SceneEditorSubsystem::SerializeScene(const std::string& filename) {}
 void SceneEditorSubsystem::DeserializeScene(const std::string& filename) {}
 
+void SceneEditorSubsystem::RenderScene(IRHICommandList* cmdList) {
+    if (!m_defaultMaterial || !m_defaultMesh || !m_defaultTexture || m_globalDescriptorSets.empty()) return;
+
+    IRHIDevice* device = m_renderSubsystem->GetDevice();
+    uint32_t currentFrame = device->GetCurrentFrameIndex();
+    if (currentFrame >= m_globalDescriptorSets.size()) return;
+
+    // Bind Pipeline and Global Descriptor Set
+    cmdList->BindPipeline(m_defaultMaterial->GetPipeline());
+    cmdList->BindDescriptorSet(m_defaultMaterial->GetPipeline(), m_globalDescriptorSets[currentFrame].get(), 0);
+
+    // Draw Entities
+    auto view = m_activeScene->Reg().view<const TransformComponent, const RenderComponent>();
+    for (auto [entity, transform, render] : view.each()) {
+        // Update Model Matrix in UBO? 
+        // Wait, the UBO is global in this simple implementation.
+        // We need Push Constants or Dynamic Uniform Buffers for per-object Model Matrix.
+        // RenderTest updated the UBO per object, which is inefficient but works for 1 object.
+        // Here we have multiple objects.
+        
+        // For now, let's just draw the mesh. The UBO has "model" matrix.
+        // We will update the UBO for each object (VERY SLOW, forces pipeline flush potentially, or just overwrites if mapped).
+        // Actually, RenderTest wrote to the buffer mapped memory.
+        
+        UniformBufferObject ubo{};
+        // Retrieve view/proj again (optimization: cache it)
+        m_uniformBuffers[currentFrame]->Read(&ubo, sizeof(UniformBufferObject)); // Read back? No.
+        
+        // Re-calculate View/Proj
+        float aspect = 1.777f;
+        if (m_viewportSize.x > 0 && m_viewportSize.y > 0) {
+            aspect = m_viewportSize.x / m_viewportSize.y;
+        }
+        ubo.proj = m_editorCamera->GetProjectionMatrix(aspect);
+        ubo.viewPos = glm::vec4(m_editorCamera->GetPosition(), 1.0f);
+        ubo.view = m_editorCamera->GetViewMatrix();
+        
+        ubo.model = glm::translate(glm::mat4(1.0f), transform.position);
+        ubo.model = glm::rotate(ubo.model, transform.rotation.x, glm::vec3(1,0,0));
+        ubo.model = glm::rotate(ubo.model, transform.rotation.y, glm::vec3(0,1,0));
+        ubo.model = glm::rotate(ubo.model, transform.rotation.z, glm::vec3(0,0,1));
+        ubo.model = glm::scale(ubo.model, transform.scale);
+        
+        // Write to buffer (This is bad practice for multiple objects but works for "Make it runnable")
+        m_uniformBuffers[currentFrame]->Write(&ubo, sizeof(UniformBufferObject));
+        
+        // Draw
+        // Note: We are using the default mesh for everything with a RenderComponent for now
+        // In a real system, we'd use render.modelHandle
+        m_defaultMesh->Draw(cmdList);
+    }
+}
+
+void SceneEditorSubsystem::CreateGlobalLayout() {
+    IRHIDevice* device = m_renderSubsystem->GetDevice();
+    std::vector<RHIDescriptorSetLayoutBinding> bindings;
+    RHIDescriptorSetLayoutBinding uboBinding{};
+    uboBinding.binding = 0;
+    uboBinding.descriptorType = RHIDescriptorType::UniformBuffer;
+    uboBinding.descriptorCount = 1;
+    uboBinding.stageFlags = RHIShaderStage::Vertex | RHIShaderStage::Fragment;
+    bindings.push_back(uboBinding);
+    
+    m_globalDescriptorSetLayout = device->CreateDescriptorSetLayout(bindings);
+}
+
+void SceneEditorSubsystem::CreateUBOs(IRHIDevice* device) {
+    m_uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        m_uniformBuffers[i] = device->CreateBuffer(
+            sizeof(UniformBufferObject),
+            RHIBufferUsage::Uniform,
+            RHIMemoryProperty::HostVisible | RHIMemoryProperty::HostCoherent
+        );
+    }
+}
+
+void SceneEditorSubsystem::CreateGlobalDescriptorSets() {
+    IRHIDevice* device = m_renderSubsystem->GetDevice();
+    m_globalDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        m_globalDescriptorSets[i] = device->AllocateDescriptorSet(m_globalDescriptorSetLayout.get());
+        m_globalDescriptorSets[i]->UpdateUniformBuffer(0, m_uniformBuffers[i].get(), 0, sizeof(UniformBufferObject));
+    }
+}
+
+void SceneEditorSubsystem::InitializeDefaultResources() {
+    if (!m_renderSubsystem || !m_assetSubsystem) return;
+    
+    IRHIDevice* device = m_renderSubsystem->GetDevice();
+    
+    CreateGlobalLayout();
+    CreateUBOs(device);
+    CreateGlobalDescriptorSets();
+    
+    // Start Async Load
+    AssetManager& am = m_assetSubsystem->GetAssetManager();
+    m_modelHandle = am.Load<ModelData>("Models/Cube.obj");
+    m_textureHandle = am.Load<TextureData>("Models/testobject/VAZ2101_Body_BaseColor.png");
+    m_materialHandle = am.Load<MaterialData>("Materials/Default.amat");
+}
+
+} // namespace AstralEngine
+    ImGui::SameLine();
+    ImGui::Separator();
+    ImGui::SameLine();
+    
+    if (ImGui::Button("Play")) {
+        // TODO: Start PIE (Play In Editor)
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Stop")) {
+        // TODO: Stop PIE
+    }
+
+    ImGui::End();
+}
+
+void SceneEditorSubsystem::HandleViewportInput() {
+    if (m_viewportFocused && m_viewportHovered) {
+        // Handle camera movement, selection clicks, etc.
+    }
+}
+
+void SceneEditorSubsystem::UpdateEditorCamera(float deltaTime) {
+    if (m_viewportFocused) {
+        // Update camera based on input
+    }
+}
+
+// Helpers
+std::vector<uint32_t> SceneEditorSubsystem::GetEntityChildren(uint32_t parentID) const {
+    std::vector<uint32_t> children;
+    if (m_activeScene->Reg().valid((entt::entity)parentID)) {
+        Entity parent((entt::entity)parentID, m_activeScene.get());
+        if (parent.HasComponent<RelationshipComponent>()) {
+            for (auto child : parent.GetComponent<RelationshipComponent>().Children) {
+                children.push_back((uint32_t)child);
+            }
+        }
+    }
+    return children;
+}
+
+std::string SceneEditorSubsystem::GetEntityDisplayName(uint32_t entityID) const {
+    if (m_activeScene->Reg().valid((entt::entity)entityID)) {
+        Entity entity((entt::entity)entityID, m_activeScene.get());
+        if (entity.HasComponent<NameComponent>()) {
+            return entity.GetComponent<NameComponent>().name;
+        }
+    }
+    return "Entity";
+}
+
+bool SceneEditorSubsystem::IsEntityDescendant(uint32_t entityID, uint32_t potentialAncestorID) const {
+    if (entityID == potentialAncestorID) return true;
+    
+    if (m_activeScene->Reg().valid((entt::entity)entityID)) {
+        Entity entity((entt::entity)entityID, m_activeScene.get());
+        if (entity.HasComponent<RelationshipComponent>()) {
+            entt::entity parent = entity.GetComponent<RelationshipComponent>().Parent;
+            if (parent != entt::null) {
+                return IsEntityDescendant((uint32_t)parent, potentialAncestorID);
+            }
+        }
+    }
+    return false;
+}
+
+// Dialog stubs
+std::string SceneEditorSubsystem::OpenFileDialog(const std::string& title, const std::string& filter) { return ""; }
+std::string SceneEditorSubsystem::SaveFileDialog(const std::string& title, const std::string& filter, const std::string& defaultExt) { return ""; }
+bool SceneEditorSubsystem::ShowDeleteConfirmationDialog() { return true; }
+bool SceneEditorSubsystem::ShowUnsavedChangesDialog() { return true; }
+
+// Dummy implementations for private helpers
+void SceneEditorSubsystem::RenderTransformComponent(TransformComponent* transform) {}
+void SceneEditorSubsystem::RenderRenderComponent(RenderComponent* render) {}
+void SceneEditorSubsystem::RenderLightComponent(LightComponent* light) {}
+void SceneEditorSubsystem::RenderCameraComponent(CameraComponent* camera) {}
+void SceneEditorSubsystem::RenderGizmo() {}
+bool SceneEditorSubsystem::IsGizmoVisible() const { return false; }
+void SceneEditorSubsystem::UpdateGizmoTransform() {}
+ImVec2 SceneEditorSubsystem::GetViewportSize() const { return ImVec2(0,0); }
+void SceneEditorSubsystem::HandleDragDrop() {}
+void SceneEditorSubsystem::HandleHierarchyDragDrop() {}
+void SceneEditorSubsystem::ExecuteCommand(std::unique_ptr<EditorCommand> command) {}
+void SceneEditorSubsystem::UndoLastCommand() {}
+void SceneEditorSubsystem::RedoNextCommand() {}
+void SceneEditorSubsystem::SerializeScene(const std::string& filename) {}
+void SceneEditorSubsystem::DeserializeScene(const std::string& filename) {}
+
 } // namespace AstralEngine

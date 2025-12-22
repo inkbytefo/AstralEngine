@@ -4,6 +4,9 @@
 #include "../../Core/Logger.h"
 #include "../../ECS/Components.h"
 #include "../../Subsystems/Scene/Scene.h"
+#include "../Renderer/Core/Mesh.h"
+#include "../Renderer/Core/Material.h"
+#include "../Renderer/Core/Texture.h"
 #include <memory>
 #include <string>
 #include <vector>
@@ -17,7 +20,7 @@ namespace AstralEngine {
     class AssetSubsystem;
     class UISubsystem;
     class Camera;
-    class Scene;
+    class IRHIDevice;
 }
 
 // ImGui forward declarations
@@ -113,6 +116,7 @@ private:
     std::unique_ptr<Camera> m_editorCamera;
     bool m_viewportFocused = false;
     bool m_viewportHovered = false;
+    glm::vec2 m_viewportSize = { 800.0f, 600.0f }; // Added viewport size tracking
 
     // UI rendering methods
     void RenderMainMenuBar();
@@ -179,6 +183,27 @@ private:
     std::vector<std::unique_ptr<EditorCommand>> m_commandHistory;
     std::vector<std::unique_ptr<EditorCommand>> m_redoStack;
     size_t m_maxUndoSteps = 50;
+
+    // Rendering resources (Adapted from RenderTest)
+    void CreateGlobalLayout();
+    void CreateUBOs(IRHIDevice* device);
+    void CreateGlobalDescriptorSets();
+    void InitializeDefaultResources();
+
+    std::shared_ptr<IRHIDescriptorSetLayout> m_globalDescriptorSetLayout;
+    std::vector<std::shared_ptr<IRHIBuffer>> m_uniformBuffers;
+    std::vector<std::shared_ptr<IRHIDescriptorSet>> m_globalDescriptorSets;
+    static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+    
+    // Default assets (fallback/test)
+    std::unique_ptr<Mesh> m_defaultMesh;
+    std::shared_ptr<Texture> m_defaultTexture;
+    std::unique_ptr<Material> m_defaultMaterial;
+    
+    AssetHandle m_modelHandle;
+    AssetHandle m_textureHandle;
+    AssetHandle m_materialHandle;
+    bool m_textureCreated = false;
 };
 
 } // namespace AstralEngine
