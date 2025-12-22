@@ -24,4 +24,10 @@ if(ASTRAL_USE_IMGUI)
         ${imgui_SOURCE_DIR}
         ${imgui_SOURCE_DIR}/backends
     )
+
+    # Define IMGUI_USER_CONFIG to point to our custom config
+    # This ensures both AstralEngine (building imgui.cpp) and consumers use the same config
+    target_compile_definitions(AstralEngine PUBLIC 
+        IMGUI_USER_CONFIG="Core/AstralImConfig.h"
+    )
 endif()

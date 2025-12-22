@@ -72,6 +72,18 @@ void RenderSubsystem::OnUpdate(float /*deltaTime*/) {
         if (m_renderCallback) {
             m_renderCallback(cmdList.get());
         }
+
+#ifdef ASTRAL_USE_IMGUI
+        // Render UI
+        auto* uiSubsystem = m_engine->GetSubsystem<UISubsystem>();
+        if (uiSubsystem) {
+            // Check if we can cast to VulkanCommandList (safe since we created the device as Vulkan)
+            auto* vulkanCmd = dynamic_cast<VulkanCommandList*>(cmdList.get());
+            if (vulkanCmd) {
+                uiSubsystem->Render(vulkanCmd->GetCommandBuffer());
+            }
+        }
+#endif
         
         cmdList->EndRendering();
     }

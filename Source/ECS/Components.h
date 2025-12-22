@@ -148,6 +148,7 @@ struct LightComponent {
     float range = 10.0f;           // For Point/Spot
     float innerConeAngle = 20.0f;  // For Spot (degrees)
     float outerConeAngle = 30.0f;  // For Spot (degrees)
+    bool castsShadows = true;
     
     // For shader convenience
     glm::vec3 GetRadiance() const {

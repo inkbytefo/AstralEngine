@@ -3,6 +3,7 @@
 #include "../../Core/ISubsystem.h"
 #include "../../Core/Logger.h"
 #include "../../ECS/Components.h"
+#include "../../Subsystems/Scene/Scene.h"
 #include <memory>
 #include <string>
 #include <vector>
@@ -12,11 +13,11 @@
 // Forward declarations
 namespace AstralEngine {
     class Engine;
-    class ECSSubsystem;
     class RenderSubsystem;
     class AssetSubsystem;
     class UISubsystem;
     class Camera;
+    class Scene;
 }
 
 // ImGui forward declarations
@@ -88,13 +89,13 @@ public:
 private:
     // Core systems
     Engine* m_owner = nullptr;
-    ECSSubsystem* m_ecsSubsystem = nullptr;
+    std::shared_ptr<Scene> m_activeScene;
     RenderSubsystem* m_renderSubsystem = nullptr;
     AssetSubsystem* m_assetSubsystem = nullptr;
     UISubsystem* m_uiSubsystem = nullptr;
 
     // Editor state
-    uint32_t m_selectedEntity = 0;
+    uint32_t m_selectedEntity = 0; // entt::entity is uint32_t
     std::unordered_set<uint32_t> m_selectedEntities;
     EditorMode m_editorMode = EditorMode::Select;
 
