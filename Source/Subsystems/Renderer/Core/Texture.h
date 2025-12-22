@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Subsystems/Renderer/RHI/IRHIDevice.h"
+#include "Subsystems/Asset/AssetData.h"
 #include <string>
 #include <memory>
 
@@ -9,6 +10,7 @@ namespace AstralEngine {
 class Texture {
 public:
     Texture(IRHIDevice* device, const std::string& path);
+    Texture(IRHIDevice* device, const TextureData& data);
     ~Texture();
 
     IRHITexture* GetRHITexture() const { return m_texture.get(); }

@@ -97,7 +97,28 @@ VulkanTexture::VulkanTexture(VulkanDevice* device, uint32_t width, uint32_t heig
     imageInfo.extent.depth = 1;
     imageInfo.mipLevels = 1;
     imageInfo.arrayLayers = 1;
-    imageInfo.format = VK_FORMAT_R8G8B8A8_SRGB; // TODO: Map properly
+    // Map RHI format to Vulkan format
+    auto GetVkFormat = [](RHIFormat format) {
+        switch (format) {
+            case RHIFormat::R8_UNORM: return VK_FORMAT_R8_UNORM;
+            case RHIFormat::R8G8_UNORM: return VK_FORMAT_R8G8_UNORM;
+            case RHIFormat::R8G8B8A8_UNORM: return VK_FORMAT_R8G8B8A8_UNORM;
+            case RHIFormat::R8G8B8A8_SRGB: return VK_FORMAT_R8G8B8A8_SRGB;
+            case RHIFormat::B8G8R8A8_UNORM: return VK_FORMAT_B8G8R8A8_UNORM;
+            case RHIFormat::B8G8R8A8_SRGB: return VK_FORMAT_B8G8R8A8_SRGB;
+            case RHIFormat::R16G16_FLOAT: return VK_FORMAT_R16G16_SFLOAT;
+            case RHIFormat::R16G16B16A16_FLOAT: return VK_FORMAT_R16G16B16A16_SFLOAT;
+            case RHIFormat::R32_FLOAT: return VK_FORMAT_R32_SFLOAT;
+            case RHIFormat::R32G32_FLOAT: return VK_FORMAT_R32G32_SFLOAT;
+            case RHIFormat::R32G32B32_FLOAT: return VK_FORMAT_R32G32B32_SFLOAT;
+            case RHIFormat::R32G32B32A32_FLOAT: return VK_FORMAT_R32G32B32A32_SFLOAT;
+            case RHIFormat::D32_FLOAT: return VK_FORMAT_D32_SFLOAT;
+            case RHIFormat::D24_UNORM_S8_UINT: return VK_FORMAT_D24_UNORM_S8_UINT;
+            case RHIFormat::D32_FLOAT_S8_UINT: return VK_FORMAT_D32_SFLOAT_S8_UINT;
+            default: return VK_FORMAT_R8G8B8A8_SRGB;
+        }
+    };
+    imageInfo.format = GetVkFormat(format);
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     imageInfo.usage = 0;
@@ -339,11 +360,24 @@ VulkanPipeline::VulkanPipeline(VulkanDevice* device, const RHIPipelineStateDescr
         VkVertexInputAttributeDescription desc{};
         desc.binding = attr.binding;
         desc.location = attr.location;
-        desc.format = static_cast<VkFormat>(0); // Mapping needed!
-        
-        // Quick map for now (same as in VulkanResources.cpp original)
-        if (attr.format == RHIFormat::R32G32B32_FLOAT) desc.format = VK_FORMAT_R32G32B32_SFLOAT;
-        else if (attr.format == RHIFormat::R32G32_FLOAT) desc.format = VK_FORMAT_R32G32_SFLOAT;
+        // Map RHI format to Vulkan format
+        auto GetVkFormat = [](RHIFormat format) {
+            switch (format) {
+                case RHIFormat::R32_FLOAT: return VK_FORMAT_R32_SFLOAT;
+                case RHIFormat::R32G32_FLOAT: return VK_FORMAT_R32G32_SFLOAT;
+                case RHIFormat::R32G32B32_FLOAT: return VK_FORMAT_R32G32B32_SFLOAT;
+                case RHIFormat::R32G32B32A32_FLOAT: return VK_FORMAT_R32G32B32A32_SFLOAT;
+                case RHIFormat::R8_UNORM: return VK_FORMAT_R8_UNORM;
+                case RHIFormat::R8G8_UNORM: return VK_FORMAT_R8G8_UNORM;
+                case RHIFormat::R8G8B8A8_UNORM: return VK_FORMAT_R8G8B8A8_UNORM;
+                case RHIFormat::R8G8B8A8_SRGB: return VK_FORMAT_R8G8B8A8_SRGB;
+                default: return VK_FORMAT_UNDEFINED;
+            }
+        };
+        desc.format = GetVkFormat(attr.format);
+        if (desc.format == VK_FORMAT_UNDEFINED) {
+            throw std::runtime_error("Unsupported vertex attribute format!");
+        }
         
         desc.offset = attr.offset;
         attributeDescriptions.push_back(desc);

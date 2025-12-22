@@ -18,77 +18,16 @@
 #include <thread>
 #include <filesystem>
 
+#include "Subsystems/Renderer/Core/Camera.h"
+#include "Subsystems/Platform/PlatformSubsystem.h"
+#include "Subsystems/Platform/InputManager.h"
+
 using namespace AstralEngine;
 
-struct Matrix4 {
-    float m[4][4];
-
-    static Matrix4 Identity() {
-        Matrix4 mat;
-        for(int i=0; i<4; i++)
-            for(int j=0; j<4; j++)
-                mat.m[i][j] = (i==j) ? 1.0f : 0.0f;
-        return mat;
-    }
-
-    static Matrix4 LookAtRH(float eye[3], float center[3], float up[3]) {
-        float f[3] = {center[0]-eye[0], center[1]-eye[1], center[2]-eye[2]};
-        float lenF = sqrt(f[0]*f[0] + f[1]*f[1] + f[2]*f[2]);
-        f[0]/=lenF; f[1]/=lenF; f[2]/=lenF;
-
-        float s[3] = { // f x up
-            f[1]*up[2] - f[2]*up[1],
-            f[2]*up[0] - f[0]*up[2],
-            f[0]*up[1] - f[1]*up[0]
-        };
-        float lenS = sqrt(s[0]*s[0] + s[1]*s[1] + s[2]*s[2]);
-        s[0]/=lenS; s[1]/=lenS; s[2]/=lenS;
-
-        float u[3] = { // s x f
-            s[1]*f[2] - s[2]*f[1],
-            s[2]*f[0] - s[0]*f[2],
-            s[0]*f[1] - s[1]*f[0]
-        };
-
-        Matrix4 mat;
-        mat.m[0][0] = s[0]; mat.m[1][0] = s[1]; mat.m[2][0] = s[2]; mat.m[3][0] = -(s[0]*eye[0] + s[1]*eye[1] + s[2]*eye[2]);
-        mat.m[0][1] = u[0]; mat.m[1][1] = u[1]; mat.m[2][1] = u[2]; mat.m[3][1] = -(u[0]*eye[0] + u[1]*eye[1] + u[2]*eye[2]);
-        mat.m[0][2] =-f[0]; mat.m[1][2] =-f[1]; mat.m[2][2] =-f[2]; mat.m[3][2] = (f[0]*eye[0] + f[1]*eye[1] + f[2]*eye[2]);
-        mat.m[0][3] = 0.0f; mat.m[1][3] = 0.0f; mat.m[2][3] = 0.0f; mat.m[3][3] = 1.0f;
-        
-        return mat;
-    }
-
-    static Matrix4 Perspective(float fovRadians, float aspect, float zNear, float zFar) {
-        float tanHalfFovy = tan(fovRadians / 2.0f);
-        Matrix4 mat;
-        std::memset(mat.m, 0, sizeof(mat.m));
-
-        mat.m[0][0] = 1.0f / (aspect * tanHalfFovy);
-        mat.m[1][1] = 1.0f / (tanHalfFovy); 
-        mat.m[1][1] *= -1.0f; // Flip Y for Vulkan
-
-        mat.m[2][2] = zFar / (zNear - zFar);
-        mat.m[3][2] = -(zFar * zNear) / (zFar - zNear);
-        mat.m[2][3] = -1.0f;
-        
-        return mat;
-    }
-
-    static Matrix4 RotateY(float angleRadians) {
-        Matrix4 mat = Identity();
-        float c = cos(angleRadians);
-        float s = sin(angleRadians);
-        mat.m[0][0] = c;  mat.m[0][2] = s;
-        mat.m[2][0] = -s; mat.m[2][2] = c;
-        return mat;
-    }
-};
-
 struct UniformBufferObject {
-    Matrix4 model;
-    Matrix4 view;
-    Matrix4 proj;
+    alignas(16) glm::mat4 model;
+    alignas(16) glm::mat4 view;
+    alignas(16) glm::mat4 proj;
 };
 
 class RenderTestApp : public IApplication {
@@ -117,37 +56,18 @@ public:
             return;
         }
 
-        // Load Cube Model
+        // Load Cube Model Async
         Logger::Info("RenderTest", "Loading Models/Cube.obj...");
-        AssetHandle handle = m_assetManager.Load<ModelData>("Models/Cube.obj");
+        m_modelHandle = m_assetManager.Load<ModelData>("Models/Cube.obj");
         
-        // Wait for load (simple busy wait for test)
-        std::shared_ptr<ModelData> modelData = nullptr;
-        int attempts = 0;
-        while (!modelData && attempts < 100) {
-            modelData = m_assetManager.GetAsset<ModelData>(handle);
-            if (!modelData) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                attempts++;
-            }
-        }
+        // Load Texture Async
+        Logger::Info("RenderTest", "Loading Texture...");
+        m_textureHandle = m_assetManager.Load<TextureData>("Models/testobject/VAZ2101_Body_BaseColor.png");
 
-        if (modelData) {
-            Logger::Info("RenderTest", "Model loaded successfully. Creating Mesh...");
-            m_mesh = std::make_unique<Mesh>(device, *modelData);
-        } else {
-            Logger::Error("RenderTest", "Failed to load Models/Cube.obj");
-        }
-
-        // Load Texture
-        try {
-            Logger::Info("RenderTest", "Loading Texture...");
-            m_texture = std::make_unique<Texture>(device, "Assets/Models/testobject/VAZ2101_Body_BaseColor.png");
-        } catch (const std::exception& e) {
-            Logger::Error("RenderTest", std::string("Failed to load texture: ") + e.what());
-        }
-
+        // Create Resources (UBO, Layouts) - Independent of mesh content
         CreateResources(device);
+        
+        // Pipeline creation depends on layout, so we can create it now too
         CreatePipeline(device);
 
         renderSystem->SetRenderCallback([this](IRHICommandList* cmdList) {
@@ -156,8 +76,66 @@ public:
     }
 
     void OnUpdate(float deltaTime) override {
+        // Async Asset Loading Checks
+        if (!m_mesh && m_modelHandle.IsValid()) {
+            if (m_assetManager.IsAssetLoaded(m_modelHandle)) {
+                auto modelData = m_assetManager.GetAsset<ModelData>(m_modelHandle);
+                if (modelData) {
+                    Logger::Info("RenderTest", "Model loaded successfully. Creating Mesh...");
+                    m_mesh = std::make_unique<Mesh>(m_device, *modelData);
+                }
+            } else if (m_assetManager.GetAssetState(m_modelHandle) == AssetLoadState::Failed) {
+                Logger::Error("RenderTest", "Failed to load model asset.");
+                m_modelHandle = AssetHandle(); // Invalid handle to stop checking
+            }
+        }
+
+        if (!m_texture && m_textureHandle.IsValid()) {
+            if (m_assetManager.IsAssetLoaded(m_textureHandle)) {
+                try {
+                    auto textureData = m_assetManager.GetAsset<TextureData>(m_textureHandle);
+                    if (textureData && !m_textureCreated) {
+                        m_texture = std::make_unique<Texture>(m_device, *textureData);
+                        m_textureCreated = true;
+                        UpdateDescriptorSets(); // Update descriptors with new texture
+                        Logger::Info("RenderTest", "Texture created successfully from async asset.");
+                    }
+                } catch (const std::exception& e) {
+                    Logger::Error("RenderTest", std::string("Failed to load texture: ") + e.what());
+                    m_textureHandle = AssetHandle(); // Stop checking
+                }
+            } else if (m_assetManager.GetAssetState(m_textureHandle) == AssetLoadState::Failed) {
+                Logger::Error("RenderTest", "Failed to load texture asset.");
+                m_textureHandle = AssetHandle(); // Stop checking
+            }
+        }
+
         m_rotationAngle += deltaTime * 1.0f; 
         m_assetManager.Update(); // Update asset manager (for async tasks cleanup)
+
+        if (m_engine) {
+            auto* platform = m_engine->GetSubsystem<PlatformSubsystem>();
+            if (platform) {
+                auto* input = platform->GetInputManager();
+                if (input) {
+                    float speedMultiplier = input->IsKeyPressed(KeyCode::LeftShift) ? 2.5f : 1.0f;
+                    m_camera.SetMovementSpeed(2.5f * speedMultiplier);
+
+                    if (input->IsKeyPressed(KeyCode::W)) m_camera.ProcessKeyboard(CameraMovement::FORWARD, deltaTime);
+                    if (input->IsKeyPressed(KeyCode::S)) m_camera.ProcessKeyboard(CameraMovement::BACKWARD, deltaTime);
+                    if (input->IsKeyPressed(KeyCode::A)) m_camera.ProcessKeyboard(CameraMovement::LEFT, deltaTime);
+                    if (input->IsKeyPressed(KeyCode::D)) m_camera.ProcessKeyboard(CameraMovement::RIGHT, deltaTime);
+                    if (input->IsKeyPressed(KeyCode::Q)) m_camera.ProcessKeyboard(CameraMovement::DOWN, deltaTime);
+                    if (input->IsKeyPressed(KeyCode::E)) m_camera.ProcessKeyboard(CameraMovement::UP, deltaTime);
+
+                    if (input->IsMouseButtonPressed(MouseButton::Right)) {
+                        int dx, dy;
+                        input->GetMouseDelta(dx, dy);
+                        m_camera.ProcessMouseMovement((float)dx, -(float)dy);
+                    }
+                }
+            }
+        }
     }
 
     void OnShutdown() override {
@@ -198,6 +176,11 @@ private:
     IRHIDevice* m_device = nullptr;
     float m_rotationAngle = 0.0f;
     AssetManager m_assetManager;
+    Camera m_camera{glm::vec3(1.5f, 1.5f, 1.5f), glm::vec3(0.0f, 1.0f, 0.0f), -135.0f, -35.0f};
+    
+    AssetHandle m_modelHandle;
+    AssetHandle m_textureHandle;
+    bool m_textureCreated = false;
 
     std::vector<uint8_t> ReadFile(const std::string& filename) {
         std::ifstream file(filename, std::ios::ate | std::ios::binary);
@@ -210,6 +193,15 @@ private:
         file.read((char*)buffer.data(), fileSize);
         file.close();
         return buffer;
+    }
+
+    void UpdateDescriptorSets() {
+        if (!m_texture) return;
+        for (auto& set : m_descriptorSets) {
+            if (set) {
+                set->UpdateCombinedImageSampler(1, m_texture->GetRHITexture(), m_texture->GetRHISampler());
+            }
+        }
     }
 
     void CreateResources(IRHIDevice* device) {
@@ -334,22 +326,24 @@ private:
     }
 
     void OnRender(IRHICommandList* cmdList) {
-        if (!m_pipeline || !m_mesh || m_descriptorSets.empty()) return;
+        if (!m_pipeline || !m_mesh || !m_texture || m_descriptorSets.empty()) return;
 
         uint32_t currentFrame = m_device->GetCurrentFrameIndex();
         if (currentFrame >= m_uniformBuffers.size()) currentFrame = 0;
 
         // Update UBO
         UniformBufferObject ubo{};
-        ubo.model = Matrix4::RotateY(m_rotationAngle);
-        
-        float eye[3] = {1.5f, 1.5f, 1.5f};
-        float center[3] = {0.0f, 0.0f, 0.0f};
-        float up[3] = {0.0f, 1.0f, 0.0f};
-        ubo.view = Matrix4::LookAtRH(eye, center, up);
+        ubo.model = glm::rotate(glm::mat4(1.0f), m_rotationAngle, glm::vec3(0.0f, 1.0f, 0.0f));
+        ubo.view = m_camera.GetViewMatrix();
 
-        float aspect = 800.0f / 600.0f; // TODO: Get actual aspect
-        ubo.proj = Matrix4::Perspective(45.0f * 3.14159f / 180.0f, aspect, 0.1f, 10.0f);
+        float aspect = 800.0f / 600.0f;
+        if (m_engine) {
+            auto* platform = m_engine->GetSubsystem<PlatformSubsystem>();
+            if (platform && platform->GetWindow()) {
+                aspect = (float)platform->GetWindow()->GetWidth() / (float)platform->GetWindow()->GetHeight();
+            }
+        }
+        ubo.proj = m_camera.GetProjectionMatrix(aspect);
         
         void* data = m_uniformBuffers[currentFrame]->Map();
         if (data) {
@@ -362,14 +356,21 @@ private:
         renderArea.offset.y = 0;
         renderArea.extent.width = 800;
         renderArea.extent.height = 600;
+        if (m_engine) {
+             auto* platform = m_engine->GetSubsystem<PlatformSubsystem>();
+             if (platform && platform->GetWindow()) {
+                 renderArea.extent.width = platform->GetWindow()->GetWidth();
+                 renderArea.extent.height = platform->GetWindow()->GetHeight();
+             }
+        }
 
         cmdList->BindPipeline(m_pipeline.get());
         
         RHIViewport viewport{};
         viewport.x = 0;
         viewport.y = 0;
-        viewport.width = 800;
-        viewport.height = 600;
+        viewport.width = (float)renderArea.extent.width;
+        viewport.height = (float)renderArea.extent.height;
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
         cmdList->SetViewport(viewport);

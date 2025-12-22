@@ -14,12 +14,18 @@ namespace AstralEngine {
 		auto textureData = std::make_shared<TextureData>(filePath);
 		int width, height, channels;
 
-		stbi_uc* data = stbi_load(filePath.c_str(), &width, &height, &channels, 0);
+		// Force loading as RGBA (4 channels)
+		stbi_uc* data = stbi_load(filePath.c_str(), &width, &height, &channels, STBI_rgb_alpha);
 
 		if (!data) {
 			Logger::Error("TextureImporter", "Failed to load texture '{}': {}", filePath, stbi_failure_reason());
 			return nullptr;
 		}
+
+		// Since we forced RGBA, channels will be 4 in the output buffer, 
+		// but stbi_load returns the original channels in the 'channels' variable.
+		// We should update it to 4 to reflect the data we have.
+		channels = 4;
 
 		if (!textureData->Allocate(width, height, channels)) {
 			Logger::Error("TextureImporter", "Failed to allocate memory for texture '{}'", filePath);

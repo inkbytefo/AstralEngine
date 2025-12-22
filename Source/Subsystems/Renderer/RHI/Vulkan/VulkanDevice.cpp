@@ -9,6 +9,8 @@
 #include <set>
 #include <algorithm>
 #include <array>
+#include <thread>
+#include <chrono>
 
 namespace AstralEngine {
 
@@ -266,6 +268,15 @@ void VulkanDevice::CreateSwapchain() {
     VkSurfaceCapabilitiesKHR capabilities;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_physicalDevice, m_surface, &capabilities);
 
+    // Wait for valid extent if minimized or 0-sized
+    while (capabilities.currentExtent.width == 0 || capabilities.currentExtent.height == 0) {
+        // If currentExtent is 0, it usually means minimized.
+        // We must wait for it to become non-zero.
+        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_physicalDevice, m_surface, &capabilities);
+        SDL_PumpEvents(); 
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
     uint32_t formatCount;
     vkGetPhysicalDeviceSurfaceFormatsKHR(m_physicalDevice, m_surface, &formatCount, nullptr);
     std::vector<VkSurfaceFormatKHR> formats(formatCount);
@@ -286,6 +297,12 @@ void VulkanDevice::CreateSwapchain() {
         int width, height;
         SDL_GetWindowSizeInPixels(m_window->GetSDLWindow(), &width, &height);
         extent = { static_cast<uint32_t>(width), static_cast<uint32_t>(height) };
+    }
+    
+    // Safety check
+    if (extent.width == 0 || extent.height == 0) {
+         // Should have been caught by the loop above unless UINT32_MAX case failed
+         throw std::runtime_error("Swapchain extent is 0x0 even after waiting!");
     }
 
     uint32_t imageCount = capabilities.minImageCount + 1;
