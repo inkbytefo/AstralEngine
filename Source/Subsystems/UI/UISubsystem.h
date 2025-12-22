@@ -2,9 +2,11 @@
 
 #include "../../Core/ISubsystem.h"
 #include "../../Core/Logger.h"
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 // Integrate ImGui headers only when the engine is compiled with UI support.
 #ifdef ASTRAL_USE_IMGUI
@@ -52,6 +54,10 @@ public:
     void EndFrame();
     void Render(VkCommandBuffer commandBuffer); // Vulkan render pass'te çağrılır
 
+    // UI Draw Callbacks
+    using DrawCallback = std::function<void()>;
+    void RegisterDrawCallback(DrawCallback callback) { m_drawCallbacks.push_back(callback); }
+
     // UI State
     bool IsCapturingMouse() const;
     bool IsCapturingKeyboard() const;
@@ -94,6 +100,9 @@ private:
     bool m_showDemo = false;
     bool m_showMetrics = false;
     bool m_showDebugWindow = false;
+
+    // Callbacks
+    std::vector<DrawCallback> m_drawCallbacks;
 
     // Font management
     std::unordered_map<std::string, ImFont*> m_fonts;

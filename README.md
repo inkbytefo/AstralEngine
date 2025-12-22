@@ -9,24 +9,22 @@ Modern, modular C++20 oyun motoru. Frostbite'tan ilham alan subsystem mimarisi �
 - ✅ Merkezi Logging Sistemi
 - ✅ Event-Driven İletişim
 - ✅ Bellek Yönetim Sistemi
-- ✅ Platform Soyutlama Katmanı (Placeholder)
-- ✅ Asset Management Sistemi
-- ✅ ECS (Entity Component System) Temel Yapısı
+- ✅ Platform Soyutlama Katmanı (SDL3)
+- ✅ Asset Management Sistemi (Async Loading)
+- ✅ ECS (EnTT Entegrasyonu)
+- ✅ Editor (ImGui Docking, Viewport, Outliner)
+- ✅ Vulkan RHI (Render Hardware Interface)
 
 ### 🚧 Geliştirme Aşamasında
-- 🔄 SDL3 Entegrasyonu
-- 🔄 Vulkan Renderer
-- 🔄 Fizik Sistemi
-- 🔄 Audio Sistemi
-- 🔄 Scripting Desteği
+- 🔄 Fizik Sistemi (Jolt Physics planlanıyor)
+- 🔄 PBR Materyal Sistemi
+- 🔄 Scripting Desteği (C# / Mono)
 
 ### 🎮 Planlanan Özellikler
-- 📋 Scene Management
 - 📋 Animation System
 - 📋 AI Framework
 - 📋 Networking
-- 📋 Asset Pipeline
-- 📋 Editor Interface
+- 📋 Visual Material Editor
 
 ## 🏗️ Mimari
 
@@ -34,12 +32,12 @@ Astral Engine, **subsystem-based modular architecture** kullanır:
 
 ```
 Engine (Çekirdek Orkestratör)
-├── PlatformSubsystem (Pencere, Input)
+├── PlatformSubsystem (SDL3 Pencere, Input)
 ├── AssetSubsystem (Varlık Yönetimi)
-├── ECSSubsystem (Oyun Mantığı)
-├── RenderSubsystem (Grafik)
-├── PhysicsSubsystem (Fizik)
-└── AudioSubsystem (Ses)
+├── SceneEditorSubsystem (Editör Mantığı & Sahne Yönetimi)
+├── RenderSubsystem (Vulkan RHI & Grafik)
+├── UISubsystem (ImGui Arayüz)
+└── AudioSubsystem (Ses - Planlanan)
 ```
 
 ### Temel Prensipler

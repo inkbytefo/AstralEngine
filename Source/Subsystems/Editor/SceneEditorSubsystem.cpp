@@ -3,8 +3,8 @@
 #include "../../Subsystems/Renderer/Core/RenderSubsystem.h"
 #include "../../Subsystems/Asset/AssetSubsystem.h"
 #include "../../Subsystems/UI/UISubsystem.h"
-#include "../../Subsystems/Renderer/Camera.h"
-#include "../../Subsystems/Renderer/GraphicsDevice.h"
+#include "../Renderer/Core/Camera.h"
+#include "../Renderer/RHI/IRHIDevice.h"
 #include "../../Core/Logger.h"
 #include "../../Subsystems/Scene/Entity.h"
 
@@ -20,7 +20,17 @@
     #include <imgui_internal.h> // For DockBuilder
 #endif
 
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
 namespace AstralEngine {
+
+struct UniformBufferObject {
+    alignas(16) glm::mat4 model;
+    alignas(16) glm::mat4 view;
+    alignas(16) glm::mat4 proj;
+    alignas(16) glm::vec4 viewPos;
+};
 
 // Constructor
 SceneEditorSubsystem::SceneEditorSubsystem() : m_selectedEntity((uint32_t)entt::null), m_editorMode(EditorMode::Select) {
@@ -63,28 +73,47 @@ void SceneEditorSubsystem::OnInitialize(Engine* owner) {
         return;
     }
 
+    // Initialize render resources (Deferred to OnUpdate to ensure RenderSubsystem is ready)
+    // InitializeDefaultResources();
+
+    // Register render callback
+    m_renderSubsystem->SetRenderCallback([this](IRHICommandList* cmdList) {
+        this->RenderScene(cmdList);
+    });
+
+    // Register UI Draw callback
+    m_uiSubsystem->RegisterDrawCallback([this]() {
+        this->DrawUI();
+    });
+
     Logger::Info("SceneEditorSubsystem", "Scene Editor Subsystem initialized successfully");
 }
 
 void SceneEditorSubsystem::OnUpdate(float deltaTime) {
-    // Main editor update logic
-    
+    // Defer resource initialization
+    if (!m_resourcesInitialized) {
+        InitializeDefaultResources();
+        m_resourcesInitialized = true;
+    }
+
+    // 4. Handle Input (Logic Only)
+    HandleViewportInput();
+    UpdateEditorCamera(deltaTime);
+}
+
+void SceneEditorSubsystem::DrawUI() {
     // 1. Render Main Menu Bar
     RenderMainMenuBar();
 
     // 2. Setup DockSpace
     ImGuiViewport* viewport = ImGui::GetMainViewport();
-    ImGui::DockSpaceOverViewport(viewport, ImGuiDockNodeFlags_PassthruCentralNode);
+    ImGui::DockSpaceOverViewport(0, viewport, ImGuiDockNodeFlags_PassthruCentralNode);
 
     // 3. Render Panels
     RenderViewportPanel();
     RenderSceneHierarchy();
     RenderPropertiesPanel();
     RenderToolbar();
-
-    // 4. Handle Input
-    HandleViewportInput();
-    UpdateEditorCamera(deltaTime);
 }
 
 void SceneEditorSubsystem::OnShutdown() {
@@ -165,6 +194,7 @@ uint32_t SceneEditorSubsystem::CreatePrimitiveEntity(const std::string& name, co
     entity.AddComponent<RenderComponent>();
     
     // TODO: Set actual model/material handles based on primitiveType
+    (void)primitiveType; // Suppress unused parameter warning
     
     m_sceneModified = true;
     return entityID;
@@ -212,7 +242,8 @@ void SceneEditorSubsystem::DeleteSelectedEntities() {
 
     if (ShowDeleteConfirmationDialog()) {
         for (uint32_t entityID : m_selectedEntities) {
-            m_activeScene->DestroyEntity((entt::entity)entityID);
+            Entity entityToRemove((entt::entity)entityID, m_activeScene.get());
+            m_activeScene->DestroyEntity(entityToRemove);
         }
         ClearSelection();
         m_sceneModified = true;
@@ -289,7 +320,8 @@ void SceneEditorSubsystem::RenderSceneHierarchy() {
     // List all entities that do not have a parent (root entities)
     // Or if no RelationshipComponent, list all entities
     
-    m_activeScene->Reg().each([&](auto entityID) {
+    auto view = m_activeScene->Reg().view<entt::entity>();
+    for(auto entityID : view) {
         Entity entity(entityID, m_activeScene.get());
         
         bool isRoot = true;
@@ -302,10 +334,10 @@ void SceneEditorSubsystem::RenderSceneHierarchy() {
         if (isRoot) {
             RenderEntityNode((uint32_t)entityID, true);
         }
-    });
+    }
     
     // Right-click on blank space to create entity
-    if (ImGui::BeginPopupContextWindow(0, 1, false)) {
+    if (ImGui::BeginPopupContextWindow(nullptr, ImGuiPopupFlags_MouseButtonRight)) {
         if (ImGui::MenuItem("Create Empty Entity")) CreateEmptyEntity("Empty Entity");
         ImGui::EndPopup();
     }
@@ -497,6 +529,7 @@ void SceneEditorSubsystem::RenderViewportPanel() {
     m_viewportHovered = ImGui::IsWindowHovered();
     
     ImVec2 viewportSize = ImGui::GetContentRegionAvail();
+    m_viewportSize = viewportSize;
     
     // Placeholder for actual render texture
     ImGui::Text("3D Viewport");
@@ -624,7 +657,10 @@ void SceneEditorSubsystem::RenderScene(IRHICommandList* cmdList) {
 
     // Draw Entities
     auto view = m_activeScene->Reg().view<const TransformComponent, const RenderComponent>();
-    for (auto [entity, transform, render] : view.each()) {
+    for (auto entity : view) {
+        const auto& transform = view.get<const TransformComponent>(entity);
+        // const auto& render = view.get<const RenderComponent>(entity); // Unused for now
+
         // Update Model Matrix in UBO? 
         // Wait, the UBO is global in this simple implementation.
         // We need Push Constants or Dynamic Uniform Buffers for per-object Model Matrix.
@@ -637,7 +673,7 @@ void SceneEditorSubsystem::RenderScene(IRHICommandList* cmdList) {
         
         UniformBufferObject ubo{};
         // Retrieve view/proj again (optimization: cache it)
-        m_uniformBuffers[currentFrame]->Read(&ubo, sizeof(UniformBufferObject)); // Read back? No.
+        // m_uniformBuffers[currentFrame]->Read(&ubo, sizeof(UniformBufferObject)); // Read back? No.
         
         // Re-calculate View/Proj
         float aspect = 1.777f;
@@ -654,8 +690,12 @@ void SceneEditorSubsystem::RenderScene(IRHICommandList* cmdList) {
         ubo.model = glm::rotate(ubo.model, transform.rotation.z, glm::vec3(0,0,1));
         ubo.model = glm::scale(ubo.model, transform.scale);
         
-        // Write to buffer (This is bad practice for multiple objects but works for "Make it runnable")
-        m_uniformBuffers[currentFrame]->Write(&ubo, sizeof(UniformBufferObject));
+        // Write to buffer
+        void* mappedData = m_uniformBuffers[currentFrame]->Map();
+        if (mappedData) {
+            memcpy(mappedData, &ubo, sizeof(UniformBufferObject));
+            m_uniformBuffers[currentFrame]->Unmap();
+        }
         
         // Draw
         // Note: We are using the default mesh for everything with a RenderComponent for now
@@ -707,100 +747,13 @@ void SceneEditorSubsystem::InitializeDefaultResources() {
     CreateGlobalDescriptorSets();
     
     // Start Async Load
-    AssetManager& am = m_assetSubsystem->GetAssetManager();
-    m_modelHandle = am.Load<ModelData>("Models/Cube.obj");
-    m_textureHandle = am.Load<TextureData>("Models/testobject/VAZ2101_Body_BaseColor.png");
-    m_materialHandle = am.Load<MaterialData>("Materials/Default.amat");
-}
-
-} // namespace AstralEngine
-    ImGui::SameLine();
-    ImGui::Separator();
-    ImGui::SameLine();
-    
-    if (ImGui::Button("Play")) {
-        // TODO: Start PIE (Play In Editor)
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Stop")) {
-        // TODO: Stop PIE
-    }
-
-    ImGui::End();
-}
-
-void SceneEditorSubsystem::HandleViewportInput() {
-    if (m_viewportFocused && m_viewportHovered) {
-        // Handle camera movement, selection clicks, etc.
+    AssetManager* am = m_assetSubsystem->GetAssetManager();
+    if (am) {
+        m_modelHandle = am->Load<ModelData>("Models/Cube.obj");
+        m_textureHandle = am->Load<TextureData>("Models/testobject/VAZ2101_Body_BaseColor.png");
+        m_materialHandle = am->Load<MaterialData>("Materials/Default.amat");
     }
 }
 
-void SceneEditorSubsystem::UpdateEditorCamera(float deltaTime) {
-    if (m_viewportFocused) {
-        // Update camera based on input
-    }
-}
-
-// Helpers
-std::vector<uint32_t> SceneEditorSubsystem::GetEntityChildren(uint32_t parentID) const {
-    std::vector<uint32_t> children;
-    if (m_activeScene->Reg().valid((entt::entity)parentID)) {
-        Entity parent((entt::entity)parentID, m_activeScene.get());
-        if (parent.HasComponent<RelationshipComponent>()) {
-            for (auto child : parent.GetComponent<RelationshipComponent>().Children) {
-                children.push_back((uint32_t)child);
-            }
-        }
-    }
-    return children;
-}
-
-std::string SceneEditorSubsystem::GetEntityDisplayName(uint32_t entityID) const {
-    if (m_activeScene->Reg().valid((entt::entity)entityID)) {
-        Entity entity((entt::entity)entityID, m_activeScene.get());
-        if (entity.HasComponent<NameComponent>()) {
-            return entity.GetComponent<NameComponent>().name;
-        }
-    }
-    return "Entity";
-}
-
-bool SceneEditorSubsystem::IsEntityDescendant(uint32_t entityID, uint32_t potentialAncestorID) const {
-    if (entityID == potentialAncestorID) return true;
-    
-    if (m_activeScene->Reg().valid((entt::entity)entityID)) {
-        Entity entity((entt::entity)entityID, m_activeScene.get());
-        if (entity.HasComponent<RelationshipComponent>()) {
-            entt::entity parent = entity.GetComponent<RelationshipComponent>().Parent;
-            if (parent != entt::null) {
-                return IsEntityDescendant((uint32_t)parent, potentialAncestorID);
-            }
-        }
-    }
-    return false;
-}
-
-// Dialog stubs
-std::string SceneEditorSubsystem::OpenFileDialog(const std::string& title, const std::string& filter) { return ""; }
-std::string SceneEditorSubsystem::SaveFileDialog(const std::string& title, const std::string& filter, const std::string& defaultExt) { return ""; }
-bool SceneEditorSubsystem::ShowDeleteConfirmationDialog() { return true; }
-bool SceneEditorSubsystem::ShowUnsavedChangesDialog() { return true; }
-
-// Dummy implementations for private helpers
-void SceneEditorSubsystem::RenderTransformComponent(TransformComponent* transform) {}
-void SceneEditorSubsystem::RenderRenderComponent(RenderComponent* render) {}
-void SceneEditorSubsystem::RenderLightComponent(LightComponent* light) {}
-void SceneEditorSubsystem::RenderCameraComponent(CameraComponent* camera) {}
-void SceneEditorSubsystem::RenderGizmo() {}
-bool SceneEditorSubsystem::IsGizmoVisible() const { return false; }
-void SceneEditorSubsystem::UpdateGizmoTransform() {}
-ImVec2 SceneEditorSubsystem::GetViewportSize() const { return ImVec2(0,0); }
-void SceneEditorSubsystem::HandleDragDrop() {}
-void SceneEditorSubsystem::HandleHierarchyDragDrop() {}
-void SceneEditorSubsystem::ExecuteCommand(std::unique_ptr<EditorCommand> command) {}
-void SceneEditorSubsystem::UndoLastCommand() {}
-void SceneEditorSubsystem::RedoNextCommand() {}
-void SceneEditorSubsystem::SerializeScene(const std::string& filename) {}
-void SceneEditorSubsystem::DeserializeScene(const std::string& filename) {}
 
 } // namespace AstralEngine

@@ -55,6 +55,11 @@ void UISubsystem::OnUpdate(float /*deltaTime*/) {
     }
     ImGui::End();
 
+    // Execute registered draw callbacks
+    for (const auto& callback : m_drawCallbacks) {
+        callback();
+    }
+
     EndFrame();
 }
 

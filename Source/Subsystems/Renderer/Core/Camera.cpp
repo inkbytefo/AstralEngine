@@ -1,4 +1,5 @@
 #include "Camera.h"
+#include <glm/gtc/matrix_transform.hpp>
 
 namespace AstralEngine {
 
@@ -19,6 +20,13 @@ glm::mat4 Camera::GetProjectionMatrix(float aspectRatio) const {
     glm::mat4 proj = glm::perspective(glm::radians(m_zoom), aspectRatio, m_nearPlane, m_farPlane);
     proj[1][1] *= -1; // Flip Y for Vulkan
     return proj;
+}
+
+void Camera::SetLookAt(const glm::vec3& target) {
+    glm::vec3 direction = glm::normalize(target - m_position);
+    m_pitch = glm::degrees(asin(direction.y));
+    m_yaw = glm::degrees(atan2(direction.z, direction.x));
+    UpdateCameraVectors();
 }
 
 void Camera::ProcessKeyboard(CameraMovement direction, float deltaTime) {

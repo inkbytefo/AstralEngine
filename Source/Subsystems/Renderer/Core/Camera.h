@@ -37,6 +37,7 @@ public:
 
     // Setters
     void SetPosition(const glm::vec3& position) { m_position = position; }
+    void SetLookAt(const glm::vec3& target);
     void SetMovementSpeed(float speed) { m_movementSpeed = speed; }
     void SetMouseSensitivity(float sensitivity) { m_mouseSensitivity = sensitivity; }
     void SetZoom(float zoom) { m_zoom = zoom; }

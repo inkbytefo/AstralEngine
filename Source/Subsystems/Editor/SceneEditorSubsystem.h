@@ -7,6 +7,7 @@
 #include "../Renderer/Core/Mesh.h"
 #include "../Renderer/Core/Material.h"
 #include "../Renderer/Core/Texture.h"
+#include "../../Subsystems/Asset/AssetHandle.h"
 #include <memory>
 #include <string>
 #include <vector>
@@ -89,6 +90,12 @@ public:
     void DuplicateSelectedEntities();
     void ParentEntity(uint32_t child, uint32_t parent);
 
+    // UI Draw (Called by UISubsystem)
+    void DrawUI();
+
+    // Render callback
+    void RenderScene(class IRHICommandList* cmdList);
+
 private:
     // Core systems
     Engine* m_owner = nullptr;
@@ -97,113 +104,104 @@ private:
     AssetSubsystem* m_assetSubsystem = nullptr;
     UISubsystem* m_uiSubsystem = nullptr;
 
-    // Editor state
-    uint32_t m_selectedEntity = 0; // entt::entity is uint32_t
+    // Editor State
+    uint32_t m_selectedEntity = (uint32_t)entt::null;
     std::unordered_set<uint32_t> m_selectedEntities;
     EditorMode m_editorMode = EditorMode::Select;
+    bool m_sceneModified = false;
+    std::string m_currentScenePath;
 
-    // UI state
+    // UI State
+    bool m_showViewport = true;
     bool m_showSceneHierarchy = true;
     bool m_showProperties = true;
-    bool m_showViewport = true;
     bool m_showToolbar = true;
 
-    // Scene management
-    std::string m_currentScenePath;
-    bool m_sceneModified = false;
-
-    // Viewport state
+    // Viewport State
     std::unique_ptr<Camera> m_editorCamera;
+    ImVec2 m_viewportSize;
     bool m_viewportFocused = false;
     bool m_viewportHovered = false;
-    glm::vec2 m_viewportSize = { 800.0f, 600.0f }; // Added viewport size tracking
 
-    // UI rendering methods
+    // Render Resources
+    static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+    std::shared_ptr<IRHIDescriptorSetLayout> m_globalDescriptorSetLayout;
+    std::vector<std::shared_ptr<IRHIBuffer>> m_uniformBuffers;
+    std::vector<std::shared_ptr<IRHIDescriptorSet>> m_globalDescriptorSets;
+    std::unique_ptr<Mesh> m_defaultMesh;
+    std::shared_ptr<Texture> m_defaultTexture;
+    std::unique_ptr<Material> m_defaultMaterial;
+
+    // Asset Handles (for Async Loading)
+    AssetHandle m_modelHandle;
+    AssetHandle m_textureHandle;
+    AssetHandle m_materialHandle;
+    bool m_textureCreated = false;
+    bool m_resourcesInitialized = false;
+
+    // Internal Helpers
+    void InitializeDefaultResources();
+    void CreateGlobalLayout();
+    void CreateUBOs(IRHIDevice* device);
+    void CreateGlobalDescriptorSets();
+    
+    // UI Renderers
     void RenderMainMenuBar();
+    void RenderViewportPanel();
     void RenderSceneHierarchy();
     void RenderPropertiesPanel();
-    void RenderViewportPanel();
     void RenderToolbar();
+    void RenderEntityNode(uint32_t entityID, bool isRoot);
+    void RenderComponentProperties(uint32_t entityID);
 
-    // Helper methods
-    void RenderEntityNode(uint32_t entity, bool isRoot = true);
-    void RenderComponentProperties(uint32_t entity);
+    // Input & Logic
+    void HandleViewportInput();
+    void UpdateEditorCamera(float deltaTime);
+
+    // Hierarchy Helpers
+    std::vector<uint32_t> GetEntityChildren(uint32_t parentID) const;
+    std::string GetEntityDisplayName(uint32_t entityID) const;
+    bool IsEntityDescendant(uint32_t entityID, uint32_t potentialAncestorID) const;
+
+    // Dialogs
+    bool ShowDeleteConfirmationDialog();
+    bool ShowUnsavedChangesDialog();
+    std::string OpenFileDialog(const std::string& title, const std::string& filter);
+    std::string SaveFileDialog(const std::string& title, const std::string& filter, const std::string& defaultExt);
+
+    // Component Renderers (Stubs for now)
     void RenderTransformComponent(TransformComponent* transform);
     void RenderRenderComponent(RenderComponent* render);
     void RenderLightComponent(LightComponent* light);
     void RenderCameraComponent(CameraComponent* camera);
-
-    void HandleViewportInput();
-    void HandleEntitySelection();
-    void UpdateEditorCamera(float deltaTime);
-
-    // Entity hierarchy helpers
-    std::vector<uint32_t> GetEntityChildren(uint32_t parent) const;
-    std::string GetEntityDisplayName(uint32_t entity) const;
-    bool IsEntityDescendant(uint32_t entity, uint32_t potentialAncestor) const;
-
-    // File dialog helpers
-    std::string OpenFileDialog(const std::string& title, const std::string& filter);
-    std::string SaveFileDialog(const std::string& title, const std::string& filter, const std::string& defaultExt);
-
-    // Scene serialization
-    void SerializeScene(const std::string& filename);
-    void DeserializeScene(const std::string& filename);
-
-    // Gizmo helpers
+    
+    // Gizmo (Stub)
     void RenderGizmo();
     bool IsGizmoVisible() const;
     void UpdateGizmoTransform();
-
-    // Confirmation dialogs
-    bool ShowDeleteConfirmationDialog();
-    bool ShowUnsavedChangesDialog();
-
-    // Utility methods
     ImVec2 GetViewportSize() const;
-    bool IsViewportFocused() const { return m_viewportFocused; }
-    bool IsViewportHovered() const { return m_viewportHovered; }
-
-    // Drag and drop helpers
     void HandleDragDrop();
     void HandleHierarchyDragDrop();
 
-    // Undo/Redo system (basic implementation)
+    // Commands (Stub)
     struct EditorCommand {
         virtual ~EditorCommand() = default;
         virtual void Execute() = 0;
         virtual void Undo() = 0;
         virtual std::string GetDescription() const = 0;
     };
-
+    
     void ExecuteCommand(std::unique_ptr<EditorCommand> command);
     void UndoLastCommand();
     void RedoNextCommand();
+    void SerializeScene(const std::string& filename);
+    void DeserializeScene(const std::string& filename);
 
     std::vector<std::unique_ptr<EditorCommand>> m_commandHistory;
     std::vector<std::unique_ptr<EditorCommand>> m_redoStack;
     size_t m_maxUndoSteps = 50;
-
-    // Rendering resources (Adapted from RenderTest)
-    void CreateGlobalLayout();
-    void CreateUBOs(IRHIDevice* device);
-    void CreateGlobalDescriptorSets();
-    void InitializeDefaultResources();
-
-    std::shared_ptr<IRHIDescriptorSetLayout> m_globalDescriptorSetLayout;
-    std::vector<std::shared_ptr<IRHIBuffer>> m_uniformBuffers;
-    std::vector<std::shared_ptr<IRHIDescriptorSet>> m_globalDescriptorSets;
-    static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
     
-    // Default assets (fallback/test)
-    std::unique_ptr<Mesh> m_defaultMesh;
-    std::shared_ptr<Texture> m_defaultTexture;
-    std::unique_ptr<Material> m_defaultMaterial;
-    
-    AssetHandle m_modelHandle;
-    AssetHandle m_textureHandle;
-    AssetHandle m_materialHandle;
-    bool m_textureCreated = false;
+    int m_gizmoOperation = -1;
 };
 
 } // namespace AstralEngine

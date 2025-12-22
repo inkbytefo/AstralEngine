@@ -29,21 +29,11 @@ public:
         
         // The Engine already initializes core subsystems (Platform, Render, UI, Asset)
         // We just need to ensure the Editor Subsystem is registered and initialized.
-        // However, subsystems are usually registered in Engine::Initialize or by the App.
-        // Let's see if we can register it dynamically or if it's already there.
-        // The Engine currently doesn't have a "RegisterSubsystem" public method for runtime?
-        // Wait, Engine::Initialize registers default ones.
         
         // Check if SceneEditorSubsystem is already registered.
         auto* editor = m_engine->GetSubsystem<SceneEditorSubsystem>();
         if (!editor) {
-            // It's likely NOT registered by default in the Engine core.
-            // We should register it here.
-            // But Engine::RegisterSubsystem is private/protected?
-            // Let's check Engine.h.
-            // If it's private, we might need to modify Engine.h or subclass Engine (not IApplication).
-            // Actually, usually IApplication is just a listener.
-            // The Engine structure might require us to add the subsystem in the main.cpp where Engine is created.
+            Logger::Warning("AstralEditor", "SceneEditorSubsystem not found. Ensure it is registered before running.");
         }
         
         Logger::Info("AstralEditor", "Editor Application Started.");
@@ -62,10 +52,6 @@ private:
 };
 
 // Main Entry Point
-// We need to implement the main function that creates the Engine and the App.
-// Usually this is in a separate Main.cpp or macro.
-// Let's assume we write the main() here.
-
 int main(int argc, char** argv) {
     AstralEngine::Engine engine;
     
