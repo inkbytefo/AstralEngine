@@ -87,6 +87,7 @@ public:
     ~VulkanDescriptorSet() override;
 
     void UpdateUniformBuffer(uint32_t binding, IRHIBuffer* buffer, uint64_t offset, uint64_t range) override;
+    void UpdateCombinedImageSampler(uint32_t binding, IRHITexture* texture, IRHISampler* sampler) override;
 
     VkDescriptorSet GetVkDescriptorSet() const { return m_set; }
 
@@ -96,9 +97,21 @@ private:
     VkDescriptorPool m_pool;
 };
 
+class VulkanSampler : public IRHISampler {
+public:
+    VulkanSampler(VulkanDevice* device, const RHISamplerDescriptor& descriptor);
+    ~VulkanSampler() override;
+
+    VkSampler GetVkSampler() const { return m_sampler; }
+
+private:
+    VulkanDevice* m_device;
+    VkSampler m_sampler = VK_NULL_HANDLE;
+};
+
 class VulkanPipeline : public IRHIPipeline {
 public:
-    VulkanPipeline(VulkanDevice* device, const RHIPipelineStateDescriptor& descriptor, VkRenderPass renderPass);
+    VulkanPipeline(VulkanDevice* device, const RHIPipelineStateDescriptor& descriptor);
     ~VulkanPipeline() override;
 
     VkPipeline GetPipeline() const { return m_pipeline; }

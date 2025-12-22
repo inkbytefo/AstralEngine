@@ -98,6 +98,28 @@ struct RHIOffset3D {
     int32_t z;
 };
 
+enum class RHIFilter {
+    Nearest,
+    Linear
+};
+
+enum class RHISamplerAddressMode {
+    Repeat,
+    MirroredRepeat,
+    ClampToEdge,
+    ClampToBorder
+};
+
+struct RHISamplerDescriptor {
+    RHIFilter minFilter = RHIFilter::Linear;
+    RHIFilter magFilter = RHIFilter::Linear;
+    RHISamplerAddressMode addressModeU = RHISamplerAddressMode::Repeat;
+    RHISamplerAddressMode addressModeV = RHISamplerAddressMode::Repeat;
+    RHISamplerAddressMode addressModeW = RHISamplerAddressMode::Repeat;
+    bool anisotropyEnable = true;
+    float maxAnisotropy = 16.0f;
+};
+
 inline RHIMemoryProperty operator|(RHIMemoryProperty a, RHIMemoryProperty b) {
     return static_cast<RHIMemoryProperty>(static_cast<int>(a) | static_cast<int>(b));
 }

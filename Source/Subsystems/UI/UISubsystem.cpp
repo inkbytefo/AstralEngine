@@ -166,8 +166,21 @@ void UISubsystem::InitializeImGui() {
     init_info.MinImageCount = 2;
     init_info.ImageCount = vulkanDevice->GetSwapchainImageCount();
     init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT; // Assuming no MSAA for UI pass
-    // This render pass must be compatible with the one used by RenderSubsystem to render the UI.
-    init_info.RenderPass = vulkanDevice->GetSwapchainRenderPass(); // NEW: Pass explicit render pass
+    
+    // Dynamic Rendering Setup
+    init_info.UseDynamicRendering = true;
+    init_info.PipelineRenderingCreateInfo = {};
+    init_info.PipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+    
+    // We need static storage for the format because pColorAttachmentFormats is a pointer
+    static VkFormat colorFormat; 
+    colorFormat = vulkanDevice->GetSwapchainImageFormat();
+    
+    init_info.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+    init_info.PipelineRenderingCreateInfo.pColorAttachmentFormats = &colorFormat;
+    init_info.PipelineRenderingCreateInfo.depthAttachmentFormat = vulkanDevice->GetDepthFormat();
+    
+    init_info.RenderPass = VK_NULL_HANDLE; 
 
     ImGui_ImplVulkan_Init(&init_info); // Argument removed in newer ImGui
 

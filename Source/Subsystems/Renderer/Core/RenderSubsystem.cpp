@@ -52,15 +52,16 @@ void RenderSubsystem::OnUpdate(float /*deltaTime*/) {
 
     // Define Render Area (Full Screen)
     IRHITexture* backBuffer = m_device->GetCurrentBackBuffer();
+    IRHITexture* depthBuffer = m_device->GetDepthBuffer();
+
     if (backBuffer) {
         RHIRect2D renderArea;
         renderArea.offset = {0, 0};
         renderArea.extent = {backBuffer->GetWidth(), backBuffer->GetHeight()};
         
         // Start Rendering
-        // Note: Current Vulkan backend implementation uses internal swapchain state
-        // ignoring the attachment arguments for the main pass.
-        cmdList->BeginRendering({}, nullptr, renderArea);
+        std::vector<IRHITexture*> colorAttachments = { backBuffer };
+        cmdList->BeginRendering(colorAttachments, depthBuffer, renderArea);
         
         // Dispatch render callback if set
         if (m_renderCallback) {

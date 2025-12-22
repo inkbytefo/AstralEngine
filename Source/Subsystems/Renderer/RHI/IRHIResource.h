@@ -31,4 +31,9 @@ public:
     virtual RHIShaderStage GetStage() const = 0;
 };
 
+class IRHISampler : public IRHIResource {
+public:
+    virtual ~IRHISampler() = default;
+};
+
 } // namespace AstralEngine

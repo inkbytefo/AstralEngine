@@ -40,6 +40,7 @@ private:
     VulkanDevice* m_device;
     VkCommandBuffer m_commandBuffer = VK_NULL_HANDLE;
     VkCommandPool m_pool;
+    std::vector<IRHITexture*> m_activeColorAttachments;
 };
 
 } // namespace AstralEngine

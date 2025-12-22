@@ -104,6 +104,36 @@ target_link_libraries(AstralEngine PUBLIC
 # This will recursively populate the sources for AstralEngine
 add_subdirectory(Source)
 
+# --- Shader Compilation ---
+find_program(GLSLC_EXECUTABLE NAMES glslc)
+if(NOT GLSLC_EXECUTABLE)
+    message(WARNING "glslc not found! Shaders will not be compiled.")
+endif()
+
+if(GLSLC_EXECUTABLE AND ASTRAL_USE_VULKAN)
+    file(GLOB_RECURSE SHADER_SOURCES "${CMAKE_SOURCE_DIR}/Assets/Shaders/Source/*.vert" "${CMAKE_SOURCE_DIR}/Assets/Shaders/Source/*.frag")
+    set(COMPILED_SHADERS "")
+
+    foreach(SHADER_SOURCE ${SHADER_SOURCES})
+        # Calculate output path: Assets/Shaders/Source/Test/SimpleTriangle.vert -> Assets/Shaders/Bin/Test/SimpleTriangle.vert.spv
+        file(RELATIVE_PATH REL_PATH "${CMAKE_SOURCE_DIR}/Assets/Shaders/Source" ${SHADER_SOURCE})
+        set(SHADER_OUTPUT "${CMAKE_SOURCE_DIR}/Assets/Shaders/Bin/${REL_PATH}.spv")
+        
+        get_filename_component(OUTPUT_DIR ${SHADER_OUTPUT} DIRECTORY)
+        file(MAKE_DIRECTORY ${OUTPUT_DIR})
+        
+        add_custom_command(
+            OUTPUT ${SHADER_OUTPUT}
+            COMMAND ${GLSLC_EXECUTABLE} ${SHADER_SOURCE} -o ${SHADER_OUTPUT}
+            DEPENDS ${SHADER_SOURCE}
+            COMMENT "Compiling shader: ${REL_PATH} -> ${REL_PATH}.spv"
+        )
+        list(APPEND COMPILED_SHADERS ${SHADER_OUTPUT})
+    endforeach()
+
+    add_custom_target(CompileShaders ALL DEPENDS ${COMPILED_SHADERS})
+endif()
+
 # =====================================================================
 # SUB-PROJECTS (Examples, Tests, Tools)
 # =====================================================================
@@ -112,6 +142,10 @@ add_subdirectory(Source)
 # to correctly link against the engine and inherit its settings.
 function(configure_astral_target target)
     target_link_libraries(${target} PRIVATE AstralEngine)
+
+    if(TARGET CompileShaders)
+        add_dependencies(${target} CompileShaders)
+    endif()
 
     set_target_properties(${target} PROPERTIES
         DEBUG_POSTFIX "_d"
@@ -124,16 +158,6 @@ function(configure_astral_target target)
             ${CMAKE_SOURCE_DIR}/Assets $<TARGET_FILE_DIR:${target}>/Assets
         COMMENT "Copying assets to ${target} output directory"
     )
-
-    # Copy compiled shaders if Vulkan is enabled
-    if(ASTRAL_USE_VULKAN)
-        # TODO: Enable this when shader compilation is implemented
-        # add_custom_command(TARGET ${target} POST_BUILD
-        #     COMMAND ${CMAKE_COMMAND} -E copy_directory
-        #         ${CMAKE_BINARY_DIR}/shaders $<TARGET_FILE_DIR:${target}>/Assets/Shaders
-        #     COMMENT "Copying compiled shaders to ${target} output directory"
-        # )
-    endif()
 endfunction()
 
 if(ASTRAL_BUILD_EXAMPLES)

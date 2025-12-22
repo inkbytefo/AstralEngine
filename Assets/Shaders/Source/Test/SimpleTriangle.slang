@@ -1,7 +1,7 @@
 
 struct VertexInput
 {
-    float2 position : POSITION;
+    float3 position : POSITION;
     float3 color : COLOR;
 };
 
@@ -23,7 +23,7 @@ ConstantBuffer<UBO> ubo;
 VertexOutput vertexMain(VertexInput input)
 {
     VertexOutput output;
-    float4 pos = float4(input.position, 0.0, 1.0);
+    float4 pos = float4(input.position, 1.0);
     // Rotate around Z axis (2D rotation)
     output.position = mul(ubo.model, pos);
     output.color = input.color;

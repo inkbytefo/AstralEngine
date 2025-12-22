@@ -2,8 +2,61 @@
 #include "VulkanDevice.h"
 #include "VulkanResources.h"
 #include <stdexcept>
+#include <array>
+#include <vector>
 
 namespace AstralEngine {
+
+// Helper function for layout transition
+static void TransitionImageLayout(VkCommandBuffer cmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, bool isDepth = false) {
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = oldLayout;
+    barrier.newLayout = newLayout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image;
+    barrier.subresourceRange.aspectMask = isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+
+    VkPipelineStageFlags sourceStage;
+    VkPipelineStageFlags destinationStage;
+
+    if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        destinationStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR) {
+        barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        barrier.dstAccessMask = 0;
+        sourceStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        destinationStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        destinationStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    } else {
+        // Fallback or generic barrier
+        barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+        sourceStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        destinationStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+    }
+
+    vkCmdPipelineBarrier(
+        cmd,
+        sourceStage, destinationStage,
+        0,
+        0, nullptr,
+        0, nullptr,
+        1, &barrier
+    );
+}
 
 VulkanCommandList::VulkanCommandList(VulkanDevice* device, VkCommandPool pool)
     : m_device(device), m_pool(pool) {
@@ -45,23 +98,70 @@ void VulkanCommandList::End() {
 }
 
 void VulkanCommandList::BeginRendering(const std::vector<IRHITexture*>& colorAttachments, IRHITexture* depthAttachment, const RHIRect2D& renderArea) {
-    // Legacy RenderPass path
-    VkRenderPassBeginInfo renderPassInfo{};
-    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    renderPassInfo.renderPass = m_device->GetSwapchainRenderPass();
-    renderPassInfo.framebuffer = m_device->GetFramebuffer(m_device->GetCurrentImageIndex());
-    renderPassInfo.renderArea.offset = { renderArea.offset.x, renderArea.offset.y };
-    renderPassInfo.renderArea.extent = { renderArea.extent.width, renderArea.extent.height };
+    m_activeColorAttachments = colorAttachments;
 
-    VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
-    renderPassInfo.clearValueCount = 1;
-    renderPassInfo.pClearValues = &clearColor;
+    std::vector<VkRenderingAttachmentInfo> colorInfos;
+    colorInfos.reserve(colorAttachments.size());
 
-    vkCmdBeginRenderPass(m_commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+    for (auto* texture : colorAttachments) {
+        auto* vkTexture = static_cast<VulkanTexture*>(texture);
+        
+        // Transition to COLOR_ATTACHMENT_OPTIMAL
+        TransitionImageLayout(m_commandBuffer, vkTexture->GetImage(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+        VkRenderingAttachmentInfo colorAttachment{};
+        colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        colorAttachment.imageView = vkTexture->GetImageView();
+        colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        colorAttachment.clearValue = { 0.0f, 0.0f, 0.0f, 1.0f };
+        colorInfos.push_back(colorAttachment);
+    }
+
+    VkRenderingAttachmentInfo depthInfo{};
+    bool hasDepth = (depthAttachment != nullptr);
+    if (hasDepth) {
+        auto* vkTexture = static_cast<VulkanTexture*>(depthAttachment);
+        
+        // Transition to DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+        TransitionImageLayout(m_commandBuffer, vkTexture->GetImage(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, true);
+
+        depthInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        depthInfo.imageView = vkTexture->GetImageView();
+        depthInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        depthInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depthInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        depthInfo.clearValue.depthStencil = { 1.0f, 0 };
+    }
+
+    VkRenderingInfo renderingInfo{};
+    renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    renderingInfo.renderArea = { {renderArea.offset.x, renderArea.offset.y}, {renderArea.extent.width, renderArea.extent.height} };
+    renderingInfo.layerCount = 1;
+    renderingInfo.colorAttachmentCount = static_cast<uint32_t>(colorInfos.size());
+    renderingInfo.pColorAttachments = colorInfos.data();
+    renderingInfo.pDepthAttachment = hasDepth ? &depthInfo : nullptr;
+    renderingInfo.pStencilAttachment = nullptr;
+
+    auto func = (PFN_vkCmdBeginRendering)vkGetDeviceProcAddr(m_device->GetVkDevice(), "vkCmdBeginRendering");
+    if (func) {
+        func(m_commandBuffer, &renderingInfo);
+    }
 }
 
 void VulkanCommandList::EndRendering() {
-    vkCmdEndRenderPass(m_commandBuffer);
+    auto func = (PFN_vkCmdEndRendering)vkGetDeviceProcAddr(m_device->GetVkDevice(), "vkCmdEndRendering");
+    if (func) {
+        func(m_commandBuffer);
+    }
+
+    // Transition color attachments to PRESENT_SRC_KHR for presentation
+    for (auto* texture : m_activeColorAttachments) {
+        auto* vkTexture = static_cast<VulkanTexture*>(texture);
+        TransitionImageLayout(m_commandBuffer, vkTexture->GetImage(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    }
+    m_activeColorAttachments.clear();
 }
 
 void VulkanCommandList::BindPipeline(IRHIPipeline* pipeline) {

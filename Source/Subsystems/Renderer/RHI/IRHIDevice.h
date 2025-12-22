@@ -22,7 +22,14 @@ public:
 
     // Resource Creation
     virtual std::shared_ptr<IRHIBuffer> CreateBuffer(uint64_t size, RHIBufferUsage usage, RHIMemoryProperty memoryProperties) = 0;
+    
+    // Creates a DeviceLocal buffer and uploads data using a staging buffer
+    virtual std::shared_ptr<IRHIBuffer> CreateAndUploadBuffer(uint64_t size, RHIBufferUsage usage, const void* data) = 0;
+
     virtual std::shared_ptr<IRHITexture> CreateTexture2D(uint32_t width, uint32_t height, RHIFormat format, RHITextureUsage usage) = 0;
+    virtual std::shared_ptr<IRHITexture> CreateAndUploadTexture(uint32_t width, uint32_t height, RHIFormat format, const void* data) = 0;
+    virtual std::shared_ptr<IRHISampler> CreateSampler(const RHISamplerDescriptor& descriptor) = 0;
+
     virtual std::shared_ptr<IRHIShader> CreateShader(RHIShaderStage stage, std::span<const uint8_t> code) = 0;
     virtual std::shared_ptr<IRHIPipeline> CreateGraphicsPipeline(const RHIPipelineStateDescriptor& descriptor) = 0;
 
@@ -40,6 +47,8 @@ public:
     
     // Swapchain interaction
     virtual IRHITexture* GetCurrentBackBuffer() = 0;
+    virtual IRHITexture* GetDepthBuffer() = 0;
+    virtual uint32_t GetCurrentFrameIndex() const = 0;
     
     // Waiting
     virtual void WaitIdle() = 0;

@@ -10,6 +10,12 @@ target_sources(AstralEngine PRIVATE
     
     # Core (To be implemented)
     "Core/RenderSubsystem.cpp" 
+    "Core/Mesh.cpp"
+    "Core/Mesh.h"
+    "Core/Texture.cpp"
+    "Core/Texture.h"
+    "Core/Camera.cpp"
+    "Core/Camera.h"
 )
 
 # Add dependencies specific to Renderer if any (Vulkan is already linked globally)
