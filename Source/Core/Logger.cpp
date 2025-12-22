@@ -9,6 +9,7 @@ namespace AstralEngine {
 
 Logger::LogLevel Logger::s_currentLevel = Logger::LogLevel::Info;
 std::unique_ptr<FileLogger> Logger::s_fileLogger = nullptr;
+Logger::LogCallback Logger::s_logCallback = nullptr;
 
 void Logger::Log(LogLevel level, const std::string& category, const std::string& message) {
     if (level < s_currentLevel) {
@@ -18,6 +19,11 @@ void Logger::Log(LogLevel level, const std::string& category, const std::string&
     std::string timestamp = GetTimeString();
     std::string levelStr = GetLevelString(level);
     
+    // Callback (Editor Console vb.)
+    if (s_logCallback) {
+        s_logCallback(level, category, message);
+    }
+
     // Konsola yaz
     std::cout << "[" << timestamp << "] "
               << "[" << levelStr << "] "
@@ -61,6 +67,10 @@ std::string Logger::GetTimeString() {
     oss << '.' << std::setfill('0') << std::setw(3) << milliseconds.count();
     
     return oss.str();
+}
+
+void Logger::SetLogCallback(LogCallback callback) {
+    s_logCallback = callback;
 }
 
 void Logger::SetLogLevel(LogLevel level) {

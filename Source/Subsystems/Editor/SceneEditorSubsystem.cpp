@@ -8,10 +8,15 @@
 #include "../../Core/Logger.h"
 #include "../../Subsystems/Scene/Entity.h"
 
+#include "../../Subsystems/Renderer/RHI/Vulkan/VulkanDevice.h"
+#include "../../Subsystems/Renderer/RHI/Vulkan/VulkanResources.h"
+#include "backends/imgui_impl_vulkan.h"
+
 #include <algorithm>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include <filesystem>
 
 // ImGui includes
 #ifdef ASTRAL_USE_IMGUI
@@ -73,18 +78,32 @@ void SceneEditorSubsystem::OnInitialize(Engine* owner) {
         return;
     }
 
-    // Initialize render resources (Deferred to OnUpdate to ensure RenderSubsystem is ready)
-    // InitializeDefaultResources();
+    // Initialize Viewport Resources (1x1 initially)
+    SetupViewportResources();
 
-    // Register render callback
-    m_renderSubsystem->SetRenderCallback([this](IRHICommandList* cmdList) {
+    // Register PRE-render callback (Offscreen Rendering to Viewport Texture)
+    m_renderSubsystem->SetPreRenderCallback([this](IRHICommandList* cmdList) {
         this->RenderScene(cmdList);
     });
+
+    // Clear main render callback to avoid drawing scene to backbuffer (UI only)
+    m_renderSubsystem->SetRenderCallback(nullptr);
 
     // Register UI Draw callback
     m_uiSubsystem->RegisterDrawCallback([this]() {
         this->DrawUI();
     });
+
+    // Register Logger Callback
+    Logger::SetLogCallback([this](Logger::LogLevel level, const std::string& category, const std::string& message) {
+        std::string fmtMsg = "[" + category + "] " + message;
+        m_logBuffer.push_back({level, fmtMsg});
+    });
+
+    // Initialize Panels
+    m_panels.push_back(std::make_unique<SceneHierarchyPanel>(m_activeScene));
+    m_panels.push_back(std::make_unique<PropertiesPanel>());
+    static_cast<PropertiesPanel*>(m_panels.back().get())->SetContext(m_activeScene);
 
     Logger::Info("SceneEditorSubsystem", "Scene Editor Subsystem initialized successfully");
 }
@@ -107,22 +126,52 @@ void SceneEditorSubsystem::DrawUI() {
 
     // 2. Setup DockSpace
     ImGuiViewport* viewport = ImGui::GetMainViewport();
-    ImGui::DockSpaceOverViewport(0, viewport, ImGuiDockNodeFlags_PassthruCentralNode);
+    ImGui::DockSpaceOverViewport(viewport->ID, viewport, ImGuiDockNodeFlags_PassthruCentralNode);
+
+    // Initialize Layout (First run or reset)
+    if (!m_layoutInitialized) {
+        ResetLayout();
+        m_layoutInitialized = true;
+    }
 
     // 3. Render Panels
-    RenderViewportPanel();
-    RenderSceneHierarchy();
-    RenderPropertiesPanel();
+    for (auto& panel : m_panels) {
+        panel->OnDraw();
+    }
+
+    RenderViewportPanel(); 
     RenderToolbar();
+    RenderContentBrowser();
+    RenderOutputLog();
 }
 
 void SceneEditorSubsystem::OnShutdown() {
     Logger::Info("SceneEditorSubsystem", "Scene Editor Subsystem shutting down");
 
+    // Clear resources before RenderSubsystem shuts down
+    m_meshCache.clear();
+    m_defaultMesh.reset();
+    m_defaultMaterial.reset();
+    m_defaultTexture.reset();
+    m_globalDescriptorSets.clear();
+    for (auto& buffer : m_uniformBuffers) {
+        buffer.reset();
+    }
+    m_uniformBuffers.clear();
+
+    // Reset active scene to clear entities and their components
+    if (m_activeScene) {
+        m_activeScene->Reg().clear();
+        m_activeScene.reset();
+    }
+
+    // Unregister callbacks
+    if (m_renderSubsystem) {
+        m_renderSubsystem->SetRenderCallback(nullptr);
+    }
+
     // Check for unsaved changes
     if (m_sceneModified) {
-        // In a real app, we might block shutdown here or force save
-        // For now, just log it
         Logger::Warning("SceneEditorSubsystem", "Shutdown with unsaved changes");
     }
 }
@@ -133,6 +182,14 @@ void SceneEditorSubsystem::SetSelectedEntity(uint32_t entityID) {
         m_selectedEntity = entityID;
         m_selectedEntities.clear();
         m_selectedEntities.insert(entityID);
+        
+        // Update Properties Panel
+        for (auto& panel : m_panels) {
+            if (panel->GetName() == "Details") {
+                static_cast<PropertiesPanel*>(panel.get())->SetSelectedEntity(entityID);
+            }
+        }
+
         Logger::Debug("SceneEditorSubsystem", "Selected entity: {}", entityID);
     }
 }
@@ -225,6 +282,37 @@ uint32_t SceneEditorSubsystem::CreateLightEntity(const std::string& name, LightC
     return entityID;
 }
 
+bool SceneEditorSubsystem::ImportModel(const std::string& path) {
+    if (!m_assetSubsystem) return false;
+
+    AssetManager* am = m_assetSubsystem->GetAssetManager();
+    if (!am) return false;
+
+    // Load Model
+    AssetHandle modelHandle = am->Load<ModelData>(path);
+    if (!modelHandle.IsValid()) {
+        Logger::Error("SceneEditorSubsystem", "Failed to load model: {}", path);
+        return false;
+    }
+
+    // Get default material (reuse existing handle if possible, or load default)
+    if (!m_materialHandle.IsValid()) {
+        m_materialHandle = am->Load<MaterialData>("Materials/Default.amat");
+    }
+
+    // Create Entity
+    std::filesystem::path fsPath(path);
+    std::string entityName = fsPath.stem().string();
+    uint32_t entityID = CreateEmptyEntity(entityName);
+    Entity entity((entt::entity)entityID, m_activeScene.get());
+
+    // Add RenderComponent
+    entity.AddComponent<RenderComponent>(m_materialHandle, modelHandle);
+
+    Logger::Info("SceneEditorSubsystem", "Imported model entity: {}", entityName);
+    return true;
+}
+
 uint32_t SceneEditorSubsystem::CreateCameraEntity(const std::string& name, bool setAsMain) {
     uint32_t entityID = CreateEmptyEntity(name);
     Entity entity((entt::entity)entityID, m_activeScene.get());
@@ -286,10 +374,16 @@ void SceneEditorSubsystem::ParentEntity(uint32_t childID, uint32_t parentID) {
 
 // UI Rendering methods
 void SceneEditorSubsystem::RenderMainMenuBar() {
+    bool openImportPopup = false;
+
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("New Scene", "Ctrl+N")) NewScene();
             if (ImGui::MenuItem("Save Scene", "Ctrl+S")) SaveScene("scene.yaml"); // Placeholder
+            ImGui::Separator();
+            if (ImGui::MenuItem("Import 3D Model...")) {
+                openImportPopup = true;
+            }
             ImGui::Separator();
             if (ImGui::MenuItem("Exit")) m_owner->RequestShutdown();
             ImGui::EndMenu();
@@ -304,220 +398,92 @@ void SceneEditorSubsystem::RenderMainMenuBar() {
             ImGui::MenuItem("Viewport", nullptr, &m_showViewport);
             ImGui::MenuItem("Scene Hierarchy", nullptr, &m_showSceneHierarchy);
             ImGui::MenuItem("Properties", nullptr, &m_showProperties);
+            ImGui::MenuItem("Content Browser", nullptr, &m_showContentBrowser);
+            ImGui::MenuItem("Output Log", nullptr, &m_showOutputLog);
             ImGui::MenuItem("Toolbar", nullptr, &m_showToolbar);
             ImGui::EndMenu();
         }
 
         ImGui::EndMainMenuBar();
     }
-}
 
-void SceneEditorSubsystem::RenderSceneHierarchy() {
-    if (!m_showSceneHierarchy) return;
+    // Handle Popup opening outside the menu bar scope
+    if (openImportPopup) {
+        ImGui::OpenPopup("ImportModelPopup");
+    }
 
-    ImGui::Begin("World Outliner", &m_showSceneHierarchy);
-
-    // List all entities that do not have a parent (root entities)
-    // Or if no RelationshipComponent, list all entities
-    
-    auto view = m_activeScene->Reg().view<entt::entity>();
-    for(auto entityID : view) {
-        Entity entity(entityID, m_activeScene.get());
+     // Import Model Popup
+    if (ImGui::BeginPopupModal("ImportModelPopup", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        static std::string selectedFile = "";
+        static std::string statusMsg = "";
+        static std::vector<std::string> availableModels;
         
-        bool isRoot = true;
-        if (entity.HasComponent<RelationshipComponent>()) {
-            if (entity.GetComponent<RelationshipComponent>().Parent != entt::null) {
-                isRoot = false;
+        // Refresh list if empty
+        if (availableModels.empty()) {
+             // Hardcoded common models + scan logic could go here
+             // For now, let's list known files or scan
+             availableModels.clear();
+             try {
+                 if (std::filesystem::exists("Assets/Models")) {
+                     for (const auto& entry : std::filesystem::directory_iterator("Assets/Models")) {
+                         if (entry.is_regular_file()) {
+                             std::string ext = entry.path().extension().string();
+                             if (ext == ".obj" || ext == ".fbx" || ext == ".gltf") {
+                                 // Store relative path: "Models/filename.ext"
+                                 availableModels.push_back("Models/" + entry.path().filename().string());
+                             }
+                         }
+                     }
+                 }
+             } catch (...) {}
+        }
+
+        ImGui::Text("Available Models:");
+        if (ImGui::BeginListBox("##ModelList", ImVec2(300, 200))) {
+            for (const auto& modelPath : availableModels) {
+                bool isSelected = (selectedFile == modelPath);
+                if (ImGui::Selectable(modelPath.c_str(), isSelected)) {
+                    selectedFile = modelPath;
+                }
+                if (isSelected) {
+                    ImGui::SetItemDefaultFocus();
+                }
             }
+            ImGui::EndListBox();
         }
         
-        if (isRoot) {
-            RenderEntityNode((uint32_t)entityID, true);
+        if (ImGui::Button("Refresh List")) {
+            availableModels.clear(); 
         }
-    }
-    
-    // Right-click on blank space to create entity
-    if (ImGui::BeginPopupContextWindow(nullptr, ImGuiPopupFlags_MouseButtonRight)) {
-        if (ImGui::MenuItem("Create Empty Entity")) CreateEmptyEntity("Empty Entity");
-        ImGui::EndPopup();
-    }
 
-    ImGui::End();
-}
+        ImGui::Separator();
+        ImGui::Text("Selected: %s", selectedFile.c_str());
 
-void SceneEditorSubsystem::RenderEntityNode(uint32_t entityID, bool isRoot) {
-    Entity entity((entt::entity)entityID, m_activeScene.get());
-    if (!entity) return;
-
-    std::string name = "Entity";
-    if (entity.HasComponent<NameComponent>()) {
-        name = entity.GetComponent<NameComponent>().name;
-    } else if (entity.HasComponent<TagComponent>()) {
-        name = entity.GetComponent<TagComponent>().tag;
-    }
-    
-    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick | ImGuiTreeNodeFlags_SpanAvailWidth;
-    
-    if (m_selectedEntity == entityID) {
-        flags |= ImGuiTreeNodeFlags_Selected;
-    }
-    
-    bool hasChildren = false;
-    if (entity.HasComponent<RelationshipComponent>()) {
-        if (!entity.GetComponent<RelationshipComponent>().Children.empty()) {
-            hasChildren = true;
+        if (!statusMsg.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "%s", statusMsg.c_str());
         }
-    }
-    
-    if (!hasChildren) {
-        flags |= ImGuiTreeNodeFlags_Leaf;
-    }
 
-    bool opened = ImGui::TreeNodeEx((void*)(uint64_t)entityID, flags, "%s", name.c_str());
-    
-    if (ImGui::IsItemClicked()) {
-        SetSelectedEntity(entityID);
-    }
-    
-    if (opened) {
-        if (hasChildren) {
-            for (auto childID : entity.GetComponent<RelationshipComponent>().Children) {
-                RenderEntityNode((uint32_t)childID, false);
-            }
-        }
-        ImGui::TreePop();
-    }
-}
-
-void SceneEditorSubsystem::RenderPropertiesPanel() {
-    if (!m_showProperties) return;
-
-    ImGui::Begin("Details", &m_showProperties);
-
-    if (m_selectedEntity != (uint32_t)entt::null) {
-        RenderComponentProperties(m_selectedEntity);
-    } else {
-        ImGui::Text("Select an entity to view properties.");
-    }
-
-    ImGui::End();
-}
-
-void SceneEditorSubsystem::RenderComponentProperties(uint32_t entityID) {
-    Entity entity((entt::entity)entityID, m_activeScene.get());
-    
-    // Name Component
-    if (entity.HasComponent<NameComponent>()) {
-        auto& name = entity.GetComponent<NameComponent>().name;
-        char buffer[256];
-        memset(buffer, 0, sizeof(buffer));
-        strncpy_s(buffer, name.c_str(), sizeof(buffer));
-        if (ImGui::InputText("Name", buffer, sizeof(buffer))) {
-            name = std::string(buffer);
-            m_sceneModified = true;
-        }
-    }
-    
-    // Transform Component
-    if (entity.HasComponent<TransformComponent>()) {
-        if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen)) {
-            auto& tc = entity.GetComponent<TransformComponent>();
-            
-            bool changed = false;
-            changed |= ImGui::DragFloat3("Position", &tc.position.x, 0.1f);
-            
-            glm::vec3 rotationDegrees = glm::degrees(tc.rotation);
-            if (ImGui::DragFloat3("Rotation", &rotationDegrees.x, 0.1f)) {
-                tc.rotation = glm::radians(rotationDegrees);
-                changed = true;
-            }
-            
-            changed |= ImGui::DragFloat3("Scale", &tc.scale.x, 0.01f);
-            
-            if (changed) m_sceneModified = true;
-        }
-    }
-
-    // Camera Component
-    if (entity.HasComponent<CameraComponent>()) {
-        if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
-            auto& cc = entity.GetComponent<CameraComponent>();
-            
-            bool changed = false;
-            changed |= ImGui::Checkbox("Main Camera", &cc.isMainCamera);
-            
-            const char* projectionTypes[] = { "Perspective", "Orthographic" };
-            int currentType = (int)cc.projectionType;
-            if (ImGui::Combo("Projection", &currentType, projectionTypes, IM_ARRAYSIZE(projectionTypes))) {
-                cc.projectionType = (CameraComponent::ProjectionType)currentType;
-                changed = true;
-            }
-            
-            if (cc.projectionType == CameraComponent::ProjectionType::Perspective) {
-                changed |= ImGui::DragFloat("FOV", &cc.fieldOfView, 0.1f, 1.0f, 179.0f);
-                changed |= ImGui::DragFloat("Near Plane", &cc.nearPlane, 0.01f);
-                changed |= ImGui::DragFloat("Far Plane", &cc.farPlane, 1.0f);
+        if (ImGui::Button("Import", ImVec2(120, 0))) {
+            if (selectedFile.empty()) {
+                statusMsg = "Please select a file.";
             } else {
-                changed |= ImGui::DragFloat("Size", &cc.orthoTop, 0.1f);
-                // Simplified ortho size for now
+                if (ImportModel(selectedFile)) {
+                    statusMsg = "";
+                    ImGui::CloseCurrentPopup();
+                } else {
+                    statusMsg = "Failed to load model!";
+                }
             }
-            
-            if (changed) m_sceneModified = true;
         }
-    }
-    
-    // Light Component
-    if (entity.HasComponent<LightComponent>()) {
-        if (ImGui::CollapsingHeader("Light", ImGuiTreeNodeFlags_DefaultOpen)) {
-            auto& lc = entity.GetComponent<LightComponent>();
-            
-            bool changed = false;
-            const char* lightTypes[] = { "Directional", "Point", "Spot" };
-            int currentType = (int)lc.type;
-            if (ImGui::Combo("Type", &currentType, lightTypes, IM_ARRAYSIZE(lightTypes))) {
-                lc.type = (LightComponent::LightType)currentType;
-                changed = true;
-            }
-            
-            changed |= ImGui::ColorEdit3("Color", &lc.color.x);
-            changed |= ImGui::DragFloat("Intensity", &lc.intensity, 0.1f, 0.0f, 100.0f);
-            
-            if (lc.type != LightComponent::LightType::Directional) {
-                changed |= ImGui::DragFloat("Range", &lc.range, 0.1f, 0.0f, 1000.0f);
-            }
-            
-            if (lc.type == LightComponent::LightType::Spot) {
-                changed |= ImGui::DragFloat("Inner Cone", &lc.innerConeAngle, 0.1f, 0.0f, 89.0f);
-                changed |= ImGui::DragFloat("Outer Cone", &lc.outerConeAngle, 0.1f, 0.0f, 90.0f);
-            }
-            
-            changed |= ImGui::Checkbox("Casts Shadows", &lc.castsShadows);
-            
-            if (changed) m_sceneModified = true;
-        }
-    }
-
-    // Add Component Button
-    ImGui::Separator();
-    if (ImGui::Button("Add Component")) {
-        ImGui::OpenPopup("AddComponentPopup");
-    }
-
-    if (ImGui::BeginPopup("AddComponentPopup")) {
-        if (!entity.HasComponent<CameraComponent>() && ImGui::MenuItem("Camera")) {
-            entity.AddComponent<CameraComponent>();
-            m_sceneModified = true;
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            statusMsg = "";
             ImGui::CloseCurrentPopup();
         }
-        if (!entity.HasComponent<LightComponent>() && ImGui::MenuItem("Light")) {
-            entity.AddComponent<LightComponent>();
-            m_sceneModified = true;
-            ImGui::CloseCurrentPopup();
-        }
-        // Add more components here
         ImGui::EndPopup();
     }
 }
+
 
 void SceneEditorSubsystem::RenderViewportPanel() {
     if (!m_showViewport) return;
@@ -529,14 +495,18 @@ void SceneEditorSubsystem::RenderViewportPanel() {
     m_viewportHovered = ImGui::IsWindowHovered();
     
     ImVec2 viewportSize = ImGui::GetContentRegionAvail();
-    m_viewportSize = viewportSize;
     
-    // Placeholder for actual render texture
-    ImGui::Text("3D Viewport");
-    ImGui::Text("Size: %.0f x %.0f", viewportSize.x, viewportSize.y);
+    // Resize if needed
+    if (viewportSize.x != m_viewportSize.x || viewportSize.y != m_viewportSize.y) {
+        ResizeViewport((uint32_t)viewportSize.x, (uint32_t)viewportSize.y);
+    }
     
-    // In the future:
-    // ImGui::Image((void*)(intptr_t)m_renderSubsystem->GetFinalImageID(), viewportSize, ImVec2(0, 1), ImVec2(1, 0));
+    // Display Image
+    if (m_viewportDescriptorSet) {
+        ImGui::Image((ImTextureID)m_viewportDescriptorSet, viewportSize, ImVec2(0, 0), ImVec2(1, 1));
+    } else {
+        ImGui::Text("Loading Viewport...");
+    }
 
     ImGui::End();
     ImGui::PopStyleVar();
@@ -566,8 +536,42 @@ void SceneEditorSubsystem::RenderToolbar() {
     if (ImGui::Button("Stop")) {
         // TODO: Stop PIE
     }
+    
+    ImGui::SameLine();
+    ImGui::Separator();
+    ImGui::SameLine();
+    if (ImGui::Button("Reset Layout")) {
+        m_layoutInitialized = false;
+    }
 
     ImGui::End();
+}
+
+void SceneEditorSubsystem::ResetLayout() {
+    ImGuiID dockspace_id = ImGui::GetID("DockSpace");
+    
+    // Clear existing layout
+    ImGui::DockBuilderRemoveNode(dockspace_id); 
+    ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
+    ImGui::DockBuilderSetNodeSize(dockspace_id, ImGui::GetMainViewport()->Size);
+
+    ImGuiID dock_main_id = dockspace_id;
+    
+    // Split the dockspace into regions
+    ImGuiID dock_id_bottom = ImGui::DockBuilderSplitNode(dock_main_id, ImGuiDir_Down, 0.25f, nullptr, &dock_main_id);
+    ImGuiID dock_id_left = ImGui::DockBuilderSplitNode(dock_main_id, ImGuiDir_Left, 0.2f, nullptr, &dock_main_id);
+    ImGuiID dock_id_right = ImGui::DockBuilderSplitNode(dock_main_id, ImGuiDir_Right, 0.25f, nullptr, &dock_main_id);
+    ImGuiID dock_id_top = ImGui::DockBuilderSplitNode(dock_main_id, ImGuiDir_Up, 0.05f, nullptr, &dock_main_id); // Small strip for Toolbar if needed, or put it in main
+
+    // Dock windows
+    ImGui::DockBuilderDockWindow("Viewport", dock_main_id);
+    ImGui::DockBuilderDockWindow("World Outliner", dock_id_left);
+    ImGui::DockBuilderDockWindow("Details", dock_id_right);
+    ImGui::DockBuilderDockWindow("Content Browser", dock_id_bottom);
+    ImGui::DockBuilderDockWindow("Output Log", dock_id_bottom);
+    ImGui::DockBuilderDockWindow("Toolbar", dock_id_top);
+
+    ImGui::DockBuilderFinish(dockspace_id);
 }
 
 void SceneEditorSubsystem::HandleViewportInput() {
@@ -577,6 +581,7 @@ void SceneEditorSubsystem::HandleViewportInput() {
 }
 
 void SceneEditorSubsystem::UpdateEditorCamera(float deltaTime) {
+    (void)deltaTime;
     if (m_viewportFocused) {
         // Update camera based on input
     }
@@ -622,85 +627,134 @@ bool SceneEditorSubsystem::IsEntityDescendant(uint32_t entityID, uint32_t potent
 }
 
 // Dialog stubs
-std::string SceneEditorSubsystem::OpenFileDialog(const std::string& title, const std::string& filter) { return ""; }
-std::string SceneEditorSubsystem::SaveFileDialog(const std::string& title, const std::string& filter, const std::string& defaultExt) { return ""; }
+std::string SceneEditorSubsystem::OpenFileDialog(const std::string& title, const std::string& filter) { 
+    (void)title; (void)filter;
+    return ""; 
+}
+std::string SceneEditorSubsystem::SaveFileDialog(const std::string& title, const std::string& filter, const std::string& defaultExt) { 
+    (void)title; (void)filter; (void)defaultExt;
+    return ""; 
+}
 bool SceneEditorSubsystem::ShowDeleteConfirmationDialog() { return true; }
 bool SceneEditorSubsystem::ShowUnsavedChangesDialog() { return true; }
 
 // Dummy implementations for private helpers
-void SceneEditorSubsystem::RenderTransformComponent(TransformComponent* transform) {}
-void SceneEditorSubsystem::RenderRenderComponent(RenderComponent* render) {}
-void SceneEditorSubsystem::RenderLightComponent(LightComponent* light) {}
-void SceneEditorSubsystem::RenderCameraComponent(CameraComponent* camera) {}
+void SceneEditorSubsystem::RenderTransformComponent(TransformComponent* transform) { (void)transform; }
+void SceneEditorSubsystem::RenderRenderComponent(RenderComponent* render) { (void)render; }
+void SceneEditorSubsystem::RenderLightComponent(LightComponent* light) { (void)light; }
+void SceneEditorSubsystem::RenderCameraComponent(CameraComponent* camera) { (void)camera; }
 void SceneEditorSubsystem::RenderGizmo() {}
 bool SceneEditorSubsystem::IsGizmoVisible() const { return false; }
 void SceneEditorSubsystem::UpdateGizmoTransform() {}
 ImVec2 SceneEditorSubsystem::GetViewportSize() const { return ImVec2(0,0); }
 void SceneEditorSubsystem::HandleDragDrop() {}
 void SceneEditorSubsystem::HandleHierarchyDragDrop() {}
-void SceneEditorSubsystem::ExecuteCommand(std::unique_ptr<EditorCommand> command) {}
+void SceneEditorSubsystem::ExecuteCommand(std::unique_ptr<EditorCommand> command) { (void)command; }
 void SceneEditorSubsystem::UndoLastCommand() {}
 void SceneEditorSubsystem::RedoNextCommand() {}
-void SceneEditorSubsystem::SerializeScene(const std::string& filename) {}
-void SceneEditorSubsystem::DeserializeScene(const std::string& filename) {}
+void SceneEditorSubsystem::SerializeScene(const std::string& filename) { (void)filename; }
+void SceneEditorSubsystem::DeserializeScene(const std::string& filename) { (void)filename; }
 
 void SceneEditorSubsystem::RenderScene(IRHICommandList* cmdList) {
-    if (!m_defaultMaterial || !m_defaultMesh || !m_defaultTexture || m_globalDescriptorSets.empty()) return;
+    if (!m_viewportTexture || !m_viewportDepth) return;
+    
+    // Begin Rendering to Viewport Texture
+    std::vector<IRHITexture*> colorAttachments = { m_viewportTexture.get() };
+    RHIRect2D renderArea;
+    renderArea.offset = { 0, 0 };
+    renderArea.extent = { m_viewportTexture->GetWidth(), m_viewportTexture->GetHeight() };
+    
+    cmdList->BeginRendering(colorAttachments, m_viewportDepth.get(), renderArea);
 
+    if (m_defaultMaterial && m_defaultMesh && !m_globalDescriptorSets.empty()) {
+        IRHIDevice* device = m_renderSubsystem->GetDevice();
+        uint32_t currentFrame = device->GetCurrentFrameIndex();
+        
+        if (currentFrame < m_globalDescriptorSets.size()) {
+            // Bind Pipeline and Global Descriptor Set
+            cmdList->BindPipeline(m_defaultMaterial->GetPipeline());
+            cmdList->BindDescriptorSet(m_defaultMaterial->GetPipeline(), m_globalDescriptorSets[currentFrame].get(), 0);
+
+            // Draw Entities
+            auto view = m_activeScene->Reg().view<const TransformComponent, const RenderComponent>();
+            for (auto entity : view) {
+                const auto& transform = view.get<const TransformComponent>(entity);
+                const auto& render = view.get<const RenderComponent>(entity);
+                
+                if (!render.visible) continue;
+
+                // Get Mesh
+                std::shared_ptr<Mesh> mesh = GetOrCreateMesh(render.modelHandle);
+                if (!mesh) mesh = m_defaultMesh;
+                if (!mesh) continue;
+
+                UniformBufferObject ubo{};
+                
+                // Calculate View/Proj
+                float aspect = (float)renderArea.extent.width / (float)renderArea.extent.height;
+                ubo.proj = m_editorCamera->GetProjectionMatrix(aspect);
+                ubo.viewPos = glm::vec4(m_editorCamera->GetPosition(), 1.0f);
+                ubo.view = m_editorCamera->GetViewMatrix();
+                
+                ubo.model = glm::translate(glm::mat4(1.0f), transform.position);
+                ubo.model = glm::rotate(ubo.model, transform.rotation.x, glm::vec3(1,0,0));
+                ubo.model = glm::rotate(ubo.model, transform.rotation.y, glm::vec3(0,1,0));
+                ubo.model = glm::rotate(ubo.model, transform.rotation.z, glm::vec3(0,0,1));
+                ubo.model = glm::scale(ubo.model, transform.scale);
+                
+                // Write to buffer
+                void* mappedData = m_uniformBuffers[currentFrame]->Map();
+                if (mappedData) {
+                    memcpy(mappedData, &ubo, sizeof(UniformBufferObject));
+                    m_uniformBuffers[currentFrame]->Unmap();
+                }
+                
+                // Draw
+                mesh->Draw(cmdList);
+            }
+        }
+    }
+    
+    cmdList->EndRendering();
+}
+
+void SceneEditorSubsystem::SetupViewportResources() {
+    ResizeViewport(1, 1);
+}
+
+void SceneEditorSubsystem::ResizeViewport(uint32_t width, uint32_t height) {
+    if (width == 0 || height == 0) return;
+    
+    m_viewportSize = ImVec2((float)width, (float)height);
+    
     IRHIDevice* device = m_renderSubsystem->GetDevice();
-    uint32_t currentFrame = device->GetCurrentFrameIndex();
-    if (currentFrame >= m_globalDescriptorSets.size()) return;
-
-    // Bind Pipeline and Global Descriptor Set
-    cmdList->BindPipeline(m_defaultMaterial->GetPipeline());
-    cmdList->BindDescriptorSet(m_defaultMaterial->GetPipeline(), m_globalDescriptorSets[currentFrame].get(), 0);
-
-    // Draw Entities
-    auto view = m_activeScene->Reg().view<const TransformComponent, const RenderComponent>();
-    for (auto entity : view) {
-        const auto& transform = view.get<const TransformComponent>(entity);
-        // const auto& render = view.get<const RenderComponent>(entity); // Unused for now
-
-        // Update Model Matrix in UBO? 
-        // Wait, the UBO is global in this simple implementation.
-        // We need Push Constants or Dynamic Uniform Buffers for per-object Model Matrix.
-        // RenderTest updated the UBO per object, which is inefficient but works for 1 object.
-        // Here we have multiple objects.
-        
-        // For now, let's just draw the mesh. The UBO has "model" matrix.
-        // We will update the UBO for each object (VERY SLOW, forces pipeline flush potentially, or just overwrites if mapped).
-        // Actually, RenderTest wrote to the buffer mapped memory.
-        
-        UniformBufferObject ubo{};
-        // Retrieve view/proj again (optimization: cache it)
-        // m_uniformBuffers[currentFrame]->Read(&ubo, sizeof(UniformBufferObject)); // Read back? No.
-        
-        // Re-calculate View/Proj
-        float aspect = 1.777f;
-        if (m_viewportSize.x > 0 && m_viewportSize.y > 0) {
-            aspect = m_viewportSize.x / m_viewportSize.y;
-        }
-        ubo.proj = m_editorCamera->GetProjectionMatrix(aspect);
-        ubo.viewPos = glm::vec4(m_editorCamera->GetPosition(), 1.0f);
-        ubo.view = m_editorCamera->GetViewMatrix();
-        
-        ubo.model = glm::translate(glm::mat4(1.0f), transform.position);
-        ubo.model = glm::rotate(ubo.model, transform.rotation.x, glm::vec3(1,0,0));
-        ubo.model = glm::rotate(ubo.model, transform.rotation.y, glm::vec3(0,1,0));
-        ubo.model = glm::rotate(ubo.model, transform.rotation.z, glm::vec3(0,0,1));
-        ubo.model = glm::scale(ubo.model, transform.scale);
-        
-        // Write to buffer
-        void* mappedData = m_uniformBuffers[currentFrame]->Map();
-        if (mappedData) {
-            memcpy(mappedData, &ubo, sizeof(UniformBufferObject));
-            m_uniformBuffers[currentFrame]->Unmap();
-        }
-        
-        // Draw
-        // Note: We are using the default mesh for everything with a RenderComponent for now
-        // In a real system, we'd use render.modelHandle
-        m_defaultMesh->Draw(cmdList);
+    if (!device) return;
+    
+    device->WaitIdle();
+    
+    // Create Texture
+    // Note: We need ColorAttachment | Sampled usage
+    m_viewportTexture = device->CreateTexture2D(width, height, RHIFormat::B8G8R8A8_UNORM, (RHITextureUsage)(RHITextureUsage::ColorAttachment | RHITextureUsage::Sampled));
+    
+    // Create Depth
+    m_viewportDepth = device->CreateTexture2D(width, height, RHIFormat::D32_FLOAT, RHITextureUsage::DepthStencilAttachment);
+    
+    // Update ImGui Descriptor Set
+    auto vkTexture = std::dynamic_pointer_cast<VulkanTexture>(m_viewportTexture);
+    if (vkTexture) {
+         if (m_viewportDescriptorSet) {
+             ImGui_ImplVulkan_RemoveTexture((VkDescriptorSet)m_viewportDescriptorSet); 
+             m_viewportDescriptorSet = nullptr;
+         }
+         
+         // Create Sampler
+         RHISamplerDescriptor samplerDesc = {};
+         auto sampler = device->CreateSampler(samplerDesc);
+         auto vkSampler = std::dynamic_pointer_cast<VulkanSampler>(sampler);
+         
+         if (vkSampler) {
+             m_viewportDescriptorSet = ImGui_ImplVulkan_AddTexture(vkSampler->GetVkSampler(), vkTexture->GetImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+         }
     }
 }
 
@@ -753,6 +807,138 @@ void SceneEditorSubsystem::InitializeDefaultResources() {
         m_textureHandle = am->Load<TextureData>("Models/testobject/VAZ2101_Body_BaseColor.png");
         m_materialHandle = am->Load<MaterialData>("Materials/Default.amat");
     }
+}
+
+std::shared_ptr<Mesh> SceneEditorSubsystem::GetOrCreateMesh(const AssetHandle& handle) {
+    if (!handle.IsValid()) return nullptr;
+    
+    // Check cache
+    uint64_t assetID = handle.GetID();
+    auto it = m_meshCache.find(assetID);
+    if (it != m_meshCache.end()) {
+        return it->second;
+    }
+    
+    // Not in cache, create it
+    if (!m_assetSubsystem || !m_renderSubsystem) return nullptr;
+    
+    AssetManager* am = m_assetSubsystem->GetAssetManager();
+    auto modelData = am->GetAsset<ModelData>(handle);
+    
+    if (!modelData || !modelData->isValid) return nullptr;
+    
+    // Create Mesh
+    IRHIDevice* device = m_renderSubsystem->GetDevice();
+    auto mesh = std::make_shared<Mesh>(device, *modelData);
+    
+    // Store in cache
+    m_meshCache[assetID] = mesh;
+    
+    // Update default mesh if not set
+    if (!m_defaultMesh) m_defaultMesh = mesh;
+    
+    return mesh;
+}
+
+void SceneEditorSubsystem::RenderContentBrowser() {
+    if (!m_showContentBrowser) return;
+
+    ImGui::Begin("Content Browser", &m_showContentBrowser);
+
+    static std::filesystem::path currentPath = "Assets";
+    
+    // Back button
+    if (currentPath != "Assets") {
+        if (ImGui::Button("<- Back")) {
+            currentPath = currentPath.parent_path();
+        }
+        ImGui::Separator();
+    }
+
+    float padding = 16.0f;
+    float thumbnailSize = 64.0f;
+    float cellSize = thumbnailSize + padding;
+
+    float panelWidth = ImGui::GetContentRegionAvail().x;
+    int columnCount = (int)(panelWidth / cellSize);
+    if (columnCount < 1) columnCount = 1;
+
+    ImGui::Columns(columnCount, 0, false);
+
+    try {
+        if (std::filesystem::exists(currentPath)) {
+            for (const auto& entry : std::filesystem::directory_iterator(currentPath)) {
+                std::string filename = entry.path().filename().string();
+                
+                ImGui::PushID(filename.c_str());
+                
+                if (entry.is_directory()) {
+                     if (ImGui::Button(("DIR\n" + filename).c_str(), ImVec2(thumbnailSize, thumbnailSize))) {
+                         currentPath /= entry.path().filename();
+                     }
+                } else {
+                     if (ImGui::Button(("FILE\n" + filename).c_str(), ImVec2(thumbnailSize, thumbnailSize))) {
+                         // Selection logic or drag source
+                     }
+                     // Drag Source
+                     if (ImGui::BeginDragDropSource()) {
+                         std::string itemPath = entry.path().string();
+                         ImGui::SetDragDropPayload("CONTENT_BROWSER_ITEM", itemPath.c_str(), itemPath.length() + 1);
+                         ImGui::Text("%s", filename.c_str());
+                         ImGui::EndDragDropSource();
+                     }
+                }
+                
+                ImGui::TextWrapped("%s", filename.c_str());
+                ImGui::NextColumn();
+                ImGui::PopID();
+            }
+        }
+    } catch (...) {}
+
+    ImGui::Columns(1);
+    ImGui::End();
+}
+
+void SceneEditorSubsystem::RenderOutputLog() {
+    if (!m_showOutputLog) return;
+
+    ImGui::SetNextWindowSize(ImVec2(500, 400), ImGuiCond_FirstUseEver);
+    ImGui::Begin("Output Log", &m_showOutputLog);
+
+    // Toolbar
+    if (ImGui::Button("Clear")) m_logBuffer.clear();
+    ImGui::SameLine();
+    ImGui::Checkbox("Auto-scroll", &m_autoScrollLog);
+
+    ImGui::Separator();
+
+    // Log Area
+    ImGui::BeginChild("ScrollingRegion", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
+
+    for (const auto& log : m_logBuffer) {
+        ImVec4 color = ImVec4(1, 1, 1, 1);
+        switch (log.level) {
+            case Logger::LogLevel::Trace: color = ImVec4(0.5f, 0.5f, 0.5f, 1.0f); break;
+            case Logger::LogLevel::Debug: color = ImVec4(0.0f, 0.8f, 1.0f, 1.0f); break;
+            case Logger::LogLevel::Info: color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); break;
+            case Logger::LogLevel::Warning: color = ImVec4(1.0f, 0.8f, 0.0f, 1.0f); break;
+            case Logger::LogLevel::Error: color = ImVec4(1.0f, 0.2f, 0.2f, 1.0f); break;
+            case Logger::LogLevel::Critical: color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); break;
+            default: break;
+        }
+        
+        ImGui::PushStyleColor(ImGuiCol_Text, color);
+        ImGui::TextUnformatted(log.message.c_str());
+        ImGui::PopStyleColor();
+    }
+
+    if (m_autoScrollLog && ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
+        ImGui::SetScrollHereY(1.0f);
+    }
+
+    ImGui::EndChild();
+    ImGui::End();
 }
 
 

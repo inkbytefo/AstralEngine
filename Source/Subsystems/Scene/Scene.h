@@ -3,22 +3,30 @@
 #include <entt/entt.hpp>
 #include "../../Core/UUID.h"
 #include "../../ECS/Components.h"
+#include "../../Core/ISubsystem.h" // Added
 
 namespace AstralEngine {
 
     class Entity;
 
-    class Scene {
+    class Scene : public ISubsystem { // Inherit from ISubsystem
     public:
         Scene();
-        ~Scene();
+        ~Scene() override;
+
+        // ISubsystem interface implementation
+        void OnInitialize(Engine* owner) override;
+        void OnUpdate(float ts) override;
+        void OnShutdown() override;
+
+        const char* GetName() const override { return "SceneSubsystem"; }
+        UpdateStage GetUpdateStage() const override { return UpdateStage::Update; }
 
         Entity CreateEntity(const std::string& name = std::string());
         Entity CreateEntityWithUUID(UUID uuid, const std::string& name = std::string());
         void DestroyEntity(Entity entity);
 
-        void OnUpdate(float ts);
-        void OnRender(); // Will be used later for scene-based rendering
+        void OnRender(); // Keep for future use
 
         entt::registry& Reg() { return m_Registry; }
 
@@ -28,6 +36,7 @@ namespace AstralEngine {
 
     private:
         entt::registry m_Registry;
+        Engine* m_owner = nullptr;
         
         void UpdateEntityTransform(entt::entity entity, const glm::mat4& parentTransform);
 

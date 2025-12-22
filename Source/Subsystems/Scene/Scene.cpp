@@ -10,6 +10,16 @@ namespace AstralEngine {
     Scene::~Scene() {
     }
 
+    void Scene::OnInitialize(Engine* owner) {
+        m_owner = owner;
+        Logger::Info("SceneSubsystem", "Scene Subsystem initialized.");
+    }
+
+    void Scene::OnShutdown() {
+        Logger::Info("SceneSubsystem", "Scene Subsystem shutting down. Clearing registry.");
+        m_Registry.clear();
+    }
+
     Entity Scene::CreateEntity(const std::string& name) {
         return CreateEntityWithUUID(UUID(), name);
     }

@@ -8,6 +8,7 @@
 #include "../Subsystems/Asset/AssetHandle.h"
 #include "../Core/UUID.h"
 #include <entt/entt.hpp>
+#include "../Core/MathUtils.h" // Added
 
 namespace AstralEngine {
 
@@ -46,13 +47,7 @@ struct TransformComponent {
 
     // Local matrix calculation
     glm::mat4 GetLocalMatrix() const {
-        glm::mat4 translation = glm::translate(glm::mat4(1.0f), position);
-        glm::mat4 rotX = glm::rotate(glm::mat4(1.0f), rotation.x, glm::vec3(1.0f, 0.0f, 0.0f));
-        glm::mat4 rotY = glm::rotate(glm::mat4(1.0f), rotation.y, glm::vec3(0.0f, 1.0f, 0.0f));
-        glm::mat4 rotZ = glm::rotate(glm::mat4(1.0f), rotation.z, glm::vec3(0.0f, 0.0f, 1.0f));
-        glm::mat4 scaling = glm::scale(glm::mat4(1.0f), scale);
-        
-        return translation * rotY * rotX * rotZ * scaling;
+        return MathUtils::CalculateTransformMatrix(position, rotation, scale);
     }
     
     // Deprecated: Use GetLocalMatrix or WorldTransformComponent
@@ -117,20 +112,6 @@ struct TagComponent {
     TagComponent(const std::string& t) : tag(t) {}
 };
 
-/**
- * @brief Movement bileşeni - Hareket ile ilgili veriler
- */
-struct MovementComponent {
-    glm::vec3 velocity{0.0f};
-    glm::vec3 acceleration{0.0f};
-    glm::vec3 angularVelocity{0.0f};
-    
-    float maxSpeed = 10.0f;
-    float friction = 0.98f; // 0.0f = no friction, 1.0f = instant stop
-    
-    MovementComponent() = default;
-    MovementComponent(float maxSpd) : maxSpeed(maxSpd) {}
-};
 
 /**
  * @brief Light Component
@@ -187,19 +168,5 @@ struct CameraComponent {
     }
 };
 
-/**
- * @brief Script bileşeni - Entity'ye script bağlamak için
- */
-struct ScriptComponent {
-    std::string scriptPath;
-    bool enabled = true;
-    
-    // Script verilerini tutmak için generic container
-    // Gerçek implementasyon script system'e bağlı olacak
-    void* scriptInstance = nullptr;
-    
-    ScriptComponent() = default;
-    ScriptComponent(const std::string& path) : scriptPath(path) {}
-};
 
 } // namespace AstralEngine

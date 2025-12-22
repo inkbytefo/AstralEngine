@@ -3,10 +3,11 @@
 #include "Core/IApplication.h"
 #include "Subsystems/Platform/PlatformSubsystem.h"
 #include "Subsystems/Asset/AssetSubsystem.h"
-#include "Subsystems/ECS/ECSSubsystem.h"
+#include "Subsystems/Scene/Scene.h" // Replace ECS with Scene
 #include "Subsystems/Renderer/RenderSubsystem.h"
 #include "Subsystems/UI/UISubsystem.h"
 #include "Subsystems/Editor/SceneEditorSubsystem.h"
+#include "Subsystems/Scene/Entity.h" // Needed for Entity usage
 #include "ECS/Components.h"
 #include <filesystem>
 
@@ -38,10 +39,10 @@ private:
     void CreateTestScene() {
         Logger::Info("SandboxApp", "Creating test scene...");
         
-        auto* ecs = m_engine->GetSubsystem<ECSSubsystem>();
+        auto* scene = m_engine->GetSubsystem<Scene>();
         auto* assets = m_engine->GetSubsystem<AssetSubsystem>()->GetAssetManager();
 
-        if (!ecs || !assets) {
+        if (!scene || !assets) {
             Logger::Error("SandboxApp", "Failed to get required subsystems.");
             return;
         }
@@ -57,10 +58,10 @@ private:
         }
         
         // 2. Test Entity'sini oluştur
-        uint32_t testEntity = ecs->CreateEntity();
+        Entity testEntity = scene->CreateEntity("VAZ2101");
         
         // 3. Component'leri ekle ve ayarla
-        if (auto* transform = ecs->AddComponent<TransformComponent>(testEntity)) {
+        if (auto* transform = testEntity.TryGetComponent<TransformComponent>()) {
             transform->position = glm::vec3(0.0f, -1.0f, 0.0f); // Adjusted for better view
             transform->rotation = glm::vec3(glm::radians(-90.0f), 0.0f, 0.0f); // Adjusted for better view
             transform->scale = glm::vec3(1.0f);
@@ -69,7 +70,7 @@ private:
             return;
         }
 
-        if (auto* render = ecs->AddComponent<RenderComponent>(testEntity)) {
+        if (auto* render = testEntity.TryGetComponent<RenderComponent>()) {
             render->modelHandle = modelHandle;
             render->materialHandle = materialHandle;
             render->visible = true;
@@ -78,13 +79,7 @@ private:
             return;
         }
         
-        // Add Name component for debugging
-        if (auto* name = ecs->AddComponent<NameComponent>(testEntity)) {
-            name->name = "VAZ2101";
-        } else {
-            Logger::Error("SandboxApp", "Failed to add NameComponent to entity: {}", testEntity);
-            return;
-        }
+        // Name is already set in CreateEntity("VAZ2101")
 
         Logger::Info("SandboxApp", "Test entity created with model and material handles. Model ID: {}, Material ID: {}", 
                      modelHandle.GetID(), materialHandle.GetID());
@@ -113,7 +108,7 @@ int main(int argc, char* argv[]) {
         // Subsystem'leri kaydet
         engine.RegisterSubsystem<PlatformSubsystem>();
         engine.RegisterSubsystem<AssetSubsystem>();
-        engine.RegisterSubsystem<ECSSubsystem>();
+        engine.RegisterSubsystem<Scene>(); // Register Scene instead of ECSSubsystem
         engine.RegisterSubsystem<RenderSubsystem>();
         engine.RegisterSubsystem<UISubsystem>();
         engine.RegisterSubsystem<SceneEditorSubsystem>();

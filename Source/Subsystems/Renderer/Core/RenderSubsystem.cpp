@@ -55,6 +55,11 @@ void RenderSubsystem::OnUpdate(float /*deltaTime*/) {
     auto cmdList = m_device->CreateCommandList();
     cmdList->Begin();
 
+    // Pre-Render Pass (e.g. Offscreen Rendering)
+    if (m_preRenderCallback) {
+        m_preRenderCallback(cmdList.get());
+    }
+
     // Define Render Area (Full Screen)
     IRHITexture* backBuffer = m_device->GetCurrentBackBuffer();
     IRHITexture* depthBuffer = m_device->GetDepthBuffer();

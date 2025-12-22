@@ -5,6 +5,7 @@
 #include <iostream>
 #include <sstream>
 #include <memory>
+#include <functional>
 
 // Forward declaration
 namespace AstralEngine {
@@ -53,6 +54,12 @@ public:
     template<typename... Args>
     static void Fatal(const std::string& category, const std::string& format, Args&&... args);
 
+    // Log callback definition
+    using LogCallback = std::function<void(LogLevel, const std::string&, const std::string&)>;
+    
+    // Set a callback for log messages (useful for editor output log)
+    static void SetLogCallback(LogCallback callback);
+
     // Log seviyesini ayarla
     static void SetLogLevel(LogLevel level);
 
@@ -67,6 +74,7 @@ private:
     
     static LogLevel s_currentLevel;
     static std::unique_ptr<FileLogger> s_fileLogger;
+    static LogCallback s_logCallback;
 };
 
 // Template implementations

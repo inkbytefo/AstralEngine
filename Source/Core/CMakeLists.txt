@@ -8,8 +8,6 @@ target_sources(AstralEngine PRIVATE
     ISubsystem.h
     Logger.cpp
     Logger.h
-    MemoryManager.cpp
-    MemoryManager.h
     ThreadPool.cpp
     ThreadPool.h
     UUID.cpp

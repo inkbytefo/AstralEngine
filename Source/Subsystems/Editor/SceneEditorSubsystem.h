@@ -14,6 +14,10 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "EditorPanel.h"
+#include "SceneHierarchyPanel.h"
+#include "PropertiesPanel.h"
+
 // Forward declarations
 namespace AstralEngine {
     class Engine;
@@ -89,6 +93,7 @@ public:
     void DeleteSelectedEntities();
     void DuplicateSelectedEntities();
     void ParentEntity(uint32_t child, uint32_t parent);
+    bool ImportModel(const std::string& path);
 
     // UI Draw (Called by UISubsystem)
     void DrawUI();
@@ -116,6 +121,19 @@ private:
     bool m_showSceneHierarchy = true;
     bool m_showProperties = true;
     bool m_showToolbar = true;
+    bool m_showContentBrowser = true;
+    bool m_showOutputLog = true;
+    bool m_layoutInitialized = false;
+
+    std::vector<std::unique_ptr<EditorPanel>> m_panels;
+
+    // Output Log State
+    struct LogEntry {
+        Logger::LogLevel level;
+        std::string message;
+    };
+    std::vector<LogEntry> m_logBuffer;
+    bool m_autoScrollLog = true;
 
     // Viewport State
     std::unique_ptr<Camera> m_editorCamera;
@@ -123,12 +141,20 @@ private:
     bool m_viewportFocused = false;
     bool m_viewportHovered = false;
 
+    // Viewport Render Resources
+    std::shared_ptr<IRHITexture> m_viewportTexture;
+    std::shared_ptr<IRHITexture> m_viewportDepth;
+    void* m_viewportDescriptorSet = nullptr; // ImTextureID
+
+    void SetupViewportResources();
+    void ResizeViewport(uint32_t width, uint32_t height);
+
     // Render Resources
     static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
     std::shared_ptr<IRHIDescriptorSetLayout> m_globalDescriptorSetLayout;
     std::vector<std::shared_ptr<IRHIBuffer>> m_uniformBuffers;
     std::vector<std::shared_ptr<IRHIDescriptorSet>> m_globalDescriptorSets;
-    std::unique_ptr<Mesh> m_defaultMesh;
+    std::shared_ptr<Mesh> m_defaultMesh;
     std::shared_ptr<Texture> m_defaultTexture;
     std::unique_ptr<Material> m_defaultMaterial;
 
@@ -137,6 +163,10 @@ private:
     AssetHandle m_textureHandle;
     AssetHandle m_materialHandle;
     bool m_textureCreated = false;
+    
+    // Resource Cache
+    std::unordered_map<uint64_t, std::shared_ptr<class Mesh>> m_meshCache;
+    std::shared_ptr<class Mesh> GetOrCreateMesh(const AssetHandle& handle);
     bool m_resourcesInitialized = false;
 
     // Internal Helpers
@@ -148,9 +178,10 @@ private:
     // UI Renderers
     void RenderMainMenuBar();
     void RenderViewportPanel();
-    void RenderSceneHierarchy();
-    void RenderPropertiesPanel();
+    void RenderContentBrowser();
+    void RenderOutputLog();
     void RenderToolbar();
+    void ResetLayout();
     void RenderEntityNode(uint32_t entityID, bool isRoot);
     void RenderComponentProperties(uint32_t entityID);
 

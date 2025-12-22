@@ -32,10 +32,14 @@ public:
     using RenderCallback = std::function<void(IRHICommandList*)>;
     void SetRenderCallback(RenderCallback callback) { m_renderCallback = callback; }
 
+    using PreRenderCallback = std::function<void(IRHICommandList*)>;
+    void SetPreRenderCallback(PreRenderCallback callback) { m_preRenderCallback = callback; }
+
 private:
     Engine* m_engine = nullptr;
     std::shared_ptr<IRHIDevice> m_device;
     RenderCallback m_renderCallback;
+    PreRenderCallback m_preRenderCallback;
 };
 
 } // namespace AstralEngine
