@@ -34,6 +34,8 @@ public:
     const glm::vec2& GetSize() const { return m_size; }
     bool IsFocused() const { return m_isFocused; }
     bool IsHovered() const { return m_isHovered; }
+    void SetDraggingFile(bool dragging) { m_isDraggingFile = dragging; }
+    bool IsPointOverViewport(float x, float y) const;
 
 private:
     void DrawToolbar();
@@ -56,7 +58,11 @@ private:
     float m_cameraSpeed = 1.0f;
     bool m_showGrid = true;
     bool m_showGizmos = true;
+    bool m_isDraggingFile = false;
     ResizeCallback m_onResize;
+    
+    glm::vec2 m_windowPos{0.0f, 0.0f};
+    glm::vec2 m_windowSize{0.0f, 0.0f};
 };
 
 } // namespace AstralEngine

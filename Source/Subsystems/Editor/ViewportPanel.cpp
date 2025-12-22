@@ -21,6 +21,11 @@ void ViewportPanel::OnDraw() {
     // Create a tab bar for UE5 style multiple views if needed later, for now just the window
     if (ImGui::Begin(m_name.c_str(), &m_isOpen, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
         
+        ImVec2 pos = ImGui::GetWindowPos();
+        ImVec2 size = ImGui::GetWindowSize();
+        m_windowPos = { pos.x, pos.y };
+        m_windowSize = { size.x, size.y };
+
         m_isFocused = ImGui::IsWindowFocused();
         m_isHovered = ImGui::IsWindowHovered();
 
@@ -51,6 +56,28 @@ void ViewportPanel::OnDraw() {
 
         // 3. Handle Input if focused/hovered
         HandleInput();
+        // ... existing rendering code eventually shows the image ...
+        // For now, let's just add the overlay at the end of the window content
+        if (m_isDraggingFile && m_isHovered) {
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            ImVec2 min = ImGui::GetItemRectMin(); // If we just drew the image, this is the viewport image rect
+            ImVec2 max = ImGui::GetItemRectMax();
+            
+            // If we haven't drawn the image yet or it's not the last item, we can use window bounds
+            if (max.x - min.x < 10.0f) { // fallback
+                min = ImGui::GetWindowPos();
+                max = ImVec2(min.x + ImGui::GetWindowWidth(), min.y + ImGui::GetWindowHeight());
+            }
+
+            drawList->AddRectFilled(min, max, IM_COL32(0, 120, 215, 100)); // Blue tint
+            drawList->AddRect(min, max, IM_COL32(0, 120, 215, 255), 0.0f, 0, 4.0f); // Thick border
+
+            const char* text = "DROP TO IMPORT ASSET";
+            ImVec2 textSize = ImGui::CalcTextSize(text);
+            ImVec2 textPos = ImVec2(min.x + (max.x - min.x - textSize.x) * 0.5f, min.y + (max.y - min.y - textSize.y) * 0.5f);
+            drawList->AddText(textPos, IM_COL32(255, 255, 255, 255), text);
+        }
+
     }
     ImGui::End();
     ImGui::PopStyleVar();
@@ -93,6 +120,11 @@ void ViewportPanel::HandleInput() {
     
     // Navigation logic (ASDF/WASD) usually happens in SceneEditorSubsystem or delegated to a Controller
     // For now we just mark it.
+}
+
+bool ViewportPanel::IsPointOverViewport(float x, float y) const {
+    return x >= m_windowPos.x && x <= (m_windowPos.x + m_windowSize.x) &&
+           y >= m_windowPos.y && y <= (m_windowPos.y + m_windowSize.y);
 }
 
 } // namespace AstralEngine

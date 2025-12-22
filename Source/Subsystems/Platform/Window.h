@@ -99,6 +99,7 @@ private:
         bool IsMaximized = false;
         bool IsMinimized = false;
         bool IsFocused = false;
+        bool IsDraggingFile = false;
         
         // Debug ve izleme
         bool IsInitialized = false;
@@ -279,6 +280,7 @@ public:
      * @return bool Odaklı ise true
      */
     bool IsFocused() const;
+    bool IsDraggingFile() const { return m_data->IsDraggingFile; }
     
     /**
      * @brief Pencereyi öne getir.

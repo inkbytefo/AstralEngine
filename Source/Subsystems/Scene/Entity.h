@@ -38,6 +38,11 @@ namespace AstralEngine {
         }
 
         template<typename T>
+        T* TryGetComponent() {
+            return m_Scene->m_Registry.try_get<T>(m_EntityHandle);
+        }
+
+        template<typename T>
         void RemoveComponent() {
             if (!HasComponent<T>()) {
                  Logger::Warning("Entity", "Entity does not have component to remove!");

@@ -42,6 +42,7 @@ public:
 
     VkImage GetImage() const { return m_image; }
     VkImageView GetImageView() const { return m_imageView; }
+    bool IsSwapchainTexture() const { return !m_ownsImage; }
 
 private:
     VulkanDevice* m_device;

@@ -16,7 +16,12 @@ static void TransitionImageLayout(VkCommandBuffer cmd, VkImage image, VkImageLay
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.image = image;
-    barrier.subresourceRange.aspectMask = isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+    
+    if (isDepth) {
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    } else {
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    }
     barrier.subresourceRange.baseMipLevel = 0;
     barrier.subresourceRange.levelCount = 1;
     barrier.subresourceRange.baseArrayLayer = 0;
@@ -156,10 +161,15 @@ void VulkanCommandList::EndRendering() {
         func(m_commandBuffer);
     }
 
-    // Transition color attachments to PRESENT_SRC_KHR for presentation
+    // Transition color attachments to their optimal post-render layout
     for (auto* texture : m_activeColorAttachments) {
         auto* vkTexture = static_cast<VulkanTexture*>(texture);
-        TransitionImageLayout(m_commandBuffer, vkTexture->GetImage(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+        
+        // If it's a swapchain image, transition to PRESENT_SRC_KHR.
+        // If it's an offscreen texture (like the editor viewport), transition to SHADER_READ_ONLY_OPTIMAL.
+        VkImageLayout finalLayout = vkTexture->IsSwapchainTexture() ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        
+        TransitionImageLayout(m_commandBuffer, vkTexture->GetImage(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, finalLayout);
     }
     m_activeColorAttachments.clear();
 }

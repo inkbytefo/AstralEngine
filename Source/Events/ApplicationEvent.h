@@ -73,4 +73,31 @@ static std::type_index GetStaticType() { return typeid(AppRenderEvent); }
 const char* GetName() const override { return "AppRender"; }
 int GetCategoryFlags() const override { return EventCategoryApplication; }
 };
+
+    class FileDropEvent : public Event
+    {
+    public:
+        FileDropEvent(const std::string& path, float x, float y)
+            : m_Path(path), m_X(x), m_Y(y) {}
+
+        const std::string& GetPath() const { return m_Path; }
+        float GetX() const { return m_X; }
+        float GetY() const { return m_Y; }
+
+        std::string ToString() const override
+        {
+            std::stringstream ss;
+            ss << "FileDropEvent: " << m_Path << " at (" << m_X << ", " << m_Y << ")";
+            return ss.str();
+        }
+
+        std::type_index GetType() const override { return typeid(FileDropEvent); }
+        static std::type_index GetStaticType() { return typeid(FileDropEvent); }
+        const char* GetName() const override { return "FileDrop"; }
+        int GetCategoryFlags() const override { return EventCategoryApplication; }
+
+    private:
+        std::string m_Path;
+        float m_X, m_Y;
+    };
 }

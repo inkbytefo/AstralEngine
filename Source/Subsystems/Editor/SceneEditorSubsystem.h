@@ -8,6 +8,7 @@
 #include "../Renderer/Core/Material.h"
 #include "../Renderer/Core/Texture.h"
 #include "../../Subsystems/Asset/AssetHandle.h"
+#include "../../Events/ApplicationEvent.h"
 #include <memory>
 #include <string>
 #include <vector>
@@ -65,6 +66,9 @@ public:
 
     // UI Draw (Called by UISubsystem)
     void DrawUI();
+    
+    // Event Handlers
+    void HandleFileDrop(class FileDropEvent& e);
 
     // Render callback
     void RenderScene(class IRHICommandList* cmdList);
@@ -105,6 +109,7 @@ private:
     
     std::shared_ptr<IRHITexture> m_viewportTexture;
     std::shared_ptr<IRHITexture> m_viewportDepth;
+    std::shared_ptr<IRHISampler> m_viewportSampler;
     void* m_viewportDescriptorSet = nullptr;
 
     // UI Layout

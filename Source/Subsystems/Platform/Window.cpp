@@ -64,6 +64,7 @@ Window::Window() : m_data(std::make_unique<WindowData>()) {
     m_data->IsMaximized = false;
     m_data->IsMinimized = false;
     m_data->IsFocused = false;
+    m_data->IsDraggingFile = false;
     
     Logger::Debug("Window", "Window instance created");
 }
@@ -758,12 +759,27 @@ void Window::HandleOtherEvent(const void* event) {
         case SDL_EVENT_DROP_FILE: {
             const char* droppedFile = sdlEvent->drop.data;
             if (droppedFile) {
-                Logger::Info("Window", "File dropped: {}", droppedFile);
-                // TODO: FileDropEvent eklenebilir
-                SDL_free(const_cast<char*>(droppedFile));
+                Logger::Info("Window", "File dropped: {} at ({:.1f}, {:.1f})", droppedFile, sdlEvent->drop.x, sdlEvent->drop.y);
+                
+                auto& eventManager = EventManager::GetInstance();
+                eventManager.PublishEvent<FileDropEvent>(droppedFile, sdlEvent->drop.x, sdlEvent->drop.y);
             }
             break;
         }
+
+        case SDL_EVENT_DROP_BEGIN:
+            m_data->IsDraggingFile = true;
+            Logger::Trace("Window", "Drop operation started");
+            break;
+
+        case SDL_EVENT_DROP_POSITION:
+            // We could publish a FileHoverEvent here if needed for UI feedback
+            break;
+
+        case SDL_EVENT_DROP_COMPLETE:
+            m_data->IsDraggingFile = false;
+            Logger::Trace("Window", "Drop operation completed");
+            break;
         
         default:
             // Bilinmeyen veya işlenmeyen olaylar

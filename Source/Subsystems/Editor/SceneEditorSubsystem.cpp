@@ -5,7 +5,12 @@
 #include "../../Subsystems/Renderer/RHI/IRHICommandList.h"
 #include "../Renderer/RHI/Vulkan/VulkanResources.h"
 #include "../UI/UISubsystem.h"
+#include "../../Events/EventManager.h"
+#include <iomanip>
+#include <filesystem>
 #include "../../Core/MathUtils.h"
+#include "../../Subsystems/Platform/PlatformSubsystem.h"
+#include "../../Subsystems/Scene/Entity.h"
 
 #ifdef ASTRAL_USE_IMGUI
     #include <imgui_impl_vulkan.h>
@@ -38,6 +43,12 @@ void SceneEditorSubsystem::OnInitialize(Engine* owner) {
             this->DrawUI();
         });
     }
+
+    // Subscribe to events
+    EventManager::GetInstance().Subscribe<FileDropEvent>([this](Event& e) {
+        auto& dropEvent = static_cast<FileDropEvent&>(e);
+        this->HandleFileDrop(dropEvent);
+    });
 
     // Initialize Panels
     // 1. Toolbar
@@ -152,6 +163,14 @@ bool SceneEditorSubsystem::LoadScene(const std::string& filename) {
 void SceneEditorSubsystem::DrawUI() {
     RenderMainMenuBar();
 
+    // Update viewport interaction states
+    if (m_viewportPanel) {
+        auto* platform = m_owner->GetSubsystem<PlatformSubsystem>();
+        if (platform) {
+            m_viewportPanel->SetDraggingFile(platform->GetWindow()->IsDraggingFile());
+        }
+    }
+
     // Create a fullscreen DockSpace
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
@@ -260,8 +279,8 @@ void SceneEditorSubsystem::ResizeViewport(uint32_t width, uint32_t height) {
          }
          
          RHISamplerDescriptor samplerDesc = {};
-         auto sampler = device->CreateSampler(samplerDesc);
-         auto vkSampler = std::dynamic_pointer_cast<VulkanSampler>(sampler);
+         m_viewportSampler = device->CreateSampler(samplerDesc);
+         auto vkSampler = std::dynamic_pointer_cast<VulkanSampler>(m_viewportSampler);
          
          if (vkSampler) {
              m_viewportDescriptorSet = ImGui_ImplVulkan_AddTexture(vkSampler->GetVkSampler(), vkTexture->GetImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -291,6 +310,55 @@ void SceneEditorSubsystem::RenderScene(IRHICommandList* cmdList) {
 
 void SceneEditorSubsystem::ExecuteCommand(uint32_t type) {
     (void)type;
+}
+
+void SceneEditorSubsystem::HandleFileDrop(FileDropEvent& e) {
+    if (!m_viewportPanel || !m_viewportPanel->IsPointOverViewport(e.GetX(), e.GetY())) {
+        return;
+    }
+
+    Logger::Info("SceneEditorSubsystem", "Processing dropped file: {}", e.GetPath());
+
+    auto* assetManager = m_assetSubsystem->GetAssetManager();
+    // RegisterAsset handles absolute paths by normalizing them or using them directly if they match extensions
+    AssetHandle handle = assetManager->RegisterAsset(e.GetPath());
+
+    if (!handle.IsValid()) {
+        Logger::Warning("SceneEditorSubsystem", "Unsupported file format or failed to register: {}", e.GetPath());
+        return;
+    }
+
+    if (handle.GetType() == AssetHandle::Type::Model) {
+        // Create entity in active scene
+        std::string name = std::filesystem::path(e.GetPath()).stem().string();
+        Entity entity = m_activeScene->CreateEntity(name);
+
+        // Add components
+        auto& renderComp = entity.AddComponent<RenderComponent>();
+        renderComp.modelHandle = handle;
+        // Use a default material if we have one, otherwise it might be uninitialized
+        renderComp.materialHandle = assetManager->RegisterAsset("Materials/Default.amat");
+        renderComp.visible = true;
+
+        // Place it in front of camera or at origin
+        auto* transform = entity.TryGetComponent<TransformComponent>();
+        if (transform) {
+            Camera* camera = m_viewportPanel->GetCamera();
+            if (camera) {
+                // Position it 5 units in front of the camera
+                transform->position = camera->GetPosition() + camera->GetFront() * 5.0f;
+                transform->scale = glm::vec3(1.0f);
+            } else {
+                transform->position = glm::vec3(0.0f);
+                transform->scale = glm::vec3(1.0f);
+            }
+        }
+        
+        Logger::Info("SceneEditorSubsystem", "Imported and spawned model '{}' from drop.", name);
+    } else {
+        Logger::Info("SceneEditorSubsystem", "Dropped file '{}' registered as type {}, but no default spawning logic exists.", 
+                    e.GetPath(), (int)handle.GetType());
+    }
 }
 
 } // namespace AstralEngine
