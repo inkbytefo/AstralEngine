@@ -3,10 +3,12 @@
 #include "../IRHICommandList.h"
 #include "../IRHIDescriptor.h"
 #include <vulkan/vulkan.h>
+#include <vector>
 
 namespace AstralEngine {
 
 class VulkanDevice;
+class VulkanTexture;
 
 class VulkanCommandList : public IRHICommandList {
 public:
@@ -33,6 +35,9 @@ public:
     void DrawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) override;
 
     void PushConstants(IRHIPipeline* pipeline, RHIShaderStage stage, uint32_t offset, uint32_t size, const void* data) override;
+    
+    // Vulkan specific
+    void TransitionImageLayout(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, bool isDepth = false);
 
     VkCommandBuffer GetCommandBuffer() const { return m_commandBuffer; }
 
@@ -40,7 +45,7 @@ private:
     VulkanDevice* m_device;
     VkCommandBuffer m_commandBuffer = VK_NULL_HANDLE;
     VkCommandPool m_pool;
-    std::vector<IRHITexture*> m_activeColorAttachments;
+    std::vector<VulkanTexture*> m_activeColorAttachments; // Changed back to VulkanTexture* for simpler management
 };
 
 } // namespace AstralEngine

@@ -7,8 +7,8 @@
 
 namespace AstralEngine {
 
-// Helper function for layout transition
-static void TransitionImageLayout(VkCommandBuffer cmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, bool isDepth = false) {
+// Member function for layout transition
+void VulkanCommandList::TransitionImageLayout(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, bool isDepth) {
     VkImageMemoryBarrier barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     barrier.oldLayout = oldLayout;
@@ -54,7 +54,7 @@ static void TransitionImageLayout(VkCommandBuffer cmd, VkImage image, VkImageLay
     }
 
     vkCmdPipelineBarrier(
-        cmd,
+        m_commandBuffer,
         sourceStage, destinationStage,
         0,
         0, nullptr,
@@ -103,16 +103,17 @@ void VulkanCommandList::End() {
 }
 
 void VulkanCommandList::BeginRendering(const std::vector<IRHITexture*>& colorAttachments, IRHITexture* depthAttachment, const RHIRect2D& renderArea) {
-    m_activeColorAttachments = colorAttachments;
+    m_activeColorAttachments.clear();
 
     std::vector<VkRenderingAttachmentInfo> colorInfos;
     colorInfos.reserve(colorAttachments.size());
 
     for (auto* texture : colorAttachments) {
         auto* vkTexture = static_cast<VulkanTexture*>(texture);
+        m_activeColorAttachments.push_back(vkTexture);
         
         // Transition to COLOR_ATTACHMENT_OPTIMAL
-        TransitionImageLayout(m_commandBuffer, vkTexture->GetImage(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        TransitionImageLayout(vkTexture->GetImage(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
         VkRenderingAttachmentInfo colorAttachment{};
         colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -130,7 +131,7 @@ void VulkanCommandList::BeginRendering(const std::vector<IRHITexture*>& colorAtt
         auto* vkTexture = static_cast<VulkanTexture*>(depthAttachment);
         
         // Transition to DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-        TransitionImageLayout(m_commandBuffer, vkTexture->GetImage(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, true);
+        TransitionImageLayout(vkTexture->GetImage(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, true);
 
         depthInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
         depthInfo.imageView = vkTexture->GetImageView();
@@ -162,14 +163,12 @@ void VulkanCommandList::EndRendering() {
     }
 
     // Transition color attachments to their optimal post-render layout
-    for (auto* texture : m_activeColorAttachments) {
-        auto* vkTexture = static_cast<VulkanTexture*>(texture);
-        
+    for (auto* vkTexture : m_activeColorAttachments) {
         // If it's a swapchain image, transition to PRESENT_SRC_KHR.
         // If it's an offscreen texture (like the editor viewport), transition to SHADER_READ_ONLY_OPTIMAL.
         VkImageLayout finalLayout = vkTexture->IsSwapchainTexture() ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         
-        TransitionImageLayout(m_commandBuffer, vkTexture->GetImage(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, finalLayout);
+        TransitionImageLayout(vkTexture->GetImage(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, finalLayout);
     }
     m_activeColorAttachments.clear();
 }

@@ -45,6 +45,21 @@ namespace AstralEngine {
  */
 class SceneEditorSubsystem : public ISubsystem {
 public:
+    struct GlobalUBO {
+        glm::mat4 model;
+        glm::mat4 view;
+        glm::mat4 proj;
+        glm::vec4 viewPos;
+        int lightCount = 0;
+        int padding[3];
+        struct Light {
+            glm::vec4 position; // w = type
+            glm::vec4 direction; // w = range
+            glm::vec4 color;     // w = intensity
+            glm::vec4 params;    // x = inner, y = outer
+        } lights[4];
+    };
+
     SceneEditorSubsystem();
     ~SceneEditorSubsystem() override;
 
@@ -111,6 +126,14 @@ private:
     std::shared_ptr<IRHITexture> m_viewportDepth;
     std::shared_ptr<IRHISampler> m_viewportSampler;
     void* m_viewportDescriptorSet = nullptr;
+
+    // Resource Caching
+    std::unordered_map<AssetHandle, std::shared_ptr<Mesh>> m_meshCache;
+    std::unordered_map<AssetHandle, std::shared_ptr<Material>> m_materialCache;
+    
+    // Helpers
+    std::shared_ptr<Mesh> GetOrLoadMesh(const AssetHandle& handle);
+    std::shared_ptr<Material> GetOrLoadMaterial(const AssetHandle& handle);
 
     // UI Layout
     void RenderMainMenuBar();

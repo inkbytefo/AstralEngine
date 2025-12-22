@@ -220,17 +220,15 @@ void Engine::Shutdown() {
     
     Logger::Info("Engine", "Shutting down engine and subsystems...");
     
-    // Subsystem'leri ters sırada kapat (LIFO)
-    for (auto it = m_subsystemsByStage.rbegin(); it != m_subsystemsByStage.rend(); ++it) {
-        for (auto subsystem_it = it->second.rbegin(); subsystem_it != it->second.rend(); ++subsystem_it) {
-            try {
-                Logger::Info("Engine", "Shutting down subsystem: {}", (*subsystem_it)->GetName());
-                (*subsystem_it)->OnShutdown();
-                Logger::Info("Engine", "Successfully shutdown subsystem: {}", (*subsystem_it)->GetName());
-            } catch (const std::exception& e) {
-                Logger::Error("Engine", "Failed to shutdown subsystem {}: {}", (*subsystem_it)->GetName(), e.what());
-                // Continue with other subsystems even if one fails
-            }
+    // Subsystem'leri kayıt sırasının tersine göre kapat (LIFO)
+    // Bu, bağımlılıkların (AssetManager, RenderDevice) en son kapanmasını garanti eder.
+    for (auto it = m_registrationOrder.rbegin(); it != m_registrationOrder.rend(); ++it) {
+        try {
+            Logger::Info("Engine", "Shutting down subsystem: {}", (*it)->GetName());
+            (*it)->OnShutdown();
+            Logger::Info("Engine", "Successfully shutdown subsystem: {}", (*it)->GetName());
+        } catch (const std::exception& e) {
+            Logger::Error("Engine", "Failed to shutdown subsystem {}: {}", (*it)->GetName(), e.what());
         }
     }
     

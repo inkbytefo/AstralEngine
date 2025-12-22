@@ -7,6 +7,7 @@
 #include "../UI/UISubsystem.h"
 #include "../../Events/EventManager.h"
 #include <iomanip>
+#include "../Renderer/RHI/Vulkan/VulkanCommandList.h"
 #include <filesystem>
 #include "../../Core/MathUtils.h"
 #include "../../Subsystems/Platform/PlatformSubsystem.h"
@@ -107,7 +108,9 @@ void SceneEditorSubsystem::OnInitialize(Engine* owner) {
 }
 
 void SceneEditorSubsystem::OnUpdate(float deltaTime) {
-    (void)deltaTime;
+    if (m_activeScene) {
+        m_activeScene->OnUpdate(deltaTime);
+    }
 }
 
 void SceneEditorSubsystem::OnShutdown() {
@@ -124,6 +127,9 @@ void SceneEditorSubsystem::OnShutdown() {
     if (m_renderSubsystem) {
         m_renderSubsystem->SetPreRenderCallback(nullptr);
     }
+    
+    m_meshCache.clear();
+    m_materialCache.clear();
 }
 
 void SceneEditorSubsystem::SetSelectedEntity(uint32_t entity) {
@@ -254,7 +260,40 @@ void SceneEditorSubsystem::ResetLayout() {
 }
 
 void SceneEditorSubsystem::InitializeDefaultResources() {
-    // Placeholder for actual resource loading logic
+    IRHIDevice* device = m_renderSubsystem->GetDevice();
+    if (!device) return;
+
+    // 1. Create Global Descriptor Set Layout
+    std::vector<RHIDescriptorSetLayoutBinding> bindings;
+    RHIDescriptorSetLayoutBinding uboBinding{};
+    uboBinding.binding = 0;
+    uboBinding.descriptorType = RHIDescriptorType::UniformBuffer;
+    uboBinding.descriptorCount = 1;
+    uboBinding.stageFlags = RHIShaderStage::Vertex | RHIShaderStage::Fragment;
+    bindings.push_back(uboBinding);
+    m_globalDescriptorSetLayout = device->CreateDescriptorSetLayout(bindings);
+
+    // 2. Create Global Uniform Buffers and Descriptor Sets
+    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        m_uniformBuffers.push_back(device->CreateBuffer(
+            sizeof(GlobalUBO),
+            RHIBufferUsage::Uniform,
+            RHIMemoryProperty::HostVisible | RHIMemoryProperty::HostCoherent
+        ));
+
+        auto set = device->AllocateDescriptorSet(m_globalDescriptorSetLayout.get());
+        set->UpdateUniformBuffer(0, m_uniformBuffers[i].get(), 0, sizeof(GlobalUBO));
+        m_globalDescriptorSets.push_back(set);
+    }
+
+    // 3. Load Default Assets
+    auto* assetManager = m_assetSubsystem->GetAssetManager();
+    
+    // Register defaults if they don't exist
+    AssetHandle cubeHandle = assetManager->RegisterAsset("Models/Default/Cube.obj");
+    AssetHandle whiteTexHandle = assetManager->RegisterAsset("Textures/Default/White.png");
+    
+    // We'll lazy load them in GetOrLoad functions
 }
 
 void SceneEditorSubsystem::SetupViewportResources() {
@@ -285,6 +324,14 @@ void SceneEditorSubsystem::ResizeViewport(uint32_t width, uint32_t height) {
          if (vkSampler) {
              m_viewportDescriptorSet = ImGui_ImplVulkan_AddTexture(vkSampler->GetVkSampler(), vkTexture->GetImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
          }
+         
+         // Initial transition to SHADER_READ_ONLY_OPTIMAL so ImGui doesn't complain
+         auto cmd = device->CreateCommandList();
+         cmd->Begin();
+         static_cast<VulkanCommandList*>(cmd.get())->TransitionImageLayout(vkTexture->GetImage(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+         cmd->End();
+         device->SubmitCommandList(cmd.get());
+         device->WaitIdle();
     }
 
     if (m_viewportPanel) {
@@ -293,8 +340,32 @@ void SceneEditorSubsystem::ResizeViewport(uint32_t width, uint32_t height) {
 }
 
 void SceneEditorSubsystem::RenderScene(IRHICommandList* cmdList) {
-    if (!m_viewportTexture || !m_viewportDepth || !m_viewportPanel) return;
+    if (!m_viewportTexture || !m_viewportDepth || !m_viewportPanel || !m_activeScene) return;
+    if (m_globalDescriptorSets.empty()) return;
 
+    static bool firstRender = true;
+    if (firstRender) {
+        Logger::Info("SceneEditorSubsystem", "First RenderScene call starting...");
+        firstRender = false;
+    }
+
+    IRHIDevice* device = m_renderSubsystem->GetDevice();
+    if (!device) return;
+
+    uint32_t frameIndex = device->GetCurrentFrameIndex(); 
+    
+    Camera* camera = m_viewportPanel->GetCamera();
+    if (!camera) return;
+
+    // 1. Update Global UBO
+    GlobalUBO ubo{};
+    ubo.view = camera->GetViewMatrix();
+    ubo.proj = camera->GetProjectionMatrix(m_viewportPanel->GetSize().x / m_viewportPanel->GetSize().y);
+    ubo.proj[1][1] *= -1; // Vulkan flip
+    ubo.viewPos = glm::vec4(camera->GetPosition(), 1.0f);
+    ubo.lightCount = 0; // No lights implementation yet
+
+    // 2. Render Loop
     std::vector<IRHITexture*> colorAttachments = { m_viewportTexture.get() };
     RHIRect2D renderArea;
     renderArea.offset = { 0, 0 };
@@ -302,10 +373,111 @@ void SceneEditorSubsystem::RenderScene(IRHICommandList* cmdList) {
     
     cmdList->BeginRendering(colorAttachments, m_viewportDepth.get(), renderArea);
 
-    // Render logic using standard components
-    // ...
+    auto view = m_activeScene->Reg().view<TransformComponent, RenderComponent>();
+    for (auto entity : view) {
+        const auto& transform = view.get<TransformComponent>(entity);
+        const auto& render = view.get<RenderComponent>(entity);
+
+        if (!render.visible) continue;
+
+        auto mesh = GetOrLoadMesh(render.modelHandle);
+        auto material = GetOrLoadMaterial(render.materialHandle);
+
+        if (mesh && material) {
+            // Update UBO with model matrix
+            ubo.model = transform.GetLocalMatrix(); // Use world matrix if hierarchy solved
+            if (m_activeScene->Reg().all_of<WorldTransformComponent>(entity)) {
+                ubo.model = m_activeScene->Reg().get<WorldTransformComponent>(entity).Transform;
+            }
+
+            void* data = m_uniformBuffers[frameIndex]->Map();
+            memcpy(data, &ubo, sizeof(GlobalUBO));
+            m_uniformBuffers[frameIndex]->Unmap();
+
+            cmdList->BindPipeline(material->GetPipeline());
+            
+            // Bind descriptor sets individually
+            cmdList->BindDescriptorSet(material->GetPipeline(), m_globalDescriptorSets[frameIndex].get(), 0);
+            cmdList->BindDescriptorSet(material->GetPipeline(), material->GetDescriptorSet(), 1);
+
+            mesh->Draw(cmdList);
+        }
+    }
     
     cmdList->EndRendering();
+}
+
+std::shared_ptr<Mesh> SceneEditorSubsystem::GetOrLoadMesh(const AssetHandle& handle) {
+    if (!handle.IsValid()) return nullptr;
+    if (m_meshCache.count(handle)) return m_meshCache[handle];
+
+    auto* assetManager = m_assetSubsystem->GetAssetManager();
+    auto modelData = assetManager->GetAsset<ModelData>(handle);
+
+    if (modelData && modelData->IsValid()) {
+        auto mesh = std::make_shared<Mesh>(m_renderSubsystem->GetDevice(), *modelData);
+        m_meshCache[handle] = mesh;
+        return mesh;
+    }
+    return nullptr;
+}
+
+std::shared_ptr<Material> SceneEditorSubsystem::GetOrLoadMaterial(const AssetHandle& handle) {
+    if (!handle.IsValid()) return nullptr;
+    if (m_materialCache.count(handle)) return m_materialCache[handle];
+
+    auto* assetManager = m_assetSubsystem->GetAssetManager();
+    auto matData = assetManager->GetAsset<MaterialData>(handle);
+
+    if (matData && matData->IsValid()) {
+        std::string vPath = matData->vertexShaderPath;
+        std::string fPath = matData->fragmentShaderPath;
+
+        // Strip "Assets/" prefix if it exists because GetFullPath will add it again via m_assetDirectory
+        if (vPath.compare(0, 7, "Assets/") == 0) vPath = vPath.substr(7);
+        if (fPath.compare(0, 7, "Assets/") == 0) fPath = fPath.substr(7);
+
+        // Ensure we are using .spv files
+        if (vPath.find(".spv") == std::string::npos) vPath += ".spv";
+        if (fPath.find(".spv") == std::string::npos) fPath += ".spv";
+        
+        // Final resolution
+        std::string vFullPath = assetManager->GetFullPath(vPath);
+        std::string fFullPath = assetManager->GetFullPath(fPath);
+
+        // Debug Log
+        Logger::Info("SceneEditorSubsystem", "Loading Shaders:\n  {}\n  {}", vFullPath, fFullPath);
+
+        if (!std::filesystem::exists(vFullPath) || !std::filesystem::exists(fFullPath)) {
+            Logger::Error("SceneEditorSubsystem", "Shader files not found: \n  {}\n  {}", vFullPath, fFullPath);
+            return nullptr;
+        }
+
+        try {
+            MaterialData fixedData = *matData;
+            fixedData.vertexShaderPath = vFullPath;
+            fixedData.fragmentShaderPath = fFullPath;
+            
+            auto material = std::make_shared<Material>(m_renderSubsystem->GetDevice(), fixedData, m_globalDescriptorSetLayout.get());
+            
+            // Load textures if they exist
+            if (!matData->texturePaths.empty()) {
+                AssetHandle texHandle = assetManager->RegisterAsset(matData->texturePaths[0]);
+                auto texData = assetManager->GetAsset<TextureData>(texHandle);
+                if (texData && texData->IsValid()) {
+                    auto texture = std::make_shared<Texture>(m_renderSubsystem->GetDevice(), *texData);
+                    material->SetAlbedoMap(texture);
+                    material->UpdateDescriptorSet();
+                }
+            }
+
+            m_materialCache[handle] = material;
+            return material;
+        } catch (const std::exception& e) {
+            Logger::Error("SceneEditorSubsystem", "Failed to create material: {}", e.what());
+        }
+    }
+    return nullptr;
 }
 
 void SceneEditorSubsystem::ExecuteCommand(uint32_t type) {
@@ -348,6 +520,8 @@ void SceneEditorSubsystem::HandleFileDrop(FileDropEvent& e) {
                 // Position it 5 units in front of the camera
                 transform->position = camera->GetPosition() + camera->GetFront() * 5.0f;
                 transform->scale = glm::vec3(1.0f);
+                Logger::Info("SceneEditorSubsystem", "Spawned at position: ({}, {}, {})", 
+                            transform->position.x, transform->position.y, transform->position.z);
             } else {
                 transform->position = glm::vec3(0.0f);
                 transform->scale = glm::vec3(1.0f);

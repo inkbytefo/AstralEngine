@@ -57,6 +57,8 @@ private:
     std::map<UpdateStage, std::vector<std::unique_ptr<ISubsystem>>> m_subsystemsByStage;
     // Hızlı erişim için subsystem'leri tip indeksine göre haritala
     std::unordered_map<std::type_index, ISubsystem*> m_subsystemMap;
+    // List of subsystems in order of registration (for correct shutdown)
+    std::vector<ISubsystem*> m_registrationOrder;
     
     std::filesystem::path m_basePath;
     bool m_isRunning = false;
@@ -72,6 +74,7 @@ void Engine::RegisterSubsystem(Args&&... args) {
     auto subsystem = std::make_unique<T>(std::forward<Args>(args)...);
     UpdateStage stage = subsystem->GetUpdateStage();
     m_subsystemMap[typeid(T)] = subsystem.get();
+    m_registrationOrder.push_back(subsystem.get());
     m_subsystemsByStage[stage].push_back(std::move(subsystem));
 }
 
