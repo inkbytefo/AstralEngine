@@ -11,13 +11,13 @@ namespace AstralEngine {
  */
 class SceneSerializer {
 public:
-  SceneSerializer(const std::shared_ptr<Scene> &scene);
+  SceneSerializer(Scene *scene);
 
   void Serialize(const std::string &filepath);
   bool Deserialize(const std::string &filepath);
 
 private:
-  std::shared_ptr<Scene> m_scene;
+  Scene *m_scene;
 };
 
 } // namespace AstralEngine

@@ -11,8 +11,8 @@ Bu belge, Astral Engine projesinin geliştirme yol haritasını, tamamlanan kilo
 
 ## 🛠️ Faz 2: Editör ve ECS Geçişi (Devam Ediyor)
 - ✅ **ECS Entegrasyonu (EnTT)**: Sahne ve Entity sınıfları modernize edildi.
-- 🔄 **Advanced Properties Panel**: (Yükleniyor...) Entity özelliklerini anlık düzenleme.
-- 🔄 **Scene Serialization**: Sahneyi diskten yükleme/kaydetme (.scene).
+- ✅ **Advanced Properties Panel**: Entity özelliklerini anlık düzenleme.
+- ✅ **Scene Serialization**: Sahneyi diskten yükleme/kaydetme (.scene) ve hiyerarşi desteği.
 - ✅ **Editor UI (ImGui)**: Unreal style docking ve viewport entegrasyonu.
 - ✅ **Vulkan RHI**: Backend soyutlaması ve shader yönetimi.
 

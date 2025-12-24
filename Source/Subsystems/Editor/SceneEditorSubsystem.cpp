@@ -11,11 +11,13 @@
 #include "../Renderer/RHI/Vulkan/VulkanCommandList.h"
 #include "../Renderer/RHI/Vulkan/VulkanResources.h"
 #include "../UI/UISubsystem.h"
+#include <entt/entt.hpp>
 #include <filesystem>
 #include <iomanip>
 
 
 #ifdef ASTRAL_USE_IMGUI
+#include <imgui.h>
 #include <imgui_impl_vulkan.h>
 #include <imgui_internal.h>
 #endif
@@ -156,7 +158,7 @@ void SceneEditorSubsystem::NewScene() {
 }
 
 bool SceneEditorSubsystem::SaveScene(const std::string &filename) {
-  SceneSerializer serializer(m_activeScene);
+  SceneSerializer serializer(m_activeScene.get());
   serializer.Serialize(filename);
   m_sceneModified = false;
   return true;
@@ -172,7 +174,7 @@ bool SceneEditorSubsystem::LoadScene(const std::string &filename) {
   auto newScene = std::make_shared<Scene>();
   newScene->OnInitialize(m_owner);
 
-  SceneSerializer serializer(newScene);
+  SceneSerializer serializer(newScene.get());
   if (serializer.Deserialize(filename)) {
     m_activeScene = newScene;
     SetSelectedEntity((uint32_t)entt::null);

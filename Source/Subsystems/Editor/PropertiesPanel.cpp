@@ -6,6 +6,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+namespace AstralEngine {
 
 static void DrawVec3Control(const std::string &label, glm::vec3 &values,
                             float resetValue = 0.0f,
@@ -72,7 +73,7 @@ static void DrawComponent(const std::string &name, Entity entity,
                           UIFunction uiFunction) {
   const ImGuiTreeNodeFlags treeNodeFlags =
       ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed |
-      ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowItemOverlap |
+      ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowOverlap |
       ImGuiTreeNodeFlags_FramePadding;
   if (entity.HasComponent<T>()) {
     auto &component = entity.GetComponent<T>();
@@ -152,8 +153,8 @@ void PropertiesPanel::DrawComponents(uint32_t entityID) {
     ImGui::Checkbox("Cast Shadows", &component.castsShadows);
     ImGui::Checkbox("Receive Shadows", &component.receivesShadows);
 
-    ImGui::Text("Model: %llu", component.modelHandle.GetID());
-    ImGui::Text("Material: %llu", component.materialHandle.GetID());
+    ImGui::Text("Model (ID): %llu", component.modelHandle.GetID());
+    ImGui::Text("Material (ID): %llu", component.materialHandle.GetID());
   });
 
   DrawComponent<LightComponent>("Light", entity, [](auto &component) {

@@ -5,6 +5,7 @@
 #include <fstream>
 #include <glm/glm.hpp>
 #include <iomanip>
+#include <map>
 #include <nlohmann/json.hpp>
 
 namespace AstralEngine {
@@ -18,8 +19,7 @@ static glm::vec3 DeserializeVec3(const json &j) {
   return {j[0].get<float>(), j[1].get<float>(), j[2].get<float>()};
 }
 
-SceneSerializer::SceneSerializer(const std::shared_ptr<Scene> &scene)
-    : m_scene(scene) {}
+SceneSerializer::SceneSerializer(Scene *scene) : m_scene(scene) {}
 
 void SceneSerializer::Serialize(const std::string &filepath) {
   json root = json::object();
@@ -27,17 +27,16 @@ void SceneSerializer::Serialize(const std::string &filepath) {
 
   auto entities = json::array();
 
-  m_scene->Reg().each([&](auto entityID) {
-    Entity entity(entityID, m_scene.get());
+  auto view = m_scene->Reg().view<IDComponent>();
+  for (auto entityHandle : view) {
+    Entity entity(entityHandle, m_scene);
     if (!entity)
-      return;
+      continue;
 
     json entityJson = json::object();
 
     // 1. ID Component
-    if (entity.HasComponent<IDComponent>()) {
-      entityJson["ID"] = (uint64_t)entity.GetComponent<IDComponent>().ID;
-    }
+    entityJson["ID"] = (uint64_t)entity.GetComponent<IDComponent>().ID;
 
     // 2. Name Component
     if (entity.HasComponent<NameComponent>()) {
@@ -80,8 +79,17 @@ void SceneSerializer::Serialize(const std::string &filepath) {
                               {"Main", cc.isMainCamera}};
     }
 
+    // 7. Relationship Component
+    if (entity.HasComponent<RelationshipComponent>()) {
+      auto &rc = entity.GetComponent<RelationshipComponent>();
+      if (rc.Parent != entt::null) {
+        Entity parent(rc.Parent, m_scene);
+        entityJson["Parent"] = (uint64_t)parent.GetUUID();
+      }
+    }
+
     entities.push_back(entityJson);
-  });
+  }
 
   root["Entities"] = entities;
 
@@ -113,11 +121,15 @@ bool SceneSerializer::Deserialize(const std::string &filepath) {
   if (!root.contains("Entities"))
     return false;
 
+  std::map<uint64_t, Entity> entityMap;
+
+  // Pass 1: Create entities
   for (auto &entityJson : root["Entities"]) {
     uint64_t uuid = entityJson["ID"].get<uint64_t>();
     std::string name = entityJson.value("Name", "Entity");
 
     Entity entity = m_scene->CreateEntityWithUUID(UUID(uuid), name);
+    entityMap[uuid] = entity;
 
     if (entityJson.contains("Transform")) {
       auto &tc = entity.GetComponent<TransformComponent>();
@@ -155,6 +167,18 @@ bool SceneSerializer::Deserialize(const std::string &filepath) {
       cc.nearPlane = c["Near"].get<float>();
       cc.farPlane = c["Far"].get<float>();
       cc.isMainCamera = c.value("Main", false);
+    }
+  }
+
+  // Pass 2: Restore relationships
+  for (auto &entityJson : root["Entities"]) {
+    if (entityJson.contains("Parent")) {
+      uint64_t uuid = entityJson["ID"].get<uint64_t>();
+      uint64_t parentUUID = entityJson["Parent"].get<uint64_t>();
+
+      if (entityMap.count(uuid) && entityMap.count(parentUUID)) {
+        m_scene->ParentEntity(entityMap[uuid], entityMap[parentUUID]);
+      }
     }
   }
 
