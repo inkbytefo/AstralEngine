@@ -15,7 +15,6 @@
 #include <filesystem>
 #include <iomanip>
 
-
 #ifdef ASTRAL_USE_IMGUI
 #include <imgui.h>
 #include <imgui_impl_vulkan.h>
@@ -531,8 +530,8 @@ SceneEditorSubsystem::GetOrLoadMaterial(const AssetHandle &handle) {
     std::string fFullPath = assetManager->GetFullPath(fPath);
 
     // Debug Log
-    Logger::Info("SceneEditorSubsystem", "Loading Shaders:\n  {}\n  {}",
-                 vFullPath, fFullPath);
+    // Logger::Info("SceneEditorSubsystem", "Loading Shaders:\n  {}\n  {}",
+    // vFullPath, fFullPath);
 
     if (!std::filesystem::exists(vFullPath) ||
         !std::filesystem::exists(fFullPath)) {

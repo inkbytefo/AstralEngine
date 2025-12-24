@@ -1,9 +1,13 @@
 #include "Engine.h"
 #include "../Events/EventManager.h"
+#include "../Subsystems/Asset/AssetSubsystem.h"
 #include "../Subsystems/Platform/PlatformSubsystem.h"
+#include "../Subsystems/Renderer/Core/RenderSubsystem.h"
+#include "../Subsystems/UI/UISubsystem.h"
 #include "Logger.h"
 #include <chrono>
 #include <thread>
+
 
 namespace AstralEngine {
 
@@ -155,6 +159,17 @@ void Engine::Initialize() {
   }
 
   Logger::Info("Engine", "Initializing engine and subsystems...");
+
+  // 1. Register Core Subsystems if not already registered (Standard
+  // Configuration)
+  if (!GetSubsystem<PlatformSubsystem>())
+    RegisterSubsystem<PlatformSubsystem>();
+  if (!GetSubsystem<RenderSubsystem>())
+    RegisterSubsystem<RenderSubsystem>();
+  if (!GetSubsystem<AssetSubsystem>())
+    RegisterSubsystem<AssetSubsystem>();
+  if (!GetSubsystem<UISubsystem>())
+    RegisterSubsystem<UISubsystem>();
 
   // CRITICAL: Initialize subsystems in the exact order they were registered.
   // This respects dependency order (e.g. Render depends on Platform).
