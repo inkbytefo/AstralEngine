@@ -1,249 +1,165 @@
 #include "SceneSerializer.h"
-#include "Entity.h"
-#include "../../ECS/Components.h"
 #include "../../Core/Logger.h"
-
-#include <nlohmann/json.hpp>
+#include "../../ECS/Components.h"
+#include "../../Subsystems/Scene/Entity.h"
 #include <fstream>
-#include <iostream>
-
-using json = nlohmann::json;
-
-namespace glm {
-    void to_json(json& j, const vec3& v) {
-        j = json{ {"x", v.x}, {"y", v.y}, {"z", v.z} };
-    }
-
-    void from_json(const json& j, vec3& v) {
-        v.x = j.at("x").get<float>();
-        v.y = j.at("y").get<float>();
-        v.z = j.at("z").get<float>();
-    }
-
-    void to_json(json& j, const vec4& v) {
-        j = json{ {"x", v.x}, {"y", v.y}, {"z", v.z}, {"w", v.w} };
-    }
-
-    void from_json(const json& j, vec4& v) {
-        v.x = j.at("x").get<float>();
-        v.y = j.at("y").get<float>();
-        v.z = j.at("z").get<float>();
-        v.w = j.at("w").get<float>();
-    }
-}
+#include <glm/glm.hpp>
+#include <iomanip>
+#include <nlohmann/json.hpp>
 
 namespace AstralEngine {
 
-    SceneSerializer::SceneSerializer(Scene* scene)
-        : m_Scene(scene) {
-    }
+using json = nlohmann::json;
 
-    void SceneSerializer::Serialize(const std::string& filepath) {
-        json root;
-        root["Scene"] = "Untitled"; // TODO: Scene name
-        root["Entities"] = json::array();
+// Helper to serialize glm types
+static json SerializeVec3(const glm::vec3 &v) { return {v.x, v.y, v.z}; }
 
-        auto view = m_Scene->Reg().view<IDComponent>();
-        for (auto entityID : view) {
-            Entity entity = { entityID, m_Scene };
-            if (!entity) continue;
-
-            json entityJson;
-            
-            // ID Component
-            if (entity.HasComponent<IDComponent>()) {
-                entityJson["UUID"] = (uint64_t)entity.GetComponent<IDComponent>().ID;
-            }
-
-            // Tag Component
-            if (entity.HasComponent<TagComponent>()) {
-                entityJson["TagComponent"] = {
-                    {"Tag", entity.GetComponent<TagComponent>().tag}
-                };
-            }
-
-            // Transform Component
-            if (entity.HasComponent<TransformComponent>()) {
-                auto& tc = entity.GetComponent<TransformComponent>();
-                entityJson["TransformComponent"] = {
-                    {"Position", tc.position},
-                    {"Rotation", tc.rotation},
-                    {"Scale", tc.scale}
-                };
-            }
-
-            // Relationship Component (Parent UUID)
-            if (entity.HasComponent<RelationshipComponent>()) {
-                auto& rc = entity.GetComponent<RelationshipComponent>();
-                if (rc.Parent != entt::null) {
-                    Entity parent = { rc.Parent, m_Scene };
-                    if (parent.HasComponent<IDComponent>()) {
-                         entityJson["RelationshipComponent"] = {
-                            {"ParentUUID", (uint64_t)parent.GetComponent<IDComponent>().ID}
-                        };
-                    }
-                }
-            }
-
-            // Camera Component
-            if (entity.HasComponent<CameraComponent>()) {
-                auto& cc = entity.GetComponent<CameraComponent>();
-                entityJson["CameraComponent"] = {
-                    {"ProjectionType", (int)cc.projectionType},
-                    {"PerspectiveFOV", cc.fieldOfView},
-                    {"PerspectiveNear", cc.nearPlane},
-                    {"PerspectiveFar", cc.farPlane},
-                    {"OrthoLeft", cc.orthoLeft},
-                    {"OrthoRight", cc.orthoRight},
-                    {"OrthoBottom", cc.orthoBottom},
-                    {"OrthoTop", cc.orthoTop},
-                    {"Primary", cc.isMainCamera}
-                };
-            }
-
-            // Light Component
-            if (entity.HasComponent<LightComponent>()) {
-                auto& lc = entity.GetComponent<LightComponent>();
-                entityJson["LightComponent"] = {
-                    {"Type", (int)lc.type},
-                    {"Color", lc.color},
-                    {"Intensity", lc.intensity},
-                    {"Range", lc.range},
-                    {"InnerConeAngle", lc.innerConeAngle},
-                    {"OuterConeAngle", lc.outerConeAngle}
-                };
-            }
-
-            // Render Component
-            if (entity.HasComponent<RenderComponent>()) {
-                auto& rc = entity.GetComponent<RenderComponent>();
-                entityJson["RenderComponent"] = {
-                    {"Visible", rc.visible},
-                    {"Layer", rc.renderLayer},
-                    {"CastsShadows", rc.castsShadows},
-                    {"ReceivesShadows", rc.receivesShadows},
-                    {"MaterialHandle", {
-                        {"ID", rc.materialHandle.GetID()},
-                        {"Path", rc.materialHandle.GetPath()},
-                        {"Type", (int)rc.materialHandle.GetType()}
-                    }},
-                    {"ModelHandle", {
-                        {"ID", rc.modelHandle.GetID()},
-                        {"Path", rc.modelHandle.GetPath()},
-                        {"Type", (int)rc.modelHandle.GetType()}
-                    }}
-                };
-            }
-
-            root["Entities"].push_back(entityJson);
-        }
-
-        std::ofstream fout(filepath);
-        fout << root.dump(4);
-    }
-
-    bool SceneSerializer::Deserialize(const std::string& filepath) {
-        std::ifstream stream(filepath);
-        if (!stream.is_open()) {
-            Logger::Error("SceneSerializer", "Failed to open file: " + filepath);
-            return false;
-        }
-
-        json root;
-        try {
-            stream >> root;
-        } catch (const json::parse_error& e) {
-            Logger::Error("SceneSerializer", std::string("JSON Parse Error: ") + e.what());
-            return false;
-        }
-
-        auto entities = root["Entities"];
-        if (entities.is_null()) return false;
-
-        // Map to resolve parent-child relationships
-        // Child Entity -> Parent UUID
-        std::unordered_map<entt::entity, uint64_t> childToParentMap;
-        // UUID -> Entity
-        std::unordered_map<uint64_t, entt::entity> uuidToEntityMap;
-
-        for (auto& entityJson : entities) {
-            uint64_t uuid = entityJson["UUID"];
-            
-            std::string name;
-            if (entityJson.contains("TagComponent")) {
-                name = entityJson["TagComponent"]["Tag"];
-            }
-
-            Entity deserializedEntity = m_Scene->CreateEntityWithUUID(UUID(uuid), name);
-            uuidToEntityMap[uuid] = (entt::entity)deserializedEntity;
-
-            if (entityJson.contains("TransformComponent")) {
-                auto& tc = deserializedEntity.GetComponent<TransformComponent>();
-                auto& tcJson = entityJson["TransformComponent"];
-                tc.position = tcJson["Position"];
-                tc.rotation = tcJson["Rotation"];
-                tc.scale = tcJson["Scale"];
-            }
-
-            if (entityJson.contains("CameraComponent")) {
-                auto& cc = deserializedEntity.AddComponent<CameraComponent>();
-                auto& ccJson = entityJson["CameraComponent"];
-                cc.projectionType = (CameraComponent::ProjectionType)ccJson["ProjectionType"];
-                cc.fieldOfView = ccJson["PerspectiveFOV"];
-                cc.nearPlane = ccJson["PerspectiveNear"];
-                cc.farPlane = ccJson["PerspectiveFar"];
-                cc.orthoLeft = ccJson["OrthoLeft"];
-                cc.orthoRight = ccJson["OrthoRight"];
-                cc.orthoBottom = ccJson["OrthoBottom"];
-                cc.orthoTop = ccJson["OrthoTop"];
-                cc.isMainCamera = ccJson["Primary"];
-            }
-
-            if (entityJson.contains("LightComponent")) {
-                auto& lc = deserializedEntity.AddComponent<LightComponent>();
-                auto& lcJson = entityJson["LightComponent"];
-                lc.type = (LightComponent::LightType)lcJson["Type"];
-                lc.color = lcJson["Color"];
-                lc.intensity = lcJson["Intensity"];
-                lc.range = lcJson["Range"];
-                lc.innerConeAngle = lcJson["InnerConeAngle"];
-                lc.outerConeAngle = lcJson["OuterConeAngle"];
-            }
-
-            if (entityJson.contains("RenderComponent")) {
-                auto& rcJson = entityJson["RenderComponent"];
-                
-                std::string matPath = rcJson["MaterialHandle"]["Path"];
-                std::string modelPath = rcJson["ModelHandle"]["Path"];
-                AssetHandle::Type matType = (AssetHandle::Type)rcJson["MaterialHandle"]["Type"];
-                AssetHandle::Type modelType = (AssetHandle::Type)rcJson["ModelHandle"]["Type"];
-
-                AssetHandle matHandle(matPath, matType);
-                AssetHandle modelHandle(modelPath, modelType);
-                
-                auto& rc = deserializedEntity.AddComponent<RenderComponent>(matHandle, modelHandle);
-                rc.visible = rcJson["Visible"];
-                rc.renderLayer = rcJson["Layer"];
-                rc.castsShadows = rcJson["CastsShadows"];
-                rc.receivesShadows = rcJson["ReceivesShadows"];
-            }
-
-            if (entityJson.contains("RelationshipComponent")) {
-                uint64_t parentUUID = entityJson["RelationshipComponent"]["ParentUUID"];
-                childToParentMap[(entt::entity)deserializedEntity] = parentUUID;
-            }
-        }
-
-        // Reconstruct Hierarchy
-        for (auto [childEntity, parentUUID] : childToParentMap) {
-            if (uuidToEntityMap.find(parentUUID) != uuidToEntityMap.end()) {
-                Entity child = { childEntity, m_Scene };
-                Entity parent = { uuidToEntityMap[parentUUID], m_Scene };
-                m_Scene->ParentEntity(child, parent);
-            }
-        }
-
-        return true;
-    }
-
+static glm::vec3 DeserializeVec3(const json &j) {
+  return {j[0].get<float>(), j[1].get<float>(), j[2].get<float>()};
 }
+
+SceneSerializer::SceneSerializer(const std::shared_ptr<Scene> &scene)
+    : m_scene(scene) {}
+
+void SceneSerializer::Serialize(const std::string &filepath) {
+  json root = json::object();
+  root["Scene"] = "Untitled";
+
+  auto entities = json::array();
+
+  m_scene->Reg().each([&](auto entityID) {
+    Entity entity(entityID, m_scene.get());
+    if (!entity)
+      return;
+
+    json entityJson = json::object();
+
+    // 1. ID Component
+    if (entity.HasComponent<IDComponent>()) {
+      entityJson["ID"] = (uint64_t)entity.GetComponent<IDComponent>().ID;
+    }
+
+    // 2. Name Component
+    if (entity.HasComponent<NameComponent>()) {
+      entityJson["Name"] = entity.GetComponent<NameComponent>().name;
+    }
+
+    // 3. Transform Component
+    if (entity.HasComponent<TransformComponent>()) {
+      auto &tc = entity.GetComponent<TransformComponent>();
+      entityJson["Transform"] = {{"Position", SerializeVec3(tc.position)},
+                                 {"Rotation", SerializeVec3(tc.rotation)},
+                                 {"Scale", SerializeVec3(tc.scale)}};
+    }
+
+    // 4. Render Component
+    if (entity.HasComponent<RenderComponent>()) {
+      auto &rc = entity.GetComponent<RenderComponent>();
+      entityJson["Render"] = {{"MaterialID", rc.materialHandle.GetID()},
+                              {"ModelID", rc.modelHandle.GetID()},
+                              {"Visible", rc.visible},
+                              {"CastsShadows", rc.castsShadows}};
+    }
+
+    // 5. Light Component
+    if (entity.HasComponent<LightComponent>()) {
+      auto &lc = entity.GetComponent<LightComponent>();
+      entityJson["Light"] = {{"Type", (int)lc.type},
+                             {"Color", SerializeVec3(lc.color)},
+                             {"Intensity", lc.intensity},
+                             {"Range", lc.range}};
+    }
+
+    // 6. Camera Component
+    if (entity.HasComponent<CameraComponent>()) {
+      auto &cc = entity.GetComponent<CameraComponent>();
+      entityJson["Camera"] = {{"Type", (int)cc.projectionType},
+                              {"FOV", cc.fieldOfView},
+                              {"Near", cc.nearPlane},
+                              {"Far", cc.farPlane},
+                              {"Main", cc.isMainCamera}};
+    }
+
+    entities.push_back(entityJson);
+  });
+
+  root["Entities"] = entities;
+
+  std::ofstream fout(filepath);
+  if (fout.is_open()) {
+    fout << root.dump(4);
+    Logger::Info("SceneSerializer", "Scene serialized to: {}", filepath);
+  } else {
+    Logger::Error("SceneSerializer",
+                  "Failed to open file for serialization: {}", filepath);
+  }
+}
+
+bool SceneSerializer::Deserialize(const std::string &filepath) {
+  std::ifstream fin(filepath);
+  if (!fin.is_open()) {
+    Logger::Error("SceneSerializer", "Failed to open scene file: {}", filepath);
+    return false;
+  }
+
+  json root;
+  try {
+    fin >> root;
+  } catch (const json::parse_error &e) {
+    Logger::Error("SceneSerializer", "JSON Parse error: {}", e.what());
+    return false;
+  }
+
+  if (!root.contains("Entities"))
+    return false;
+
+  for (auto &entityJson : root["Entities"]) {
+    uint64_t uuid = entityJson["ID"].get<uint64_t>();
+    std::string name = entityJson.value("Name", "Entity");
+
+    Entity entity = m_scene->CreateEntityWithUUID(UUID(uuid), name);
+
+    if (entityJson.contains("Transform")) {
+      auto &tc = entity.GetComponent<TransformComponent>();
+      auto &trans = entityJson["Transform"];
+      tc.position = DeserializeVec3(trans["Position"]);
+      tc.rotation = DeserializeVec3(trans["Rotation"]);
+      tc.scale = DeserializeVec3(trans["Scale"]);
+    }
+
+    if (entityJson.contains("Render")) {
+      auto &rc = entity.AddComponent<RenderComponent>();
+      auto &r = entityJson["Render"];
+      rc.materialHandle = AssetHandle(r["MaterialID"].get<uint64_t>(),
+                                      AssetHandle::Type::Material);
+      rc.modelHandle =
+          AssetHandle(r["ModelID"].get<uint64_t>(), AssetHandle::Type::Model);
+      rc.visible = r.value("Visible", true);
+      rc.castsShadows = r.value("CastsShadows", true);
+    }
+
+    if (entityJson.contains("Light")) {
+      auto &lc = entity.AddComponent<LightComponent>();
+      auto &l = entityJson["Light"];
+      lc.type = (LightComponent::LightType)l["Type"].get<int>();
+      lc.color = DeserializeVec3(l["Color"]);
+      lc.intensity = l["Intensity"].get<float>();
+      lc.range = l["Range"].get<float>();
+    }
+
+    if (entityJson.contains("Camera")) {
+      auto &cc = entity.AddComponent<CameraComponent>();
+      auto &c = entityJson["Camera"];
+      cc.projectionType = (CameraComponent::ProjectionType)c["Type"].get<int>();
+      cc.fieldOfView = c["FOV"].get<float>();
+      cc.nearPlane = c["Near"].get<float>();
+      cc.farPlane = c["Far"].get<float>();
+      cc.isMainCamera = c.value("Main", false);
+    }
+  }
+
+  Logger::Info("SceneSerializer", "Scene deserialized from: {}", filepath);
+  return true;
+}
+
+} // namespace AstralEngine
