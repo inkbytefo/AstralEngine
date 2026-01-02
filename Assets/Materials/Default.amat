@@ -1,21 +1,22 @@
 {
   "name": "DefaultPBR",
   "type": 0,
-  "vertexShader": "Assets/Shaders/Bin/Test/SimpleMesh.vert.spv",
-  "fragmentShader": "Assets/Shaders/Bin/Test/SimpleMesh.frag.spv",
+  "vertexShader": "Assets/Shaders/Bin/PBR.vert.spv",
+  "fragmentShader": "Assets/Shaders/Bin/PBR.frag.spv",
   "properties": {
     "baseColor": [1.0, 1.0, 1.0],
+    "opacity": 1.0,
     "metallic": 0.0,
     "roughness": 0.5,
     "ao": 1.0,
-    "opacity": 1.0,
-    "transparent": false
+    "emissiveColor": [0.0, 0.0, 0.0],
+    "emissiveIntensity": 1.0
   },
   "textures": {
-    "albedo": "Models/testobject/VAZ2101_Body_BaseColor.png",
-    "normal": "Models/testobject/VAZ2101_Body_Normal.png",
-    "metallic": "Models/testobject/VAZ2101_Body_Metallic.png",
-    "roughness": "Models/testobject/VAZ2101_Body_Roughness.png",
-    "ao": "Models/testobject/VAZ2101_Body_AO.png"
+    "albedo": "Assets/Models/testobject/VAZ2101_Body_BaseColor.png",
+    "normal": "Assets/Models/testobject/VAZ2101_Body_Normal.png",
+    "metallic": "Assets/Models/testobject/VAZ2101_Body_Metallic.png",
+    "roughness": "Assets/Models/testobject/VAZ2101_Body_Roughness.png",
+    "ao": "Assets/Models/testobject/VAZ2101_Body_AO.png"
   }
 }

@@ -99,6 +99,7 @@ target_link_libraries(AstralEngine PUBLIC
 
     # Optional dependencies
     # $<$<BOOL:${ASTRAL_USE_IMGUI}>:imgui> # Built from source in Source/Subsystems/UI
+    $<$<BOOL:${ASTRAL_USE_IMGUI}>:imguizmo>
     $<$<BOOL:${ASTRAL_USE_JOLT_PHYSICS}>:Jolt>
 )
 

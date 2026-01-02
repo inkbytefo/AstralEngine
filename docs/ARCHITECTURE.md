@@ -12,8 +12,8 @@ The `Engine` class is the root object. It is responsible for:
 
 ### 2. Subsystems (`Core/ISubsystem`)
 All major functionalities are encapsulated as subsystems inheriting from `ISubsystem`.
-- **PlatformSubsystem:** Handles OS-specific tasks (Windowing, Input) via SDL3.
-- **RenderSubsystem:** Manages the RHI device and rendering operations.
+- **PlatformSubsystem:** Handles OS-specific tasks (Windowing, Input) via SDL3. Features a **Robust Windowing** logic that falls back to standard windows if Vulkan-tagged window creation fails (e.g., in RDP or old driver environments).
+- **RenderSubsystem:** Manages the RHI device and rendering operations. Includes manual Win32 surface creation logic to support the platform fallback.
 - **UISubsystem:** Integration of ImGui for debug UI and tools.
 - **AssetSubsystem:** Manages loading and caching of assets (Models, Textures, Shaders).
 

@@ -14,10 +14,11 @@ Modern, modular C++20 oyun motoru. Frostbite'tan ilham alan subsystem mimarisi �
 - ✅ ECS (EnTT Entegrasyonu)
 - ✅ Editor (ImGui Docking, Viewport, Outliner)
 - ✅ Vulkan RHI (Render Hardware Interface)
+- ✅ **PBR Materyal Sistemi** (Metallic-Roughness Workflow)
+- ✅ **Robust Windowing** (Vulkan Fallback & Manual Win32 Surface Hooking)
 
 ### 🚧 Geliştirme Aşamasında
 - 🔄 Fizik Sistemi (Jolt Physics planlanıyor)
-- 🔄 PBR Materyal Sistemi
 - 🔄 Scripting Desteği (C# / Mono)
 
 ### 🎮 Planlanan Özellikler

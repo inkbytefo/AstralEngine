@@ -49,7 +49,8 @@ enum class RHITextureUsage {
     Sampled = 1 << 2,
     Storage = 1 << 3,
     ColorAttachment = 1 << 4,
-    DepthStencilAttachment = 1 << 5
+    DepthStencilAttachment = 1 << 5,
+    CubeMap = 1 << 6
 };
 
 enum class RHIMemoryProperty {

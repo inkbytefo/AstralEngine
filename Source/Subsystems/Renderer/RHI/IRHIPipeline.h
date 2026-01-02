@@ -42,6 +42,10 @@ struct RHIPipelineStateDescriptor {
     bool depthWriteEnabled = true;
     RHICompareOp depthCompareOp = RHICompareOp::Less;
     
+    // Dynamic Rendering Info
+    std::vector<RHIFormat> colorFormats;
+    RHIFormat depthFormat = RHIFormat::Unknown;
+    
     // Blending, etc. can be added here
 };
 

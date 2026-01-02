@@ -49,24 +49,26 @@ This document outlines the strategic development plan for **Astral Engine**. It 
 - [x] **Scene Graph:** System to traverse and render the scene hierarchy.
 - [x] **Serialization:** Save and Load scenes to/from disk (JSON/YAML).
 - [x] **Selection System:** Raycasting to select entities in the 3D world.
+- [x] **Robust Initialization:** SDL3 Vulkan fallback and manual Win32 surface support.
 
 ---
 
-## Phase 4: Editor Development (🚧 Current Focus)
+## Phase 4: Editor Development (✅ Completed)
 *Objective: Create a usable WYSIWYG editor environment.*
 
-- [ ] **Editor Viewport:** Render the game scene into an ImGui window (Texture ID).
-- [ ] **Entity Inspector:** View and modify ECS component values at runtime.
-- [ ] **Scene Hierarchy Panel:** Tree view of entities.
-- [ ] **Asset Browser:** File explorer for importing and managing assets.
-- [ ] **Gizmos:** 3D manipulation tools (Translate, Rotate, Scale).
+- [x] **Editor Viewport:** Render the game scene into an ImGui window (Texture ID).
+- [x] **Entity Inspector:** View and modify ECS component values at runtime.
+- [x] **Scene Hierarchy Panel:** Tree view of entities.
+- [x] **Asset Browser:** File explorer for importing and managing assets.
+- [ ] **Gizmos:** 3D manipulation tools (Translate, Rotate, Scale) - *Planned for v0.6.0*.
 
 ---
 
-## Phase 5: Advanced Rendering
+## Phase 5: Advanced Rendering (🚧 Current Focus)
 *Objective: Achieve professional-grade visual fidelity.*
 
-- [ ] **PBR (Physically Based Rendering):** Implement Metallic/Roughness workflow.
+- [x] **PBR (Physically Based Rendering):** Implement Metallic/Roughness workflow.
+- [x] **Material Subsystem:** Support for BaseColor, Normal, Metallic-Roughness, AO, Emissive maps.
 - [ ] **IBL (Image Based Lighting):** HDR environment maps.
 - [ ] **Shadow Mapping:** CSM (Cascaded Shadow Maps) and Point Light shadows.
 - [ ] **Post-Processing Stack:**

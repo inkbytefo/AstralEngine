@@ -22,6 +22,9 @@ namespace AstralEngine {
         uint32_t GetIndexCount() const { return m_indexCount; }
         const AABB& GetAABB() const { return m_boundingBox; }
 
+        IRHIBuffer* GetVertexBuffer() const { return m_vertexBuffer.get(); }
+        IRHIBuffer* GetIndexBuffer() const { return m_indexBuffer.get(); }
+
     private:
         IRHIDevice* m_device;
         std::shared_ptr<IRHIBuffer> m_vertexBuffer;

@@ -25,6 +25,7 @@ namespace AstralEngine {
 		}
 
 		// Process all meshes in the scene
+		uint32_t vertexOffset = 0;
 		for (unsigned int i = 0; i < scene->mNumMeshes; ++i) {
 			const aiMesh* mesh = scene->mMeshes[i];
 			if (!mesh->HasPositions()) continue;
@@ -45,9 +46,11 @@ namespace AstralEngine {
 				const aiFace& face = mesh->mFaces[j];
 				if (face.mNumIndices != 3) continue;
 				for (unsigned int k = 0; k < face.mNumIndices; ++k) {
-					modelData->indices.push_back(face.mIndices[k]);
+					modelData->indices.push_back(face.mIndices[k] + vertexOffset);
 				}
 			}
+
+			vertexOffset += mesh->mNumVertices;
 		}
 
 		if (modelData->vertices.empty()) {

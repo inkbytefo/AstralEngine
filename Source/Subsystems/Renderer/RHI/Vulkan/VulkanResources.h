@@ -31,7 +31,7 @@ private:
 
 class VulkanTexture : public IRHITexture {
 public:
-    VulkanTexture(VulkanDevice* device, uint32_t width, uint32_t height, RHIFormat format, RHITextureUsage usage);
+    VulkanTexture(VulkanDevice* device, uint32_t width, uint32_t height, RHIFormat format, RHITextureUsage usage, uint32_t mipLevels = 1, uint32_t arrayLayers = 1);
     // Constructor for swapchain images
     VulkanTexture(VulkanDevice* device, VkImage image, VkImageView view, uint32_t width, uint32_t height, RHIFormat format);
     ~VulkanTexture() override;
@@ -39,21 +39,29 @@ public:
     uint32_t GetWidth() const override { return m_width; }
     uint32_t GetHeight() const override { return m_height; }
     RHIFormat GetFormat() const override { return m_format; }
+    uint32_t GetMipLevels() const { return m_mipLevels; }
+    uint32_t GetArrayLayers() const { return m_arrayLayers; }
 
     VkImage GetImage() const { return m_image; }
     VkImageView GetImageView() const { return m_imageView; }
     bool IsSwapchainTexture() const { return !m_ownsImage; }
 
+    VkImageLayout GetLayout() const { return m_currentLayout; }
+    void SetLayout(VkImageLayout layout) { m_currentLayout = layout; }
+
 private:
     VulkanDevice* m_device;
     uint32_t m_width;
     uint32_t m_height;
+    uint32_t m_mipLevels;
+    uint32_t m_arrayLayers;
     RHIFormat m_format;
     
     VkImage m_image = VK_NULL_HANDLE;
     VkImageView m_imageView = VK_NULL_HANDLE;
     VmaAllocation m_allocation = VK_NULL_HANDLE;
     bool m_ownsImage = true;
+    VkImageLayout m_currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 };
 
 class VulkanShader : public IRHIShader {

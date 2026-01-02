@@ -16,10 +16,14 @@ layout(set = 0, binding = 0) uniform GlobalUBO {
     mat4 model;
     mat4 view;
     mat4 proj;
+    mat4 lightSpaceMatrix;
     vec4 viewPos;
     int lightCount;
+    int hasShadows;
     Light lights[4];
 } global;
+
+layout(set = 0, binding = 1) uniform sampler2D shadowMap;
 
 layout(set = 1, binding = 0) uniform MaterialUBO {
     vec4 baseColor;
@@ -33,7 +37,31 @@ layout(set = 1, binding = 1) uniform sampler2D texSampler;
 
 layout(location = 0) out vec4 outColor;
 
-vec3 CalcDirLight(Light light, vec3 normal, vec3 viewDir, vec3 materialColor) {
+float ShadowCalculation(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir) {
+    // Perform perspective divide
+    vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+    // Transform to [0,1] range
+    projCoords.xy = projCoords.xy * 0.5 + 0.5;
+    
+    if (projCoords.z > 1.0) return 0.0;
+    
+    // PCF
+    float shadow = 0.0;
+    vec2 texelSize = 1.0 / textureSize(shadowMap, 0);
+    float bias = max(0.05 * (1.0 - dot(normal, lightDir)), 0.005);
+    
+    for(int x = -1; x <= 1; ++x) {
+        for(int y = -1; y <= 1; ++y) {
+            float pcfDepth = texture(shadowMap, projCoords.xy + vec2(x, y) * texelSize).r; 
+            shadow += projCoords.z - bias > pcfDepth ? 1.0 : 0.0;        
+        }    
+    }
+    shadow /= 9.0;
+    
+    return shadow;
+}
+
+vec3 CalcDirLight(Light light, vec3 normal, vec3 viewDir, vec3 materialColor, float shadow) {
     vec3 lightDir = normalize(-light.direction.xyz);
     
     // Diffuse
@@ -51,7 +79,7 @@ vec3 CalcDirLight(Light light, vec3 normal, vec3 viewDir, vec3 materialColor) {
     vec3 specularColor = mix(vec3(1.0), materialColor, material.metallic);
     vec3 specular = 0.5 * spec * light.color.rgb * light.color.a * specularColor;
     
-    return (ambient + diffuse + specular) * materialColor;
+    return (ambient + (1.0 - shadow) * (diffuse + specular)) * materialColor;
 }
 
 vec3 CalcPointLight(Light light, vec3 normal, vec3 fragPos, vec3 viewDir, vec3 materialColor) {
@@ -88,12 +116,20 @@ void main() {
     vec3 norm = normalize(fragNormal);
     vec3 viewDir = normalize(fragViewPos - fragFragPos);
     
+    float shadow = 0.0;
+    if (global.hasShadows == 1) {
+        vec4 fragPosLightSpace = global.lightSpaceMatrix * vec4(fragFragPos, 1.0);
+        // We only support shadow for the first directional light for now
+        vec3 lightDir = normalize(-global.lights[0].direction.xyz);
+        shadow = ShadowCalculation(fragPosLightSpace, norm, lightDir);
+    }
+
     vec3 result = vec3(0.0);
     
     for(int i = 0; i < global.lightCount; i++) {
         int type = int(global.lights[i].position.w);
         if (type == 0) {
-            result += CalcDirLight(global.lights[i], norm, viewDir, objectColor);
+            result += CalcDirLight(global.lights[i], norm, viewDir, objectColor, shadow);
         } else if (type == 1) {
             result += CalcPointLight(global.lights[i], norm, fragFragPos, viewDir, objectColor);
         }

@@ -8,18 +8,28 @@
 
 # RenderTest Application
 add_executable(RenderTest RenderTest.cpp)
-
-# Link against the main engine library
 target_link_libraries(RenderTest PRIVATE AstralEngine)
-
-# Apply standard configuration (includes, defines, etc.)
 configure_astral_target(RenderTest)
+
+# BMW RenderTest Application
+add_executable(BMWRenderTest BMW_RenderTest.cpp)
+target_link_libraries(BMWRenderTest PRIVATE AstralEngine)
+configure_astral_target(BMWRenderTest)
 
 set_target_properties(RenderTest PROPERTIES
     OUTPUT_NAME "RenderTest"
     DESCRIPTION "Astral Engine Render Module Verification Test"
     VERSION ${PROJECT_VERSION}
-    WIN32_EXECUTABLE OFF # Keep console for logging
+    WIN32_EXECUTABLE OFF
+    DEBUG_POSTFIX "_d"
+    RELWITHDEBINFO_POSTFIX "_rd"
+)
+
+set_target_properties(BMWRenderTest PROPERTIES
+    OUTPUT_NAME "BMWRenderTest"
+    DESCRIPTION "Astral Engine BMW Model Rendering Test"
+    VERSION ${PROJECT_VERSION}
+    WIN32_EXECUTABLE OFF
     DEBUG_POSTFIX "_d"
     RELWITHDEBINFO_POSTFIX "_rd"
 )

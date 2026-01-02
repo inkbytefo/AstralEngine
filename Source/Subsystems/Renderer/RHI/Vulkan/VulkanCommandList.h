@@ -38,6 +38,7 @@ public:
     
     // Vulkan specific
     void TransitionImageLayout(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, bool isDepth = false);
+    void TransitionImageLayout(VulkanTexture* texture, VkImageLayout newLayout, bool isDepth = false);
 
     VkCommandBuffer GetCommandBuffer() const { return m_commandBuffer; }
 

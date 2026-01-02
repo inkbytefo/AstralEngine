@@ -1,26 +1,91 @@
-# 🗺️ Astral Engine Roadmap
+# Astral Engine - Geliştirme Yol Haritası (Roadmap)
 
-Bu belge, Astral Engine projesinin geliştirme yol haritasını, tamamlanan kilometre taşlarını ve gelecek hedeflerini içerir.
-
-## 🚀 Faz 1: Temel Çekirdek ve Mimari (Tamamlandı)
-- ✅ **Modüler Subsystem Mimarisi**: Engine, Platform, Asset, Render, UI ayrımı.
-- ✅ **Deterministik Yaşam Döngüsü**: Kayıt sırasına göre Init, tersine göre Shutdown (LIFO).
-- ✅ **Performanslı Update Döngüsü**: Stage-based pointer caching ile sıfır-lookup çekirdek döngüsü.
-- ✅ **Logging Sistemi**: Renkli ve seviyeli loglama (spdlog benzeri).
-- ✅ **Event System**: Subsystemler arası gevşek bağlı iletişim.
-
-## 🛠️ Faz 2: Editör ve ECS Geçişi (Devam Ediyor)
-- ✅ **ECS Entegrasyonu (EnTT)**: Sahne ve Entity sınıfları modernize edildi.
-- ✅ **Advanced Properties Panel**: Entity özelliklerini anlık düzenleme.
-- ✅ **Scene Serialization**: Sahneyi diskten yükleme/kaydetme (.scene) ve hiyerarşi desteği.
-- ✅ **Editor UI (ImGui)**: Unreal style docking ve viewport entegrasyonu.
-- ✅ **Vulkan RHI**: Backend soyutlaması ve shader yönetimi.
-
-## 📅 Faz 3: İleri Render ve Fizik (Planlanan)
-- [ ] **PBR Rendering**: Fiziksel tabanlı materyal sistemi (Metalness/Roughness/AO).
-- [ ] **Shadow Mapping**: Gerçek zamanlı dinamik gölgeler.
-- [ ] **Post-Processing**: Bloom, HDR, Tone Mapping.
-- [ ] **Jolt Physics**: Rigidbody ve Collision bileşenleri.
+Bu belge, **Astral Engine**'in stratejik geliştirme planını, mevcut durumunu ve gelecek hedeflerini detaylandırır. Proje, modern bir oyun motoru mimarisi üzerine inşa edilmekte olup, performans ve görsel kaliteyi ön planda tutmaktadır.
 
 ---
-*Son Güncelleme: 24.12.2024*
+
+## 🏁 Faz 1: Temel Mimari ve RHI (✅ Tamamlandı)
+*Hedef: Sağlam bir çekirdek yapı ve modern bir grafik API katmanı oluşturmak.*
+
+- [x] **Subsystem Mimarisi:** Motor yaşam döngüsü (Initialize, Update, Shutdown) yönetimi.
+- [x] **Platform Katmanı:** SDL3 entegrasyonu ile Pencere ve Input yönetimi.
+- [x] **RHI (Render Hardware Interface):** 
+    - [x] Vulkan 1.3 Backend entegrasyonu.
+    - [x] **Dynamic Rendering:** VkRenderPass ve Framebuffer bağımlılığının kaldırılması.
+    - [x] **VMA (Vulkan Memory Allocator):** Verimli GPU bellek yönetimi.
+    - [x] **Staging Buffers:** CPU'dan GPU'ya hızlı veri transferi.
+- [x] **Log Sistemi:** Thread-safe dosya ve konsol loglama.
+
+---
+
+## 📦 Faz 2: Asset Pipeline ve Temel Render (✅ Tamamlandı)
+*Hedef: Veri odaklı bir yapıya geçiş ve 3D modellerin görüntülenmesi.*
+
+- [x] **Mesh Abstraction:** Vertex ve Index Buffer yönetimi.
+- [x] **AssetSubsystem:** Assimp entegrasyonu ile Model (GLTF, OBJ) yükleme.
+- [x] **Texture System:** `stb_image` ile doku yükleme ve GPU'ya aktarma.
+- [x] **Kamera Sistemi:** View/Projection matrisleri ve serbest kamera kontrolü.
+- [x] **Temel Işıklandırma:** Phong/Blinn-Phong aydınlatma modelleri.
+
+---
+
+## 🏗️ Faz 3: Sahne Yönetimi ve ECS (✅ Tamamlandı)
+*Hedef: Karmaşık sahneleri yönetmek için hiyerarşik ve performanslı bir yapı.*
+
+- [x] **ECS (Entity Component System):** `entt` kütüphanesi entegrasyonu.
+- [x] **Transform Hiyerarşisi:** Parent-Child ilişkileri ve dünya matrisi hesaplamaları.
+- [x] **Scene Serializer:** Sahnelerin YAML/JSON formatında kaydedilmesi ve yüklenmesi.
+- [x] **Robust Windowing:** Vulkan fallback mekanizması ve manuel Win32 surface desteği.
+
+---
+
+## 🛠️ Faz 4: Editör ve Araçlar (✅ Büyük Oranda Tamamlandı)
+*Hedef: Geliştiriciler için WYSIWYG (Ne görürsen onu alırsın) çalışma ortamı.*
+
+- [x] **ImGui Entegrasyonu:** Modern bir UI katmanı.
+- [x] **Editor Viewport:** Render sonucunun bir ImGui penceresinde görüntülenmesi.
+- [x] **Scene Hierarchy & Inspector:** Entity yönetimi ve bileşen düzenleme.
+- [x] **Content Browser:** Dosya sistemi üzerinden asset yönetimi.
+- [ ] **Gizmos (Planlanan):** 3D manipülasyon araçları (Translate, Rotate, Scale).
+
+---
+
+## 🎨 Faz 5: İleri Seviye Render - Görsel Kalite (🚧 Devam Ediyor)
+*Hedef: Profesyonel seviyede görsel sadakat ve modern render teknikleri.*
+
+- [x] **PBR (Physically Based Rendering):** Metallic/Roughness iş akışı.
+- [x] **Material System:** Albedo, Normal, Metallic-Roughness, AO ve Emissive harita desteği.
+- [x] **Shadow Mapping:** Temel Directional Light gölgeleri.
+- [ ] **IBL (Image Based Lighting):** HDR çevre haritaları, Irradiance ve Prefilter haritaları.
+- [ ] **CSM (Cascaded Shadow Maps):** Geniş alanlar için yüksek kaliteli gölgeler.
+- [ ] **Post-Processing Stack:**
+    - [ ] **Tone Mapping:** ACES veya Filmic ton eşleme.
+    - [ ] **Bloom:** Işık patlaması efektleri.
+    - [ ] **SSAO:** Ekran alanı ortam kapatma.
+    - [ ] **Anti-Aliasing:** FXAA veya TAA entegrasyonu.
+
+---
+
+## ⚡ Faz 6: Optimizasyon ve Çekirdek İyileştirmeler (Gelecek Hedefler)
+*Hedef: Performansın maksimize edilmesi ve sistem kararlılığı.*
+
+- [ ] **Bellek Yönetimi İyileştirmeleri:**
+    - [ ] **Transient Resource System:** Geçici veriler için havuz tabanlı yönetim.
+    - [ ] **Resource GC:** Kullanılmayan GPU kaynaklarının otomatik temizlenmesi.
+- [ ] **Multi-threading:**
+    - [ ] **Job System:** Görev tabanlı paralel işleme.
+    - [ ] **Parallel Command Recording:** Çoklu iş parçacığı ile render komutu kaydı.
+- [ ] **Asset Pipeline Gelişmiş:**
+    - [ ] **Shader Hot-Reloading:** Çalışma zamanında shader güncelleme.
+    - [ ] **Astral Binary Format:** Hızlı yükleme için özel binary asset formatı.
+- [ ] **Compute Shader Uygulamaları:** GPU tabanlı parçacık sistemleri ve culling.
+
+---
+
+## 🚀 Faz 7: Genişletilebilirlik (Uzun Vadeli)
+*Hedef: Motorun tam bir oyun geliştirme platformuna dönüştürülmesi.*
+
+- [ ] **Scripting:** C# (Mono) veya Lua entegrasyonu.
+- [ ] **Physics:** Jolt Physics veya PhysX entegrasyonu.
+- [ ] **Audio:** 3D uzamsal ses desteği (FMOD veya OpenAL).
+- [ ] **Navigation:** NavMesh ve Pathfinding sistemleri.

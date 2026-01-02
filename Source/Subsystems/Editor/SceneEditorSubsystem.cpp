@@ -1,5 +1,6 @@
 #include "SceneEditorSubsystem.h"
 #include "../../Core/Engine.h"
+#include "../../Core/FileUtils.h"
 #include "../../Core/MathUtils.h"
 #include "../../Events/EventManager.h"
 #include "../../Subsystems/Asset/AssetSubsystem.h"
@@ -38,6 +39,9 @@ void SceneEditorSubsystem::OnInitialize(Engine *owner) {
 
   InitializeDefaultResources();
   SetupViewportResources();
+  SetupShadowResources();
+  SetupIBLResources();
+  UpdateGlobalDescriptorSets();
 
   // Register UI Draw Callback
   if (m_uiSubsystem) {
@@ -75,6 +79,7 @@ void SceneEditorSubsystem::OnInitialize(Engine *owner) {
   // 4. Properties
   auto properties = std::make_unique<PropertiesPanel>();
   properties->SetContext(m_activeScene);
+  properties->SetSceneEditor(this);
   m_propertiesPanel = properties.get();
   m_panels.push_back(std::move(properties));
 
@@ -136,6 +141,9 @@ void SceneEditorSubsystem::SetSelectedEntity(uint32_t entity) {
   m_selectedEntity = entity;
   if (m_propertiesPanel) {
     m_propertiesPanel->SetSelectedEntity(entity);
+  }
+  if (m_viewportPanel) {
+    m_viewportPanel->SetSelectedEntity(entity);
   }
 }
 
@@ -311,12 +319,47 @@ void SceneEditorSubsystem::InitializeDefaultResources() {
 
   // 1. Create Global Descriptor Set Layout
   std::vector<RHIDescriptorSetLayoutBinding> bindings;
+  
+  // Binding 0: Global UBO
   RHIDescriptorSetLayoutBinding uboBinding{};
   uboBinding.binding = 0;
   uboBinding.descriptorType = RHIDescriptorType::UniformBuffer;
   uboBinding.descriptorCount = 1;
   uboBinding.stageFlags = RHIShaderStage::Vertex | RHIShaderStage::Fragment;
   bindings.push_back(uboBinding);
+
+  // Binding 1: Shadow Map
+  RHIDescriptorSetLayoutBinding shadowBinding{};
+  shadowBinding.binding = 1;
+  shadowBinding.descriptorType = RHIDescriptorType::CombinedImageSampler;
+  shadowBinding.descriptorCount = 1;
+  shadowBinding.stageFlags = RHIShaderStage::Fragment;
+  bindings.push_back(shadowBinding);
+
+  // Binding 2: Irradiance Map (IBL)
+  RHIDescriptorSetLayoutBinding irradianceBinding{};
+  irradianceBinding.binding = 2;
+  irradianceBinding.descriptorType = RHIDescriptorType::CombinedImageSampler;
+  irradianceBinding.descriptorCount = 1;
+  irradianceBinding.stageFlags = RHIShaderStage::Fragment;
+  bindings.push_back(irradianceBinding);
+
+  // Binding 3: Prefilter Map (IBL)
+  RHIDescriptorSetLayoutBinding prefilterBinding{};
+  prefilterBinding.binding = 3;
+  prefilterBinding.descriptorType = RHIDescriptorType::CombinedImageSampler;
+  prefilterBinding.descriptorCount = 1;
+  prefilterBinding.stageFlags = RHIShaderStage::Fragment;
+  bindings.push_back(prefilterBinding);
+
+  // Binding 4: BRDF LUT (IBL)
+  RHIDescriptorSetLayoutBinding brdfBinding{};
+  brdfBinding.binding = 4;
+  brdfBinding.descriptorType = RHIDescriptorType::CombinedImageSampler;
+  brdfBinding.descriptorCount = 1;
+  brdfBinding.stageFlags = RHIShaderStage::Fragment;
+  bindings.push_back(brdfBinding);
+
   m_globalDescriptorSetLayout = device->CreateDescriptorSetLayout(bindings);
 
   // 2. Create Global Uniform Buffers and Descriptor Sets
@@ -326,10 +369,10 @@ void SceneEditorSubsystem::InitializeDefaultResources() {
         RHIMemoryProperty::HostVisible | RHIMemoryProperty::HostCoherent));
 
     auto set = device->AllocateDescriptorSet(m_globalDescriptorSetLayout.get());
-    set->UpdateUniformBuffer(0, m_uniformBuffers[i].get(), 0,
-                             sizeof(GlobalUBO));
     m_globalDescriptorSets.push_back(set);
   }
+
+  UpdateGlobalDescriptorSets();
 
   // 3. Load Default Assets
   auto *assetManager = m_assetSubsystem->GetAssetManager();
@@ -399,48 +442,251 @@ void SceneEditorSubsystem::ResizeViewport(uint32_t width, uint32_t height) {
   }
 }
 
+void SceneEditorSubsystem::UpdateGlobalDescriptorSets() {
+  IRHIDevice *device = m_renderSubsystem->GetDevice();
+  if (!device) return;
+
+  for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    auto &set = m_globalDescriptorSets[i];
+    
+    // Binding 0: UBO
+    set->UpdateUniformBuffer(0, m_uniformBuffers[i].get(), 0, sizeof(GlobalUBO));
+    
+    // Binding 1: Shadow Map
+    if (m_shadowMap && m_shadowSampler) {
+        set->UpdateCombinedImageSampler(1, m_shadowMap.get(), m_shadowSampler.get());
+    }
+
+    // Binding 2, 3, 4: IBL
+    if (m_irradianceMap && m_iblSampler) {
+        set->UpdateCombinedImageSampler(2, m_irradianceMap.get(), m_iblSampler.get());
+    }
+    if (m_prefilterMap && m_iblSampler) {
+        set->UpdateCombinedImageSampler(3, m_prefilterMap.get(), m_iblSampler.get());
+    }
+    if (m_brdfLUT && m_iblSampler) {
+        set->UpdateCombinedImageSampler(4, m_brdfLUT.get(), m_iblSampler.get());
+    }
+  }
+}
+
+void SceneEditorSubsystem::SetupIBLResources() {
+  IRHIDevice *device = m_renderSubsystem->GetDevice();
+  if (!device) return;
+
+  // For a real engine, we'd pre-compute these or load from disk
+  // For now, let's create empty placeholders to avoid crashes and enable the pipeline
+  
+  m_irradianceMap = device->CreateTexture2D(32, 32, RHIFormat::R16G16B16A16_FLOAT, RHITextureUsage::Sampled); // Should be Cube
+  m_prefilterMap = device->CreateTexture2D(128, 128, RHIFormat::R16G16B16A16_FLOAT, RHITextureUsage::Sampled); // Should be Cube
+  m_brdfLUT = device->CreateTexture2D(512, 512, RHIFormat::R16G16_FLOAT, RHITextureUsage::Sampled);
+
+  RHISamplerDescriptor samplerDesc = {};
+  samplerDesc.minFilter = RHIFilter::Linear;
+  samplerDesc.magFilter = RHIFilter::Linear;
+  samplerDesc.addressModeU = RHISamplerAddressMode::ClampToEdge;
+  samplerDesc.addressModeV = RHISamplerAddressMode::ClampToEdge;
+  m_iblSampler = device->CreateSampler(samplerDesc);
+  
+  Logger::Info("SceneEditorSubsystem", "IBL placeholders initialized (Real pre-computation planned for v0.7.0)");
+}
+
+void SceneEditorSubsystem::SetupShadowResources() {
+  IRHIDevice *device = m_renderSubsystem->GetDevice();
+  if (!device) return;
+
+  // 1. Create Shadow Map Texture
+  m_shadowMap = device->CreateTexture2D(
+      m_shadowMapSize, m_shadowMapSize, RHIFormat::D32_FLOAT,
+      (RHITextureUsage)(RHITextureUsage::DepthStencilAttachment | RHITextureUsage::Sampled));
+
+  RHISamplerDescriptor samplerDesc = {};
+  samplerDesc.minFilter = RHIFilter::Linear;
+  samplerDesc.magFilter = RHIFilter::Linear;
+  samplerDesc.addressModeU = RHISamplerAddressMode::ClampToBorder;
+  samplerDesc.addressModeV = RHISamplerAddressMode::ClampToBorder;
+  m_shadowSampler = device->CreateSampler(samplerDesc);
+
+  // 2. Create Shadow Pipeline
+  auto *assetManager = m_assetSubsystem->GetAssetManager();
+  std::string shadowShaderPath = assetManager->GetFullPath("Shaders/Bin/ShadowDepth.vert.spv");
+  
+  if (std::filesystem::exists(shadowShaderPath)) {
+      auto shaderCode = FileUtils::ReadBinaryFile(shadowShaderPath);
+      if (!shaderCode.empty()) {
+          auto vertShader = device->CreateShader(RHIShaderStage::Vertex, shaderCode);
+          
+          RHIPipelineStateDescriptor shadowDesc{};
+          shadowDesc.vertexShader = vertShader.get();
+          shadowDesc.fragmentShader = nullptr; // Depth only
+          
+          // Vertex Layout
+          shadowDesc.vertexBindings = { {0, sizeof(Vertex), false} };
+          shadowDesc.vertexAttributes = {
+              {0, 0, RHIFormat::R32G32B32_FLOAT, offsetof(Vertex, position)}
+          };
+          
+          shadowDesc.descriptorSetLayouts = { m_globalDescriptorSetLayout.get() };
+          shadowDesc.cullMode = RHICullMode::Back;
+          shadowDesc.depthTestEnabled = true;
+          shadowDesc.depthWriteEnabled = true;
+          shadowDesc.depthCompareOp = RHICompareOp::Less;
+          
+          shadowDesc.colorFormats = {}; // Depth only
+          shadowDesc.depthFormat = RHIFormat::D32_FLOAT;
+          
+          m_shadowPipeline = device->CreateGraphicsPipeline(shadowDesc);
+          Logger::Info("SceneEditorSubsystem", "Shadow pipeline created successfully.");
+      }
+  } else {
+      Logger::Error("SceneEditorSubsystem", "Shadow shader not found at: {}", shadowShaderPath);
+  }
+}
+
+
 void SceneEditorSubsystem::RenderScene(IRHICommandList *cmdList) {
-  if (!m_viewportTexture || !m_viewportDepth || !m_viewportPanel ||
-      !m_activeScene)
+  if (!m_viewportTexture || !m_viewportDepth || !m_viewportPanel || !m_activeScene)
     return;
   if (m_globalDescriptorSets.empty())
     return;
 
-  static bool firstRender = true;
-  if (firstRender) {
-    Logger::Info("SceneEditorSubsystem", "First RenderScene call starting...");
-    firstRender = false;
-  }
-
   IRHIDevice *device = m_renderSubsystem->GetDevice();
-  if (!device)
-    return;
+  if (!device) return;
 
   uint32_t frameIndex = device->GetCurrentFrameIndex();
-
   Camera *camera = m_viewportPanel->GetCamera();
-  if (!camera)
-    return;
+  if (!camera) return;
 
-  // 1. Update Global UBO
+  // Define UBO early to avoid "undeclared identifier" issues in shadow pass if used
   GlobalUBO ubo{};
   ubo.view = camera->GetViewMatrix();
-  ubo.proj = camera->GetProjectionMatrix(m_viewportPanel->GetSize().x /
-                                         m_viewportPanel->GetSize().y);
-  ubo.proj[1][1] *= -1; // Vulkan flip
+  ubo.proj = camera->GetProjectionMatrix(m_viewportPanel->GetSize().x / m_viewportPanel->GetSize().y);
+  ubo.proj[1][1] *= -1;
   ubo.viewPos = glm::vec4(camera->GetPosition(), 1.0f);
-  ubo.lightCount = 0; // No lights implementation yet
 
-  // 2. Render Loop
-  std::vector<IRHITexture *> colorAttachments = {m_viewportTexture.get()};
-  RHIRect2D renderArea;
-  renderArea.offset = {0, 0};
-  renderArea.extent = {m_viewportTexture->GetWidth(),
-                       m_viewportTexture->GetHeight()};
+  // 1. Shadow Pass
+  // Find main directional light for shadow casting
+  Entity mainLight;
+  auto lightView = m_activeScene->Reg().view<TransformComponent, LightComponent>();
+  for (auto entity : lightView) {
+      const auto& light = lightView.get<LightComponent>(entity);
+      if (light.type == LightComponent::LightType::Directional && light.castsShadows) {
+          mainLight = Entity(entity, m_activeScene.get());
+          break;
+      }
+  }
 
-  cmdList->BeginRendering(colorAttachments, m_viewportDepth.get(), renderArea);
+  glm::mat4 lightSpaceMatrix = glm::mat4(1.0f);
+  bool hasShadows = false;
 
-  auto view = m_activeScene->Reg().view<TransformComponent, RenderComponent>();
+  if (mainLight) {
+      const auto& transform = mainLight.GetComponent<TransformComponent>();
+      glm::vec3 lightDir = glm::normalize(glm::mat3(transform.GetLocalMatrix()) * glm::vec3(0, 0, -1));
+      
+      glm::mat4 lView = glm::lookAt(-lightDir * 20.0f, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+      glm::mat4 lProj = glm::ortho(-20.0f, 20.0f, -20.0f, 20.0f, 0.1f, 100.0f);
+      lightSpaceMatrix = lProj * lView;
+      hasShadows = true;
+
+      // Render to Shadow Map
+      RHIRect2D shadowRect = { {0, 0}, {m_shadowMapSize, m_shadowMapSize} };
+      
+      auto vkShadowMap = std::dynamic_pointer_cast<VulkanTexture>(m_shadowMap);
+      if (vkShadowMap) {
+          static_cast<VulkanCommandList*>(cmdList)->TransitionImageLayout(
+              vkShadowMap->GetImage(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+      }
+
+      cmdList->BeginRendering({}, m_shadowMap.get(), shadowRect);
+      
+      RHIViewport shadowViewport = { 0.0f, 0.0f, (float)m_shadowMapSize, (float)m_shadowMapSize, 0.0f, 1.0f };
+      cmdList->SetViewport(shadowViewport);
+      cmdList->SetScissor(shadowRect);
+
+  if (m_shadowPipeline) {
+      cmdList->BindPipeline(m_shadowPipeline.get());
+      cmdList->BindDescriptorSet(m_shadowPipeline.get(), m_globalDescriptorSets[frameIndex].get(), 0);
+
+      // Update Global UBO once for the shadow pass (if needed, though shadow pass usually just needs light space matrix)
+      // Actually, let's just update the UBO once before any rendering
+      ubo.lightSpaceMatrix = lightSpaceMatrix;
+      void* uboData = m_uniformBuffers[frameIndex]->Map();
+      memcpy(uboData, &ubo, sizeof(GlobalUBO));
+      m_uniformBuffers[frameIndex]->Unmap();
+
+      auto renderView = m_activeScene->Reg().view<TransformComponent, RenderComponent>();
+      for (auto entity : renderView) {
+          const auto& rc = renderView.get<RenderComponent>(entity);
+          if (!rc.visible || !rc.castsShadows) continue;
+
+          auto mesh = GetOrLoadMesh(rc.modelHandle);
+          if (mesh) {
+              const auto& tc = renderView.get<TransformComponent>(entity);
+              glm::mat4 model = tc.GetLocalMatrix();
+              
+              cmdList->BindPipeline(m_shadowPipeline.get());
+              
+              // Use push constants for model matrix
+              cmdList->PushConstants(m_shadowPipeline.get(), RHIShaderStage::Vertex, 0, sizeof(glm::mat4), &model);
+
+              cmdList->BindVertexBuffer(0, mesh->GetVertexBuffer(), 0);
+              cmdList->BindIndexBuffer(mesh->GetIndexBuffer(), 0, true);
+              cmdList->DrawIndexed(mesh->GetIndexCount(), 1, 0, 0, 0);
+          }
+      }
+  }
+      cmdList->EndRendering();
+
+      if (vkShadowMap) {
+          static_cast<VulkanCommandList*>(cmdList)->TransitionImageLayout(
+              vkShadowMap->GetImage(), VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+      }
+  }
+
+  // 2. Main Pass
+  ubo.lightSpaceMatrix = lightSpaceMatrix;
+  ubo.hasShadows = hasShadows ? 1 : 0;
+  ubo.hasIBL = (m_irradianceMap && m_prefilterMap && m_brdfLUT) ? 1 : 0;
+   
+   // Fill lights
+   ubo.lightCount = 0;
+   auto lView = m_activeScene->Reg().view<TransformComponent, LightComponent>();
+   for (auto entity : lView) {
+       if (ubo.lightCount >= 4) break;
+       const auto& transform = lView.get<TransformComponent>(entity);
+       const auto& light = lView.get<LightComponent>(entity);
+
+       auto& gpuLight = ubo.lights[ubo.lightCount];
+       gpuLight.position = glm::vec4(transform.position, (float)light.type);
+       
+       glm::vec3 direction = glm::normalize(glm::mat3(transform.GetLocalMatrix()) * glm::vec3(0, 0, -1));
+       gpuLight.direction = glm::vec4(direction, light.range);
+       gpuLight.color = glm::vec4(light.color, light.intensity);
+       gpuLight.params = glm::vec4(light.innerConeAngle, light.outerConeAngle, 0.0f, 0.0f);
+       
+       ubo.lightCount++;
+   }
+
+   // 2. Render Loop
+   std::vector<IRHITexture *> colorAttachments = {m_viewportTexture.get()};
+   RHIRect2D renderArea;
+   renderArea.offset = {0, 0};
+   renderArea.extent = {m_viewportTexture->GetWidth(),
+                        m_viewportTexture->GetHeight()};
+
+   auto vkViewportTex = std::dynamic_pointer_cast<VulkanTexture>(m_viewportTexture);
+   if (vkViewportTex) {
+       static_cast<VulkanCommandList*>(cmdList)->TransitionImageLayout(
+           vkViewportTex->GetImage(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+   }
+
+   cmdList->BeginRendering(colorAttachments, m_viewportDepth.get(), renderArea);
+
+   RHIViewport viewport = { 0.0f, 0.0f, (float)renderArea.extent.width, (float)renderArea.extent.height, 0.0f, 1.0f };
+   cmdList->SetViewport(viewport);
+   cmdList->SetScissor(renderArea);
+
+   auto view = m_activeScene->Reg().view<TransformComponent, RenderComponent>();
   for (auto entity : view) {
     const auto &transform = view.get<TransformComponent>(entity);
     const auto &render = view.get<RenderComponent>(entity);
@@ -452,19 +698,15 @@ void SceneEditorSubsystem::RenderScene(IRHICommandList *cmdList) {
     auto material = GetOrLoadMaterial(render.materialHandle);
 
     if (mesh && material) {
-      // Update UBO with model matrix
-      ubo.model =
-          transform.GetLocalMatrix(); // Use world matrix if hierarchy solved
-      if (m_activeScene->Reg().all_of<WorldTransformComponent>(entity)) {
-        ubo.model =
-            m_activeScene->Reg().get<WorldTransformComponent>(entity).Transform;
-      }
-
-      void *data = m_uniformBuffers[frameIndex]->Map();
-      memcpy(data, &ubo, sizeof(GlobalUBO));
-      m_uniformBuffers[frameIndex]->Unmap();
-
       cmdList->BindPipeline(material->GetPipeline());
+
+      // Use push constants for model matrix
+      glm::mat4 model = transform.GetLocalMatrix();
+      if (m_activeScene->Reg().all_of<WorldTransformComponent>(entity)) {
+        model = m_activeScene->Reg().get<WorldTransformComponent>(entity).Transform;
+      }
+      
+      cmdList->PushConstants(material->GetPipeline(), RHIShaderStage::Vertex, 0, sizeof(glm::mat4), &model);
 
       // Bind descriptor sets individually
       cmdList->BindDescriptorSet(material->GetPipeline(),
@@ -477,6 +719,11 @@ void SceneEditorSubsystem::RenderScene(IRHICommandList *cmdList) {
   }
 
   cmdList->EndRendering();
+
+  if (vkViewportTex) {
+      static_cast<VulkanCommandList*>(cmdList)->TransitionImageLayout(
+          vkViewportTex->GetImage(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  }
 }
 
 std::shared_ptr<Mesh>
@@ -493,8 +740,10 @@ SceneEditorSubsystem::GetOrLoadMesh(const AssetHandle &handle) {
     auto mesh =
         std::make_shared<Mesh>(m_renderSubsystem->GetDevice(), *modelData);
     m_meshCache[handle] = mesh;
+    Logger::Info("SceneEditorSubsystem", "Mesh loaded successfully: {}", handle.GetID());
     return mesh;
   }
+  Logger::Warning("SceneEditorSubsystem", "Failed to load mesh for handle: {}", handle.GetID());
   return nullptr;
 }
 
@@ -512,13 +761,6 @@ SceneEditorSubsystem::GetOrLoadMaterial(const AssetHandle &handle) {
     std::string vPath = matData->vertexShaderPath;
     std::string fPath = matData->fragmentShaderPath;
 
-    // Strip "Assets/" prefix if it exists because GetFullPath will add it again
-    // via m_assetDirectory
-    if (vPath.compare(0, 7, "Assets/") == 0)
-      vPath = vPath.substr(7);
-    if (fPath.compare(0, 7, "Assets/") == 0)
-      fPath = fPath.substr(7);
-
     // Ensure we are using .spv files
     if (vPath.find(".spv") == std::string::npos)
       vPath += ".spv";
@@ -528,10 +770,6 @@ SceneEditorSubsystem::GetOrLoadMaterial(const AssetHandle &handle) {
     // Final resolution
     std::string vFullPath = assetManager->GetFullPath(vPath);
     std::string fFullPath = assetManager->GetFullPath(fPath);
-
-    // Debug Log
-    // Logger::Info("SceneEditorSubsystem", "Loading Shaders:\n  {}\n  {}",
-    // vFullPath, fFullPath);
 
     if (!std::filesystem::exists(vFullPath) ||
         !std::filesystem::exists(fFullPath)) {
@@ -550,26 +788,47 @@ SceneEditorSubsystem::GetOrLoadMaterial(const AssetHandle &handle) {
           std::make_shared<Material>(m_renderSubsystem->GetDevice(), fixedData,
                                      m_globalDescriptorSetLayout.get());
 
-      // Load textures if they exist
-      if (!matData->texturePaths.empty()) {
-        AssetHandle texHandle =
-            assetManager->RegisterAsset(matData->texturePaths[0]);
-        auto texData = assetManager->GetAsset<TextureData>(texHandle);
-        if (texData && texData->IsValid()) {
-          auto texture = std::make_shared<Texture>(
-              m_renderSubsystem->GetDevice(), *texData);
-          material->SetAlbedoMap(texture);
-          material->UpdateDescriptorSet();
-        }
+      // Helper to load and set a texture
+      auto loadAndSetTexture =
+          [&](const std::string &path,
+              void (Material::*setter)(std::shared_ptr<Texture>)) {
+            if (path.empty())
+              return;
+
+            AssetHandle texHandle = assetManager->RegisterAsset(path);
+            auto texData = assetManager->GetAsset<TextureData>(texHandle);
+
+            if (texData && texData->IsValid()) {
+              auto texture = std::make_shared<Texture>(
+                  m_renderSubsystem->GetDevice(), *texData);
+              (material.get()->*setter)(texture);
+            }
+          };
+
+      // Load PBR Textures
+      loadAndSetTexture(matData->albedoMapPath, &Material::SetAlbedoMap);
+      loadAndSetTexture(matData->normalMapPath, &Material::SetNormalMap);
+      loadAndSetTexture(matData->metallicMapPath, &Material::SetMetallicMap);
+      loadAndSetTexture(matData->roughnessMapPath, &Material::SetRoughnessMap);
+      loadAndSetTexture(matData->aoMapPath, &Material::SetAOMap);
+      loadAndSetTexture(matData->emissiveMapPath, &Material::SetEmissiveMap);
+
+      // Fallback for legacy texturePaths if albedoMapPath was empty
+      if (matData->albedoMapPath.empty() && !matData->texturePaths.empty()) {
+        loadAndSetTexture(matData->texturePaths[0], &Material::SetAlbedoMap);
       }
 
+      material->UpdateDescriptorSet();
+
       m_materialCache[handle] = material;
+      Logger::Info("SceneEditorSubsystem", "Material loaded successfully: {}", handle.GetID());
       return material;
     } catch (const std::exception &e) {
       Logger::Error("SceneEditorSubsystem", "Failed to create material: {}",
                     e.what());
     }
   }
+  Logger::Warning("SceneEditorSubsystem", "Failed to load material for handle: {}", handle.GetID());
   return nullptr;
 }
 

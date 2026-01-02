@@ -2,9 +2,12 @@
 #include "../../ECS/Components.h"
 #include "../../Subsystems/Scene/Entity.h"
 #include "../../Subsystems/Scene/Scene.h"
+#include "Subsystems/Editor/SceneEditorSubsystem.h" // Added
+#include "Subsystems/Renderer/Core/Material.h"      // Added for Material class
 #include <glm/gtc/type_ptr.hpp>
 #include <imgui.h>
 #include <imgui_internal.h>
+
 
 namespace AstralEngine {
 
@@ -148,13 +151,55 @@ void PropertiesPanel::DrawComponents(uint32_t entityID) {
     DrawVec3Control("Scale", component.scale, 1.0f);
   });
 
-  DrawComponent<RenderComponent>("Mesh Renderer", entity, [](auto &component) {
+  DrawComponent<RenderComponent>("Mesh Renderer", entity, [&](auto &component) {
     ImGui::Checkbox("Visible", &component.visible);
     ImGui::Checkbox("Cast Shadows", &component.castsShadows);
     ImGui::Checkbox("Receive Shadows", &component.receivesShadows);
 
     ImGui::Text("Model (ID): %llu", component.modelHandle.GetID());
     ImGui::Text("Material (ID): %llu", component.materialHandle.GetID());
+
+    if (m_editor) {
+      auto material = m_editor->GetOrLoadMaterial(component.materialHandle);
+      if (material) {
+        if (ImGui::TreeNode("Material Properties (PBR)")) {
+
+          glm::vec4 baseColor = material->GetBaseColor();
+          if (ImGui::ColorEdit4("Base Color", glm::value_ptr(baseColor))) {
+            material->SetBaseColor(baseColor);
+          }
+
+          float metallic = material->GetMetallic();
+          if (ImGui::SliderFloat("Metallic", &metallic, 0.0f, 1.0f)) {
+            material->SetMetallic(metallic);
+          }
+
+          float roughness = material->GetRoughness();
+          if (ImGui::SliderFloat("Roughness", &roughness, 0.0f, 1.0f)) {
+            material->SetRoughness(roughness);
+          }
+
+          float ao = material->GetAO();
+          if (ImGui::SliderFloat("AO", &ao, 0.0f, 1.0f)) {
+            material->SetAO(ao);
+          }
+
+          glm::vec4 emissiveColor = material->GetEmissiveColor();
+          if (ImGui::ColorEdit3("Emissive Color",
+                                glm::value_ptr(emissiveColor))) {
+            material->SetEmissiveColor(emissiveColor);
+          }
+
+          float emissiveIntensity = material->GetEmissiveIntensity();
+          if (ImGui::DragFloat("Emissive Intensity", &emissiveIntensity, 0.1f,
+                               0.0f, 100.0f)) {
+            material->SetEmissiveIntensity(emissiveIntensity);
+          }
+
+          ImGui::TreePop();
+        }
+      }
+    }
   });
 
   DrawComponent<LightComponent>("Light", entity, [](auto &component) {

@@ -3,39 +3,39 @@
 #include "../../Core/ISubsystem.h"
 #include "../../Core/Logger.h"
 #include "../../ECS/Components.h"
-#include "../../Subsystems/Scene/Scene.h"
-#include "../Renderer/Core/Mesh.h"
-#include "../Renderer/Core/Material.h"
-#include "../Renderer/Core/Texture.h"
-#include "../../Subsystems/Asset/AssetHandle.h"
 #include "../../Events/ApplicationEvent.h"
+#include "../../Subsystems/Asset/AssetHandle.h"
+#include "../../Subsystems/Scene/Scene.h"
+#include "../Renderer/Core/Material.h"
+#include "../Renderer/Core/Mesh.h"
+#include "../Renderer/Core/Texture.h"
 #include <memory>
 #include <string>
-#include <vector>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
-#include "EditorPanel.h"
-#include "SceneHierarchyPanel.h"
-#include "PropertiesPanel.h"
-#include "ViewportPanel.h"
-#include "MainToolbarPanel.h"
 #include "ContentBrowserPanel.h"
+#include "EditorPanel.h"
+#include "MainToolbarPanel.h"
 #include "OutputLogPanel.h"
+#include "PropertiesPanel.h"
+#include "SceneHierarchyPanel.h"
+#include "ViewportPanel.h"
 
 // Forward declarations
 namespace AstralEngine {
-    class Engine;
-    class RenderSubsystem;
-    class AssetSubsystem;
-    class UISubsystem;
-    class Camera;
-    class IRHIDevice;
-}
+class Engine;
+class RenderSubsystem;
+class AssetSubsystem;
+class UISubsystem;
+class Camera;
+class IRHIDevice;
+} // namespace AstralEngine
 
 #ifdef ASTRAL_USE_IMGUI
-    #include "../../Core/AstralImConfig.h"
-    #include <imgui.h>
+#include "../../Core/AstralImConfig.h"
+#include <imgui.h>
 #endif
 
 namespace AstralEngine {
@@ -45,102 +45,129 @@ namespace AstralEngine {
  */
 class SceneEditorSubsystem : public ISubsystem {
 public:
-    struct GlobalUBO {
-        glm::mat4 model;
-        glm::mat4 view;
-        glm::mat4 proj;
-        glm::vec4 viewPos;
-        int lightCount = 0;
-        int padding[3];
-        struct Light {
-            glm::vec4 position; // w = type
-            glm::vec4 direction; // w = range
-            glm::vec4 color;     // w = intensity
-            glm::vec4 params;    // x = inner, y = outer
-        } lights[4];
-    };
+  struct GlobalUBO {
+    glm::mat4 view;
+    glm::mat4 proj;
+    glm::mat4 lightSpaceMatrix; // Added for shadows
+    glm::vec4 viewPos;
+    int lightCount = 0;
+    int hasShadows = 0; // 0 = No shadows, 1 = Shadows enabled
+    int hasIBL = 0;     // 0 = No IBL, 1 = IBL enabled
+    int padding[1];
+    struct Light {
+      glm::vec4 position;  // w = type
+      glm::vec4 direction; // w = range
+      glm::vec4 color;     // w = intensity
+      glm::vec4 params;    // x = inner, y = outer
+    } lights[4];
+  };
 
-    SceneEditorSubsystem();
-    ~SceneEditorSubsystem() override;
+  struct PushConstants {
+      glm::mat4 model;
+  };
 
-    // ISubsystem interface
-    void OnInitialize(Engine* owner) override;
-    void OnUpdate(float deltaTime) override;
-    void OnShutdown() override;
-    const char* GetName() const override { return "SceneEditorSubsystem"; }
-    UpdateStage GetUpdateStage() const override { return UpdateStage::UI; }
+  SceneEditorSubsystem();
+  ~SceneEditorSubsystem() override;
 
-    // Selection management
-    void SetSelectedEntity(uint32_t entity);
-    uint32_t GetSelectedEntity() const { return m_selectedEntity; }
+  // ISubsystem interface
+  void OnInitialize(Engine *owner) override;
+  void OnUpdate(float deltaTime) override;
+  void OnShutdown() override;
+  const char *GetName() const override { return "SceneEditorSubsystem"; }
+  UpdateStage GetUpdateStage() const override { return UpdateStage::UI; }
 
-    // Scene management
-    void NewScene();
-    bool SaveScene(const std::string& filename);
-    bool LoadScene(const std::string& filename);
+  // Selection management
+  std::shared_ptr<Scene> GetActiveScene() const { return m_activeScene; }
+  void SetSelectedEntity(uint32_t entity);
+  uint32_t GetSelectedEntity() const { return m_selectedEntity; }
 
-    // UI Draw (Called by UISubsystem)
-    void DrawUI();
-    
-    // Event Handlers
-    void HandleFileDrop(class FileDropEvent& e);
+  // Scene Management
+  void NewScene();
+  bool SaveScene(const std::string &filename);
+  bool LoadScene(const std::string &filename);
 
-    // Render callback
-    void RenderScene(class IRHICommandList* cmdList);
+  std::shared_ptr<Material> GetOrLoadMaterial(const AssetHandle &handle);
+
+  // UI Draw (Called by UISubsystem)
+
+  // UI Draw (Called by UISubsystem)
+  void DrawUI();
+
+  // Event Handlers
+  void HandleFileDrop(class FileDropEvent &e);
+
+  // Render callback
+  void RenderScene(class IRHICommandList *cmdList);
+  void UpdateGlobalDescriptorSets();
 
 private:
-    // Core systems
-    Engine* m_owner = nullptr;
-    std::shared_ptr<Scene> m_activeScene;
-    RenderSubsystem* m_renderSubsystem = nullptr;
-    AssetSubsystem* m_assetSubsystem = nullptr;
-    UISubsystem* m_uiSubsystem = nullptr;
+  // Core systems
+  Engine *m_owner = nullptr;
+  std::shared_ptr<Scene> m_activeScene;
+  RenderSubsystem *m_renderSubsystem = nullptr;
+  AssetSubsystem *m_assetSubsystem = nullptr;
+  UISubsystem *m_uiSubsystem = nullptr;
 
-    // Editor State
-    uint32_t m_selectedEntity = (uint32_t)entt::null;
-    bool m_sceneModified = false;
-    bool m_layoutInitialized = false;
+  // Editor State
+  uint32_t m_selectedEntity = (uint32_t)entt::null;
+  bool m_sceneModified = false;
+  bool m_layoutInitialized = false;
 
-    // Modular Panels
-    std::vector<std::unique_ptr<EditorPanel>> m_panels;
-    
-    // Quick access
-    ViewportPanel* m_viewportPanel = nullptr;
-    OutputLogPanel* m_outputLogPanel = nullptr;
-    PropertiesPanel* m_propertiesPanel = nullptr;
+  // Modular Panels
+  std::vector<std::unique_ptr<EditorPanel>> m_panels;
 
-    // Resources
-    void InitializeDefaultResources();
-    void SetupViewportResources();
-    void ResizeViewport(uint32_t width, uint32_t height);
+  // Quick access
+  ViewportPanel *m_viewportPanel = nullptr;
+  OutputLogPanel *m_outputLogPanel = nullptr;
+  PropertiesPanel *m_propertiesPanel = nullptr;
 
-    static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
-    std::shared_ptr<IRHIDescriptorSetLayout> m_globalDescriptorSetLayout;
-    std::vector<std::shared_ptr<IRHIBuffer>> m_uniformBuffers;
-    std::vector<std::shared_ptr<IRHIDescriptorSet>> m_globalDescriptorSets;
-    std::shared_ptr<Mesh> m_defaultMesh;
-    std::shared_ptr<Texture> m_defaultTexture;
-    std::unique_ptr<Material> m_defaultMaterial;
-    
-    std::shared_ptr<IRHITexture> m_viewportTexture;
-    std::shared_ptr<IRHITexture> m_viewportDepth;
-    std::shared_ptr<IRHISampler> m_viewportSampler;
-    void* m_viewportDescriptorSet = nullptr;
+  // Resources
+  void InitializeDefaultResources();
+  void SetupViewportResources();
+  void SetupShadowResources();
+  void SetupIBLResources();
+  void ResizeViewport(uint32_t width, uint32_t height);
 
-    // Resource Caching
-    std::unordered_map<AssetHandle, std::shared_ptr<Mesh>> m_meshCache;
-    std::unordered_map<AssetHandle, std::shared_ptr<Material>> m_materialCache;
-    
-    // Helpers
-    std::shared_ptr<Mesh> GetOrLoadMesh(const AssetHandle& handle);
-    std::shared_ptr<Material> GetOrLoadMaterial(const AssetHandle& handle);
+  static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+  std::shared_ptr<IRHIDescriptorSetLayout> m_globalDescriptorSetLayout;
+  std::vector<std::shared_ptr<IRHIBuffer>> m_uniformBuffers;
+  std::vector<std::shared_ptr<IRHIDescriptorSet>> m_globalDescriptorSets;
+  std::shared_ptr<Mesh> m_defaultMesh;
+  std::shared_ptr<Texture> m_defaultTexture;
+  std::unique_ptr<Material> m_defaultMaterial;
 
-    // UI Layout
-    void RenderMainMenuBar();
-    void ResetLayout(); // Reconfigures DockSpace to UE5 style
-    
-    // Commands
-    void ExecuteCommand(uint32_t type);
+  // Viewport & Rendering Resources
+  std::shared_ptr<IRHITexture> m_viewportTexture;
+  std::shared_ptr<IRHITexture> m_viewportDepth;
+  std::shared_ptr<IRHISampler> m_viewportSampler;
+  void *m_viewportDescriptorSet = nullptr;
+
+  // Shadow Mapping Resources
+  std::shared_ptr<IRHITexture> m_shadowMap;
+  std::shared_ptr<IRHISampler> m_shadowSampler;
+  uint32_t m_shadowMapSize = 2048;
+  std::shared_ptr<IRHIPipeline> m_shadowPipeline;
+  std::shared_ptr<IRHIDescriptorSetLayout> m_shadowDescriptorSetLayout;
+
+  // IBL Resources
+  std::shared_ptr<IRHITexture> m_irradianceMap;
+  std::shared_ptr<IRHITexture> m_prefilterMap;
+  std::shared_ptr<IRHITexture> m_brdfLUT;
+  std::shared_ptr<IRHISampler> m_iblSampler;
+
+  // Resource Caching
+  std::unordered_map<AssetHandle, std::shared_ptr<Mesh>> m_meshCache;
+  std::unordered_map<AssetHandle, std::shared_ptr<Material>> m_materialCache;
+
+  // Helpers
+  std::shared_ptr<Mesh> GetOrLoadMesh(const AssetHandle &handle);
+
+  // UI Layout
+  void RenderMainMenuBar();
+  void ResetLayout(); // Reconfigures DockSpace to UE5 style
+
+  // Commands
+  void ExecuteCommand(uint32_t type);
 };
 
 } // namespace AstralEngine

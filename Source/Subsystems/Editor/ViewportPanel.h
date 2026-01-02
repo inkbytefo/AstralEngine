@@ -27,6 +27,8 @@ public:
         m_viewportDescriptorSet = descriptorSet;
     }
 
+    void SetSelectedEntity(uint32_t entity) { m_selectedEntity = entity; }
+
     using ResizeCallback = std::function<void(uint32_t, uint32_t)>;
     void SetResizeCallback(ResizeCallback callback) { m_onResize = callback; }
 
@@ -36,9 +38,14 @@ public:
     bool IsHovered() const { return m_isHovered; }
     void SetDraggingFile(bool dragging) { m_isDraggingFile = dragging; }
     bool IsPointOverViewport(float x, float y) const;
+    
+    // Gizmo state
+    int GetGizmoType() const { return m_gizmoType; }
+    void SetGizmoType(int type) { m_gizmoType = type; }
 
 private:
     void DrawToolbar();
+    void DrawGizmos();
     void HandleInput();
 
     std::shared_ptr<Scene> m_scene;
@@ -63,6 +70,10 @@ private:
     
     glm::vec2 m_windowPos{0.0f, 0.0f};
     glm::vec2 m_windowSize{0.0f, 0.0f};
+
+    // Gizmo settings
+    int m_gizmoType = -1; // -1 = None, 0 = Translate, 1 = Rotate, 2 = Scale
+    uint32_t m_selectedEntity = 0xFFFFFFFF; // entt::null equivalent
 };
 
 } // namespace AstralEngine

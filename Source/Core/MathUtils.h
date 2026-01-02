@@ -2,6 +2,9 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/epsilon.hpp>
+#include <glm/gtx/matrix_decompose.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 namespace AstralEngine {
 
@@ -25,6 +28,21 @@ public:
         glm::mat4 scaling = glm::scale(glm::mat4(1.0f), scale);
         
         return translation * rotY * rotX * rotZ * scaling;
+    }
+
+    /**
+     * @brief Decomposes a transformation matrix into translation, rotation, and scale.
+     */
+    static bool DecomposeTransform(const glm::mat4& transform, glm::vec3& translation, glm::vec3& rotation, glm::vec3& scale) {
+        glm::quat orientation;
+        glm::vec3 skew;
+        glm::vec4 perspective;
+        
+        if (glm::decompose(transform, scale, orientation, translation, skew, perspective)) {
+            rotation = glm::eulerAngles(orientation);
+            return true;
+        }
+        return false;
     }
 };
 

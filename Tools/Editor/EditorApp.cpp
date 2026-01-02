@@ -8,6 +8,10 @@
 #include "Subsystems/UI/UISubsystem.h"
 #include <iostream>
 
+#include "Subsystems/Scene/Entity.h"
+#include "Subsystems/Scene/Scene.h"
+#include "ECS/Components.h"
+
 using namespace AstralEngine;
 
 class AstralEditorApp : public IApplication {
@@ -27,18 +31,53 @@ public:
       return;
     }
 
-    // The Engine already initializes core subsystems (Platform, Render, UI,
-    // Asset) We just need to ensure the Editor Subsystem is registered and
-    // initialized.
-
-    // Check if SceneEditorSubsystem is already registered.
     auto *editor = m_engine->GetSubsystem<SceneEditorSubsystem>();
-    if (!editor) {
-      Logger::Warning("AstralEditor", "SceneEditorSubsystem not found. Ensure "
-                                      "it is registered before running.");
+    if (editor) {
+        CreateTestScene();
     }
 
-    Logger::Info("AstralEditor", "Editor Application Started.");
+    Logger::Info("AstralEditor", "Editor Application Started with Test Scene.");
+  }
+
+  void CreateTestScene() {
+    auto* editor = m_engine->GetSubsystem<SceneEditorSubsystem>();
+    auto scene = editor->GetActiveScene();
+    auto* assets = m_engine->GetSubsystem<AssetSubsystem>()->GetAssetManager();
+
+    // 1. Floor
+    Entity floor = scene->CreateEntity("Floor");
+    auto& floorTC = floor.GetComponent<TransformComponent>();
+    floorTC.scale = glm::vec3(20.0f, 0.1f, 20.0f);
+    floorTC.position = glm::vec3(0.0f, -0.05f, 0.0f);
+    
+    auto& floorRC = floor.AddComponent<RenderComponent>();
+    floorRC.modelHandle = assets->RegisterAsset("Models/Default/Cube.obj");
+    floorRC.materialHandle = assets->RegisterAsset("Materials/Default.amat");
+    floorRC.castsShadows = true;
+    floorRC.receivesShadows = true;
+
+    // 2. Cube
+    Entity cube = scene->CreateEntity("Test Cube");
+    auto& cubeTC = cube.GetComponent<TransformComponent>();
+    cubeTC.position = glm::vec3(0.0f, 1.0f, 0.0f);
+    
+    auto& cubeRC = cube.AddComponent<RenderComponent>();
+    cubeRC.modelHandle = assets->RegisterAsset("Models/Default/Cube.obj");
+    cubeRC.materialHandle = assets->RegisterAsset("Materials/Default.amat");
+    cubeRC.castsShadows = true;
+
+    // 3. Main Directional Light
+    Entity mainLight = scene->CreateEntity("Main Light");
+    auto& lightTC = mainLight.GetComponent<TransformComponent>();
+    lightTC.rotation = glm::vec3(glm::radians(-45.0f), glm::radians(45.0f), 0.0f);
+    
+    auto& lightComp = mainLight.AddComponent<LightComponent>();
+    lightComp.type = LightComponent::LightType::Directional;
+    lightComp.color = glm::vec3(1.0f, 0.95f, 0.8f);
+    lightComp.intensity = 2.0f;
+    lightComp.castsShadows = true;
+
+    Logger::Info("AstralEditor", "Test scene created with Floor, Cube and Shadow-casting Light.");
   }
 
   void OnUpdate(float deltaTime) override {

@@ -1,14 +1,19 @@
 #include "ViewportPanel.h"
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <ImGuizmo.h>
 #include "../../Subsystems/Renderer/Core/RenderSubsystem.h"
 #include "../../Subsystems/Scene/Scene.h"
+#include "../../Subsystems/Editor/SceneEditorSubsystem.h"
+#include "../../Subsystems/Scene/Entity.h"
+#include <glm/gtc/type_ptr.hpp>
 
 namespace AstralEngine {
 
 ViewportPanel::ViewportPanel() : EditorPanel("Level Viewport") {
     m_camera = std::make_unique<Camera>();
     m_camera->SetPosition(glm::vec3(0.0f, 2.0f, 10.0f));
+    m_gizmoType = ImGuizmo::TRANSLATE;
 }
 
 ViewportPanel::~ViewportPanel() {}
@@ -54,7 +59,10 @@ void ViewportPanel::OnDraw() {
             ImGui::Text("No Viewport Texture Available");
         }
 
-        // 3. Handle Input if focused/hovered
+        // 3. Draw Gizmos
+        DrawGizmos();
+
+        // 4. Handle Input if focused/hovered
         HandleInput();
         // ... existing rendering code eventually shows the image ...
         // For now, let's just add the overlay at the end of the window content
@@ -91,9 +99,14 @@ void ViewportPanel::DrawToolbar() {
     ImGui::BeginChild("ViewportToolbar", ImVec2(400, 30), true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     
     // Transform Tools
-    if (ImGui::Button("M")) { /* Move Mode */ } ImGui::SameLine();
-    if (ImGui::Button("R")) { /* Rotate Mode */ } ImGui::SameLine();
-    if (ImGui::Button("S")) { /* Scale Mode */ } 
+    if (ImGui::Button("M")) { m_gizmoType = ImGuizmo::TRANSLATE; } 
+    ImGui::SetItemTooltip("Move (W)");
+    ImGui::SameLine();
+    if (ImGui::Button("R")) { m_gizmoType = ImGuizmo::ROTATE; }
+    ImGui::SetItemTooltip("Rotate (E)");
+    ImGui::SameLine();
+    if (ImGui::Button("S")) { m_gizmoType = ImGuizmo::SCALE; } 
+    ImGui::SetItemTooltip("Scale (R)");
     
     ImGui::SameLine(); ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical); ImGui::SameLine();
     
@@ -115,9 +128,52 @@ void ViewportPanel::DrawToolbar() {
     ImGui::PopStyleColor();
 }
 
+void ViewportPanel::DrawGizmos() {
+    if (!m_scene || !m_showGizmos || m_gizmoType == -1 || m_selectedEntity == 0xFFFFFFFF) return;
+
+    ImGuizmo::SetOrthographic(false);
+    ImGuizmo::SetDrawlist();
+    
+    ImGuizmo::SetRect(m_windowPos.x, m_windowPos.y, m_windowSize.x, m_windowSize.y);
+
+    // Camera matrices
+    glm::mat4 view = m_camera->GetViewMatrix();
+    glm::mat4 proj = m_camera->GetProjectionMatrix(m_size.x / m_size.y);
+
+    // Entity transform
+    Entity entity((entt::entity)m_selectedEntity, m_scene.get());
+    auto& tc = entity.GetComponent<TransformComponent>();
+    glm::mat4 transform = tc.GetLocalMatrix();
+
+    // Snapping
+    bool snap = ImGui::IsKeyDown(ImGuiKey_LeftCtrl);
+    float snapValue = 0.5f;
+    if (m_gizmoType == ImGuizmo::ROTATE) snapValue = 45.0f;
+    float snapValues[3] = { snapValue, snapValue, snapValue };
+
+    ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj), 
+        (ImGuizmo::OPERATION)m_gizmoType, ImGuizmo::LOCAL, glm::value_ptr(transform),
+        nullptr, snap ? snapValues : nullptr);
+
+    if (ImGuizmo::IsUsing()) {
+        glm::vec3 translation, rotation, scale;
+        MathUtils::DecomposeTransform(transform, translation, rotation, scale);
+
+        tc.position = translation;
+        tc.rotation = rotation;
+        tc.scale = scale;
+    }
+}
+
 void ViewportPanel::HandleInput() {
     if (!m_isHovered) return;
     
+    // Gizmo shortcuts
+    if (ImGui::IsKeyPressed(ImGuiKey_W)) m_gizmoType = ImGuizmo::TRANSLATE;
+    if (ImGui::IsKeyPressed(ImGuiKey_E)) m_gizmoType = ImGuizmo::ROTATE;
+    if (ImGui::IsKeyPressed(ImGuiKey_R)) m_gizmoType = ImGuizmo::SCALE;
+    if (ImGui::IsKeyPressed(ImGuiKey_Q)) m_gizmoType = -1;
+
     // Navigation logic (ASDF/WASD) usually happens in SceneEditorSubsystem or delegated to a Controller
     // For now we just mark it.
 }

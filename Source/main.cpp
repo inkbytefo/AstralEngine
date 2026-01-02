@@ -37,9 +37,15 @@ public:
 
 private:
     void CreateTestScene() {
-        Logger::Info("SandboxApp", "Creating test scene...");
+        Logger::Info("SandboxApp", "Creating test scene with BMW M5 E34...");
         
-        auto* scene = m_engine->GetSubsystem<Scene>();
+        auto* editor = m_engine->GetSubsystem<SceneEditorSubsystem>();
+        if (!editor) {
+            Logger::Error("SandboxApp", "SceneEditorSubsystem not found!");
+            return;
+        }
+
+        auto scene = editor->GetActiveScene();
         auto* assets = m_engine->GetSubsystem<AssetSubsystem>()->GetAssetManager();
 
         if (!scene || !assets) {
@@ -48,41 +54,47 @@ private:
         }
 
         // 1. Asset'leri kaydet
-        AssetHandle modelHandle = assets->RegisterAsset("Models/testobject/_VAZ2101_OBJ.obj", AssetHandle::Type::Model);
-        AssetHandle materialHandle = assets->RegisterAsset("Materials/Default.amat", AssetHandle::Type::Material);
+        // BMW modelini kaydet (scene.gltf)
+        AssetHandle modelHandle = assets->RegisterAsset("3DObjects/bmw_m5_e34/scene.gltf");
+        AssetHandle materialHandle = assets->RegisterAsset("Materials/Default.amat");
 
-        if (!modelHandle.IsValid() || !materialHandle.IsValid()) {
-            Logger::Error("SandboxApp", "Failed to register assets. Model valid: {}, Material valid: {}", 
-                         modelHandle.IsValid(), materialHandle.IsValid());
-            return;
-        }
+        // 2. Zemin (Büyük bir zemin ki araba üstünde dursun)
+        Entity floor = scene->CreateEntity("Floor");
+        auto& floorTransform = floor.GetComponent<TransformComponent>();
+        floorTransform.position = glm::vec3(0.0f, -0.5f, 0.0f);
+        floorTransform.scale = glm::vec3(50.0f, 0.1f, 50.0f);
         
-        // 2. Test Entity'sini oluştur
-        Entity testEntity = scene->CreateEntity("VAZ2101");
-        
-        // 3. Component'leri ekle ve ayarla
-        if (auto* transform = testEntity.TryGetComponent<TransformComponent>()) {
-            transform->position = glm::vec3(0.0f, -1.0f, 0.0f); // Adjusted for better view
-            transform->rotation = glm::vec3(glm::radians(-90.0f), 0.0f, 0.0f); // Adjusted for better view
-            transform->scale = glm::vec3(1.0f);
-        } else {
-            Logger::Error("SandboxApp", "Failed to add TransformComponent to entity: {}", testEntity);
-            return;
-        }
+        auto& floorRender = floor.AddComponent<RenderComponent>();
+        floorRender.modelHandle = assets->RegisterAsset("Models/Default/Cube.obj");
+        floorRender.materialHandle = materialHandle;
+        floorRender.visible = true;
 
-        if (auto* render = testEntity.TryGetComponent<RenderComponent>()) {
-            render->modelHandle = modelHandle;
-            render->materialHandle = materialHandle;
-            render->visible = true;
-        } else {
-            Logger::Error("SandboxApp", "Failed to add RenderComponent to entity: {}", testEntity);
-            return;
-        }
+        // 3. BMW M5 E34
+        Entity bmw = scene->CreateEntity("BMW_M5_E34");
+        auto& bmwTransform = bmw.GetComponent<TransformComponent>();
+        bmwTransform.position = glm::vec3(0.0f, 0.0f, 0.0f);
+        bmwTransform.scale = glm::vec3(1.0f); // glTF scale genelde 1.0'dır
         
-        // Name is already set in CreateEntity("VAZ2101")
+        auto& bmwRender = bmw.AddComponent<RenderComponent>();
+        bmwRender.modelHandle = modelHandle;
+        bmwRender.materialHandle = materialHandle; // Şimdilik default material, ilerde glTF material desteği eklenebilir
+        bmwRender.visible = true;
+        bmwRender.castsShadows = true;
 
-        Logger::Info("SandboxApp", "Test entity created with model and material handles. Model ID: {}, Material ID: {}", 
-                     modelHandle.GetID(), materialHandle.GetID());
+        // 4. Işıklandırma
+        Entity mainLight = scene->CreateEntity("Sun");
+        auto& lightTransform = mainLight.GetComponent<TransformComponent>();
+        lightTransform.rotation = glm::vec3(glm::radians(-45.0f), glm::radians(45.0f), 0.0f);
+        
+        auto& lightComp = mainLight.AddComponent<LightComponent>();
+        lightComp.type = LightComponent::LightType::Directional;
+        lightComp.color = glm::vec4(1.0f, 0.95f, 0.9f, 1.0f);
+        lightComp.intensity = 3.0f;
+        lightComp.castsShadows = true;
+
+        Logger::Info("SandboxApp", "BMW M5 E34 scene created.");
+        
+        editor->SetSelectedEntity((uint32_t)bmw);
     }
 
     Engine* m_engine = nullptr;

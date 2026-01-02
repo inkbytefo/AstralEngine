@@ -1,0 +1,11 @@
+Model Information:
+* title:	BMW M5 (E34)
+* source:	https://sketchfab.com/3d-models/bmw-m5-e34-10a95624ce5046f5805bd9d17256e033
+* author:	temich (https://sketchfab.com/temich_)
+
+Model License:
+* license type:	CC-BY-NC-4.0 (http://creativecommons.org/licenses/by-nc/4.0/)
+* requirements:	Author must be credited. No commercial use.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "BMW M5 (E34)" (https://sketchfab.com/3d-models/bmw-m5-e34-10a95624ce5046f5805bd9d17256e033) by temich (https://sketchfab.com/temich_) licensed under CC-BY-NC-4.0 (http://creativecommons.org/licenses/by-nc/4.0/)

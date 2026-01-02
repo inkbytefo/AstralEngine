@@ -5,6 +5,28 @@
 
 namespace AstralEngine {
 
+// Helper to convert RHIFormat to VkFormat
+VkFormat GetVkFormat(RHIFormat format) {
+    switch (format) {
+        case RHIFormat::R8_UNORM: return VK_FORMAT_R8_UNORM;
+        case RHIFormat::R8G8_UNORM: return VK_FORMAT_R8G8_UNORM;
+        case RHIFormat::R8G8B8A8_UNORM: return VK_FORMAT_R8G8B8A8_UNORM;
+        case RHIFormat::R8G8B8A8_SRGB: return VK_FORMAT_R8G8B8A8_SRGB;
+        case RHIFormat::B8G8R8A8_UNORM: return VK_FORMAT_B8G8R8A8_UNORM;
+        case RHIFormat::B8G8R8A8_SRGB: return VK_FORMAT_B8G8R8A8_SRGB;
+        case RHIFormat::R16G16_FLOAT: return VK_FORMAT_R16G16_SFLOAT;
+        case RHIFormat::R16G16B16A16_FLOAT: return VK_FORMAT_R16G16B16A16_SFLOAT;
+        case RHIFormat::R32_FLOAT: return VK_FORMAT_R32_SFLOAT;
+        case RHIFormat::R32G32_FLOAT: return VK_FORMAT_R32G32_SFLOAT;
+        case RHIFormat::R32G32B32_FLOAT: return VK_FORMAT_R32G32B32_SFLOAT;
+        case RHIFormat::R32G32B32A32_FLOAT: return VK_FORMAT_R32G32B32A32_SFLOAT;
+        case RHIFormat::D32_FLOAT: return VK_FORMAT_D32_SFLOAT;
+        case RHIFormat::D24_UNORM_S8_UINT: return VK_FORMAT_D24_UNORM_S8_UINT;
+        case RHIFormat::D32_FLOAT_S8_UINT: return VK_FORMAT_D32_SFLOAT_S8_UINT;
+        default: return VK_FORMAT_UNDEFINED;
+    }
+}
+
 // Helper to convert RHIDescriptorType to VkDescriptorType
 VkDescriptorType GetVkDescriptorType(RHIDescriptorType type) {
     switch (type) {
@@ -98,26 +120,6 @@ VulkanTexture::VulkanTexture(VulkanDevice* device, uint32_t width, uint32_t heig
     imageInfo.mipLevels = 1;
     imageInfo.arrayLayers = 1;
     // Map RHI format to Vulkan format
-    auto GetVkFormat = [](RHIFormat format) {
-        switch (format) {
-            case RHIFormat::R8_UNORM: return VK_FORMAT_R8_UNORM;
-            case RHIFormat::R8G8_UNORM: return VK_FORMAT_R8G8_UNORM;
-            case RHIFormat::R8G8B8A8_UNORM: return VK_FORMAT_R8G8B8A8_UNORM;
-            case RHIFormat::R8G8B8A8_SRGB: return VK_FORMAT_R8G8B8A8_SRGB;
-            case RHIFormat::B8G8R8A8_UNORM: return VK_FORMAT_B8G8R8A8_UNORM;
-            case RHIFormat::B8G8R8A8_SRGB: return VK_FORMAT_B8G8R8A8_SRGB;
-            case RHIFormat::R16G16_FLOAT: return VK_FORMAT_R16G16_SFLOAT;
-            case RHIFormat::R16G16B16A16_FLOAT: return VK_FORMAT_R16G16B16A16_SFLOAT;
-            case RHIFormat::R32_FLOAT: return VK_FORMAT_R32_SFLOAT;
-            case RHIFormat::R32G32_FLOAT: return VK_FORMAT_R32G32_SFLOAT;
-            case RHIFormat::R32G32B32_FLOAT: return VK_FORMAT_R32G32B32_SFLOAT;
-            case RHIFormat::R32G32B32A32_FLOAT: return VK_FORMAT_R32G32B32A32_SFLOAT;
-            case RHIFormat::D32_FLOAT: return VK_FORMAT_D32_SFLOAT;
-            case RHIFormat::D24_UNORM_S8_UINT: return VK_FORMAT_D24_UNORM_S8_UINT;
-            case RHIFormat::D32_FLOAT_S8_UINT: return VK_FORMAT_D32_SFLOAT_S8_UINT;
-            default: return VK_FORMAT_R8G8B8A8_SRGB;
-        }
-    };
     imageInfo.format = GetVkFormat(format);
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -189,6 +191,8 @@ VulkanShader::VulkanShader(VulkanDevice* device, RHIShaderStage stage, const std
     if (vkCreateShaderModule(device->GetVkDevice(), &createInfo, nullptr, &m_module) != VK_SUCCESS) {
         throw std::runtime_error("failed to create shader module!");
     }
+    
+    // std::cout << "VulkanShader created: " << (int)stage << " size: " << code.size() << std::endl;
 }
 
 VulkanShader::~VulkanShader() {
@@ -371,19 +375,6 @@ VulkanPipeline::VulkanPipeline(VulkanDevice* device, const RHIPipelineStateDescr
         desc.binding = attr.binding;
         desc.location = attr.location;
         // Map RHI format to Vulkan format
-        auto GetVkFormat = [](RHIFormat format) {
-            switch (format) {
-                case RHIFormat::R32_FLOAT: return VK_FORMAT_R32_SFLOAT;
-                case RHIFormat::R32G32_FLOAT: return VK_FORMAT_R32G32_SFLOAT;
-                case RHIFormat::R32G32B32_FLOAT: return VK_FORMAT_R32G32B32_SFLOAT;
-                case RHIFormat::R32G32B32A32_FLOAT: return VK_FORMAT_R32G32B32A32_SFLOAT;
-                case RHIFormat::R8_UNORM: return VK_FORMAT_R8_UNORM;
-                case RHIFormat::R8G8_UNORM: return VK_FORMAT_R8G8_UNORM;
-                case RHIFormat::R8G8B8A8_UNORM: return VK_FORMAT_R8G8B8A8_UNORM;
-                case RHIFormat::R8G8B8A8_SRGB: return VK_FORMAT_R8G8B8A8_SRGB;
-                default: return VK_FORMAT_UNDEFINED;
-            }
-        };
         desc.format = GetVkFormat(attr.format);
         if (desc.format == VK_FORMAT_UNDEFINED) {
             throw std::runtime_error("Unsupported vertex attribute format!");
@@ -537,7 +528,17 @@ VulkanPipeline::VulkanPipeline(VulkanDevice* device, const RHIPipelineStateDescr
 
     pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
     pipelineLayoutInfo.pSetLayouts = setLayouts.data();
-    pipelineLayoutInfo.pushConstantRangeCount = 0;
+    std::vector<VkPushConstantRange> pushConstantRanges;
+    for (const auto& range : descriptor.pushConstants) {
+        VkPushConstantRange vkRange{};
+        vkRange.stageFlags = GetVkShaderStageFlags(range.stageFlags);
+        vkRange.offset = range.offset;
+        vkRange.size = range.size;
+        pushConstantRanges.push_back(vkRange);
+    }
+
+    pipelineLayoutInfo.pushConstantRangeCount = static_cast<uint32_t>(pushConstantRanges.size());
+    pipelineLayoutInfo.pPushConstantRanges = pushConstantRanges.data();
 
     if (vkCreatePipelineLayout(device->GetVkDevice(), &pipelineLayoutInfo, nullptr, &m_layout) != VK_SUCCESS) {
         throw std::runtime_error("failed to create pipeline layout!");
@@ -563,13 +564,17 @@ VulkanPipeline::VulkanPipeline(VulkanDevice* device, const RHIPipelineStateDescr
     // Dynamic Rendering Info
     VkPipelineRenderingCreateInfo renderingInfo{};
     renderingInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    renderingInfo.colorAttachmentCount = 1;
-    VkFormat colorFormat = device->GetSwapchainImageFormat();
-    renderingInfo.pColorAttachmentFormats = &colorFormat;
     
-    VkFormat depthFormat = device->GetDepthFormat();
-    renderingInfo.depthAttachmentFormat = depthFormat;
-    // renderingInfo.stencilAttachmentFormat = depthFormat; // Only if we use stencil
+    std::vector<VkFormat> colorFormats;
+    for (auto format : descriptor.colorFormats) {
+        colorFormats.push_back(GetVkFormat(format));
+    }
+    
+    renderingInfo.colorAttachmentCount = static_cast<uint32_t>(colorFormats.size());
+    renderingInfo.pColorAttachmentFormats = colorFormats.data();
+    
+    renderingInfo.depthAttachmentFormat = GetVkFormat(descriptor.depthFormat);
+    // renderingInfo.stencilAttachmentFormat = renderingInfo.depthAttachmentFormat; // Only if we use stencil
     
     pipelineInfo.pNext = &renderingInfo;
 
