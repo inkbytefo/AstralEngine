@@ -5,6 +5,8 @@
 #include "../IRHIDescriptor.h"
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
+#include <vector>
+#include <map>
 
 namespace AstralEngine {
 
@@ -49,6 +51,8 @@ public:
     VkImageLayout GetLayout() const { return m_currentLayout; }
     void SetLayout(VkImageLayout layout) { m_currentLayout = layout; }
 
+    VkImageView GetSubresourceView(uint32_t mipLevel, uint32_t arrayLayer);
+
 private:
     VulkanDevice* m_device;
     uint32_t m_width;
@@ -56,9 +60,11 @@ private:
     uint32_t m_mipLevels;
     uint32_t m_arrayLayers;
     RHIFormat m_format;
+    RHITextureUsage m_usage;
     
     VkImage m_image = VK_NULL_HANDLE;
     VkImageView m_imageView = VK_NULL_HANDLE;
+    std::map<uint64_t, VkImageView> m_subresourceViews;
     VmaAllocation m_allocation = VK_NULL_HANDLE;
     bool m_ownsImage = true;
     VkImageLayout m_currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;

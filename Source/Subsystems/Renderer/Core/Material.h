@@ -94,6 +94,10 @@ private:
   std::shared_ptr<Texture> m_roughnessMap;
   std::shared_ptr<Texture> m_aoMap;
   std::shared_ptr<Texture> m_emissiveMap;
+
+  static std::shared_ptr<Texture> s_defaultWhiteTexture;
+  static std::shared_ptr<Texture> s_defaultBlackTexture;
+  static std::shared_ptr<Texture> s_defaultNormalTexture;
 };
 
 } // namespace AstralEngine

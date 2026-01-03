@@ -50,13 +50,19 @@ Bu belge, **Astral Engine**'in stratejik geliştirme planını, mevcut durumunu 
 
 ---
 
-## 🎨 Faz 5: İleri Seviye Render - Görsel Kalite (🚧 Devam Ediyor)
+## 🎨 Faz 5: PBR ve IBL (Gelişmiş Aydınlatma) (🚧 Devam Ediyor)
 *Hedef: Profesyonel seviyede görsel sadakat ve modern render teknikleri.*
 
 - [x] **PBR (Physically Based Rendering):** Metallic/Roughness iş akışı.
 - [x] **Material System:** Albedo, Normal, Metallic-Roughness, AO ve Emissive harita desteği.
 - [x] **Shadow Mapping:** Temel Directional Light gölgeleri.
-- [ ] **IBL (Image Based Lighting):** HDR çevre haritaları, Irradiance ve Prefilter haritaları.
+- [x] **IBL (Image Based Lighting) Altyapısı:**
+    - [x] Cubemap Doku Desteği (RHI).
+    - [x] HDR Doku Yükleme (TextureImporter).
+    - [x] IBL Shader'ları (Irradiance, Prefilter, BRDF LUT).
+    - [x] PBR Shader Entegrasyonu.
+- [x] **IBL Harita Üretim Sistemi:** Runtime generator (Subresource synchronization ve layout transition iyileştirmeleri ile).
+- [x] **Skybox Sistemi:** Gökyüzü kutusu yönetimi.
 - [ ] **CSM (Cascaded Shadow Maps):** Geniş alanlar için yüksek kaliteli gölgeler.
 - [ ] **Post-Processing Stack:**
     - [ ] **Tone Mapping:** ACES veya Filmic ton eşleme.

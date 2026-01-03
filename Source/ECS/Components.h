@@ -168,5 +168,19 @@ struct CameraComponent {
     }
 };
 
+/**
+ * @brief Environment bileşeni - IBL ve Gökyüzü verileri
+ */
+struct EnvironmentComponent {
+    AssetHandle environmentMap;      // Orijinal HDR harita
+    AssetHandle irradianceMap;       // Üretilen Irradiance haritası
+    AssetHandle prefilteredMap;      // Üretilen Pre-filtered haritası
+    AssetHandle brdfLut;             // BRDF Look-up table
+    
+    float intensity = 1.0f;          // IBL şiddeti
+    bool useSkybox = true;           // Gökyüzü olarak gösterilsin mi?
+    
+    EnvironmentComponent() = default;
+};
 
 } // namespace AstralEngine

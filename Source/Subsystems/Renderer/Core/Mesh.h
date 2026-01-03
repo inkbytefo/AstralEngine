@@ -15,6 +15,9 @@ namespace AstralEngine {
         Mesh(IRHIDevice* device, const ModelData& modelData);
         ~Mesh();
 
+        static std::shared_ptr<Mesh> CreateCube(IRHIDevice* device);
+        static std::shared_ptr<Mesh> CreateQuad(IRHIDevice* device);
+
         void Bind(IRHICommandList* cmdList);
         void Draw(IRHICommandList* cmdList);
 

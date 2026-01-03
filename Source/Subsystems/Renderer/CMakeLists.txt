@@ -18,6 +18,8 @@ target_sources(AstralEngine PRIVATE
     "Core/Camera.h"
     "Core/Material.cpp"
     "Core/Material.h"
+    "Core/IBLProcessor.cpp"
+    "Core/IBLProcessor.h"
 )
 
 # Add dependencies specific to Renderer if any (Vulkan is already linked globally)

@@ -197,35 +197,38 @@ void main() {
         Lo += (kD * albedo / PI + specular) * radiance * NdotL * (1.0 - shadow);
     }   
 
-    vec3 ambient = vec3(0.03) * albedo * ao;
-    
+    // IBL ambient lighting
+    vec3 ambient;
     if (global.hasIBL == 1) {
         vec3 F = fresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
+        
         vec3 kS = F;
         vec3 kD = 1.0 - kS;
         kD *= 1.0 - metallic;	  
         
         vec3 irradiance = texture(irradianceMap, N).rgb;
-        vec3 diffuse      = irradiance * albedo;
+        vec3 diffuse = irradiance * albedo;
         
+        // Sample pre-filter map and BRDF LUT
         const float MAX_REFLECTION_LOD = 4.0;
-        vec3 prefilteredColor = textureLod(prefilterMap, R,  roughness * MAX_REFLECTION_LOD).rgb;    
-        vec2 brdf  = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
+        vec3 prefilteredColor = textureLod(prefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;    
+        vec2 brdf = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
         vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
-
+        
         ambient = (kD * diffuse + specular) * ao;
+    } else {
+        ambient = vec3(0.03) * albedo * ao;
     }
 
     vec3 color = ambient + Lo;
-    
+
     // Emissive
     vec3 emissive = material.emissiveColor.rgb * material.emissiveIntensity;
     if (material.useEmissiveMap == 1) emissive *= texture(emissiveMap, fragTexCoord).rgb;
     color += emissive;
 
-    // HDR tone mapping
+    // HDR tone mapping and gamma correction
     color = color / (color + vec3(1.0));
-    // Gamma correction
     color = pow(color, vec3(1.0/2.2)); 
 
     outColor = vec4(color, 1.0);

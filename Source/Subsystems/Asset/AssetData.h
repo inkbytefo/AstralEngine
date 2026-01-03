@@ -114,9 +114,11 @@ struct TextureData {
   uint32_t width = 0;    ///< Genişlik
   uint32_t height = 0;   ///< Yükseklik
   uint32_t channels = 0; ///< Kanal sayısı (1-4)
+  uint32_t bytesPerChannel = 1; ///< Kanal başına bayt sayısı (LDR için 1, HDR için 4)
   std::string filePath;  ///< Texture dosyasının yolu
   std::string name;      ///< Texture adı
   bool isValid = false;  ///< Veri geçerli mi?
+  bool isHDR = false;    ///< HDR (float) verisi mi?
 
   TextureData() = default;
 
@@ -146,15 +148,19 @@ struct TextureData {
       width = other.width;
       height = other.height;
       channels = other.channels;
+      bytesPerChannel = other.bytesPerChannel;
       filePath = std::move(other.filePath);
       name = std::move(other.name);
       isValid = other.isValid;
+      isHDR = other.isHDR;
 
       other.data = nullptr;
       other.width = 0;
       other.height = 0;
       other.channels = 0;
+      other.bytesPerChannel = 1;
       other.isValid = false;
+      other.isHDR = false;
     }
     return *this;
   }
@@ -164,16 +170,18 @@ struct TextureData {
    * @param w Genişlik
    * @param h Yükseklik
    * @param c Kanal sayısı
+   * @param bpc Kanal başına bayt sayısı (default 1)
    * @return Başarılı ise true
    */
-  bool Allocate(uint32_t w, uint32_t h, uint32_t c) {
+  bool Allocate(uint32_t w, uint32_t h, uint32_t c, uint32_t bpc = 1) {
     Free();
 
     width = w;
     height = h;
     channels = c;
+    bytesPerChannel = bpc;
 
-    size_t dataSize = width * height * channels;
+    size_t dataSize = (size_t)width * height * channels * bytesPerChannel;
     data = malloc(dataSize);
 
     if (!data) {

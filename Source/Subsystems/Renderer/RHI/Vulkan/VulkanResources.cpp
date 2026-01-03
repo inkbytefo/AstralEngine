@@ -108,8 +108,8 @@ void VulkanBuffer::Unmap() {
 
 // --- VulkanTexture ---
 
-VulkanTexture::VulkanTexture(VulkanDevice* device, uint32_t width, uint32_t height, RHIFormat format, RHITextureUsage usage)
-    : m_device(device), m_width(width), m_height(height), m_format(format), m_ownsImage(true) {
+VulkanTexture::VulkanTexture(VulkanDevice* device, uint32_t width, uint32_t height, RHIFormat format, RHITextureUsage usage, uint32_t mipLevels, uint32_t arrayLayers)
+    : m_device(device), m_width(width), m_height(height), m_format(format), m_mipLevels(mipLevels), m_arrayLayers(arrayLayers), m_usage(usage), m_ownsImage(true) {
     
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -117,8 +117,8 @@ VulkanTexture::VulkanTexture(VulkanDevice* device, uint32_t width, uint32_t heig
     imageInfo.extent.width = width;
     imageInfo.extent.height = height;
     imageInfo.extent.depth = 1;
-    imageInfo.mipLevels = 1;
-    imageInfo.arrayLayers = 1;
+    imageInfo.mipLevels = mipLevels;
+    imageInfo.arrayLayers = arrayLayers;
     // Map RHI format to Vulkan format
     imageInfo.format = GetVkFormat(format);
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -134,6 +134,10 @@ VulkanTexture::VulkanTexture(VulkanDevice* device, uint32_t width, uint32_t heig
     if (static_cast<int>(usage & RHITextureUsage::ColorAttachment)) imageInfo.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     if (static_cast<int>(usage & RHITextureUsage::DepthStencilAttachment)) imageInfo.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
 
+    if (static_cast<int>(usage & RHITextureUsage::CubeMap)) {
+        imageInfo.flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+    }
+
     VmaAllocationCreateInfo allocInfo{};
     allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
     
@@ -144,23 +148,26 @@ VulkanTexture::VulkanTexture(VulkanDevice* device, uint32_t width, uint32_t heig
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = m_image;
-    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    
+    if (static_cast<int>(usage & RHITextureUsage::CubeMap)) {
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+    } else {
+        viewInfo.viewType = arrayLayers > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
+    }
+    
     viewInfo.format = imageInfo.format;
     
     // Choose aspect mask based on format
     if (format == RHIFormat::D32_FLOAT || format == RHIFormat::D24_UNORM_S8_UINT || format == RHIFormat::D32_FLOAT_S8_UINT) {
         viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        if (format != RHIFormat::D32_FLOAT) {
-            // viewInfo.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
-        }
     } else {
         viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     }
 
     viewInfo.subresourceRange.baseMipLevel = 0;
-    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.levelCount = mipLevels;
     viewInfo.subresourceRange.baseArrayLayer = 0;
-    viewInfo.subresourceRange.layerCount = 1;
+    viewInfo.subresourceRange.layerCount = arrayLayers;
 
     if (vkCreateImageView(device->GetVkDevice(), &viewInfo, nullptr, &m_imageView) != VK_SUCCESS) {
         throw std::runtime_error("failed to create image view!");
@@ -168,14 +175,62 @@ VulkanTexture::VulkanTexture(VulkanDevice* device, uint32_t width, uint32_t heig
 }
 
 VulkanTexture::VulkanTexture(VulkanDevice* device, VkImage image, VkImageView view, uint32_t width, uint32_t height, RHIFormat format)
-    : m_device(device), m_image(image), m_imageView(view), m_width(width), m_height(height), m_format(format), m_ownsImage(false) {
+    : m_device(device), m_image(image), m_imageView(view), m_width(width), m_height(height), m_format(format), m_mipLevels(1), m_arrayLayers(1), m_ownsImage(false) {
 }
 
 VulkanTexture::~VulkanTexture() {
     if (m_ownsImage) {
+        for (auto const& [key, view] : m_subresourceViews) {
+            vkDestroyImageView(m_device->GetVkDevice(), view, nullptr);
+        }
         vkDestroyImageView(m_device->GetVkDevice(), m_imageView, nullptr);
         vmaDestroyImage(m_device->GetAllocator(), m_image, m_allocation);
     }
+}
+
+VkImageView VulkanTexture::GetSubresourceView(uint32_t mipLevel, uint32_t arrayLayer) {
+    uint64_t key = (static_cast<uint64_t>(mipLevel) << 32) | arrayLayer;
+    if (m_subresourceViews.count(key)) {
+        return m_subresourceViews[key];
+    }
+    
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = m_image;
+    
+    // Check if this is a cubemap view for a specific layer
+    if (static_cast<int>(m_usage & RHITextureUsage::CubeMap) && arrayLayer == 0xFFFFFFFF) {
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+    } else {
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D; // Views for rendering to a face are always 2D
+    }
+    
+    viewInfo.format = GetVkFormat(m_format);
+    
+    if (m_format == RHIFormat::D32_FLOAT || m_format == RHIFormat::D24_UNORM_S8_UINT || m_format == RHIFormat::D32_FLOAT_S8_UINT) {
+        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    } else {
+        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    }
+
+    viewInfo.subresourceRange.baseMipLevel = mipLevel;
+    viewInfo.subresourceRange.levelCount = 1;
+    
+    if (arrayLayer == 0xFFFFFFFF) {
+        viewInfo.subresourceRange.baseArrayLayer = 0;
+        viewInfo.subresourceRange.layerCount = m_arrayLayers;
+    } else {
+        viewInfo.subresourceRange.baseArrayLayer = arrayLayer;
+        viewInfo.subresourceRange.layerCount = 1;
+    }
+
+    VkImageView view;
+    if (vkCreateImageView(m_device->GetVkDevice(), &viewInfo, nullptr, &view) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create subresource image view!");
+    }
+
+    m_subresourceViews[key] = view;
+    return view;
 }
 
 // --- VulkanShader ---

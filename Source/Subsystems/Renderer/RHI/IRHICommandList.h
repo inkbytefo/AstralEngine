@@ -14,6 +14,7 @@ public:
     virtual void End() = 0;
 
     virtual void BeginRendering(const std::vector<IRHITexture*>& colorAttachments, IRHITexture* depthAttachment, const RHIRect2D& renderArea) = 0;
+    virtual void BeginRendering(const std::vector<RHIRenderingAttachment>& colorAttachments, const RHIRenderingAttachment* depthAttachment, const RHIRect2D& renderArea) = 0;
     virtual void EndRendering() = 0;
 
     virtual void BindPipeline(IRHIPipeline* pipeline) = 0;
@@ -30,6 +31,9 @@ public:
     // Push constants, descriptors, etc.
     virtual void PushConstants(IRHIPipeline* pipeline, RHIShaderStage stage, uint32_t offset, uint32_t size, const void* data) = 0;
     virtual void BindDescriptorSet(IRHIPipeline* pipeline, IRHIDescriptorSet* descriptorSet, uint32_t setIndex) = 0;
+
+    // Resource transitions (Internal/Utility)
+    virtual void TransitionImageLayout(IRHITexture* texture, int oldLayout, int newLayout) = 0;
 };
 
 } // namespace AstralEngine

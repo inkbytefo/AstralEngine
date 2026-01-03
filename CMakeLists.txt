@@ -109,32 +109,81 @@ add_subdirectory(Source)
 
 # --- Shader Compilation ---
 find_program(GLSLC_EXECUTABLE NAMES glslc)
+find_program(SLANGC_EXECUTABLE NAMES slangc)
+
 if(NOT GLSLC_EXECUTABLE)
-    message(WARNING "glslc not found! Shaders will not be compiled.")
+    message(WARNING "glslc not found! GLSL shaders will not be compiled.")
+endif()
+if(NOT SLANGC_EXECUTABLE)
+    message(WARNING "slangc not found! Slang shaders will not be compiled.")
 endif()
 
-if(GLSLC_EXECUTABLE AND ASTRAL_USE_VULKAN)
-    file(GLOB_RECURSE SHADER_SOURCES "${CMAKE_SOURCE_DIR}/Assets/Shaders/Source/*.vert" "${CMAKE_SOURCE_DIR}/Assets/Shaders/Source/*.frag")
-    set(COMPILED_SHADERS "")
+set(COMPILED_SHADERS "")
 
-    foreach(SHADER_SOURCE ${SHADER_SOURCES})
-        # Calculate output path: Assets/Shaders/Source/Test/SimpleTriangle.vert -> Assets/Shaders/Bin/Test/SimpleTriangle.vert.spv
-        file(RELATIVE_PATH REL_PATH "${CMAKE_SOURCE_DIR}/Assets/Shaders/Source" ${SHADER_SOURCE})
-        set(SHADER_OUTPUT "${CMAKE_SOURCE_DIR}/Assets/Shaders/Bin/${REL_PATH}.spv")
-        
-        get_filename_component(OUTPUT_DIR ${SHADER_OUTPUT} DIRECTORY)
-        file(MAKE_DIRECTORY ${OUTPUT_DIR})
-        
-        add_custom_command(
-            OUTPUT ${SHADER_OUTPUT}
-            COMMAND ${GLSLC_EXECUTABLE} ${SHADER_SOURCE} -o ${SHADER_OUTPUT}
-            DEPENDS ${SHADER_SOURCE}
-            COMMENT "Compiling shader: ${REL_PATH} -> ${REL_PATH}.spv"
-        )
-        list(APPEND COMPILED_SHADERS ${SHADER_OUTPUT})
-    endforeach()
+if(ASTRAL_USE_VULKAN)
+    # 1. Compile GLSL Shaders (.vert, .frag)
+    if(GLSLC_EXECUTABLE)
+        file(GLOB_RECURSE GLSL_SOURCES "${CMAKE_SOURCE_DIR}/Assets/Shaders/Source/*.vert" "${CMAKE_SOURCE_DIR}/Assets/Shaders/Source/*.frag")
+        foreach(SHADER_SOURCE ${GLSL_SOURCES})
+            file(RELATIVE_PATH REL_PATH "${CMAKE_SOURCE_DIR}/Assets/Shaders/Source" ${SHADER_SOURCE})
+            set(SHADER_OUTPUT "${CMAKE_SOURCE_DIR}/Assets/Shaders/Bin/${REL_PATH}.spv")
+            
+            get_filename_component(OUTPUT_DIR ${SHADER_OUTPUT} DIRECTORY)
+            file(MAKE_DIRECTORY ${OUTPUT_DIR})
+            
+            add_custom_command(
+                OUTPUT ${SHADER_OUTPUT}
+                COMMAND ${GLSLC_EXECUTABLE} ${SHADER_SOURCE} -o ${SHADER_OUTPUT}
+                DEPENDS ${SHADER_SOURCE}
+                COMMENT "Compiling GLSL shader: ${REL_PATH} -> ${REL_PATH}.spv"
+            )
+            list(APPEND COMPILED_SHADERS ${SHADER_OUTPUT})
+        endforeach()
+    endif()
 
-    add_custom_target(CompileShaders ALL DEPENDS ${COMPILED_SHADERS})
+    # 2. Compile Slang Shaders (.slang)
+    if(SLANGC_EXECUTABLE)
+        file(GLOB_RECURSE SLANG_SOURCES "${CMAKE_SOURCE_DIR}/Assets/Shaders/Source/*.slang")
+        foreach(SLANG_SOURCE ${SLANG_SOURCES})
+            file(RELATIVE_PATH REL_PATH "${CMAKE_SOURCE_DIR}/Assets/Shaders/Source" ${SLANG_SOURCE})
+            
+            # For each .slang file, we usually want a vertex and a fragment shader
+            # unless it's a common file
+            if(REL_PATH MATCHES "Common.slang")
+                continue()
+            endif()
+
+            # Vertex Shader
+            set(VERT_OUTPUT "${CMAKE_SOURCE_DIR}/Assets/Shaders/Bin/${REL_PATH}.vert.spv")
+            get_filename_component(VERT_OUTPUT_DIR ${VERT_OUTPUT} DIRECTORY)
+            file(MAKE_DIRECTORY ${VERT_OUTPUT_DIR})
+
+            add_custom_command(
+                 OUTPUT ${VERT_OUTPUT}
+                 COMMAND ${SLANGC_EXECUTABLE} ${SLANG_SOURCE} -I ${CMAKE_SOURCE_DIR}/Assets/Shaders/Source -entry vert -stage vertex -target spirv -o ${VERT_OUTPUT}
+                 DEPENDS ${SLANG_SOURCE}
+                 COMMENT "Compiling Slang Vertex: ${REL_PATH} -> ${REL_PATH}.vert.spv"
+             )
+             list(APPEND COMPILED_SHADERS ${VERT_OUTPUT})
+
+             # Fragment Shader
+             set(FRAG_OUTPUT "${CMAKE_SOURCE_DIR}/Assets/Shaders/Bin/${REL_PATH}.frag.spv")
+             get_filename_component(FRAG_OUTPUT_DIR ${FRAG_OUTPUT} DIRECTORY)
+             file(MAKE_DIRECTORY ${FRAG_OUTPUT_DIR})
+
+             add_custom_command(
+                 OUTPUT ${FRAG_OUTPUT}
+                 COMMAND ${SLANGC_EXECUTABLE} ${SLANG_SOURCE} -I ${CMAKE_SOURCE_DIR}/Assets/Shaders/Source -entry frag -stage fragment -target spirv -o ${FRAG_OUTPUT}
+                 DEPENDS ${SLANG_SOURCE}
+                 COMMENT "Compiling Slang Fragment: ${REL_PATH} -> ${REL_PATH}.frag.spv"
+             )
+            list(APPEND COMPILED_SHADERS ${FRAG_OUTPUT})
+        endforeach()
+    endif()
+
+    if(COMPILED_SHADERS)
+        add_custom_target(CompileShaders ALL DEPENDS ${COMPILED_SHADERS})
+    endif()
 endif()
 
 # =====================================================================

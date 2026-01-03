@@ -39,6 +39,45 @@ namespace AstralEngine {
         // Buffers are shared_ptrs, will be released automatically
     }
 
+    std::shared_ptr<Mesh> Mesh::CreateCube(IRHIDevice* device) {
+        ModelData cubeData;
+        cubeData.vertices = {
+            // Back face
+            { {-1.0f, -1.0f, -1.0f} }, { { 1.0f,  1.0f, -1.0f} }, { { 1.0f, -1.0f, -1.0f} },
+            { { 1.0f,  1.0f, -1.0f} }, { {-1.0f, -1.0f, -1.0f} }, { {-1.0f,  1.0f, -1.0f} },
+            // Front face
+            { {-1.0f, -1.0f,  1.0f} }, { { 1.0f, -1.0f,  1.0f} }, { { 1.0f,  1.0f,  1.0f} },
+            { { 1.0f,  1.0f,  1.0f} }, { {-1.0f,  1.0f,  1.0f} }, { {-1.0f, -1.0f,  1.0f} },
+            // Left face
+            { {-1.0f,  1.0f,  1.0f} }, { {-1.0f,  1.0f, -1.0f} }, { {-1.0f, -1.0f, -1.0f} },
+            { {-1.0f, -1.0f, -1.0f} }, { {-1.0f, -1.0f,  1.0f} }, { {-1.0f,  1.0f,  1.0f} },
+            // Right face
+            { { 1.0f,  1.0f,  1.0f} }, { { 1.0f, -1.0f, -1.0f} }, { { 1.0f,  1.0f, -1.0f} },
+            { { 1.0f, -1.0f, -1.0f} }, { { 1.0f,  1.0f,  1.0f} }, { { 1.0f, -1.0f,  1.0f} },
+            // Bottom face
+            { {-1.0f, -1.0f, -1.0f} }, { { 1.0f, -1.0f, -1.0f} }, { { 1.0f, -1.0f,  1.0f} },
+            { { 1.0f, -1.0f,  1.0f} }, { {-1.0f, -1.0f,  1.0f} }, { {-1.0f, -1.0f, -1.0f} },
+            // Top face
+            { {-1.0f,  1.0f, -1.0f} }, { { 1.0f,  1.0f,  1.0f} }, { { 1.0f,  1.0f, -1.0f} },
+            { { 1.0f,  1.0f,  1.0f} }, { {-1.0f,  1.0f, -1.0f} }, { {-1.0f,  1.0f,  1.0f} }
+        };
+        cubeData.isValid = true;
+        return std::make_shared<Mesh>(device, cubeData);
+    }
+
+    std::shared_ptr<Mesh> Mesh::CreateQuad(IRHIDevice* device) {
+        ModelData quadData;
+        quadData.vertices = {
+            { {-1.0f,  1.0f, 0.0f}, {0,0,1}, {0.0f, 1.0f} },
+            { {-1.0f, -1.0f, 0.0f}, {0,0,1}, {0.0f, 0.0f} },
+            { { 1.0f,  1.0f, 0.0f}, {0,0,1}, {1.0f, 1.0f} },
+            { { 1.0f, -1.0f, 0.0f}, {0,0,1}, {1.0f, 0.0f} }
+        };
+        quadData.indices = { 0, 1, 2, 2, 1, 3 };
+        quadData.isValid = true;
+        return std::make_shared<Mesh>(device, quadData);
+    }
+
     void Mesh::Bind(IRHICommandList* cmdList) {
         if (m_vertexBuffer) {
             cmdList->BindVertexBuffer(0, m_vertexBuffer.get(), 0);

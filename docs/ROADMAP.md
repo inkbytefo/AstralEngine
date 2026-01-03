@@ -69,7 +69,7 @@ This document outlines the strategic development plan for **Astral Engine**. It 
 
 - [x] **PBR (Physically Based Rendering):** Implement Metallic/Roughness workflow.
 - [x] **Material Subsystem:** Support for BaseColor, Normal, Metallic-Roughness, AO, Emissive maps.
-- [ ] **IBL (Image Based Lighting):** HDR environment maps.
+- [x] **IBL (Image Based Lighting):** HDR environment maps and runtime generation.
 - [ ] **Shadow Mapping:** CSM (Cascaded Shadow Maps) and Point Light shadows.
 - [ ] **Post-Processing Stack:**
     - [ ] Tone Mapping (ACES).

@@ -193,4 +193,12 @@ struct RHIRect2D {
     RHIExtent2D extent;
 };
 
+struct RHIRenderingAttachment {
+    class IRHITexture* texture;
+    uint32_t mipLevel = 0;
+    uint32_t arrayLayer = 0;
+    bool clear = true;
+    float clearColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+};
+
 } // namespace AstralEngine

@@ -20,7 +20,7 @@ struct UBO
 ConstantBuffer<UBO> ubo;
 
 [shader("vertex")]
-VertexOutput vertexMain(VertexInput input)
+VertexOutput vert(VertexInput input)
 {
     VertexOutput output;
     float4 pos = float4(input.position, 1.0);
@@ -31,7 +31,7 @@ VertexOutput vertexMain(VertexInput input)
 }
 
 [shader("fragment")]
-float4 fragmentMain(VertexOutput input) : SV_Target
+float4 frag(VertexOutput input) : SV_Target
 {
     return float4(input.color, 1.0);
 }

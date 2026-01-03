@@ -4,9 +4,19 @@
 
 namespace AstralEngine {
 
+std::shared_ptr<Texture> Material::s_defaultWhiteTexture = nullptr;
+std::shared_ptr<Texture> Material::s_defaultBlackTexture = nullptr;
+std::shared_ptr<Texture> Material::s_defaultNormalTexture = nullptr;
+
 Material::Material(IRHIDevice *device, const MaterialData &data,
                    IRHIDescriptorSetLayout *globalLayout)
     : m_device(device), m_data(data) {
+
+  if (!s_defaultWhiteTexture) {
+    s_defaultWhiteTexture = Texture::CreateFlatTexture(m_device, 1, 1, glm::vec4(1.0f));
+    s_defaultBlackTexture = Texture::CreateFlatTexture(m_device, 1, 1, glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+    s_defaultNormalTexture = Texture::CreateFlatTexture(m_device, 1, 1, glm::vec4(0.5f, 0.5f, 1.0f, 1.0f));
+  }
 
   CreateUniformBuffer();
   CreatePipeline(data.vertexShaderPath, data.fragmentShaderPath, globalLayout);
@@ -147,40 +157,34 @@ void Material::UpdateDescriptorSet() {
   }
 
   // Binding 1: Albedo Map
-  if (m_albedoMap) {
-    m_descriptorSet->UpdateCombinedImageSampler(1, m_albedoMap->GetRHITexture(),
-                                                m_albedoMap->GetRHISampler());
-  }
+  auto albedo = m_albedoMap ? m_albedoMap : s_defaultWhiteTexture;
+  m_descriptorSet->UpdateCombinedImageSampler(1, albedo->GetRHITexture(),
+                                              albedo->GetRHISampler());
 
   // Binding 2: Normal Map
-  if (m_normalMap) {
-    m_descriptorSet->UpdateCombinedImageSampler(2, m_normalMap->GetRHITexture(),
-                                                m_normalMap->GetRHISampler());
-  }
+  auto normal = m_normalMap ? m_normalMap : s_defaultNormalTexture;
+  m_descriptorSet->UpdateCombinedImageSampler(2, normal->GetRHITexture(),
+                                              normal->GetRHISampler());
 
   // Binding 3: Metallic Map
-  if (m_metallicMap) {
-    m_descriptorSet->UpdateCombinedImageSampler(
-        3, m_metallicMap->GetRHITexture(), m_metallicMap->GetRHISampler());
-  }
+  auto metallic = m_metallicMap ? m_metallicMap : s_defaultBlackTexture;
+  m_descriptorSet->UpdateCombinedImageSampler(
+      3, metallic->GetRHITexture(), metallic->GetRHISampler());
 
   // Binding 4: Roughness Map
-  if (m_roughnessMap) {
-    m_descriptorSet->UpdateCombinedImageSampler(
-        4, m_roughnessMap->GetRHITexture(), m_roughnessMap->GetRHISampler());
-  }
+  auto roughness = m_roughnessMap ? m_roughnessMap : s_defaultWhiteTexture;
+  m_descriptorSet->UpdateCombinedImageSampler(
+      4, roughness->GetRHITexture(), roughness->GetRHISampler());
 
   // Binding 5: AO Map
-  if (m_aoMap) {
-    m_descriptorSet->UpdateCombinedImageSampler(5, m_aoMap->GetRHITexture(),
-                                                m_aoMap->GetRHISampler());
-  }
+  auto ao = m_aoMap ? m_aoMap : s_defaultWhiteTexture;
+  m_descriptorSet->UpdateCombinedImageSampler(5, ao->GetRHITexture(),
+                                              ao->GetRHISampler());
 
   // Binding 6: Emissive Map
-  if (m_emissiveMap) {
-    m_descriptorSet->UpdateCombinedImageSampler(
-        6, m_emissiveMap->GetRHITexture(), m_emissiveMap->GetRHISampler());
-  }
+  auto emissive = m_emissiveMap ? m_emissiveMap : s_defaultBlackTexture;
+  m_descriptorSet->UpdateCombinedImageSampler(
+      6, emissive->GetRHITexture(), emissive->GetRHISampler());
 }
 
 void Material::CreatePipeline(const std::string &vertPath,

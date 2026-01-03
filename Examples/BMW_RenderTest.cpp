@@ -15,6 +15,7 @@
 #include <fstream>
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include "Subsystems/Renderer/Core/IBLProcessor.h"
 #include <vector>
 #include <cmath>
 #include <cstring>
@@ -57,6 +58,16 @@ struct PushConstants {
 };
 
 class RenderTestApp : public IApplication {
+    std::unique_ptr<IBLProcessor> m_iblProcessor;
+    AssetHandle m_hdrHandle;
+    std::shared_ptr<Texture> m_envMap;
+    std::shared_ptr<Texture> m_irradianceMap;
+    std::shared_ptr<Texture> m_prefilterMap;
+    std::shared_ptr<Texture> m_brdfLut;
+    std::shared_ptr<Texture> m_dummyCubemap;
+    std::shared_ptr<Texture> m_dummyTexture;
+    bool m_iblGenerated = false;
+
 public:
     void OnStart(Engine* owner) override {
         Logger::Info("RenderTest", "Starting Render Test Application...");
@@ -74,6 +85,13 @@ public:
             return;
         }
         m_device = device;
+
+        // Initialize IBL Processor
+        m_iblProcessor = std::make_unique<IBLProcessor>(m_device);
+
+        // Create Dummy Textures for initial bindings
+        m_dummyTexture = Texture::CreateFlatTexture(m_device, 1, 1, glm::vec4(0.0f));
+        m_dummyCubemap = Texture::CreateFlatCubemap(m_device, 1, 1, glm::vec4(0.0f));
 
         // Initialize AssetManager
         std::filesystem::path assetPath = std::filesystem::current_path() / "Assets";
@@ -98,6 +116,10 @@ public:
         // Load Texture Async (Using a car paint texture for the test)
         Logger::Info("RenderTest", "Loading BMW Texture...");
         m_textureHandle = m_assetManager.Load<TextureData>("3DObjects/bmw_m5_e34/textures/E34_CAR_PAINT_clearcoat_roughness.png");
+
+        // Load HDR Map for IBL
+        Logger::Info("RenderTest", "Loading HDR Map: Textures/HDR/puresky.hdr");
+        m_hdrHandle = m_assetManager.Load<TextureData>("Textures/HDR/puresky.hdr");
 
         // Load Material Async
         Logger::Info("RenderTest", "Loading Material...");
@@ -202,15 +224,43 @@ public:
             m_material->SetAlbedoMap(m_texture);
             m_material->UpdateDescriptorSet();
 
-            // Also update global descriptor sets with the loaded texture for dummy bindings
-            for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-                m_globalDescriptorSets[i]->UpdateCombinedImageSampler(1, m_texture->GetRHITexture(), m_texture->GetRHISampler());
-                m_globalDescriptorSets[i]->UpdateCombinedImageSampler(2, m_texture->GetRHITexture(), m_texture->GetRHISampler());
-                m_globalDescriptorSets[i]->UpdateCombinedImageSampler(3, m_texture->GetRHITexture(), m_texture->GetRHISampler());
-                m_globalDescriptorSets[i]->UpdateCombinedImageSampler(4, m_texture->GetRHITexture(), m_texture->GetRHISampler());
-            }
-
             m_textureCreated = true;
+        }
+
+        // IBL Generation Logic
+        if (!m_iblGenerated && m_hdrHandle.IsValid()) {
+            if (m_assetManager.IsAssetLoaded(m_hdrHandle)) {
+                auto hdrData = m_assetManager.GetAsset<TextureData>(m_hdrHandle);
+                if (hdrData) {
+                    Logger::Info("RenderTest", "HDR Loaded. Starting IBL Pre-processing...");
+                    auto hdrTexture = std::make_shared<Texture>(m_device, *hdrData);
+                    
+                    m_envMap = m_iblProcessor->ConvertEquirectangularToCubemap(hdrTexture);
+                    m_irradianceMap = m_iblProcessor->CreateIrradianceMap(m_envMap);
+                    m_prefilterMap = m_iblProcessor->CreatePrefilteredMap(m_envMap);
+                    m_brdfLut = m_iblProcessor->CreateBRDFLookUpTable();
+
+                    // Update Global Descriptor Sets with IBL maps
+                    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+                        m_globalDescriptorSets[i]->UpdateCombinedImageSampler(2, m_irradianceMap->GetRHITexture(), m_irradianceMap->GetRHISampler());
+                        m_globalDescriptorSets[i]->UpdateCombinedImageSampler(3, m_prefilterMap->GetRHITexture(), m_prefilterMap->GetRHISampler());
+                        m_globalDescriptorSets[i]->UpdateCombinedImageSampler(4, m_brdfLut->GetRHITexture(), m_brdfLut->GetRHISampler());
+                    }
+
+                    m_iblGenerated = true;
+                    Logger::Info("RenderTest", "IBL Pre-processing completed and descriptors updated.");
+                }
+            }
+        }
+
+        // Also update global descriptor sets with dummy textures if IBL not yet generated
+        if (!m_iblGenerated && m_dummyTexture && m_dummyCubemap) {
+            for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+                m_globalDescriptorSets[i]->UpdateCombinedImageSampler(1, m_dummyTexture->GetRHITexture(), m_dummyTexture->GetRHISampler());
+                m_globalDescriptorSets[i]->UpdateCombinedImageSampler(2, m_dummyCubemap->GetRHITexture(), m_dummyCubemap->GetRHISampler());
+                m_globalDescriptorSets[i]->UpdateCombinedImageSampler(3, m_dummyCubemap->GetRHITexture(), m_dummyCubemap->GetRHISampler());
+                m_globalDescriptorSets[i]->UpdateCombinedImageSampler(4, m_dummyTexture->GetRHITexture(), m_dummyTexture->GetRHISampler());
+            }
         }
 
         m_rotationAngle += deltaTime * 1.0f;
@@ -469,15 +519,15 @@ private:
             m_globalDescriptorSets[i] = m_device->AllocateDescriptorSet(m_globalDescriptorSetLayout.get());
             m_globalDescriptorSets[i]->UpdateUniformBuffer(0, m_uniformBuffers[i].get(), 0, sizeof(UniformBufferObject));
             
-            // Dummy bindings to satisfy shader
-            if (m_texture) {
-                m_globalDescriptorSets[i]->UpdateCombinedImageSampler(1, m_texture->GetRHITexture(), m_texture->GetRHISampler());
-                m_globalDescriptorSets[i]->UpdateCombinedImageSampler(2, m_texture->GetRHITexture(), m_texture->GetRHISampler());
-                m_globalDescriptorSets[i]->UpdateCombinedImageSampler(3, m_texture->GetRHITexture(), m_texture->GetRHISampler());
-                m_globalDescriptorSets[i]->UpdateCombinedImageSampler(4, m_texture->GetRHITexture(), m_texture->GetRHISampler());
+            // Initial dummy bindings to satisfy shader until real textures load or IBL generates
+            if (m_dummyTexture && m_dummyCubemap) {
+                m_globalDescriptorSets[i]->UpdateCombinedImageSampler(1, m_dummyTexture->GetRHITexture(), m_dummyTexture->GetRHISampler());
+                m_globalDescriptorSets[i]->UpdateCombinedImageSampler(2, m_dummyCubemap->GetRHITexture(), m_dummyCubemap->GetRHISampler());
+                m_globalDescriptorSets[i]->UpdateCombinedImageSampler(3, m_dummyCubemap->GetRHITexture(), m_dummyCubemap->GetRHISampler());
+                m_globalDescriptorSets[i]->UpdateCombinedImageSampler(4, m_dummyTexture->GetRHITexture(), m_dummyTexture->GetRHISampler());
             }
         }
-        Logger::Info("RenderTest", "Global Descriptor Sets created.");
+        Logger::Info("RenderTest", "Global Descriptor Sets created with dummy bindings.");
     }
 
     void OnRender(IRHICommandList* cmdList) {
@@ -491,7 +541,7 @@ private:
         ubo.view = m_camera.GetViewMatrix();
         ubo.lightSpaceMatrix = glm::mat4(1.0f); // Identity for now
         ubo.hasShadows = 0;
-        ubo.hasIBL = 0;
+        ubo.hasIBL = m_iblGenerated ? 1 : 0;
 
         float aspect = 800.0f / 600.0f;
         if (m_engine) {

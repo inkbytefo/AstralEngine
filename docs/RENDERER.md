@@ -31,6 +31,8 @@ The Vulkan implementation is "production-grade" with a focus on robustness and p
     - RAII wrappers (`VulkanBuffer`, `VulkanTexture`) ensure no leaks.
 
 3.  **Synchronization:**
+    - **Synchronization 2:** Exclusively uses Vulkan 1.3 Synchronization 2 (`VkImageMemoryBarrier2`) for cleaner and more explicit resource transitions.
+    - **Subresource Management:** Full support for transitioning specific mip levels and array layers (critical for cubemap rendering in IBL).
     - **Per-Frame Resources:** Command Pools, Uniform Buffers, and Semaphores are duplicated per frame-in-flight (Double/Triple Buffering).
     - **Staging Buffers:** Dedicated transfer queue logic (via `CreateAndUploadBuffer`) for CPU-to-GPU data uploads.
 
@@ -69,6 +71,20 @@ Astral Engine uses a standard metallic-roughness PBR workflow.
 ### Shading Model
 - **Cook-Torrance BRDF:** Using GGX distribution, Schlick-GGX geometry, and Fresnel-Schlick.
 - **Dynamic Calculation:** All shading is computed in the fragment shader with support for point, directional, and spot lights (planned updates).
+
+## Image-Based Lighting (IBL)
+Astral Engine includes a complete IBL pipeline to generate lighting data from environment maps.
+
+### 1. Pipeline Stages
+- **Equirectangular to Cubemap:** Converts 2D HDR panoramas to 6-face cubemaps.
+- **Irradiance Convolution:** Generates a low-res cubemap for diffuse ambient lighting.
+- **Prefiltered Map:** Generates miped cubemaps with varying roughness levels for specular reflections.
+- **BRDF LUT:** Precomputes a 2D look-up table for the Fresnel term.
+
+### 2. Implementation Details
+- **Runtime Generation:** All maps are generated on-the-fly when a new environment map is loaded.
+- **Barrier Management:** Uses explicit subresource barriers to ensure each face of the cubemap is correctly transitioned between color attachment and shader read layouts.
+- **Synchronization:** The `IBLProcessor` uses `WaitIdle()` or targeted fences to ensure all GPU work is complete before the generated textures are used in the main PBR pass.
 
 ## Initialization Robustness
 

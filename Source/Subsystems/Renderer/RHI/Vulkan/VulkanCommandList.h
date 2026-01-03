@@ -19,6 +19,7 @@ public:
     void End() override;
 
     void BeginRendering(const std::vector<IRHITexture*>& colorAttachments, IRHITexture* depthAttachment, const RHIRect2D& renderArea) override;
+    void BeginRendering(const std::vector<RHIRenderingAttachment>& colorAttachments, const RHIRenderingAttachment* depthAttachment, const RHIRect2D& renderArea) override;
     void EndRendering() override;
 
     void BindPipeline(IRHIPipeline* pipeline) override;
@@ -36,9 +37,19 @@ public:
 
     void PushConstants(IRHIPipeline* pipeline, RHIShaderStage stage, uint32_t offset, uint32_t size, const void* data) override;
     
+    // Resource transitions
+    void TransitionImageLayout(IRHITexture* texture, int oldLayout, int newLayout) override;
+
     // Vulkan specific
-    void TransitionImageLayout(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, bool isDepth = false);
-    void TransitionImageLayout(VulkanTexture* texture, VkImageLayout newLayout, bool isDepth = false);
+    void TransitionImageLayout(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, 
+                               uint32_t baseMipLevel = 0, uint32_t levelCount = VK_REMAINING_MIP_LEVELS,
+                               uint32_t baseArrayLayer = 0, uint32_t layerCount = VK_REMAINING_ARRAY_LAYERS,
+                               bool isDepth = false);
+    
+    void TransitionImageLayout(VulkanTexture* texture, VkImageLayout newLayout, 
+                               uint32_t baseMipLevel = 0, uint32_t levelCount = VK_REMAINING_MIP_LEVELS,
+                               uint32_t baseArrayLayer = 0, uint32_t layerCount = VK_REMAINING_ARRAY_LAYERS,
+                               bool isDepth = false, VkImageLayout oldLayout = VK_IMAGE_LAYOUT_MAX_ENUM);
 
     VkCommandBuffer GetCommandBuffer() const { return m_commandBuffer; }
 
@@ -46,7 +57,15 @@ private:
     VulkanDevice* m_device;
     VkCommandBuffer m_commandBuffer = VK_NULL_HANDLE;
     VkCommandPool m_pool;
-    std::vector<VulkanTexture*> m_activeColorAttachments; // Changed back to VulkanTexture* for simpler management
+
+    struct ActiveAttachment {
+        VulkanTexture* texture;
+        uint32_t mipLevel;
+        uint32_t arrayLayer;
+    };
+    std::vector<ActiveAttachment> m_activeColorAttachments;
+    ActiveAttachment m_activeDepthAttachment;
+    bool m_hasActiveDepthAttachment = false;
 };
 
 } // namespace AstralEngine

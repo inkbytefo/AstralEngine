@@ -640,15 +640,103 @@ VulkanDevice::CreateAndUploadBuffer(uint64_t size, RHIBufferUsage usage,
 
 std::shared_ptr<IRHITexture>
 VulkanDevice::CreateTexture2D(uint32_t width, uint32_t height, RHIFormat format,
-                              RHITextureUsage usage) {
-  return std::make_shared<VulkanTexture>(this, width, height, format, usage);
+                              RHITextureUsage usage, uint32_t mipLevels) {
+  return std::make_shared<VulkanTexture>(this, width, height, format, usage, mipLevels, 1);
+}
+
+std::shared_ptr<IRHITexture>
+VulkanDevice::CreateTextureCube(uint32_t width, uint32_t height, RHIFormat format,
+                                RHITextureUsage usage, uint32_t mipLevels) {
+  return std::make_shared<VulkanTexture>(this, width, height, format, usage | RHITextureUsage::CubeMap, mipLevels, 6);
+}
+
+std::shared_ptr<IRHITexture>
+VulkanDevice::CreateAndUploadTextureCube(uint32_t width, uint32_t height, RHIFormat format, const std::vector<const void*>& faceData) {
+    // Basic implementation for uploading 6 faces of a cubemap
+    uint32_t bytesPerPixel = 4; // Default to RGBA8
+    if (format == RHIFormat::R16G16B16A16_FLOAT) bytesPerPixel = 8;
+    if (format == RHIFormat::R32G32B32A32_FLOAT) bytesPerPixel = 16;
+    
+    uint64_t faceSize = width * height * bytesPerPixel;
+    uint64_t totalSize = faceSize * 6;
+
+    auto stagingBuffer = CreateBuffer(totalSize, RHIBufferUsage::TransferSrc,
+                                    RHIMemoryProperty::HostVisible | RHIMemoryProperty::HostCoherent);
+
+    void* mappedData = stagingBuffer->Map();
+    for (int i = 0; i < 6; ++i) {
+        std::memcpy(static_cast<char*>(mappedData) + (i * faceSize), faceData[i], faceSize);
+    }
+    stagingBuffer->Unmap();
+
+    auto texture = CreateTextureCube(width, height, format, RHITextureUsage::TransferDst | RHITextureUsage::Sampled);
+    auto vkTexture = std::static_pointer_cast<VulkanTexture>(texture);
+
+    // Transition and Copy (simplified version using existing logic style)
+    VkCommandBufferAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandPool = m_commandPools[0];
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer;
+    vkAllocateCommandBuffers(m_device, &allocInfo, &commandBuffer);
+
+    VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+    // Transition to TransferDst
+    VkImageMemoryBarrier barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.image = vkTexture->GetImage();
+    barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6 };
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+    VkBufferImageCopy regions[6];
+    for (int i = 0; i < 6; ++i) {
+        regions[i].bufferOffset = i * faceSize;
+        regions[i].bufferRowLength = 0;
+        regions[i].bufferImageHeight = 0;
+        regions[i].imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, (uint32_t)i, 1 };
+        regions[i].imageOffset = { 0, 0, 0 };
+        regions[i].imageExtent = { width, height, 1 };
+    }
+
+    vkCmdCopyBufferToImage(commandBuffer, static_cast<VulkanBuffer*>(stagingBuffer.get())->GetBuffer(), vkTexture->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 6, regions);
+
+    // Transition to Shader Read
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+    vkEndCommandBuffer(commandBuffer);
+
+    VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+    vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(m_graphicsQueue);
+
+    vkFreeCommandBuffers(m_device, m_commandPools[0], 1, &commandBuffer);
+
+    return texture;
 }
 
 std::shared_ptr<IRHITexture>
 VulkanDevice::CreateAndUploadTexture(uint32_t width, uint32_t height,
                                      RHIFormat format, const void *data) {
-  uint64_t imageSize =
-      width * height * 4; // Assuming 4 bytes per pixel (RGBA) for now
+  uint32_t bytesPerPixel = 4;
+  if (format == RHIFormat::R16G16B16A16_FLOAT) bytesPerPixel = 8;
+  if (format == RHIFormat::R32G32B32A32_FLOAT) bytesPerPixel = 16;
+
+  uint64_t imageSize = width * height * bytesPerPixel;
 
   // 1. Create Staging Buffer
   auto stagingBuffer = CreateBuffer(imageSize, RHIBufferUsage::TransferSrc,

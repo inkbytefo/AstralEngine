@@ -22,8 +22,10 @@ public:
 
     std::shared_ptr<IRHIBuffer> CreateBuffer(uint64_t size, RHIBufferUsage usage, RHIMemoryProperty memoryProperties) override;
     std::shared_ptr<IRHIBuffer> CreateAndUploadBuffer(uint64_t size, RHIBufferUsage usage, const void* data) override;
-    std::shared_ptr<IRHITexture> CreateTexture2D(uint32_t width, uint32_t height, RHIFormat format, RHITextureUsage usage) override;
+    std::shared_ptr<IRHITexture> CreateTexture2D(uint32_t width, uint32_t height, RHIFormat format, RHITextureUsage usage, uint32_t mipLevels = 1) override;
     std::shared_ptr<IRHITexture> CreateAndUploadTexture(uint32_t width, uint32_t height, RHIFormat format, const void* data) override;
+    std::shared_ptr<IRHITexture> CreateTextureCube(uint32_t width, uint32_t height, RHIFormat format, RHITextureUsage usage, uint32_t mipLevels = 1) override;
+    std::shared_ptr<IRHITexture> CreateAndUploadTextureCube(uint32_t width, uint32_t height, RHIFormat format, const std::vector<const void*>& faceData) override;
     std::shared_ptr<IRHISampler> CreateSampler(const RHISamplerDescriptor& descriptor) override;
 
     std::shared_ptr<IRHIShader> CreateShader(RHIShaderStage stage, std::span<const uint8_t> code) override;

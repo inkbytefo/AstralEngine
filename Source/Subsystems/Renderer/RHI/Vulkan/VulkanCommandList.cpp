@@ -7,8 +7,22 @@
 
 namespace AstralEngine {
 
+void VulkanCommandList::TransitionImageLayout(IRHITexture* texture, int oldLayout, int newLayout) {
+    auto* vkTexture = static_cast<VulkanTexture*>(texture);
+    bool isDepth = (texture->GetFormat() == RHIFormat::D32_FLOAT || 
+                    texture->GetFormat() == RHIFormat::D24_UNORM_S8_UINT || 
+                    texture->GetFormat() == RHIFormat::D32_FLOAT_S8_UINT);
+    
+    TransitionImageLayout(vkTexture, (VkImageLayout)newLayout, 
+                          0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS, 
+                          isDepth, (VkImageLayout)oldLayout);
+}
+
 // Member function for layout transition using Synchronization 2
-void VulkanCommandList::TransitionImageLayout(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, bool isDepth) {
+void VulkanCommandList::TransitionImageLayout(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, 
+                                             uint32_t baseMipLevel, uint32_t levelCount,
+                                             uint32_t baseArrayLayer, uint32_t layerCount,
+                                             bool isDepth) {
     VkImageMemoryBarrier2 barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
     barrier.oldLayout = oldLayout;
@@ -22,10 +36,11 @@ void VulkanCommandList::TransitionImageLayout(VkImage image, VkImageLayout oldLa
     } else {
         barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     }
-    barrier.subresourceRange.baseMipLevel = 0;
-    barrier.subresourceRange.levelCount = 1;
-    barrier.subresourceRange.baseArrayLayer = 0;
-    barrier.subresourceRange.layerCount = 1;
+    
+    barrier.subresourceRange.baseMipLevel = baseMipLevel;
+    barrier.subresourceRange.levelCount = levelCount;
+    barrier.subresourceRange.baseArrayLayer = baseArrayLayer;
+    barrier.subresourceRange.layerCount = layerCount;
 
     // Define source and destination stages and access masks based on layout transition
     if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
@@ -48,11 +63,26 @@ void VulkanCommandList::TransitionImageLayout(VkImage image, VkImageLayout oldLa
         barrier.srcAccessMask = 0;
         barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
         barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
+        barrier.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        barrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
     } else if (oldLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
         barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
         barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
         barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
         barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL) {
+        barrier.srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+        barrier.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR) {
+        barrier.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        barrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        barrier.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
+        barrier.dstAccessMask = 0;
     } else {
         // Fallback for other transitions
         barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
@@ -88,11 +118,24 @@ void VulkanCommandList::TransitionImageLayout(VkImage image, VkImageLayout oldLa
     }
 }
 
-void VulkanCommandList::TransitionImageLayout(VulkanTexture* texture, VkImageLayout newLayout, bool isDepth) {
-    if (texture->GetLayout() == newLayout) return;
+void VulkanCommandList::TransitionImageLayout(VulkanTexture* texture, VkImageLayout newLayout, 
+                                             uint32_t baseMipLevel, uint32_t levelCount,
+                                             uint32_t baseArrayLayer, uint32_t layerCount,
+                                             bool isDepth, VkImageLayout oldLayout) {
+    // If transitioning the whole image, we can track layout.
+    // For subresources, layout tracking is more complex. 
+    // For now, if it's the whole image, we update the tracked layout.
+    bool isWholeImage = (baseMipLevel == 0 && levelCount == VK_REMAINING_MIP_LEVELS &&
+                        baseArrayLayer == 0 && layerCount == VK_REMAINING_ARRAY_LAYERS);
     
-    TransitionImageLayout(texture->GetImage(), texture->GetLayout(), newLayout, isDepth);
-    texture->SetLayout(newLayout);
+    VkImageLayout actualOldLayout = (oldLayout == VK_IMAGE_LAYOUT_MAX_ENUM) ? texture->GetLayout() : oldLayout;
+
+    if (isWholeImage) {
+        texture->SetLayout(newLayout);
+    }
+    
+    TransitionImageLayout(texture->GetImage(), actualOldLayout, newLayout, 
+                          baseMipLevel, levelCount, baseArrayLayer, layerCount, isDepth);
 }
 
 VulkanCommandList::VulkanCommandList(VulkanDevice* device, VkCommandPool pool)
@@ -135,40 +178,77 @@ void VulkanCommandList::End() {
 }
 
 void VulkanCommandList::BeginRendering(const std::vector<IRHITexture*>& colorAttachments, IRHITexture* depthAttachment, const RHIRect2D& renderArea) {
+    std::vector<RHIRenderingAttachment> colorAttachmentInfos;
+    for (auto* tex : colorAttachments) {
+        RHIRenderingAttachment att{};
+        att.texture = tex;
+        att.clear = true;
+        colorAttachmentInfos.push_back(att);
+    }
+
+    if (depthAttachment) {
+        RHIRenderingAttachment depthAtt{};
+        depthAtt.texture = depthAttachment;
+        depthAtt.clear = true;
+        BeginRendering(colorAttachmentInfos, &depthAtt, renderArea);
+    } else {
+        BeginRendering(colorAttachmentInfos, nullptr, renderArea);
+    }
+}
+
+void VulkanCommandList::BeginRendering(const std::vector<RHIRenderingAttachment>& colorAttachments, const RHIRenderingAttachment* depthAttachment, const RHIRect2D& renderArea) {
     m_activeColorAttachments.clear();
+    m_hasActiveDepthAttachment = false;
 
     std::vector<VkRenderingAttachmentInfo> colorInfos;
     colorInfos.reserve(colorAttachments.size());
 
-    for (auto* texture : colorAttachments) {
-        auto* vkTexture = static_cast<VulkanTexture*>(texture);
-        m_activeColorAttachments.push_back(vkTexture);
+    for (const auto& attachment : colorAttachments) {
+        auto* vkTexture = static_cast<VulkanTexture*>(attachment.texture);
+        m_activeColorAttachments.push_back({ vkTexture, attachment.mipLevel, attachment.arrayLayer });
         
-        // Transition to COLOR_ATTACHMENT_OPTIMAL
-        TransitionImageLayout(vkTexture, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        // Transition only the specific subresource to COLOR_ATTACHMENT_OPTIMAL
+        TransitionImageLayout(vkTexture, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
+                                attachment.mipLevel, 1, attachment.arrayLayer, 1);
 
-        VkRenderingAttachmentInfo colorAttachment{};
-        colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        colorAttachment.imageView = vkTexture->GetImageView();
-        colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        colorAttachment.clearValue = { 0.0f, 0.0f, 0.0f, 1.0f };
-        colorInfos.push_back(colorAttachment);
+        VkRenderingAttachmentInfo colorInfo{};
+        colorInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        
+        // If specific mip/layer is requested, use subresource view
+        if (attachment.mipLevel > 0 || attachment.arrayLayer > 0 || vkTexture->GetArrayLayers() > 1) {
+            colorInfo.imageView = vkTexture->GetSubresourceView(attachment.mipLevel, attachment.arrayLayer);
+        } else {
+            colorInfo.imageView = vkTexture->GetImageView();
+        }
+
+        colorInfo.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        colorInfo.loadOp = attachment.clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+        colorInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        colorInfo.clearValue.color = { attachment.clearColor[0], attachment.clearColor[1], attachment.clearColor[2], attachment.clearColor[3] };
+        colorInfos.push_back(colorInfo);
     }
 
     VkRenderingAttachmentInfo depthInfo{};
     bool hasDepth = (depthAttachment != nullptr);
     if (hasDepth) {
-        auto* vkTexture = static_cast<VulkanTexture*>(depthAttachment);
+        auto* vkTexture = static_cast<VulkanTexture*>(depthAttachment->texture);
+        m_activeDepthAttachment = { vkTexture, depthAttachment->mipLevel, depthAttachment->arrayLayer };
+        m_hasActiveDepthAttachment = true;
         
-        // Transition to DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-        TransitionImageLayout(vkTexture, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, true);
+        // Transition only the specific subresource to DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+        TransitionImageLayout(vkTexture, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 
+                                depthAttachment->mipLevel, 1, depthAttachment->arrayLayer, 1, true);
 
         depthInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        depthInfo.imageView = vkTexture->GetImageView();
+        
+        if (depthAttachment->mipLevel > 0 || depthAttachment->arrayLayer > 0 || vkTexture->GetArrayLayers() > 1) {
+            depthInfo.imageView = vkTexture->GetSubresourceView(depthAttachment->mipLevel, depthAttachment->arrayLayer);
+        } else {
+            depthInfo.imageView = vkTexture->GetImageView();
+        }
+
         depthInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        depthInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depthInfo.loadOp = depthAttachment->clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
         depthInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         depthInfo.clearValue.depthStencil = { 1.0f, 0 };
     }
@@ -195,14 +275,22 @@ void VulkanCommandList::EndRendering() {
     }
 
     // Transition color attachments to their optimal post-render layout
-    for (auto* vkTexture : m_activeColorAttachments) {
+    for (const auto& activeAtt : m_activeColorAttachments) {
+        auto* vkTexture = activeAtt.texture;
         // If it's a swapchain image, transition to PRESENT_SRC_KHR.
         // If it's an offscreen texture (like the editor viewport), transition to SHADER_READ_ONLY_OPTIMAL.
         VkImageLayout finalLayout = vkTexture->IsSwapchainTexture() ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         
-        TransitionImageLayout(vkTexture, finalLayout);
+        TransitionImageLayout(vkTexture, finalLayout, activeAtt.mipLevel, 1, activeAtt.arrayLayer, 1, false, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     }
     m_activeColorAttachments.clear();
+
+    if (m_hasActiveDepthAttachment) {
+        auto* vkTexture = m_activeDepthAttachment.texture;
+        TransitionImageLayout(vkTexture, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, 
+                                m_activeDepthAttachment.mipLevel, 1, m_activeDepthAttachment.arrayLayer, 1, true, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+        m_hasActiveDepthAttachment = false;
+    }
 }
 
 void VulkanCommandList::BindPipeline(IRHIPipeline* pipeline) {

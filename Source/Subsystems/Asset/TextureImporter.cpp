@@ -13,34 +13,43 @@ namespace AstralEngine {
 
 		auto textureData = std::make_shared<TextureData>(filePath);
 		int width, height, channels;
+		bool isHDR = stbi_is_hdr(filePath.c_str());
 
-		// Force loading as RGBA (4 channels)
-		stbi_uc* data = stbi_load(filePath.c_str(), &width, &height, &channels, STBI_rgb_alpha);
+		void* data = nullptr;
+		uint32_t bpc = 1;
+
+		if (isHDR) {
+			data = stbi_loadf(filePath.c_str(), &width, &height, &channels, STBI_rgb_alpha);
+			bpc = 4;
+			textureData->isHDR = true;
+		} else {
+			data = stbi_load(filePath.c_str(), &width, &height, &channels, STBI_rgb_alpha);
+			bpc = 1;
+			textureData->isHDR = false;
+		}
 
 		if (!data) {
 			Logger::Error("TextureImporter", "Failed to load texture '{}': {}", filePath, stbi_failure_reason());
 			return nullptr;
 		}
 
-		// Since we forced RGBA, channels will be 4 in the output buffer, 
-		// but stbi_load returns the original channels in the 'channels' variable.
-		// We should update it to 4 to reflect the data we have.
+		// Since we forced RGBA, channels will be 4 in the output buffer
 		channels = 4;
 
-		if (!textureData->Allocate(width, height, channels)) {
+		if (!textureData->Allocate(width, height, channels, bpc)) {
 			Logger::Error("TextureImporter", "Failed to allocate memory for texture '{}'", filePath);
 			stbi_image_free(data);
 			return nullptr;
 		}
 
-		memcpy(textureData->data, data, (size_t)width * height * channels);
+		memcpy(textureData->data, data, (size_t)width * height * channels * bpc);
 		stbi_image_free(data);
 
 		textureData->isValid = true;
 		textureData->name = std::filesystem::path(filePath).filename().string();
 
-		Logger::Info("TextureImporter", "Successfully loaded texture '{}' ({}x{}, {} channels)", 
-					 textureData->name, width, height, channels);
+		Logger::Info("TextureImporter", "Successfully loaded texture '{}' ({}x{}, {} channels, HDR: {})", 
+					 textureData->name, width, height, channels, isHDR);
 
 		return textureData;
 	}

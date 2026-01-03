@@ -195,7 +195,7 @@ AssetManager::GetAssetTypeFromFileExtension(const std::string &filePath) const {
                  ::tolower);
 
   if (extension == ".png" || extension == ".jpg" || extension == ".jpeg" ||
-      extension == ".bmp" || extension == ".tga") {
+      extension == ".bmp" || extension == ".tga" || extension == ".hdr") {
     return AssetHandle::Type::Texture;
   }
   if (extension == ".obj" || extension == ".fbx" || extension == ".gltf" ||
