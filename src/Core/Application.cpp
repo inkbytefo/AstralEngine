@@ -87,6 +87,7 @@ void Application::Run(int maxFrames) {
         std::cout << "[Astral::Application] Normal Modu: " << (m_Config.normalMode == 1 ? "Tetrahedron (4-tap optimize)" : "Central Differences (6-tap)") << "\n";
         std::cout << "[Astral::Application] Bellek Esleme Modu: " << (m_Config.legacyMap ? "Legacy Map/Unmap (Kare basi vkMapMemory)" : "Persistent Mapping (Kalici Pointer)") << "\n";
         std::cout << "[Astral::Application] Izgara Hizlandirmasi (PR-6): " << (m_Config.useGrid ? "AKTIF (Empty Space Skipping)" : "KAPALI (Brute Force)") << "\n";
+        std::cout << "[Astral::Application] Golge Optimizasyonu (PR-7): " << (m_Config.optShadow ? "AKTIF (Erken Cikis & Back-Face Culling)" : "KAPALI (Kaba Kuvvet 24-Adim)") << "\n";
         std::cout << "[Astral::Application] Sahne Modu: " << (m_Config.stressTest ? "Karmasik Stress Sahnesi (32 Nesne)" : "Standart Sahne (4 Nesne)") << "\n";
         if (targetFrames > 0) {
             std::cout << "[Astral::Application] Hedef: " << targetFrames << " kare calisip sonlanacak...\n";
@@ -211,7 +212,8 @@ void Application::Run(int maxFrames) {
                 m_Config.normalMode,
                 m_Window->GetWidth(),
                 m_Window->GetHeight(),
-                m_Config.useGrid
+                m_Config.useGrid,
+                m_Config.optShadow
             );
 
             m_VulkanContext->EndAndSubmitFrameCommand();

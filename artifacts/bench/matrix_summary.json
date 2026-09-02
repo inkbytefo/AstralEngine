@@ -1,18 +1,20 @@
 [
   {
-    "tag": "720p_tetra_nogrid_stress",
+    "tag": "720p_tetra_grid_unoptshd",
     "preset": "720p",
     "normal_mode": "tetra",
     "normal_label": "Tetrahedron (4-tap)",
-    "use_grid": false,
-    "grid_label": "Grid OFF (Brute Force)",
-    "is_stress": true,
-    "scene_label": "32 Nesneli Stress",
+    "use_grid": true,
+    "grid_label": "Grid ON (Two-Level)",
+    "opt_shadow": false,
+    "shadow_label": "Kaba Kuvvet Golge",
+    "is_stress": false,
+    "scene_label": "Standart",
     "width": 1280,
     "height": 720,
     "frames": 100,
-    "csv_file": "artifacts\\bench\\bench_720p_tetra_nogrid_stress.csv",
-    "json_file": "artifacts\\bench\\bench_720p_tetra_nogrid_stress.json",
+    "csv_file": "artifacts\\bench\\bench_720p_tetra_grid_unoptshd.csv",
+    "json_file": "artifacts\\bench\\bench_720p_tetra_grid_unoptshd.json",
     "data": {
       "benchmark_metadata": {
         "gpu_name": "NVIDIA GeForce RTX 3060",
@@ -24,36 +26,38 @@
         "total_frames": 100,
         "warmup_frames_skipped": 30,
         "gpu_total_ms": {
-          "avg": 33.1097,
-          "min": 31.1713,
-          "max": 36.571,
-          "p50": 33.0619,
-          "p90": 34.7017,
-          "p95": 35.5643,
-          "stddev": 1.3607
+          "avg": 1.9447,
+          "min": 1.64182,
+          "max": 2.43578,
+          "p50": 1.97718,
+          "p90": 2.17434,
+          "p95": 2.20336,
+          "stddev": 0.20061
         },
         "cpu_frame_ms": {
-          "avg": 57.6533,
-          "p50": 57.4925,
-          "p95": 60.9336
+          "avg": 5.40168,
+          "p50": 5.3466,
+          "p95": 5.9314
         }
       }
     }
   },
   {
-    "tag": "720p_tetra_grid_stress",
+    "tag": "720p_tetra_grid_optshd",
     "preset": "720p",
     "normal_mode": "tetra",
     "normal_label": "Tetrahedron (4-tap)",
     "use_grid": true,
     "grid_label": "Grid ON (Two-Level)",
-    "is_stress": true,
-    "scene_label": "32 Nesneli Stress",
+    "opt_shadow": true,
+    "shadow_label": "Golge Optimizasyonu ACIK",
+    "is_stress": false,
+    "scene_label": "Standart",
     "width": 1280,
     "height": 720,
     "frames": 100,
-    "csv_file": "artifacts\\bench\\bench_720p_tetra_grid_stress.csv",
-    "json_file": "artifacts\\bench\\bench_720p_tetra_grid_stress.json",
+    "csv_file": "artifacts\\bench\\bench_720p_tetra_grid_optshd.csv",
+    "json_file": "artifacts\\bench\\bench_720p_tetra_grid_optshd.json",
     "data": {
       "benchmark_metadata": {
         "gpu_name": "NVIDIA GeForce RTX 3060",
@@ -65,77 +69,38 @@
         "total_frames": 100,
         "warmup_frames_skipped": 30,
         "gpu_total_ms": {
-          "avg": 17.9548,
-          "min": 16.8418,
-          "max": 19.4762,
-          "p50": 17.8981,
-          "p90": 18.7461,
-          "p95": 19.0098,
-          "stddev": 0.499829
+          "avg": 1.67744,
+          "min": 1.42061,
+          "max": 2.00528,
+          "p50": 1.64317,
+          "p90": 1.96851,
+          "p95": 1.97462,
+          "stddev": 0.176123
         },
         "cpu_frame_ms": {
-          "avg": 42.4958,
-          "p50": 41.7425,
-          "p95": 48.0168
+          "avg": 5.48459,
+          "p50": 5.1015,
+          "p95": 5.5268
         }
       }
     }
   },
   {
-    "tag": "1080p_tetra_nogrid_stress",
-    "preset": "1080p",
-    "normal_mode": "tetra",
-    "normal_label": "Tetrahedron (4-tap)",
-    "use_grid": false,
-    "grid_label": "Grid OFF (Brute Force)",
-    "is_stress": true,
-    "scene_label": "32 Nesneli Stress",
-    "width": 1920,
-    "height": 1080,
-    "frames": 100,
-    "csv_file": "artifacts\\bench\\bench_1080p_tetra_nogrid_stress.csv",
-    "json_file": "artifacts\\bench\\bench_1080p_tetra_nogrid_stress.json",
-    "data": {
-      "benchmark_metadata": {
-        "gpu_name": "NVIDIA GeForce RTX 3060",
-        "driver_version": "2559967232",
-        "screen_width": 1920,
-        "screen_height": 1080
-      },
-      "metrics": {
-        "total_frames": 100,
-        "warmup_frames_skipped": 30,
-        "gpu_total_ms": {
-          "avg": 69.795,
-          "min": 68.0914,
-          "max": 72.3907,
-          "p50": 69.7126,
-          "p90": 70.849,
-          "p95": 71.9218,
-          "stddev": 0.945951
-        },
-        "cpu_frame_ms": {
-          "avg": 94.701,
-          "p50": 93.6536,
-          "p95": 101.774
-        }
-      }
-    }
-  },
-  {
-    "tag": "1080p_tetra_grid_stress",
+    "tag": "1080p_tetra_grid_unoptshd",
     "preset": "1080p",
     "normal_mode": "tetra",
     "normal_label": "Tetrahedron (4-tap)",
     "use_grid": true,
     "grid_label": "Grid ON (Two-Level)",
-    "is_stress": true,
-    "scene_label": "32 Nesneli Stress",
+    "opt_shadow": false,
+    "shadow_label": "Kaba Kuvvet Golge",
+    "is_stress": false,
+    "scene_label": "Standart",
     "width": 1920,
     "height": 1080,
     "frames": 100,
-    "csv_file": "artifacts\\bench\\bench_1080p_tetra_grid_stress.csv",
-    "json_file": "artifacts\\bench\\bench_1080p_tetra_grid_stress.json",
+    "csv_file": "artifacts\\bench\\bench_1080p_tetra_grid_unoptshd.csv",
+    "json_file": "artifacts\\bench\\bench_1080p_tetra_grid_unoptshd.json",
     "data": {
       "benchmark_metadata": {
         "gpu_name": "NVIDIA GeForce RTX 3060",
@@ -147,18 +112,61 @@
         "total_frames": 100,
         "warmup_frames_skipped": 30,
         "gpu_total_ms": {
-          "avg": 39.4091,
-          "min": 37.566,
-          "max": 52.8944,
-          "p50": 38.8225,
-          "p90": 40.5859,
-          "p95": 42.2852,
-          "stddev": 2.42988
+          "avg": 3.7932,
+          "min": 3.18086,
+          "max": 4.2248,
+          "p50": 3.83155,
+          "p90": 4.10803,
+          "p95": 4.13738,
+          "stddev": 0.249827
         },
         "cpu_frame_ms": {
-          "avg": 63.8369,
-          "p50": 62.7745,
-          "p95": 72.254
+          "avg": 7.32393,
+          "p50": 7.3092,
+          "p95": 8.1555
+        }
+      }
+    }
+  },
+  {
+    "tag": "1080p_tetra_grid_optshd",
+    "preset": "1080p",
+    "normal_mode": "tetra",
+    "normal_label": "Tetrahedron (4-tap)",
+    "use_grid": true,
+    "grid_label": "Grid ON (Two-Level)",
+    "opt_shadow": true,
+    "shadow_label": "Golge Optimizasyonu ACIK",
+    "is_stress": false,
+    "scene_label": "Standart",
+    "width": 1920,
+    "height": 1080,
+    "frames": 100,
+    "csv_file": "artifacts\\bench\\bench_1080p_tetra_grid_optshd.csv",
+    "json_file": "artifacts\\bench\\bench_1080p_tetra_grid_optshd.json",
+    "data": {
+      "benchmark_metadata": {
+        "gpu_name": "NVIDIA GeForce RTX 3060",
+        "driver_version": "2559967232",
+        "screen_width": 1920,
+        "screen_height": 1080
+      },
+      "metrics": {
+        "total_frames": 100,
+        "warmup_frames_skipped": 30,
+        "gpu_total_ms": {
+          "avg": 3.34448,
+          "min": 2.81475,
+          "max": 3.77226,
+          "p50": 3.3679,
+          "p90": 3.58701,
+          "p95": 3.59456,
+          "stddev": 0.222947
+        },
+        "cpu_frame_ms": {
+          "avg": 6.76079,
+          "p50": 6.7957,
+          "p95": 7.2962
         }
       }
     }

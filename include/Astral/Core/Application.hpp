@@ -20,6 +20,7 @@ struct AppConfig {
     bool legacyMap = false;  // true: her kare vkMapMemory/vkUnmapMemory cagirir (benchmark karsilastirmasi)
     bool useGrid = true;     // PR-6: Two-Level BrickGrid Empty Space Skipping aktif
     bool stressTest = false; // PR-6: 32 dinamik nesneli karmasik sahne stres testi
+    bool optShadow = true;   // PR-7: Golge erken terk ve back-face culling optimizasyonu aktif
     std::string shaderPath = "";
 };
 

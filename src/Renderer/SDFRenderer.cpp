@@ -196,7 +196,7 @@ void SDFRenderer::Resize(int width, int height) {
     UpdateDescriptorSets();
 }
 
-void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode, int width, int height, bool useGrid) {
+void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode, int width, int height, bool useGrid, bool optShadow) {
     if (width != m_Width || height != m_Height) {
         Resize(width, height);
     }
@@ -246,8 +246,9 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
         static_cast<float>(m_ActiveEditCount),
         useGrid ? 1.0f : 0.0f
     );
-    // gridParams: x=dimX (32), y=dimY (16), z=dimZ (32), w=cellSize (0.75)
+    // gridParams: x=dimX (32), y=dimY (16), z=optShadow (1.0=on, 0.0=off), w=cellSize (0.75)
     pushConstants.gridParams = m_BrickGrid->GetGridParams();
+    pushConstants.gridParams.z = optShadow ? 1.0f : 0.0f;
 
     cmd.pushConstants(
         m_ComputePipeline->GetPipelineLayout(),

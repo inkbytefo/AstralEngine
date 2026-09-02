@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-AstralEngine - Benchmark Report Visualizer (PR-6)
+AstralEngine - Benchmark Report Visualizer (PR-7)
 Generates a standalone, beautiful HTML/SVG report from matrix_summary.json.
-Visualizes Two-Level BrickGrid Empty Space Skipping vs Brute Force.
+Visualizes Shadow Early Exit & Back-Face Culling vs Unoptimized Brute-Force Shadows.
 Uses pure Python standard library (no pip dependencies required).
 """
 
@@ -16,7 +16,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AstralEngine — Two-Level BrickGrid Acceleration Benchmark</title>
+    <title>AstralEngine — Shadow Early-Exit & Shading Acceleration Benchmark</title>
     <style>
         :root {
             --bg-primary: #0d1117;
@@ -157,7 +157,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             font-weight: bold;
         }
 
-        .badge-grid-on {
+        .badge-opt-on {
             background-color: rgba(63, 185, 80, 0.15);
             color: var(--accent-emerald);
             padding: 0.2rem 0.6rem;
@@ -165,9 +165,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             font-weight: 600;
         }
 
-        .badge-grid-off {
-            background-color: rgba(248, 81, 73, 0.15);
-            color: var(--accent-red);
+        .badge-opt-off {
+            background-color: rgba(210, 153, 34, 0.15);
+            color: var(--accent-orange);
             padding: 0.2rem 0.6rem;
             border-radius: 6px;
             font-weight: 600;
@@ -200,9 +200,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
     <div class="container">
         <header>
-            <div class="header-badge">PR-6 Acceleration Architecture</div>
+            <div class="header-badge">PR-7 Shading & Shadow Early Exit</div>
             <h1>AstralEngine Performans Raporu</h1>
-            <p class="subtitle">Two-Level BrickGrid (Empty Space Skipping) & Raymarching Profilleme Sonuclari</p>
+            <p class="subtitle">Gölge & AO Erken Çıkış, Ters Yüzey Ayıklama (Back-Face Culling) ve Boş Uzay Atlama</p>
         </header>
 
         <div class="grid">
@@ -229,19 +229,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             </div>
 
             <div class="card">
-                <div class="card-title">⚙️ Hızlandırma Yapısı (PR-6)</div>
+                <div class="card-title">⚡ Gölge & Aydınlatma Optimizasyonu (PR-7)</div>
                 <ul class="meta-list">
                     <li class="meta-item">
-                        <span class="meta-label">Grid Boyutlari</span>
-                        <span class="meta-val">32 x 16 x 32 (16,384 Hucre)</span>
+                        <span class="meta-label">Back-Face Early-Out</span>
+                        <span class="meta-val" style="color: var(--accent-emerald);">Aktif (N·L &le; 0 ise 0 adım)</span>
                     </li>
                     <li class="meta-item">
-                        <span class="meta-label">Hucre Boyutu</span>
-                        <span class="meta-val">0.75m Izotropik</span>
+                        <span class="meta-label">AABB Sky Early-Exit</span>
+                        <span class="meta-val" style="color: var(--accent-emerald);">Aktif (Y &gt; 11m ise erken terk)</span>
                     </li>
                     <li class="meta-item">
-                        <span class="meta-label">Traversal Teknigi</span>
-                        <span class="meta-val" style="color: var(--accent-emerald);">Empty Space Skipping (ESS)</span>
+                        <span class="meta-label">Shadow Grid ESS</span>
+                        <span class="meta-val" style="color: var(--accent-emerald);">Aktif (Izgara üzerinden sıçrama)</span>
                     </li>
                     <li class="meta-item">
                         <span class="meta-label">Vulkan Validation</span>
@@ -260,7 +260,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                             <th>Preset</th>
                             <th>Sahne</th>
                             <th>Hizlandirma Yapisi</th>
-                            <th>Normal Stencil</th>
+                            <th>Golge Modu</th>
                             <th>GPU Ort (ms)</th>
                             <th>GPU p50 (ms)</th>
                             <th>CPU Ort (ms)</th>
@@ -274,14 +274,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
 
         <div class="card">
-            <div class="card-title">📈 GPU Raymarch Zamani (ms) — Empty Space Skipping Karsilastirmasi</div>
+            <div class="card-title">📈 GPU Render Zamani (ms) — Gölge Erken Çıkış Karsilastirmasi</div>
             <div class="chart-container">
                 __SVG_CHART__
             </div>
         </div>
 
         <footer>
-            AstralEngine &bull; Two-Level BrickGrid Hierarchical SDF Architecture &bull; Otomatik Uretilmistir
+            AstralEngine &bull; Signed Distance Field Compute Shading & Raymarch Architecture &bull; Otomatik Uretilmistir
         </footer>
     </div>
 </body>
@@ -310,12 +310,12 @@ def generate_svg_chart(results):
     for i, r in enumerate(results):
         m = r["data"]["metrics"]
         gpu_avg = m["gpu_total_ms"]["avg"]
-        use_grid = r.get("use_grid", True)
+        opt_shadow = r.get("opt_shadow", True)
 
         gx = margin_l + i * bar_group_w + (bar_group_w - bar_w) / 2
         
-        # Color: Emerald for Grid ON, Red for Grid OFF
-        color = "#3fb950" if use_grid else "#f85149"
+        # Color: Emerald for Opt Shadow, Orange for Unopt
+        color = "#3fb950" if opt_shadow else "#d29922"
 
         h_bar = (gpu_avg / max_val) * chart_h
         y_bar = height - margin_b - h_bar
@@ -324,7 +324,7 @@ def generate_svg_chart(results):
 
         # X labels
         label_preset = f"{r['preset']}"
-        label_mode = "Grid ON (ESS)" if use_grid else "Grid OFF"
+        label_mode = "Opt Shadow" if opt_shadow else "Kaba Gölge"
         bars += f'<text x="{gx + bar_w/2}" y="{height - margin_b + 18}" font-size="12" font-weight="600" fill="#f0f6fc" text-anchor="middle">{label_preset}</text>'
         bars += f'<text x="{gx + bar_w/2}" y="{height - margin_b + 34}" font-size="10" fill="{color}" text-anchor="middle">{label_mode}</text>'
 
@@ -342,9 +342,9 @@ def generate_svg_chart(results):
 
         <!-- Legend -->
         <rect x="{width - 320}" y="10" width="12" height="12" fill="#3fb950" rx="2"/>
-        <text x="{width - 302}" y="20" font-size="11" fill="#8b949e">Grid ON (Empty Space Skipping)</text>
-        <rect x="{width - 130}" y="10" width="12" height="12" fill="#f85149" rx="2"/>
-        <text x="{width - 112}" y="20" font-size="11" fill="#8b949e">Grid OFF (Brute Force)</text>
+        <text x="{width - 302}" y="20" font-size="11" fill="#8b949e">Opt Shadow (Erken Cikis + Back-Face)</text>
+        <rect x="{width - 140}" y="10" width="12" height="12" fill="#d29922" rx="2"/>
+        <text x="{width - 122}" y="20" font-size="11" fill="#8b949e">Kaba Kuvvet (24-Adım)</text>
     </svg>'''
     return svg
 
@@ -376,18 +376,18 @@ def main():
         gpu_avg = m["gpu_total_ms"]["avg"]
         gpu_p50 = m["gpu_total_ms"]["p50"]
         cpu_avg = m["cpu_frame_ms"]["avg"]
-        use_grid = r.get("use_grid", True)
-        grid_label = r.get("grid_label", "Grid ON" if use_grid else "Grid OFF")
-        normal_label = r.get("normal_label", "Tetra (4-tap)")
+        opt_shadow = r.get("opt_shadow", True)
+        grid_label = r.get("grid_label", "Grid ON (Two-Level)")
+        shadow_label = r.get("shadow_label", "Opt Shadow" if opt_shadow else "Kaba Gölge")
         scene_label = r.get("scene_label", "Stress (32 Nesne)" if r.get("is_stress", False) else "Standart")
 
-        grid_badge_class = "badge-grid-on" if use_grid else "badge-grid-off"
+        badge_class = "badge-opt-on" if opt_shadow else "badge-opt-off"
 
         rows += f"""<tr>
             <td><span class="badge-preset">{r['preset']}</span></td>
             <td>{scene_label}</td>
-            <td><span class="{grid_badge_class}">{grid_label}</span></td>
-            <td>{normal_label}</td>
+            <td>{grid_label}</td>
+            <td><span class="{badge_class}">{shadow_label}</span></td>
             <td>{gpu_avg:.3f}</td>
             <td>{gpu_p50:.3f}</td>
             <td>{cpu_avg:.3f}</td>

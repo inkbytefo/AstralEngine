@@ -32,7 +32,7 @@ public:
     /// Dinamik primitifleri GPU SSBO'ya aktarir ve Two-Level BrickGrid'i gunceller
     void UpdateEdits(const std::vector<SDFEditGPU>& edits, bool useLegacyMapUnmap = false);
 
-    void Render(vk::CommandBuffer cmd, float time, uint32_t normalMode, int width, int height, bool useGrid = true);
+    void Render(vk::CommandBuffer cmd, float time, uint32_t normalMode, int width, int height, bool useGrid = true, bool optShadow = true);
     void Resize(int width, int height);
 
     vk::Image GetStorageImage() const { return m_StorageImage.get(); }

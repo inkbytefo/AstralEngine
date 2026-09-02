@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-AstralEngine - Automated Benchmark Matrix Runner (PR-3, PR-4, PR-5, PR-6)
+AstralEngine - Automated Benchmark Matrix Runner (PR-3 to PR-7)
 Runs benchmark matrices across resolutions (720p, 1080p), normal stencils (Central vs Tetrahedron),
-and spatial acceleration modes (Grid ON vs Grid OFF in stress test scenes).
+spatial acceleration (Grid ON vs Grid OFF), and shadow optimization modes (Opt Shadow vs Unopt Shadow).
 """
 
 import sys
@@ -46,10 +46,11 @@ def find_binary(custom_path=None):
         "Sandbox binary bulunamadi! Once projeyi derleyin: cmake --build --preset mingw-debug"
     )
 
-def run_single_benchmark(bin_path, preset_name, preset_info, normal_mode, use_grid, is_stress, frames, out_dir):
+def run_single_benchmark(bin_path, preset_name, preset_info, normal_mode, use_grid, opt_shadow, is_stress, frames, out_dir):
     grid_tag = "grid" if use_grid else "nogrid"
+    shadow_tag = "optshd" if opt_shadow else "unoptshd"
     stress_tag = "_stress" if is_stress else ""
-    tag = f"{preset_name}_{normal_mode}_{grid_tag}{stress_tag}"
+    tag = f"{preset_name}_{normal_mode}_{grid_tag}_{shadow_tag}{stress_tag}"
     csv_file = out_dir / f"bench_{tag}.csv"
     json_file = out_dir / f"bench_{tag}.json"
 
@@ -68,14 +69,20 @@ def run_single_benchmark(bin_path, preset_name, preset_info, normal_mode, use_gr
     else:
         cmd.append("--no-grid")
 
+    if opt_shadow:
+        cmd.append("--opt-shadow")
+    else:
+        cmd.append("--no-opt-shadow")
+
     if is_stress:
         cmd.append("--stress")
 
     grid_label = "Grid ON (Two-Level)" if use_grid else "Grid OFF (Brute Force)"
+    shadow_label = "Golge Optimizasyonu ACIK" if opt_shadow else "Kaba Kuvvet Golge"
     norm_label = NORMAL_MODES[normal_mode]["label"]
     scene_label = "32 Nesneli Stress" if is_stress else "Standart"
 
-    print(f"\n[BenchRunner] Calistiriliyor: {preset_name} | {scene_label} | {grid_label} | {norm_label} - {frames} kare...")
+    print(f"\n[BenchRunner] Calistiriliyor: {preset_name} | {scene_label} | {grid_label} | {shadow_label} | {norm_label} - {frames} kare...")
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
@@ -97,6 +104,8 @@ def run_single_benchmark(bin_path, preset_name, preset_info, normal_mode, use_gr
         "normal_label": norm_label,
         "use_grid": use_grid,
         "grid_label": grid_label,
+        "opt_shadow": opt_shadow,
+        "shadow_label": shadow_label,
         "is_stress": is_stress,
         "scene_label": scene_label,
         "width": preset_info["width"],
@@ -108,11 +117,11 @@ def run_single_benchmark(bin_path, preset_name, preset_info, normal_mode, use_gr
     }
 
 def print_comparison_table(results):
-    print("\n" + "=" * 105)
-    print("               ASTRAL ENGINE MATRIS BENCHMARK KARSILASTIRMASI (PR-6)")
-    print("=" * 105)
-    print(f"{'Preset':<8} | {'Sahne':<18} | {'Hizlandirma':<22} | {'Normal':<15} | {'GPU Ort(ms)':<12} | {'GPU p50':<10} | {'CPU Ort':<10}")
-    print("-" * 105)
+    print("\n" + "=" * 120)
+    print("               ASTRAL ENGINE MATRIS BENCHMARK KARSILASTIRMASI (PR-7)")
+    print("=" * 120)
+    print(f"{'Preset':<8} | {'Sahne':<18} | {'Hizlandirma':<20} | {'Golge Modu':<24} | {'GPU Ort(ms)':<12} | {'GPU p50':<10} | {'CPU Ort':<10}")
+    print("-" * 120)
 
     for r in results:
         m = r["data"]["metrics"]
@@ -120,9 +129,9 @@ def print_comparison_table(results):
         gpu_p50 = m["gpu_total_ms"]["p50"]
         cpu_avg = m["cpu_frame_ms"]["avg"]
 
-        print(f"{r['preset']:<8} | {r['scene_label']:<18} | {r['grid_label']:<22} | {r['normal_label']:<15} | {gpu_avg:<12.3f} | {gpu_p50:<10.3f} | {cpu_avg:<10.3f}")
+        print(f"{r['preset']:<8} | {r['scene_label']:<18} | {r['grid_label']:<20} | {r['shadow_label']:<24} | {gpu_avg:<12.3f} | {gpu_p50:<10.3f} | {cpu_avg:<10.3f}")
 
-    print("=" * 105 + "\n")
+    print("=" * 120 + "\n")
 
 def save_matrix_summary(results, out_dir):
     summary_json = out_dir / "matrix_summary.json"
@@ -135,14 +144,14 @@ def save_matrix_summary(results, out_dir):
     with open(summary_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow([
-            "preset", "is_stress", "use_grid", "normal_mode", "width", "height", "frames",
+            "preset", "is_stress", "use_grid", "opt_shadow", "normal_mode", "width", "height", "frames",
             "gpu_avg_ms", "gpu_min_ms", "gpu_max_ms", "gpu_p50_ms", "gpu_p95_ms",
             "cpu_avg_ms", "cpu_p50_ms", "cpu_p95_ms"
         ])
         for r in results:
             m = r["data"]["metrics"]
             writer.writerow([
-                r["preset"], r["is_stress"], r["use_grid"], r["normal_mode"], r["width"], r["height"], r["frames"],
+                r["preset"], r["is_stress"], r["use_grid"], r["opt_shadow"], r["normal_mode"], r["width"], r["height"], r["frames"],
                 m["gpu_total_ms"]["avg"], m["gpu_total_ms"]["min"], m["gpu_total_ms"]["max"],
                 m["gpu_total_ms"]["p50"], m["gpu_total_ms"]["p95"],
                 m["cpu_frame_ms"]["avg"], m["cpu_frame_ms"]["p50"], m["cpu_frame_ms"]["p95"]
@@ -157,8 +166,10 @@ def main():
                         help="Test edilecek cozunurluk presetleri (720p, 1080p, 1440p)")
     parser.add_argument("--normals", nargs="+", default=["tetra"], choices=list(NORMAL_MODES.keys()),
                         help="Test edilecek normal stencil modlari (central, tetra)")
-    parser.add_argument("--grids", nargs="+", default=["nogrid", "grid"], choices=["nogrid", "grid"],
+    parser.add_argument("--grids", nargs="+", default=["grid"], choices=["nogrid", "grid"],
                         help="Test edilecek hizlandirma modlari (nogrid, grid)")
+    parser.add_argument("--shadows", nargs="+", default=["unopt", "opt"], choices=["unopt", "opt"],
+                        help="Test edilecek golge modlari (unopt, opt)")
     parser.add_argument("--stress", action="store_true", help="32 nesneli stres sahnesi modunda calistir")
     parser.add_argument("--out-dir", type=str, default="artifacts/bench", help="Cikti dizini")
     parser.add_argument("--no-plot", action="store_true", help="Gorsel HTML rapor olusturma adimini atla")
@@ -170,20 +181,22 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"[BenchRunner] Sandbox binary: {bin_path}")
-    print(f"[BenchRunner] Hedef presetler: {args.presets} | Normal modlari: {args.normals} | Izgara modlari: {args.grids} | Stres Modu: {args.stress}")
+    print(f"[BenchRunner] Hedef presetler: {args.presets} | Normal modlari: {args.normals} | Izgara: {args.grids} | Golge: {args.shadows} | Stres: {args.stress}")
 
     results = []
     for preset in args.presets:
         for normal in args.normals:
             for grid_mod in args.grids:
                 use_grid = (grid_mod == "grid")
-                res = run_single_benchmark(
-                    bin_path, preset, PRESETS[preset], normal,
-                    use_grid=use_grid, is_stress=args.stress,
-                    frames=args.frames, out_dir=out_dir
-                )
-                if res:
-                    results.append(res)
+                for shd_mod in args.shadows:
+                    opt_shadow = (shd_mod == "opt")
+                    res = run_single_benchmark(
+                        bin_path, preset, PRESETS[preset], normal,
+                        use_grid=use_grid, opt_shadow=opt_shadow, is_stress=args.stress,
+                        frames=args.frames, out_dir=out_dir
+                    )
+                    if res:
+                        results.append(res)
 
     if not results:
         print("[BenchRunner HATA]: Hicbir benchmark basariyla tamamlanamadi.")

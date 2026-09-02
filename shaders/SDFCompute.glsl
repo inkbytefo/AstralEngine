@@ -29,7 +29,7 @@ layout(push_constant) uniform PushConstants {
     vec4 camPos;      // xyz: position, w: time
     vec4 camDir;      // xyz: forward direction, w: normalMode (0=central, 1=tetrahedron)
     vec4 screenRes;   // x: width, y: height, z: editCount, w: useGrid (0=off, 1=on)
-    vec4 gridParams;  // x: dimX (32), y: dimY (16), z: dimZ (32), w: cellSize (0.75)
+    vec4 gridParams;  // x: dimX (32), y: dimY (16), z: optShadow (1=on, 0=off), w: cellSize (0.75)
 };
 
 // =================== Quaternion Vector Rotation ===================
@@ -222,9 +222,10 @@ float sampleCoarseGrid(vec3 p) {
         return 10.0;
     }
 
+    vec3 dim = vec3(gridParams.x, gridParams.y, 32.0);
     vec3 norm = (p - minB) / (maxB - minB);
-    ivec3 cell = clamp(ivec3(norm * gridParams.xyz), ivec3(0), ivec3(gridParams.xyz) - 1);
-    int idx = cell.x + int(gridParams.x) * (cell.y + int(gridParams.y) * cell.z);
+    ivec3 cell = clamp(ivec3(norm * dim), ivec3(0), ivec3(dim) - 1);
+    int idx = cell.x + int(dim.x) * (cell.y + int(dim.y) * cell.z);
     return cellDistances[idx];
 }
 
@@ -254,13 +255,33 @@ vec3 calcNormalTetrahedron(vec3 p) {
     );
 }
 
-// =================== Lighting & Shadows ===================
+// =================== Optimized Lighting & Shadows (PR-7) ===================
 
-float softShadow(vec3 ro, vec3 rd, float mint, float maxt, float k) {
+float softShadow(vec3 ro, vec3 rd, float mint, float maxt, float k, bool opt) {
     float res = 1.0;
     float t = mint;
+    const vec3 maxB = vec3(12.0, 11.0, 12.0);
+
     for (int i = 0; i < 24 && t < maxt; i++) {
-        float h = mapScene(ro + rd * t).dist;
+        vec3 p = ro + rd * t;
+
+        if (opt) {
+            // 1. Sahne ust sinirini astiysa gokyuzundedir (AABB erken cikis)
+            if (p.y > 11.0 || any(greaterThan(p.xz, maxB.xz)) || any(lessThan(p.xz, -maxB.xz))) {
+                break;
+            }
+
+            // 2. Seyrek Izgara Bos Uzay Atlama
+            if (screenRes.w > 0.5) {
+                float cellD = sampleCoarseGrid(p);
+                if (cellD > gridParams.w * 1.2) {
+                    t += max(cellD * 0.85, gridParams.w);
+                    continue;
+                }
+            }
+        }
+
+        float h = mapScene(p).dist;
         if (h < 0.001) return 0.0;
         res = min(res, k * h / t);
         t += clamp(h, 0.02, 0.4);
@@ -268,7 +289,7 @@ float softShadow(vec3 ro, vec3 rd, float mint, float maxt, float k) {
     return clamp(res, 0.0, 1.0);
 }
 
-float calcAO(vec3 p, vec3 n) {
+float calcAO(vec3 p, vec3 n, bool opt) {
     float occ = 0.0;
     float sca = 1.0;
     for (int i = 0; i < 4; i++) {
@@ -276,6 +297,10 @@ float calcAO(vec3 p, vec3 n) {
         float d = mapScene(p + n * h).dist;
         occ += (h - d) * sca;
         sca *= 0.75;
+        // Erken cikis: Duz veya tamamen acik yuzeylerde erken bitir
+        if (opt && i == 1 && occ < 0.005) {
+            break;
+        }
     }
     return clamp(1.0 - 1.5 * occ, 0.0, 1.0);
 }
@@ -319,7 +344,6 @@ void main() {
         if (screenRes.w > 0.5) {
             float cellD = sampleCoarseGrid(p);
             if (cellD > gridParams.w) {
-                // Bos hucreleri tek seferde atla
                 t += max(cellD * 0.85, gridParams.w);
                 continue;
             }
@@ -340,15 +364,31 @@ void main() {
         vec3 p = ro + rd * t;
         vec3 n = (camDir.w > 0.5) ? calcNormalTetrahedron(p) : calcNormalCentral(p);
 
+        bool optShadow = (gridParams.z > 0.5);
+
         vec3 lightDir = normalize(vec3(0.5, 0.8, -0.4));
         vec3 lightCol = vec3(1.4, 1.3, 1.2);
         vec3 viewDir = -rd;
         vec3 halfDir = normalize(lightDir + viewDir);
 
-        float diff = max(dot(n, lightDir), 0.0);
-        float spec = pow(max(dot(n, halfDir), 0.0), 32.0 * (1.0 - hit.roughness));
-        float shadow = softShadow(p + n * 0.005, lightDir, 0.02, 15.0, 12.0);
-        float ao = calcAO(p, n);
+        float diff = dot(n, lightDir);
+        float spec = 0.0;
+        float shadow = 0.0;
+
+        // PR-7: Back-Face Culling for Shadows
+        if (diff > 0.001) {
+            spec = pow(max(dot(n, halfDir), 0.0), 32.0 * (1.0 - hit.roughness));
+            shadow = softShadow(p + n * 0.005, lightDir, 0.02, 15.0, 12.0, optShadow);
+        } else if (!optShadow) {
+            // Optimizasyon kapaliysa kaba kuvvetle her kosulda golge hesapla
+            diff = max(diff, 0.0);
+            shadow = softShadow(p + n * 0.005, lightDir, 0.02, 15.0, 12.0, false);
+        } else {
+            diff = 0.0;
+            shadow = 0.0;
+        }
+
+        float ao = calcAO(p, n, optShadow);
 
         vec3 diffuse = hit.albedo * lightCol * diff * shadow;
         vec3 specular = vec3(spec * hit.metallic) * lightCol * shadow;

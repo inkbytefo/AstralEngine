@@ -93,6 +93,10 @@ int main(int argc, char* argv[]) {
             config.useGrid = false;
         } else if (arg == "--stress") {
             config.stressTest = true;
+        } else if (arg == "--opt-shadow") {
+            config.optShadow = true;
+        } else if (arg == "--no-opt-shadow") {
+            config.optShadow = false;
         }
     }
 
