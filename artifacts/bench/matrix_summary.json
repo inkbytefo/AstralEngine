@@ -1,0 +1,166 @@
+[
+  {
+    "tag": "720p_tetra_nogrid_stress",
+    "preset": "720p",
+    "normal_mode": "tetra",
+    "normal_label": "Tetrahedron (4-tap)",
+    "use_grid": false,
+    "grid_label": "Grid OFF (Brute Force)",
+    "is_stress": true,
+    "scene_label": "32 Nesneli Stress",
+    "width": 1280,
+    "height": 720,
+    "frames": 100,
+    "csv_file": "artifacts\\bench\\bench_720p_tetra_nogrid_stress.csv",
+    "json_file": "artifacts\\bench\\bench_720p_tetra_nogrid_stress.json",
+    "data": {
+      "benchmark_metadata": {
+        "gpu_name": "NVIDIA GeForce RTX 3060",
+        "driver_version": "2559967232",
+        "screen_width": 1280,
+        "screen_height": 720
+      },
+      "metrics": {
+        "total_frames": 100,
+        "warmup_frames_skipped": 30,
+        "gpu_total_ms": {
+          "avg": 33.1097,
+          "min": 31.1713,
+          "max": 36.571,
+          "p50": 33.0619,
+          "p90": 34.7017,
+          "p95": 35.5643,
+          "stddev": 1.3607
+        },
+        "cpu_frame_ms": {
+          "avg": 57.6533,
+          "p50": 57.4925,
+          "p95": 60.9336
+        }
+      }
+    }
+  },
+  {
+    "tag": "720p_tetra_grid_stress",
+    "preset": "720p",
+    "normal_mode": "tetra",
+    "normal_label": "Tetrahedron (4-tap)",
+    "use_grid": true,
+    "grid_label": "Grid ON (Two-Level)",
+    "is_stress": true,
+    "scene_label": "32 Nesneli Stress",
+    "width": 1280,
+    "height": 720,
+    "frames": 100,
+    "csv_file": "artifacts\\bench\\bench_720p_tetra_grid_stress.csv",
+    "json_file": "artifacts\\bench\\bench_720p_tetra_grid_stress.json",
+    "data": {
+      "benchmark_metadata": {
+        "gpu_name": "NVIDIA GeForce RTX 3060",
+        "driver_version": "2559967232",
+        "screen_width": 1280,
+        "screen_height": 720
+      },
+      "metrics": {
+        "total_frames": 100,
+        "warmup_frames_skipped": 30,
+        "gpu_total_ms": {
+          "avg": 17.9548,
+          "min": 16.8418,
+          "max": 19.4762,
+          "p50": 17.8981,
+          "p90": 18.7461,
+          "p95": 19.0098,
+          "stddev": 0.499829
+        },
+        "cpu_frame_ms": {
+          "avg": 42.4958,
+          "p50": 41.7425,
+          "p95": 48.0168
+        }
+      }
+    }
+  },
+  {
+    "tag": "1080p_tetra_nogrid_stress",
+    "preset": "1080p",
+    "normal_mode": "tetra",
+    "normal_label": "Tetrahedron (4-tap)",
+    "use_grid": false,
+    "grid_label": "Grid OFF (Brute Force)",
+    "is_stress": true,
+    "scene_label": "32 Nesneli Stress",
+    "width": 1920,
+    "height": 1080,
+    "frames": 100,
+    "csv_file": "artifacts\\bench\\bench_1080p_tetra_nogrid_stress.csv",
+    "json_file": "artifacts\\bench\\bench_1080p_tetra_nogrid_stress.json",
+    "data": {
+      "benchmark_metadata": {
+        "gpu_name": "NVIDIA GeForce RTX 3060",
+        "driver_version": "2559967232",
+        "screen_width": 1920,
+        "screen_height": 1080
+      },
+      "metrics": {
+        "total_frames": 100,
+        "warmup_frames_skipped": 30,
+        "gpu_total_ms": {
+          "avg": 69.795,
+          "min": 68.0914,
+          "max": 72.3907,
+          "p50": 69.7126,
+          "p90": 70.849,
+          "p95": 71.9218,
+          "stddev": 0.945951
+        },
+        "cpu_frame_ms": {
+          "avg": 94.701,
+          "p50": 93.6536,
+          "p95": 101.774
+        }
+      }
+    }
+  },
+  {
+    "tag": "1080p_tetra_grid_stress",
+    "preset": "1080p",
+    "normal_mode": "tetra",
+    "normal_label": "Tetrahedron (4-tap)",
+    "use_grid": true,
+    "grid_label": "Grid ON (Two-Level)",
+    "is_stress": true,
+    "scene_label": "32 Nesneli Stress",
+    "width": 1920,
+    "height": 1080,
+    "frames": 100,
+    "csv_file": "artifacts\\bench\\bench_1080p_tetra_grid_stress.csv",
+    "json_file": "artifacts\\bench\\bench_1080p_tetra_grid_stress.json",
+    "data": {
+      "benchmark_metadata": {
+        "gpu_name": "NVIDIA GeForce RTX 3060",
+        "driver_version": "2559967232",
+        "screen_width": 1920,
+        "screen_height": 1080
+      },
+      "metrics": {
+        "total_frames": 100,
+        "warmup_frames_skipped": 30,
+        "gpu_total_ms": {
+          "avg": 39.4091,
+          "min": 37.566,
+          "max": 52.8944,
+          "p50": 38.8225,
+          "p90": 40.5859,
+          "p95": 42.2852,
+          "stddev": 2.42988
+        },
+        "cpu_frame_ms": {
+          "avg": 63.8369,
+          "p50": 62.7745,
+          "p95": 72.254
+        }
+      }
+    }
+  }
+]

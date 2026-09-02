@@ -43,12 +43,35 @@ FetchContent_MakeAvailable(glm)
 # Vulkan SDK
 find_package(Vulkan REQUIRED)
 
+# --- Shader Derleme (glslc -> SPIR-V) ---
+find_program(GLSLC_EXECUTABLE glslc REQUIRED)
+
+set(SHADER_SRC "${CMAKE_CURRENT_SOURCE_DIR}/shaders/SDFCompute.glsl")
+set(SHADER_SPV "${CMAKE_BINARY_DIR}/shaders/SDFCompute.spv")
+
+add_custom_command(
+    OUTPUT ${SHADER_SPV}
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/shaders"
+    COMMAND ${GLSLC_EXECUTABLE} -fshader-stage=compute ${SHADER_SRC} -o ${SHADER_SPV}
+    DEPENDS ${SHADER_SRC}
+    COMMENT "Compiling ${SHADER_SRC} -> ${SHADER_SPV}"
+)
+
+add_custom_target(CompileShaders ALL DEPENDS ${SHADER_SPV})
+
 # --- 1. Motorun Cekirdek Kutuphanesi (AstralCore) ---
 add_library(AstralCore
     src/Core/Application.cpp
     src/Core/Window.cpp
+    src/Core/BenchmarkLogger.cpp
     src/Renderer/VulkanContext.cpp
+    src/Renderer/ComputePipeline.cpp
+    src/Renderer/Buffer.cpp
+    src/Renderer/BrickGrid.cpp
+    src/Renderer/SDFRenderer.cpp
 )
+
+add_dependencies(AstralCore CompileShaders)
 
 target_include_directories(AstralCore PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -57,6 +80,7 @@ target_include_directories(AstralCore PUBLIC
 
 target_compile_definitions(AstralCore PUBLIC
     VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1
+    SHADER_BIN_DIR="${CMAKE_BINARY_DIR}/shaders"
 )
 
 target_link_libraries(AstralCore PUBLIC

@@ -3,6 +3,7 @@
 #include "Astral/Core/Window.hpp"
 
 #include <iostream>
+#include <sstream>
 #include <set>
 #include <cstring>
 #include <stdexcept>
@@ -91,11 +92,19 @@ VulkanContext::VulkanContext(Window& window, bool enableValidation)
     CreateLogicalDevice();
     VULKAN_HPP_DEFAULT_DISPATCHER.init(m_Device.get());
 
-    std::cout << "[Astral::VulkanContext] Vulkan 1.4 altyapisi basariyla hazirlandi.\n";
+    CreateCommandPoolAndBuffers();
+    CreateTimestampQueryPool();
+
+    std::cout << "[Astral::VulkanContext] Vulkan 1.4 ve GPU Timestamp altyapisi basariyla hazirlandi.\n";
 }
 
 VulkanContext::~VulkanContext() {
     WaitIdle();
+
+    m_TimestampQueryPool.reset();
+    m_FrameFence.reset();
+    m_CommandBuffer.reset();
+    m_CommandPool.reset();
 
     m_Device.reset();
     m_Surface.reset();
@@ -204,9 +213,7 @@ bool VulkanContext::IsDeviceSuitable(vk::PhysicalDevice device) {
     QueueFamilyIndices indices = FindQueueFamilies(device);
     auto props = device.getProperties();
 
-    // Vulkan 1.3 veya uzeri gerekli (Dynamic rendering ve synchronization2 icin)
     bool supportsVersion = props.apiVersion >= VK_API_VERSION_1_3;
-
     return indices.IsComplete() && supportsVersion;
 }
 
@@ -234,11 +241,14 @@ void VulkanContext::PickPhysicalDevice() {
     }
 
     auto props = m_PhysicalDevice.getProperties();
+    m_TimestampPeriod = props.limits.timestampPeriod;
+
     std::cout << "[Astral::VulkanContext] Secilen GPU: " << props.deviceName << "\n";
     std::cout << "[Astral::VulkanContext] Vulkan API Versiyonu: "
               << VK_VERSION_MAJOR(props.apiVersion) << "."
               << VK_VERSION_MINOR(props.apiVersion) << "."
               << VK_VERSION_PATCH(props.apiVersion) << "\n";
+    std::cout << "[Astral::VulkanContext] Timestamp Period: " << m_TimestampPeriod << " ns/tick\n";
 }
 
 void VulkanContext::CreateLogicalDevice() {
@@ -278,11 +288,120 @@ void VulkanContext::CreateLogicalDevice() {
     createInfo.ppEnabledExtensionNames = deviceExtensions.data();
     createInfo.pNext = &deviceFeatures2;
 
-
-
     m_Device = m_PhysicalDevice.createDeviceUnique(createInfo);
     m_GraphicsQueue = m_Device->getQueue(m_QueueIndices.graphicsFamily, 0);
     m_PresentQueue = m_Device->getQueue(m_QueueIndices.presentFamily, 0);
+}
+
+void VulkanContext::CreateCommandPoolAndBuffers() {
+    vk::CommandPoolCreateInfo poolInfo{};
+    poolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
+    poolInfo.queueFamilyIndex = m_QueueIndices.graphicsFamily;
+
+    m_CommandPool = m_Device->createCommandPoolUnique(poolInfo);
+
+    vk::CommandBufferAllocateInfo allocInfo{};
+    allocInfo.commandPool = m_CommandPool.get();
+    allocInfo.level = vk::CommandBufferLevel::ePrimary;
+    allocInfo.commandBufferCount = 1;
+
+    auto cmdBuffers = m_Device->allocateCommandBuffersUnique(allocInfo);
+    m_CommandBuffer = std::move(cmdBuffers[0]);
+
+    // Baslangicta signaled fence olustur
+    vk::FenceCreateInfo fenceInfo(vk::FenceCreateFlagBits::eSignaled);
+    m_FrameFence = m_Device->createFenceUnique(fenceInfo);
+}
+
+void VulkanContext::CreateTimestampQueryPool() {
+    vk::QueryPoolCreateInfo poolInfo{};
+    poolInfo.queryType = vk::QueryType::eTimestamp;
+    poolInfo.queryCount = QUERY_COUNT;
+
+    m_TimestampQueryPool = m_Device->createQueryPoolUnique(poolInfo);
+}
+
+vk::CommandBuffer VulkanContext::BeginFrameCommand() {
+    // Onceki submit'in tamamlanmasini bekle
+    auto resWait = m_Device->waitForFences(1, &m_FrameFence.get(), VK_TRUE, UINT64_MAX);
+    (void)resWait;
+    auto resReset = m_Device->resetFences(1, &m_FrameFence.get());
+    (void)resReset;
+
+    m_CommandBuffer->reset();
+    vk::CommandBufferBeginInfo beginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+    m_CommandBuffer->begin(beginInfo);
+
+    // Query pool'u her frame resetle ve ilk zaman damgasini yaz
+    m_CommandBuffer->resetQueryPool(m_TimestampQueryPool.get(), 0, QUERY_COUNT);
+    m_CommandBuffer->writeTimestamp(vk::PipelineStageFlagBits::eTopOfPipe, m_TimestampQueryPool.get(), QUERY_FRAME_START);
+
+    return m_CommandBuffer.get();
+}
+
+void VulkanContext::WriteTimestamp(vk::CommandBuffer cmd, vk::PipelineStageFlagBits stage, uint32_t queryIndex) {
+    cmd.writeTimestamp(stage, m_TimestampQueryPool.get(), queryIndex);
+}
+
+void VulkanContext::EndAndSubmitFrameCommand() {
+    m_CommandBuffer->writeTimestamp(vk::PipelineStageFlagBits::eBottomOfPipe, m_TimestampQueryPool.get(), QUERY_FRAME_END);
+    m_CommandBuffer->end();
+
+    vk::SubmitInfo submitInfo{};
+    submitInfo.commandBufferCount = 1;
+    vk::CommandBuffer rawCmd = m_CommandBuffer.get();
+    submitInfo.pCommandBuffers = &rawCmd;
+
+    auto resSubmit = m_GraphicsQueue.submit(1, &submitInfo, m_FrameFence.get());
+    (void)resSubmit;
+
+    // Fence bekle ve GPU surelerini oku
+    auto res = m_Device->waitForFences(1, &m_FrameFence.get(), VK_TRUE, UINT64_MAX);
+    (void)res;
+
+    uint64_t timestamps[2] = {0, 0};
+    auto qr = m_Device->getQueryPoolResults(
+        m_TimestampQueryPool.get(),
+        0,
+        2,
+        sizeof(timestamps),
+        timestamps,
+        sizeof(uint64_t),
+        vk::QueryResultFlagBits::e64 | vk::QueryResultFlagBits::eWait
+    );
+
+    if (qr == vk::Result::eSuccess && timestamps[1] >= timestamps[0]) {
+        uint64_t deltaTicks = timestamps[1] - timestamps[0];
+        m_LastGpuTimeMs = (static_cast<double>(deltaTicks) * static_cast<double>(m_TimestampPeriod)) / 1e6;
+        m_HasValidGpuTime = true;
+    }
+}
+
+double VulkanContext::GetLastGpuTimeMs() {
+    return m_LastGpuTimeMs;
+}
+
+std::string VulkanContext::GetDeviceName() const {
+    if (!m_PhysicalDevice) return "Bilinmeyen GPU";
+    return std::string(m_PhysicalDevice.getProperties().deviceName.data());
+}
+
+std::string VulkanContext::GetDriverVersionString() const {
+    if (!m_PhysicalDevice) return "0.0";
+    auto props = m_PhysicalDevice.getProperties();
+    std::ostringstream ss;
+    ss << props.driverVersion;
+    return ss.str();
+}
+
+std::string VulkanContext::GetVulkanVersionString() const {
+    if (!m_PhysicalDevice) return "1.4";
+    auto props = m_PhysicalDevice.getProperties();
+    std::ostringstream ss;
+    ss << VK_VERSION_MAJOR(props.apiVersion) << "."
+       << VK_VERSION_MINOR(props.apiVersion) << "."
+       << VK_VERSION_PATCH(props.apiVersion);
+    return ss.str();
 }
 
 std::vector<const char*> VulkanContext::GetRequiredExtensions() {

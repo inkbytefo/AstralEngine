@@ -27,6 +27,10 @@ struct QueueFamilyIndices {
 
 class VulkanContext {
 public:
+    static constexpr uint32_t QUERY_FRAME_START = 0;
+    static constexpr uint32_t QUERY_FRAME_END = 1;
+    static constexpr uint32_t QUERY_COUNT = 2;
+
     explicit VulkanContext(Window& window, bool enableValidation = true);
     ~VulkanContext();
 
@@ -43,6 +47,18 @@ public:
 
     bool IsValidationEnabled() const { return m_EnableValidation; }
 
+    // Profiling & Timestamps
+    float GetTimestampPeriod() const { return m_TimestampPeriod; }
+    std::string GetDeviceName() const;
+    std::string GetDriverVersionString() const;
+    std::string GetVulkanVersionString() const;
+
+    // Frame Command & GPU Profiling
+    vk::CommandBuffer BeginFrameCommand();
+    void WriteTimestamp(vk::CommandBuffer cmd, vk::PipelineStageFlagBits stage, uint32_t queryIndex);
+    void EndAndSubmitFrameCommand();
+    double GetLastGpuTimeMs();
+
     void WaitIdle();
 
 private:
@@ -58,11 +74,22 @@ private:
     vk::Queue m_PresentQueue;
     QueueFamilyIndices m_QueueIndices;
 
+    // Command & Query Pools
+    vk::UniqueCommandPool m_CommandPool;
+    vk::UniqueCommandBuffer m_CommandBuffer;
+    vk::UniqueFence m_FrameFence;
+    vk::UniqueQueryPool m_TimestampQueryPool;
+    float m_TimestampPeriod = 1.0f;
+    double m_LastGpuTimeMs = 0.0;
+    bool m_HasValidGpuTime = false;
+
     void CreateInstance();
     void SetupDebugMessenger();
     void CreateSurface();
     void PickPhysicalDevice();
     void CreateLogicalDevice();
+    void CreateCommandPoolAndBuffers();
+    void CreateTimestampQueryPool();
 
     QueueFamilyIndices FindQueueFamilies(vk::PhysicalDevice device);
     bool IsDeviceSuitable(vk::PhysicalDevice device);

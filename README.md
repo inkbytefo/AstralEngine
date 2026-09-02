@@ -86,9 +86,28 @@ cmake --build --preset msvc-debug --config Debug
 
 ### 3. Komut Satırı Argümanları
 
-- `--test` veya `--test-only`: 10 kare çalıştıktan sonra Vulkan kaynaklarını temizleyerek otomatik kapanır (otomasyon ve testler için).
-- `--frames <N>`: Belirtilen $N$ kare sayısı kadar çalışıp çıkar.
+- `--test` veya `--test-only`: 10 kare çalıştıktan sonra Vulkan kaynaklarını temizleyerek otomatik kapanır.
+- `--bench`: Donanımsal GPU timestamp profilleyicisini aktif eder.
+- `--bench-frames <N>`: Belirtilen $N$ kare sayısı kadar test çalıştırıp çıkar.
+- `--bench-out <dosya.csv>`: Kıyaslama verilerini CSV ve JSON formatında diske kaydeder.
+- `--width <W> --height <H>`: Render ve pencere çözünürlüğünü dinamik ayarlar.
 - *Argümansız*: Kullanıcı pencereyi kapatana kadar ana olay döngüsünü işletir.
+
+---
+
+## Benchmark Otomasyonu (PR-3)
+
+Farklı çözünürlük matrislerinde ardışık test koşturmak ve konsolide raporlar üretmek için:
+
+```powershell
+# 720p ve 1080p presetlerinde 100'er kare otomatik benchmark ve HTML raporu üretimi:
+python tools/run_bench.py --frames 100 --presets 720p 1080p
+
+# Çıktı dosyaları:
+# - artifacts/bench/matrix_summary.csv
+# - artifacts/bench/matrix_summary.json
+# - artifacts/bench/report.html (Tarayıcıda açılabilir görsel SVG raporu)
+```
 
 ---
 

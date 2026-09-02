@@ -55,14 +55,44 @@ static void RunEcsTests() {
 }
 
 int main(int argc, char* argv[]) {
+    Astral::AppConfig config;
     int maxFrames = -1;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--test" || arg == "--test-only") {
-            maxFrames = 10; // Test icin 10 kare calistir
+            maxFrames = 10;
+        } else if (arg == "--bench") {
+            config.benchMode = true;
+        } else if (arg == "--bench-frames" && i + 1 < argc) {
+            config.benchFrames = std::stoi(argv[++i]);
+            config.benchMode = true;
+        } else if (arg == "--bench-out" && i + 1 < argc) {
+            config.benchOutputFile = argv[++i];
+            config.benchMode = true;
         } else if (arg == "--frames" && i + 1 < argc) {
             maxFrames = std::stoi(argv[++i]);
+        } else if (arg == "--width" && i + 1 < argc) {
+            config.width = std::stoi(argv[++i]);
+        } else if (arg == "--height" && i + 1 < argc) {
+            config.height = std::stoi(argv[++i]);
+        } else if (arg == "--normal" && i + 1 < argc) {
+            std::string mode = argv[++i];
+            if (mode == "tetra" || mode == "tetrahedron" || mode == "1") {
+                config.normalMode = 1;
+            } else {
+                config.normalMode = 0;
+            }
+        } else if (arg == "--shader" && i + 1 < argc) {
+            config.shaderPath = argv[++i];
+        } else if (arg == "--legacy-map") {
+            config.legacyMap = true;
+        } else if (arg == "--grid") {
+            config.useGrid = true;
+        } else if (arg == "--no-grid") {
+            config.useGrid = false;
+        } else if (arg == "--stress") {
+            config.stressTest = true;
         }
     }
 
@@ -70,7 +100,7 @@ int main(int argc, char* argv[]) {
     RunEcsTests();
 
     // 2. Astral Engine Vulkan 1.4 & Pencere Uygulamasini Calistir
-    Astral::Application app;
+    Astral::Application app(config);
     app.Run(maxFrames);
 
     return 0;
