@@ -1,24 +1,34 @@
-// filepath: AstralEngine/include/Astral/Core/Application.hpp
 #pragma once
 
 #include <string>
+#include <memory>
 
 namespace Astral {
 
+class Window;
+class VulkanContext;
+
 /// Uygulamanin temel yasam dongusunu temsil eden cekirdek sinif.
-/// Ileride Renderer, InputManager, SceneManager gibi alt-sistemler
-/// bu sinif uzerinden yonetilecek.
+/// Renderer, Window ve ileride diger alt sistemler bu sinif uzerinden koordine edilir.
 class Application {
 public:
     Application();
     ~Application();
 
-    /// Ana donguyu baslatir. Pencere/olay dongusu burada yer alacak.
-    void Run();
+    Application(const Application&) = delete;
+    Application& operator=(const Application&) = delete;
 
-    /// Motorun adi ve versiyonu icin basit bir sorgulama.
+    /// Ana donguyu baslatir. maxFrames > 0 ise belirtilen kare kadar calisip otomatik cikar.
+    void Run(int maxFrames = -1);
+
+    /// Motorun adi ve versiyonu.
     static std::string GetName();
     static std::string GetVersion();
+
+private:
+    std::unique_ptr<Window> m_Window;
+    std::unique_ptr<VulkanContext> m_VulkanContext;
+    bool m_Running = false;
 };
 
 } // namespace Astral

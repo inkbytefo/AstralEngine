@@ -3,6 +3,7 @@ build/
 build-*/
 out/
 cmake-build-*/
+renderingexample/
 
 # IDE dosyaları
 .vs/

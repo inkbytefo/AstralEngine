@@ -1,70 +1,97 @@
 # AstralEngine
 
-Modern C++ ile yazilmis, moduler ve genel amacli bir oyun motoru cekirdegi.
+Modern C++20 ile yazılmış, modüler, yüksek performanslı genel amaçlı oyun motoru çekirdeği ve Vulkan 1.4 tabanlı Signed Distance Field (SDF) render alt-sistemi.
 
-## Ozellikler (Planlanan)
+Detaylı teknik analiz ve mimari yol haritası için: **[RENDERER_ARCHITECTURE.md](RENDERER_ARCHITECTURE.md)**
 
-- C++20 standartlari
-- ECS mimarisi (EnTT ile)
-- Vulkan rendering backend (moduler)
-- GLFW tabanli pencere yonetimi
-- CMake ile platform bagimsiz derleme
+---
 
-## Klasor Yapisi
+## Temel Özellikler
+
+- **C++20 Standartları**: Konseptler, modern RAII ve tip güvenliği.
+- **Cache-Friendly ECS**: Hızlı ardışık bellek erişimi sunan sparse-set tabanlı bileşen havuzları (`Astral::Registry`).
+- **Vulkan 1.4 Render Alt-Sistemi (`Astral::VulkanContext`)**:
+  - `VK_KHR_dynamic_rendering` ve `VK_KHR_synchronization2` modern çekirdek özellikleri.
+  - `vulkan.hpp` dinamik dispatcher (`VULKAN_HPP_DISPATCH_LOADER_DYNAMIC`).
+  - Gelişmiş doğrulama katmanı ve debug messenger (`VK_LAYER_KHRONOS_validation` + `VkDebugUtilsMessengerEXT`).
+- **Pencere & Girdi Yönetimi (`Astral::Window`)**: GLFW 3.3.8 tabanlı yüksek performanslı pencereleme.
+- **Otomasyon & Bağımsızlık**: `FetchContent` ile GLFW, GLM ve harici kütüphanelerin CMake seviyesinde otomatik yönetimi.
+
+---
+
+## Klasör Yapısı
 
 ```
 AstralEngine/
-├── CMakeLists.txt           # Ana derleme yapilandirmasi
-├── include/                 # Disari acik baslik dosyalari
-│   └── Astral/
-│       └── Core/
-│           └── Application.hpp
-├── src/                     # Kaynak kodu
+├── CMakeLists.txt              # Ana derleme yapılandırması (C++20, FetchContent, Vulkan)
+├── CMakePresets.json           # MinGW ve MSVC hazır derleme presetleri
+├── RENDERER_ARCHITECTURE.md    # Kapsamlı SDF render mimarisi ve teknik analiz dokümanı
+├── include/Astral/             # Dışarı açık başlık dosyaları
 │   ├── Core/
-│   │   └── Application.cpp
-│   └── main.cpp             # Sandbox uygulamasi
-├── third_party/             # Harici bagimliliklar (Vulkan, GLFW, EnTT)
-└── build/                   # Derleme ciktilari
+│   │   ├── Application.hpp     # Ana motor yaşam döngüsü
+│   │   ├── Registry.hpp        # Tip silinmiş (type-erased) SparseSet ECS motoru
+│   │   └── Window.hpp          # GLFW pencere yöneticisi
+│   └── Renderer/
+│       └── VulkanContext.hpp   # Vulkan 1.4 context, validation layer ve debug messenger
+├── src/                        # Kaynak kodları
+│   ├── Core/
+│   │   ├── Application.cpp
+│   │   └── Window.cpp
+│   ├── Renderer/
+│   │   └── VulkanContext.cpp
+│   └── main.cpp                # Sandbox test ve doğrulama uygulaması
+├── renderingexample/           # [Referans Repo] inkbytefo/SDFRENDEREXAMPLE (.gitignore'da)
+└── build/                      # Derleme çıktıları
 ```
 
-## Derleme
+---
 
-### Windows - MinGW + Ninja (CMake Presets, onerilen)
+## Önkoşullar
+
+- **Vulkan SDK**: 1.3 veya 1.4 (Vulkan 1.4 ve `VK_LAYER_KHRONOS_validation` önerilir)
+- **C++20 Uyumlu Derleyici**:
+  - MinGW-w64 GCC 13+ (ör. GCC 15.2)
+  - veya Visual Studio 2022 (MSVC v143+)
+- **CMake**: 3.20 veya üzeri
+- **Ninja**: (MinGW presetleri için önerilir)
+
+---
+
+## Derleme ve Çalıştırma
+
+### 1. Windows - MinGW + Ninja (CMake Presets)
 
 ```powershell
-cd AstralEngine
-cmake --preset mingw-debug      # build/ altında yapilandirir
+# Yapılandırma ve derleme (Debug)
+cmake --preset mingw-debug
 cmake --build --preset mingw-debug
+
+# Doğrulama testi çalıştırma (10 kare test modu)
+.\build\Sandbox.exe --test
+
+# İnteraktif pencere modunda çalıştırma
 .\build\Sandbox.exe
 ```
 
-> Not: `CMakePresets.json` icindeki MinGW derleyici yollari bu gelistirme
-> makinesindeki `C:\mingw64` konumuna goredir; farkli bir kurulumda duzeltin.
-
-### Windows - Visual Studio (MSVC)
+### 2. Windows - Visual Studio 2022 (MSVC)
 
 ```powershell
-cd AstralEngine
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Debug
-.\build\Debug\Sandbox.exe
+# Yapılandırma ve derleme
+cmake --preset msvc-debug
+cmake --build --preset msvc-debug --config Debug
+
+# Çalıştırma
+.\build-msvc\Debug\Sandbox.exe --test
 ```
 
-### Linux / macOS
+### 3. Komut Satırı Argümanları
 
-```bash
-cd AstralEngine
-cmake -S . -B build -G "Ninja"
-cmake --build build
-./build/Sandbox
-```
+- `--test` veya `--test-only`: 10 kare çalıştıktan sonra Vulkan kaynaklarını temizleyerek otomatik kapanır (otomasyon ve testler için).
+- `--frames <N>`: Belirtilen $N$ kare sayısı kadar çalışıp çıkar.
+- *Argümansız*: Kullanıcı pencereyi kapatana kadar ana olay döngüsünü işletir.
 
-## Kullanim
-
-Sandbox uygulamasi motoru test etmek icin kullanilir. Asil oyununuza
-gecerken `Sandbox` executable'i silinip kendi main.cpp dosyaniz
-`AstralCore` kutuphanesine baglanir.
+---
 
 ## Lisans
 
-MIT (ileride kararlaştırılacak).
+MIT

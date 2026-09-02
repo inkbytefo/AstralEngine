@@ -35,6 +35,28 @@
         "CMAKE_RANLIB": "C:/mingw64/bin/x86_64-w64-mingw32-gcc-ranlib.exe",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
+    },
+    {
+      "name": "msvc-debug",
+      "displayName": "Visual Studio 2022 Debug",
+      "description": "Visual Studio 17 2022 (Debug) - Windows",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build-msvc",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "msvc-release",
+      "displayName": "Visual Studio 2022 Release",
+      "description": "Visual Studio 17 2022 (Release) - Windows",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build-msvc-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
     }
   ],
   "buildPresets": [
@@ -45,6 +67,16 @@
     {
       "name": "mingw-release",
       "configurePreset": "mingw-release"
+    },
+    {
+      "name": "msvc-debug",
+      "configurePreset": "msvc-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "msvc-release",
+      "configurePreset": "msvc-release",
+      "configuration": "Release"
     }
   ],
   "testPresets": [
