@@ -1,5 +1,5 @@
-preset,is_stress,use_grid,opt_shadow,normal_mode,width,height,frames,gpu_avg_ms,gpu_min_ms,gpu_max_ms,gpu_p50_ms,gpu_p95_ms,cpu_avg_ms,cpu_p50_ms,cpu_p95_ms
-720p,False,True,False,tetra,1280,720,100,1.9447,1.64182,2.43578,1.97718,2.20336,5.40168,5.3466,5.9314
-720p,False,True,True,tetra,1280,720,100,1.67744,1.42061,2.00528,1.64317,1.97462,5.48459,5.1015,5.5268
-1080p,False,True,False,tetra,1920,1080,100,3.7932,3.18086,4.2248,3.83155,4.13738,7.32393,7.3092,8.1555
-1080p,False,True,True,tetra,1920,1080,100,3.34448,2.81475,3.77226,3.3679,3.59456,6.76079,6.7957,7.2962
+preset,is_stress,use_grid,opt_shadow,enable_taa,normal_mode,width,height,frames,gpu_avg_ms,gpu_min_ms,gpu_max_ms,gpu_p50_ms,gpu_p95_ms,cpu_avg_ms,cpu_p50_ms,cpu_p95_ms
+720p,False,True,True,False,tetra,1280,720,100,1.70048,1.48387,2.21053,1.72397,2.06787,5.19183,5.1689,5.6234
+720p,False,True,True,True,tetra,1280,720,100,1.74905,1.52771,2.52883,1.75498,2.11053,5.28962,5.2133,5.9918
+1080p,False,True,True,False,tetra,1920,1080,100,3.30887,2.88509,3.89866,3.25411,3.68192,7.59882,6.8973,8.4692
+1080p,False,True,True,True,tetra,1920,1080,100,3.35562,2.96464,4.17853,3.30336,3.77997,6.88,6.7878,7.3484

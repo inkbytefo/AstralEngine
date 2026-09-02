@@ -3,6 +3,9 @@
 #include "Astral/Core/BenchmarkLogger.hpp"
 #include "Astral/Renderer/VulkanContext.hpp"
 #include "Astral/Renderer/SDFRenderer.hpp"
+#include "Astral/Core/RenderExtractionSystem.hpp"
+#include "Astral/Core/Components.hpp"
+#include <glm/gtc/quaternion.hpp>
 
 #include <iostream>
 #include <chrono>
@@ -19,6 +22,7 @@ Application::Application(const AppConfig& config)
 }
 
 Application::~Application() {
+    m_SceneManager.UnloadCurrentScene();
     if (m_SDFRenderer) {
         m_SDFRenderer.reset();
     }
@@ -88,6 +92,7 @@ void Application::Run(int maxFrames) {
         std::cout << "[Astral::Application] Bellek Esleme Modu: " << (m_Config.legacyMap ? "Legacy Map/Unmap (Kare basi vkMapMemory)" : "Persistent Mapping (Kalici Pointer)") << "\n";
         std::cout << "[Astral::Application] Izgara Hizlandirmasi (PR-6): " << (m_Config.useGrid ? "AKTIF (Empty Space Skipping)" : "KAPALI (Brute Force)") << "\n";
         std::cout << "[Astral::Application] Golge Optimizasyonu (PR-7): " << (m_Config.optShadow ? "AKTIF (Erken Cikis & Back-Face Culling)" : "KAPALI (Kaba Kuvvet 24-Adim)") << "\n";
+        std::cout << "[Astral::Application] Temporal Anti-Aliasing (PR-8): " << (m_Config.enableTAA ? "AKTIF (Halton Jitter + 3x3 Clamp TAA)" : "KAPALI (Ham No-AA)") << "\n";
         std::cout << "[Astral::Application] Sahne Modu: " << (m_Config.stressTest ? "Karmasik Stress Sahnesi (32 Nesne)" : "Standart Sahne (4 Nesne)") << "\n";
         if (targetFrames > 0) {
             std::cout << "[Astral::Application] Hedef: " << targetFrames << " kare calisip sonlanacak...\n";
@@ -95,84 +100,86 @@ void Application::Run(int maxFrames) {
             std::cout << "[Astral::Application] Ana olay dongusune giriliyor (Cikmak icin pencereyi kapatin)...\n";
         }
 
-        // Sahne nesnelerini hazirla (PR-5 Dynamic SSBO & PR-6 Stress Test)
-        std::vector<SDFEditGPU> sceneEdits;
-        // Obje 0: Zemin
-        SDFEditGPU ground{};
-        ground.primitiveType = static_cast<uint32_t>(PrimitiveType::Plane);
-        ground.position = glm::vec3(0.0f, -1.0f, 0.0f);
-        ground.scale = glm::vec3(1.0f, 1.0f, 1.0f);
-        ground.albedo = glm::vec3(0.3f, 0.32f, 0.35f);
-        ground.roughness = 0.8f;
-        ground.metallic = 0.05f;
-        ground.operation = static_cast<uint32_t>(CSGOperation::Union);
-        sceneEdits.push_back(ground);
+        // 1. Authoring (Editor) Sahnesi olustur
+        auto editorScene = std::make_shared<Scene>("Sandbox Editor Level");
+
+        // Obje 0: Zemin Entity
+        Entity ground = editorScene->CreateEntity();
+        ground.AddComponent<TransformComponent>(glm::vec3(0.0f, -1.0f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f));
+        ground.AddComponent<SDFComponent>(
+            static_cast<uint32_t>(PrimitiveType::Plane),
+            static_cast<uint32_t>(CSGOperation::Union),
+            0.0f, 0u, glm::vec3(0.3f, 0.32f, 0.35f), 0.8f, 0.05f
+        );
+
+        Entity boxEntity;
+        Entity torusEntity;
 
         if (m_Config.stressTest) {
-            // 31 adet dinamik dagilmis nesne olustur (Toplam 32 nesne)
             for (int i = 0; i < 31; ++i) {
-                SDFEditGPU obj{};
+                Entity obj = editorScene->CreateEntity();
                 float angle = static_cast<float>(i) * (2.0f * 3.14159f / 31.0f);
                 float radius = 3.0f + static_cast<float>(i % 3) * 2.5f;
                 float heightY = 0.5f + static_cast<float>(i % 4) * 1.0f;
-                obj.position = glm::vec3(std::cos(angle) * radius, heightY, std::sin(angle) * radius);
+                glm::vec3 pos = glm::vec3(std::cos(angle) * radius, heightY, std::sin(angle) * radius);
 
                 uint32_t type = i % 3; // 0=Sphere, 1=Box, 2=Torus
-                obj.primitiveType = type;
+                glm::vec3 scale{1.0f};
+                glm::vec3 albedo{1.0f};
                 if (type == 0) {
-                    obj.scale = glm::vec3(0.5f + (i % 2) * 0.2f);
-                    obj.albedo = glm::vec3(0.85f, 0.2f + (i % 5) * 0.15f, 0.25f);
+                    scale = glm::vec3(0.5f + (i % 2) * 0.2f);
+                    albedo = glm::vec3(0.85f, 0.2f + (i % 5) * 0.15f, 0.25f);
                 } else if (type == 1) {
-                    obj.scale = glm::vec3(0.45f + (i % 3) * 0.1f);
-                    obj.albedo = glm::vec3(0.2f, 0.5f + (i % 4) * 0.1f, 0.9f);
+                    scale = glm::vec3(0.45f + (i % 3) * 0.1f);
+                    albedo = glm::vec3(0.2f, 0.5f + (i % 4) * 0.1f, 0.9f);
                 } else {
-                    obj.scale = glm::vec3(0.6f, 0.2f, 1.0f);
-                    obj.albedo = glm::vec3(0.9f, 0.8f, 0.2f);
+                    scale = glm::vec3(0.6f, 0.2f, 1.0f);
+                    albedo = glm::vec3(0.9f, 0.8f, 0.2f);
                 }
-                obj.roughness = 0.3f;
-                obj.metallic = 0.5f;
-                obj.operation = static_cast<uint32_t>(CSGOperation::SmoothUnion);
-                obj.blendFactor = 0.2f;
-                sceneEdits.push_back(obj);
+
+                obj.AddComponent<TransformComponent>(pos, glm::quat(1.0f, 0.0f, 0.0f, 0.0f), scale);
+                obj.AddComponent<VelocityComponent>(glm::vec3(0.0f), glm::vec3(0.0f, 0.2f, 0.0f));
+                obj.AddComponent<SDFComponent>(
+                    type,
+                    static_cast<uint32_t>(CSGOperation::SmoothUnion),
+                    0.2f, 1u, albedo, 0.3f, 0.5f
+                );
             }
         } else {
-            // Standart 4 nesne
-            // Obje 1: Kutu (Donen kutu)
-            SDFEditGPU box{};
-            box.primitiveType = static_cast<uint32_t>(PrimitiveType::Box);
-            box.position = glm::vec3(-1.8f, 0.2f, 0.0f);
-            box.scale = glm::vec3(0.6f);
-            box.albedo = glm::vec3(0.2f, 0.5f, 0.9f);
-            box.roughness = 0.4f;
-            box.metallic = 0.3f;
-            box.operation = static_cast<uint32_t>(CSGOperation::SmoothUnion);
-            box.blendFactor = 0.3f;
-            sceneEdits.push_back(box);
+            // Obje 1: Kutu
+            boxEntity = editorScene->CreateEntity();
+            boxEntity.AddComponent<TransformComponent>(glm::vec3(-1.8f, 0.2f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(0.6f));
+            boxEntity.AddComponent<VelocityComponent>(glm::vec3(0.0f), glm::vec3(0.0f, 0.5f, 0.0f));
+            boxEntity.AddComponent<SDFComponent>(
+                static_cast<uint32_t>(PrimitiveType::Box),
+                static_cast<uint32_t>(CSGOperation::SmoothUnion),
+                0.3f, 1u, glm::vec3(0.2f, 0.5f, 0.9f), 0.4f, 0.3f
+            );
 
             // Obje 2: Merkez Kure
-            SDFEditGPU sphere{};
-            sphere.primitiveType = static_cast<uint32_t>(PrimitiveType::Sphere);
-            sphere.position = glm::vec3(0.0f, 0.3f, 0.0f);
-            sphere.scale = glm::vec3(0.85f);
-            sphere.albedo = glm::vec3(0.9f, 0.25f, 0.2f);
-            sphere.roughness = 0.2f;
-            sphere.metallic = 0.8f;
-            sphere.operation = static_cast<uint32_t>(CSGOperation::SmoothUnion);
-            sphere.blendFactor = 0.3f;
-            sceneEdits.push_back(sphere);
+            Entity sphereEntity = editorScene->CreateEntity();
+            sphereEntity.AddComponent<TransformComponent>(glm::vec3(0.0f, 0.3f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(0.85f));
+            sphereEntity.AddComponent<SDFComponent>(
+                static_cast<uint32_t>(PrimitiveType::Sphere),
+                static_cast<uint32_t>(CSGOperation::SmoothUnion),
+                0.3f, 1u, glm::vec3(0.9f, 0.25f, 0.2f), 0.2f, 0.8f
+            );
 
-            // Obje 3: Torus (Donen torus)
-            SDFEditGPU torus{};
-            torus.primitiveType = static_cast<uint32_t>(PrimitiveType::Torus);
-            torus.position = glm::vec3(1.8f, 0.2f, 0.0f);
-            torus.scale = glm::vec3(0.7f, 0.25f, 1.0f);
-            torus.albedo = glm::vec3(0.9f, 0.75f, 0.15f);
-            torus.roughness = 0.3f;
-            torus.metallic = 0.9f;
-            torus.operation = static_cast<uint32_t>(CSGOperation::SmoothUnion);
-            torus.blendFactor = 0.25f;
-            sceneEdits.push_back(torus);
+            // Obje 3: Torus
+            torusEntity = editorScene->CreateEntity();
+            torusEntity.AddComponent<TransformComponent>(glm::vec3(1.8f, 0.2f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(0.7f, 0.25f, 1.0f));
+            torusEntity.AddComponent<VelocityComponent>(glm::vec3(0.0f), glm::vec3(0.5f, 0.0f, 0.0f));
+            torusEntity.AddComponent<SDFComponent>(
+                static_cast<uint32_t>(PrimitiveType::Torus),
+                static_cast<uint32_t>(CSGOperation::SmoothUnion),
+                0.25f, 1u, glm::vec3(0.9f, 0.75f, 0.15f), 0.3f, 0.9f
+            );
         }
+
+        // 2. Editor -> Runtime Gecisi: Orijinal editor seviyesini bozmadan tam derin kopyalama (Deep-Copy)
+        auto runtimeScene = Scene::Copy(editorScene);
+        m_SceneManager.SetActiveScene(runtimeScene);
+        runtimeScene->OnRuntimeStart();
 
         uint32_t frameIndex = 0;
 
@@ -184,20 +191,57 @@ void Application::Run(int maxFrames) {
 
             float timeSec = static_cast<float>(frameIndex) * 0.016f;
 
-            // Dinamik nesnelerin pozisyon ve rotasyonlarini guncelle
+            // Kinematik & Fizik Guncellemesi (Scene::OnUpdate)
+            runtimeScene->OnUpdate(0.016f);
+
+            // Dinamik nesnelerin animasyon pozisyonlarini guncelle
             if (m_Config.stressTest) {
-                for (size_t i = 1; i < sceneEdits.size(); ++i) {
-                    float phase = timeSec * 1.2f + static_cast<float>(i) * 0.5f;
-                    sceneEdits[i].position.y += std::sin(phase) * 0.005f;
+                auto& transforms = runtimeScene->GetRegistry().GetView<TransformComponent>();
+                size_t idx = 0;
+                for (auto&& [entity, transform] : transforms) {
+                    if (idx > 0) { // Zemin haric
+                        float phase = timeSec * 1.2f + static_cast<float>(idx) * 0.5f;
+                        transform.position.y += std::sin(phase) * 0.005f;
+                    }
+                    idx++;
                 }
             } else {
-                sceneEdits[1].position.y = 0.2f + std::sin(timeSec * 1.5f) * 0.2f;
-                float angleY = timeSec * 0.5f;
-                sceneEdits[1].rotation = glm::vec4(0.0f, std::sin(angleY), 0.0f, std::cos(angleY));
+                Entity rBox(boxEntity.GetHandle(), runtimeScene.get());
+                if (rBox.HasComponent<TransformComponent>()) {
+                    auto& boxTr = rBox.GetComponent<TransformComponent>();
+                    boxTr.position.y = 0.2f + std::sin(timeSec * 1.5f) * 0.2f;
+                    float angleY = timeSec * 0.5f;
+                    boxTr.rotation = glm::angleAxis(angleY, glm::vec3(0.0f, 1.0f, 0.0f));
+                }
+                Entity rTorus(torusEntity.GetHandle(), runtimeScene.get());
+                if (rTorus.HasComponent<TransformComponent>()) {
+                    auto& torusTr = rTorus.GetComponent<TransformComponent>();
+                    torusTr.position.y = 0.2f + std::cos(timeSec * 1.5f) * 0.2f;
+                    float angleX = timeSec * 0.5f;
+                    torusTr.rotation = glm::angleAxis(angleX, glm::vec3(1.0f, 0.0f, 0.0f));
+                }
+            }
 
-                sceneEdits[3].position.y = 0.2f + std::cos(timeSec * 1.5f) * 0.2f;
-                float angleX = timeSec * 0.5f;
-                sceneEdits[3].rotation = glm::vec4(std::sin(angleX), 0.0f, 0.0f, std::cos(angleX));
+            // Render Extraction: ECS SparseSet -> std430 SDFEditGPU Buffer & Entity Haritasi
+            std::vector<SDFEditGPU> sceneEdits;
+            std::vector<uint32_t> sceneEntities;
+            ExtractRenderData(runtimeScene->GetRegistry(), sceneEdits, sceneEntities);
+
+            // PR-9: Mouse Picking Kontrolu
+            double mouseX = 0.0, mouseY = 0.0;
+            m_Window->GetCursorPos(mouseX, mouseY);
+            bool mouseClicked = m_Window->IsMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT);
+
+            bool pickThisFrame = false;
+            if (mouseClicked) {
+                m_SDFRenderer->SetPickingRequest(static_cast<int>(mouseX), static_cast<int>(mouseY));
+                pickThisFrame = true;
+            } else if ((m_Config.benchMode || targetFrames > 0) && frameIndex == 3) {
+                // Test ve benchmark modunda merkezdeki nesneyi dogrulamak icin 3. karede ekran merkezini sec
+                int cx = m_Window->GetWidth() / 2;
+                int cy = m_Window->GetHeight() / 2;
+                m_SDFRenderer->SetPickingRequest(cx, cy);
+                pickThisFrame = true;
             }
 
             // GPU SSBO'ya yaz ve Two-Level Grid'i guncelle
@@ -213,10 +257,32 @@ void Application::Run(int maxFrames) {
                 m_Window->GetWidth(),
                 m_Window->GetHeight(),
                 m_Config.useGrid,
-                m_Config.optShadow
+                m_Config.optShadow,
+                m_Config.enableTAA,
+                frameIndex
             );
 
+            // GPU islemini tamamla ve Fence ile bekle (Zero Race Condition)
             m_VulkanContext->EndAndSubmitFrameCommand();
+
+            // PR-9: Fence sonrasi donanımsal guvenli secim okumasi
+            if (pickThisFrame) {
+                auto pickResult = m_SDFRenderer->GetSelectionResult();
+                if (pickResult.hasHit && pickResult.hitIndex >= 0 && static_cast<size_t>(pickResult.hitIndex) < sceneEntities.size()) {
+                    Entity hitEntity(sceneEntities[pickResult.hitIndex], runtimeScene.get());
+                    std::cout << "[Astral::Picking] ISABET: hitIndex = " << pickResult.hitIndex 
+                              << " -> Entity #" << hitEntity.GetID() 
+                              << " | Nokta: (" << pickResult.hitPoint.x << ", " << pickResult.hitPoint.y << ", " << pickResult.hitPoint.z << ")"
+                              << " | Mesafe: " << pickResult.hitDistance << "m\n";
+
+                    if (hitEntity.HasComponent<SDFComponent>()) {
+                        auto& sdf = hitEntity.GetComponent<SDFComponent>();
+                        sdf.albedo = glm::vec3(1.0f, 0.85f, 0.1f); // Altin rengi ile secim vurgulamasi
+                    }
+                } else {
+                    std::cout << "[Astral::Picking] ISABET YOK (Gokyuzu/Bosluk)\n";
+                }
+            }
 
             auto cpuEnd = std::chrono::high_resolution_clock::now();
             double cpuFrameMs = std::chrono::duration<double, std::milli>(cpuEnd - cpuStart).count();

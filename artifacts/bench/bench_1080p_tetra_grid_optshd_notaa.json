@@ -1,0 +1,26 @@
+{
+  "benchmark_metadata": {
+    "gpu_name": "NVIDIA GeForce RTX 3060",
+    "driver_version": "2559967232",
+    "screen_width": 1920,
+    "screen_height": 1080
+  },
+  "metrics": {
+    "total_frames": 100,
+    "warmup_frames_skipped": 30,
+    "gpu_total_ms": {
+      "avg": 3.30887,
+      "min": 2.88509,
+      "max": 3.89866,
+      "p50": 3.25411,
+      "p90": 3.67315,
+      "p95": 3.68192,
+      "stddev": 0.237716
+    },
+    "cpu_frame_ms": {
+      "avg": 7.59882,
+      "p50": 6.8973,
+      "p95": 8.4692
+    }
+  }
+}

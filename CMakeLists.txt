@@ -57,18 +57,31 @@ add_custom_command(
     COMMENT "Compiling ${SHADER_SRC} -> ${SHADER_SPV}"
 )
 
-add_custom_target(CompileShaders ALL DEPENDS ${SHADER_SPV})
+set(TAA_SHADER_SRC "${CMAKE_CURRENT_SOURCE_DIR}/shaders/TAAResolve.glsl")
+set(TAA_SHADER_SPV "${CMAKE_BINARY_DIR}/shaders/TAAResolve.spv")
+
+add_custom_command(
+    OUTPUT ${TAA_SHADER_SPV}
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/shaders"
+    COMMAND ${GLSLC_EXECUTABLE} -fshader-stage=compute ${TAA_SHADER_SRC} -o ${TAA_SHADER_SPV}
+    DEPENDS ${TAA_SHADER_SRC}
+    COMMENT "Compiling ${TAA_SHADER_SRC} -> ${TAA_SHADER_SPV}"
+)
+
+add_custom_target(CompileShaders ALL DEPENDS ${SHADER_SPV} ${TAA_SHADER_SPV})
 
 # --- 1. Motorun Cekirdek Kutuphanesi (AstralCore) ---
 add_library(AstralCore
     src/Core/Application.cpp
     src/Core/Window.cpp
     src/Core/BenchmarkLogger.cpp
+    src/Core/RenderExtractionSystem.cpp
     src/Renderer/VulkanContext.cpp
     src/Renderer/ComputePipeline.cpp
     src/Renderer/Buffer.cpp
     src/Renderer/BrickGrid.cpp
     src/Renderer/SDFRenderer.cpp
+    src/Scene/Scene.cpp
 )
 
 add_dependencies(AstralCore CompileShaders)

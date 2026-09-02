@@ -26,6 +26,14 @@ public:
     int GetWidth() const { return m_Width; }
     int GetHeight() const { return m_Height; }
 
+    void GetCursorPos(double& xpos, double& ypos) const {
+        glfwGetCursorPos(m_Window, &xpos, &ypos);
+    }
+
+    bool IsMouseButtonPressed(int button = GLFW_MOUSE_BUTTON_LEFT) const {
+        return glfwGetMouseButton(m_Window, button) == GLFW_PRESS;
+    }
+
     static std::vector<const char*> GetRequiredExtensions();
 
 private:

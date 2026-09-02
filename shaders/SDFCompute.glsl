@@ -25,11 +25,27 @@ layout(std430, binding = 2) readonly buffer GridBuffer {
     float cellDistances[];
 };
 
+// =================== Selection Buffer (PR-9) ===================
+
+struct SelectionData {
+    int hitIndex;
+    int pad0;
+    int pad1;
+    int pad2;
+    vec4 hitPoint; // xyz: hitPoint, w: hitDistance
+};
+
+layout(std430, binding = 3) buffer SelectionBuffer {
+    SelectionData selection;
+};
+
 layout(push_constant) uniform PushConstants {
     vec4 camPos;      // xyz: position, w: time
     vec4 camDir;      // xyz: forward direction, w: normalMode (0=central, 1=tetrahedron)
     vec4 screenRes;   // x: width, y: height, z: editCount, w: useGrid (0=off, 1=on)
     vec4 gridParams;  // x: dimX (32), y: dimY (16), z: optShadow (1=on, 0=off), w: cellSize (0.75)
+    vec4 taaParams;   // x: jitterX, y: jitterY, z: taaEnabled (1=on, 0=off), w: blendAlpha (0.12)
+    vec4 mouseParams; // x: mouseX, y: mouseY, z: pickRequested (0/1), w: pad
 };
 
 // =================== Quaternion Vector Rotation ===================
@@ -86,6 +102,7 @@ float opSmoothSub(float d1, float d2, float k) {
 
 struct HitInfo {
     float dist;
+    int index;
     vec3 albedo;
     float roughness;
     float metallic;
@@ -115,6 +132,7 @@ float evalPrimitive(vec3 p, SDFEditGPU e) {
 HitInfo mapScene(vec3 p) {
     HitInfo res;
     res.dist = 1000.0;
+    res.index = -1;
     res.albedo = vec3(0.5);
     res.roughness = 0.5;
     res.metallic = 0.0;
@@ -128,6 +146,7 @@ HitInfo mapScene(vec3 p) {
 
             if (i == 0) {
                 res.dist = d;
+                res.index = 0;
                 res.albedo = e.albedo;
                 res.roughness = e.roughness;
                 res.metallic = e.metallic;
@@ -139,6 +158,7 @@ HitInfo mapScene(vec3 p) {
                     case 0: // Union
                         if (d < res.dist) {
                             res.dist = d;
+                            res.index = i;
                             res.albedo = e.albedo;
                             res.roughness = e.roughness;
                             res.metallic = e.metallic;
@@ -148,10 +168,19 @@ HitInfo mapScene(vec3 p) {
                         res.dist = max(res.dist, -d);
                         break;
                     case 2: // Intersect
-                        res.dist = max(res.dist, d);
+                        if (d > res.dist) {
+                            res.dist = d;
+                            res.index = i;
+                            res.albedo = e.albedo;
+                            res.roughness = e.roughness;
+                            res.metallic = e.metallic;
+                        }
                         break;
                     case 3: // Smooth Union
                         res.dist = mix(res.dist, d, h) - k * h * (1.0 - h);
+                        if (h > 0.5) {
+                            res.index = i;
+                        }
                         res.albedo = mix(res.albedo, e.albedo, h);
                         res.roughness = mix(res.roughness, e.roughness, h);
                         res.metallic = mix(res.metallic, e.metallic, h);
@@ -322,7 +351,8 @@ void main() {
 
     if (pixel.x >= res.x || pixel.y >= res.y) return;
 
-    vec2 uv = (vec2(pixel) - 0.5 * vec2(res)) / float(res.y);
+    vec2 jitterOffset = (taaParams.z > 0.5) ? taaParams.xy : vec2(0.0);
+    vec2 uv = (vec2(pixel) + jitterOffset - 0.5 * vec2(res)) / float(res.y);
     uv.y = -uv.y;
 
     vec3 ro = camPos.xyz;
@@ -404,4 +434,15 @@ void main() {
     color = pow(color, vec3(1.0 / 2.2));
 
     imageStore(outImage, pixel, vec4(color, 1.0));
+
+    // PR-9: Thread-Safe Scene Picking
+    if (mouseParams.z > 0.5 && pixel == ivec2(mouseParams.xy)) {
+        if (found) {
+            selection.hitIndex = hit.index;
+            selection.hitPoint = vec4(ro + rd * t, t);
+        } else {
+            selection.hitIndex = -1;
+            selection.hitPoint = vec4(0.0);
+        }
+    }
 }

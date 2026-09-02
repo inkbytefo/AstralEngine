@@ -2,6 +2,9 @@
 
 #include <string>
 #include <memory>
+#include "Astral/Core/Registry.hpp"
+#include "Astral/Scene/Scene.hpp"
+#include "Astral/Scene/SceneManager.hpp"
 
 namespace Astral {
 
@@ -21,6 +24,7 @@ struct AppConfig {
     bool useGrid = true;     // PR-6: Two-Level BrickGrid Empty Space Skipping aktif
     bool stressTest = false; // PR-6: 32 dinamik nesneli karmasik sahne stres testi
     bool optShadow = true;   // PR-7: Golge erken terk ve back-face culling optimizasyonu aktif
+    bool enableTAA = true;   // PR-8: Sub-Pixel Jitter & Temporal Anti-Aliasing (TAA) aktif
     std::string shaderPath = "";
 };
 
@@ -41,8 +45,13 @@ public:
     static std::string GetName();
     static std::string GetVersion();
 
+    SceneManager& GetSceneManager() { return m_SceneManager; }
+    const SceneManager& GetSceneManager() const { return m_SceneManager; }
+    std::shared_ptr<Scene> GetActiveScene() const { return m_SceneManager.GetActiveScene(); }
+
 private:
     AppConfig m_Config;
+    SceneManager m_SceneManager;
     std::unique_ptr<Window> m_Window;
     std::unique_ptr<VulkanContext> m_VulkanContext;
     std::unique_ptr<SDFRenderer> m_SDFRenderer;

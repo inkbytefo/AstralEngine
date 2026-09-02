@@ -36,7 +36,7 @@ std::vector<char> ComputePipeline::ReadFile(const std::string& filepath) {
 }
 
 void ComputePipeline::CreateDescriptorSetLayout() {
-    std::array<vk::DescriptorSetLayoutBinding, 3> bindings{};
+    std::array<vk::DescriptorSetLayoutBinding, 4> bindings{};
 
     // Binding 0: Storage Image (outImage)
     bindings[0].binding = 0;
@@ -55,6 +55,12 @@ void ComputePipeline::CreateDescriptorSetLayout() {
     bindings[2].descriptorType = vk::DescriptorType::eStorageBuffer;
     bindings[2].descriptorCount = 1;
     bindings[2].stageFlags = vk::ShaderStageFlagBits::eCompute;
+
+    // Binding 3: Storage Buffer (SelectionBuffer SSBO - Picking)
+    bindings[3].binding = 3;
+    bindings[3].descriptorType = vk::DescriptorType::eStorageBuffer;
+    bindings[3].descriptorCount = 1;
+    bindings[3].stageFlags = vk::ShaderStageFlagBits::eCompute;
 
     vk::DescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());

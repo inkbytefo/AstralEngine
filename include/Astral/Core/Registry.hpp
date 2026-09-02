@@ -8,13 +8,11 @@
 #include <utility>
 #include <vector>
 
+#include "Astral/Core/Components.hpp"
+
 namespace Astral {
 
-using Entity = std::uint32_t;
-
-struct TransformComponent { float x = 0.0f, y = 0.0f, z = 0.0f; };
-struct VelocityComponent { float dx = 0.0f, dy = 0.0f, dz = 0.0f; };
-struct HealthComponent { int hp = 100; };
+using EntityID = std::uint32_t;
 
 template <typename T>
 class SparseSet {
@@ -25,7 +23,7 @@ public:
     static constexpr size_type EMPTY = static_cast<size_type>(-1);
 
     // ---- Sorgu ----
-    bool Has(Entity entity) const {
+    bool Has(EntityID entity) const {
         return entity < mSparse.size() &&
                mSparse[entity] != EMPTY &&
                mEntities[mSparse[entity]] == entity;
@@ -36,10 +34,10 @@ public:
 
     // GPU'ya ham kopya icin (memcpy dostu)
     const std::vector<T>& Data() const { return mData; }
-    const std::vector<Entity>& Entities() const { return mEntities; }
+    const std::vector<EntityID>& Entities() const { return mEntities; }
 
     // ---- Mutasyon ----
-    void Add(Entity entity, T component) {
+    void Add(EntityID entity, T component) {
         if (entity >= mSparse.size()) {
             mSparse.resize(static_cast<std::size_t>(entity) + 1, EMPTY);
         }
@@ -52,26 +50,26 @@ public:
         mData.push_back(std::move(component));
     }
 
-    T& Get(Entity entity) {
+    T& Get(EntityID entity) {
         // Anlasma: cagiran Has() ile dogruladi
         assert(Has(entity));
         return mData[mSparse[entity]];
     }
 
-    const T& Get(Entity entity) const {
+    const T& Get(EntityID entity) const {
         assert(Has(entity));
         return mData[mSparse[entity]];
     }
 
     // O(1) swap-and-pop: bosluk son elemanla doldurulur, sondan atilir
-    void Remove(Entity entity) {
+    void Remove(EntityID entity) {
         if (!Has(entity)) return;
 
         const size_type index = mSparse[entity];
         const size_type last  = mData.size() - 1;
 
         if (index != last) {
-            const Entity movedEntity = mEntities[last];
+            const EntityID movedEntity = mEntities[last];
             mEntities[index] = movedEntity;
             mData[index]     = std::move(mData[last]);
             mSparse[movedEntity] = index;
@@ -87,17 +85,17 @@ public:
         mData.clear();
     }
 
-// ================= OZEL ITERATOR (Entity, T&) =================
+// ================= OZEL ITERATOR (EntityID, T&) =================
     // Veriler iki ayri dizide (Entities/Data) yasadigi icin iterator,
     // referans tasiyan bir "proxy" nesnesi dondurur:
     //   auto&& [entity, component] : view  -> entity, gercek T&
     struct PairRef {
-        Entity entity;
+        EntityID entity;
         T& component;
     };
 
     struct ConstPairRef {
-        Entity entity;
+        EntityID entity;
         const T& component;
     };
 
@@ -105,7 +103,7 @@ public:
     public:
         using iterator_category = std::forward_iterator_tag;
         using difference_type   = std::ptrdiff_t;
-        using value_type        = std::pair<Entity, T>;
+        using value_type        = std::pair<EntityID, T>;
         using pointer           = void;
         using reference         = PairRef;
 
@@ -135,7 +133,7 @@ public:
     public:
         using iterator_category = std::forward_iterator_tag;
         using difference_type   = std::ptrdiff_t;
-        using value_type        = std::pair<Entity, T>;
+        using value_type        = std::pair<EntityID, T>;
         using pointer           = void;
         using reference         = ConstPairRef;
 
@@ -168,9 +166,9 @@ public:
     ConstIterator end() const   { return ConstIterator(this, mData.size()); }
 
 private:
-    std::vector<size_type> mSparse;   // entity -> dense indeks
-    std::vector<Entity>    mEntities; // dense: kimlikler (kontigu)
-    std::vector<T>         mData;     // dense: bilesen verisi (kontigu)
+    std::vector<size_type> mSparse;     // entity -> dense indeks
+    std::vector<EntityID>  mEntities;   // dense: kimlikler (kontigu)
+    std::vector<T>         mData;       // dense: bilesen verisi (kontigu)
 };
 
 // ========================= TYPE ERASURE KATMANI =========================
@@ -179,9 +177,10 @@ private:
 class IPool {
 public:
     virtual ~IPool() = default;
-    virtual void RemoveEntity(Entity entity) = 0;
+    virtual void RemoveEntity(EntityID entity) = 0;
     virtual void Clear() = 0;
     virtual std::size_t Size() const = 0;
+    virtual std::shared_ptr<IPool> Clone() const = 0;
 };
 
 template <typename T>
@@ -189,15 +188,20 @@ class Pool : public IPool {
 public:
     SparseSet<T> set;
 
-    void RemoveEntity(Entity entity) override { set.Remove(entity); }
+    void RemoveEntity(EntityID entity) override { set.Remove(entity); }
     void Clear() override { set.Clear(); }
     std::size_t Size() const override { return set.Size(); }
+    std::shared_ptr<IPool> Clone() const override {
+        auto copy = std::make_shared<Pool<T>>();
+        copy->set = this->set;
+        return copy;
+    }
 };
 
 // =============================== REGISTRY ===============================
 class Registry {
 private:
-    Entity nextEntityId = 0;
+    EntityID nextEntityId = 0;
     // std::type_index ile bilesen tipine gore ilgili havuzu buluyoruz
     std::unordered_map<std::type_index, std::shared_ptr<IPool>> pools;
 
@@ -215,20 +219,51 @@ private:
     }
 
 public:
-    Entity CreateEntity() { return nextEntityId++; }
+    Registry() = default;
+
+    /// Derin kopyalama (Deep-Copy): Editor durumundan Runtime durumuna gecerken sahneyi klonlar
+    Registry(const Registry& other)
+        : nextEntityId(other.nextEntityId) {
+        for (const auto& [type, pool] : other.pools) {
+            pools.emplace(type, pool->Clone());
+        }
+    }
+
+    Registry& operator=(const Registry& other) {
+        if (this != &other) {
+            nextEntityId = other.nextEntityId;
+            pools.clear();
+            for (const auto& [type, pool] : other.pools) {
+                pools.emplace(type, pool->Clone());
+            }
+        }
+        return *this;
+    }
+
+    Registry(Registry&&) noexcept = default;
+    Registry& operator=(Registry&&) noexcept = default;
+
+    EntityID CreateEntity() { return nextEntityId++; }
 
     template <typename T>
-    void AddComponent(Entity entity, T component) {
+    void AddComponent(EntityID entity, T component) {
         GetOrCreatePool<T>().set.Add(entity, std::move(component));
     }
 
     template <typename T>
-    T& GetComponent(Entity entity) {
+    T& GetComponent(EntityID entity) {
         return GetOrCreatePool<T>().set.Get(entity);
     }
 
     template <typename T>
-    bool HasComponent(Entity entity) const {
+    const T& GetComponent(EntityID entity) const {
+        const auto it = pools.find(std::type_index(typeid(T)));
+        assert(it != pools.end());
+        return static_cast<const Pool<T>*>(it->second.get())->set.Get(entity);
+    }
+
+    template <typename T>
+    bool HasComponent(EntityID entity) const {
         const auto it = pools.find(std::type_index(typeid(T)));
         if (it == pools.end()) return false;
         return static_cast<const Pool<T>*>(it->second.get())->set.Has(entity);
@@ -242,7 +277,7 @@ public:
 
     // O(1) swap-and-pop silme. Basariliysa true.
     template <typename T>
-    bool RemoveComponent(Entity entity) {
+    bool RemoveComponent(EntityID entity) {
         const auto it = pools.find(std::type_index(typeid(T)));
         if (it == pools.end()) return false;
 
@@ -254,7 +289,7 @@ public:
     }
 
     // Entity'yi tum havuzlardan kaldirir.
-    void DestroyEntity(Entity entity) {
+    void DestroyEntity(EntityID entity) {
         for (auto& entry : pools) {
             entry.second->RemoveEntity(entity);
         }

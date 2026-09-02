@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-AstralEngine - Benchmark Report Visualizer (PR-7)
+AstralEngine - Benchmark Report Visualizer (PR-8)
 Generates a standalone, beautiful HTML/SVG report from matrix_summary.json.
-Visualizes Shadow Early Exit & Back-Face Culling vs Unoptimized Brute-Force Shadows.
+Visualizes Temporal Anti-Aliasing (TAA) & Sub-Pixel Jitter Performance.
 Uses pure Python standard library (no pip dependencies required).
 """
 
@@ -16,7 +16,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AstralEngine — Shadow Early-Exit & Shading Acceleration Benchmark</title>
+    <title>AstralEngine — Temporal Anti-Aliasing (TAA) Benchmark</title>
     <style>
         :root {
             --bg-primary: #0d1117;
@@ -54,21 +54,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         .header-badge {
             display: inline-block;
-            background: rgba(63, 185, 80, 0.15);
-            color: var(--accent-emerald);
+            background: rgba(188, 140, 255, 0.15);
+            color: var(--accent-purple);
             padding: 0.25rem 0.75rem;
             border-radius: 20px;
             font-size: 0.85rem;
             font-weight: 600;
             margin-bottom: 0.75rem;
-            border: 1px solid rgba(63, 185, 80, 0.3);
+            border: 1px solid rgba(188, 140, 255, 0.3);
         }
 
         h1 {
             font-size: 2.2rem;
             font-weight: 700;
             margin-bottom: 0.5rem;
-            background: linear-gradient(135deg, #3fb950, #58a6ff);
+            background: linear-gradient(135deg, #bc8cff, #58a6ff);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -157,17 +157,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             font-weight: bold;
         }
 
-        .badge-opt-on {
-            background-color: rgba(63, 185, 80, 0.15);
-            color: var(--accent-emerald);
+        .badge-taa-on {
+            background-color: rgba(188, 140, 255, 0.15);
+            color: var(--accent-purple);
             padding: 0.2rem 0.6rem;
             border-radius: 6px;
             font-weight: 600;
         }
 
-        .badge-opt-off {
-            background-color: rgba(210, 153, 34, 0.15);
-            color: var(--accent-orange);
+        .badge-taa-off {
+            background-color: rgba(139, 148, 158, 0.15);
+            color: var(--text-secondary);
             padding: 0.2rem 0.6rem;
             border-radius: 6px;
             font-weight: 600;
@@ -200,9 +200,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
     <div class="container">
         <header>
-            <div class="header-badge">PR-7 Shading & Shadow Early Exit</div>
+            <div class="header-badge">PR-8 Temporal Anti-Aliasing (TAA)</div>
             <h1>AstralEngine Performans Raporu</h1>
-            <p class="subtitle">Gölge & AO Erken Çıkış, Ters Yüzey Ayıklama (Back-Face Culling) ve Boş Uzay Atlama</p>
+            <p class="subtitle">Halton(2, 3) 8-Fazlı Sub-Pixel Jitter, 3x3 Renk Kırpma (Neighborhood Clamping) & Tarihçe Biriktirme</p>
         </header>
 
         <div class="grid">
@@ -229,19 +229,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             </div>
 
             <div class="card">
-                <div class="card-title">⚡ Gölge & Aydınlatma Optimizasyonu (PR-7)</div>
+                <div class="card-title">✨ Temporal Anti-Aliasing (PR-8)</div>
                 <ul class="meta-list">
                     <li class="meta-item">
-                        <span class="meta-label">Back-Face Early-Out</span>
-                        <span class="meta-val" style="color: var(--accent-emerald);">Aktif (N·L &le; 0 ise 0 adım)</span>
+                        <span class="meta-label">Jitter Deseni</span>
+                        <span class="meta-val" style="color: var(--accent-purple);">Halton(2, 3) 8-Faz</span>
                     </li>
                     <li class="meta-item">
-                        <span class="meta-label">AABB Sky Early-Exit</span>
-                        <span class="meta-val" style="color: var(--accent-emerald);">Aktif (Y &gt; 11m ise erken terk)</span>
+                        <span class="meta-label">Ghosting Korumasi</span>
+                        <span class="meta-val" style="color: var(--accent-emerald);">3x3 Renk AABB Clamping</span>
                     </li>
                     <li class="meta-item">
-                        <span class="meta-label">Shadow Grid ESS</span>
-                        <span class="meta-val" style="color: var(--accent-emerald);">Aktif (Izgara üzerinden sıçrama)</span>
+                        <span class="meta-label">Harmanlama Yontemi</span>
+                        <span class="meta-val">EMA Blend (&alpha; = 0.12)</span>
                     </li>
                     <li class="meta-item">
                         <span class="meta-label">Vulkan Validation</span>
@@ -260,7 +260,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                             <th>Preset</th>
                             <th>Sahne</th>
                             <th>Hizlandirma Yapisi</th>
-                            <th>Golge Modu</th>
+                            <th>Anti-Aliasing Modu</th>
                             <th>GPU Ort (ms)</th>
                             <th>GPU p50 (ms)</th>
                             <th>CPU Ort (ms)</th>
@@ -274,14 +274,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
 
         <div class="card">
-            <div class="card-title">📈 GPU Render Zamani (ms) — Gölge Erken Çıkış Karsilastirmasi</div>
+            <div class="card-title">📈 GPU Render Zamani (ms) — TAA ve Passthrough Karsilastirmasi</div>
             <div class="chart-container">
                 __SVG_CHART__
             </div>
         </div>
 
         <footer>
-            AstralEngine &bull; Signed Distance Field Compute Shading & Raymarch Architecture &bull; Otomatik Uretilmistir
+            AstralEngine &bull; Two-Pass Temporal Reconstruction Architecture &bull; Otomatik Uretilmistir
         </footer>
     </div>
 </body>
@@ -310,12 +310,12 @@ def generate_svg_chart(results):
     for i, r in enumerate(results):
         m = r["data"]["metrics"]
         gpu_avg = m["gpu_total_ms"]["avg"]
-        opt_shadow = r.get("opt_shadow", True)
+        enable_taa = r.get("enable_taa", True)
 
         gx = margin_l + i * bar_group_w + (bar_group_w - bar_w) / 2
         
-        # Color: Emerald for Opt Shadow, Orange for Unopt
-        color = "#3fb950" if opt_shadow else "#d29922"
+        # Color: Purple for TAA, Cyan for No-TAA
+        color = "#bc8cff" if enable_taa else "#58a6ff"
 
         h_bar = (gpu_avg / max_val) * chart_h
         y_bar = height - margin_b - h_bar
@@ -324,7 +324,7 @@ def generate_svg_chart(results):
 
         # X labels
         label_preset = f"{r['preset']}"
-        label_mode = "Opt Shadow" if opt_shadow else "Kaba Gölge"
+        label_mode = "TAA ACIK" if enable_taa else "TAA KAPALI"
         bars += f'<text x="{gx + bar_w/2}" y="{height - margin_b + 18}" font-size="12" font-weight="600" fill="#f0f6fc" text-anchor="middle">{label_preset}</text>'
         bars += f'<text x="{gx + bar_w/2}" y="{height - margin_b + 34}" font-size="10" fill="{color}" text-anchor="middle">{label_mode}</text>'
 
@@ -341,10 +341,10 @@ def generate_svg_chart(results):
         {bars}
 
         <!-- Legend -->
-        <rect x="{width - 320}" y="10" width="12" height="12" fill="#3fb950" rx="2"/>
-        <text x="{width - 302}" y="20" font-size="11" fill="#8b949e">Opt Shadow (Erken Cikis + Back-Face)</text>
-        <rect x="{width - 140}" y="10" width="12" height="12" fill="#d29922" rx="2"/>
-        <text x="{width - 122}" y="20" font-size="11" fill="#8b949e">Kaba Kuvvet (24-Adım)</text>
+        <rect x="{width - 320}" y="10" width="12" height="12" fill="#bc8cff" rx="2"/>
+        <text x="{width - 302}" y="20" font-size="11" fill="#8b949e">TAA ACIK (Halton + 3x3 Clamp)</text>
+        <rect x="{width - 130}" y="10" width="12" height="12" fill="#58a6ff" rx="2"/>
+        <text x="{width - 112}" y="20" font-size="11" fill="#8b949e">TAA KAPALI</text>
     </svg>'''
     return svg
 
@@ -376,18 +376,18 @@ def main():
         gpu_avg = m["gpu_total_ms"]["avg"]
         gpu_p50 = m["gpu_total_ms"]["p50"]
         cpu_avg = m["cpu_frame_ms"]["avg"]
-        opt_shadow = r.get("opt_shadow", True)
+        enable_taa = r.get("enable_taa", True)
         grid_label = r.get("grid_label", "Grid ON (Two-Level)")
-        shadow_label = r.get("shadow_label", "Opt Shadow" if opt_shadow else "Kaba Gölge")
+        taa_label = r.get("taa_label", "TAA ACIK" if enable_taa else "TAA KAPALI")
         scene_label = r.get("scene_label", "Stress (32 Nesne)" if r.get("is_stress", False) else "Standart")
 
-        badge_class = "badge-opt-on" if opt_shadow else "badge-opt-off"
+        badge_class = "badge-taa-on" if enable_taa else "badge-taa-off"
 
         rows += f"""<tr>
             <td><span class="badge-preset">{r['preset']}</span></td>
             <td>{scene_label}</td>
             <td>{grid_label}</td>
-            <td><span class="{badge_class}">{shadow_label}</span></td>
+            <td><span class="{badge_class}">{taa_label}</span></td>
             <td>{gpu_avg:.3f}</td>
             <td>{gpu_p50:.3f}</td>
             <td>{cpu_avg:.3f}</td>

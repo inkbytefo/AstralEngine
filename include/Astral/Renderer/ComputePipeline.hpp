@@ -14,11 +14,27 @@
 
 namespace Astral {
 
+struct alignas(16) SelectionDataGPU {
+    int32_t hitIndex = -1;
+    int32_t pad0 = 0;
+    int32_t pad1 = 0;
+    int32_t pad2 = 0;
+    glm::vec4 hitPoint{0.0f}; // xyz: hitPoint, w: hitDistance
+};
+static_assert(sizeof(SelectionDataGPU) == 32, "SelectionDataGPU boyutu 32 bayt olmalidir!");
+
 struct SDFPushConstants {
-    glm::vec4 camPos;     // xyz: pos, w: time
-    glm::vec4 camDir;     // xyz: dir, w: normalMode (0=central, 1=tetrahedron)
-    glm::vec4 screenRes;  // x: width, y: height, z: editCount, w: useGrid (0=off, 1=on)
-    glm::vec4 gridParams; // x: dimX, y: dimY, z: dimZ, w: cellSize
+    glm::vec4 camPos;      // xyz: pos, w: time
+    glm::vec4 camDir;      // xyz: dir, w: normalMode (0=central, 1=tetrahedron)
+    glm::vec4 screenRes;   // x: width, y: height, z: editCount, w: useGrid (0=off, 1=on)
+    glm::vec4 gridParams;  // x: dimX, y: dimY, z: optShadow, w: cellSize
+    glm::vec4 taaParams;   // x: jitterX, y: jitterY, z: taaEnabled, w: blendAlpha
+    glm::vec4 mouseParams; // x: mouseX, y: mouseY, z: pickRequested (0/1), w: pad
+};
+static_assert(sizeof(SDFPushConstants) == 96, "SDFPushConstants boyutu 96 bayt olmalidir!");
+
+struct TAAPushConstants {
+    glm::vec4 screenRes; // x: width, y: height, z: frameIndex, w: blendAlpha
 };
 
 class ComputePipeline {
