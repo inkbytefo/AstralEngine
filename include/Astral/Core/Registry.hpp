@@ -1,55 +1,77 @@
 #pragma once
 #include <cstdint>
 #include <unordered_map>
+#include <typeindex>
+#include <memory>
 
 namespace Astral {
 
-// Entity sadece kimlik numarasıdır
 using Entity = std::uint32_t;
 
-// Saf veri bileşenleri (Hiçbir fonksiyon içermezler)
-struct TransformComponent {
-    float x = 0.0f, y = 0.0f, z = 0.0f;
+struct TransformComponent { float x = 0.0f, y = 0.0f, z = 0.0f; };
+struct VelocityComponent { float dx = 0.0f, dy = 0.0f, dz = 0.0f; };
+struct HealthComponent { int hp = 100; }; // Yeni bir bilesen test icin
+
+// 1. Temel Arayuz (Farkli tipleri tek bir haritada tutabilmek icin)
+class IPool {
+public:
+    virtual ~IPool() = default;
 };
 
-struct VelocityComponent {
-    float dx = 0.0f, dy = 0.0f, dz = 0.0f;
+// 2. Ozel Veri Havuzu
+template <typename T>
+class Pool : public IPool {
+public:
+    std::unordered_map<Entity, T> data;
 };
 
 class Registry {
 private:
     Entity nextEntityId = 0;
-
-    // Bileşenleri Entity ID'leri ile eşleştiriyoruz
-    std::unordered_map<Entity, TransformComponent> transforms;
-    std::unordered_map<Entity, VelocityComponent> velocities;
+    // std::type_index ile bilesenin tipine gore ilgili havuzu buluyoruz
+    std::unordered_map<std::type_index, std::shared_ptr<IPool>> pools;
 
 public:
     Entity CreateEntity() {
         return nextEntityId++;
     }
 
-    void AddTransform(Entity entity, TransformComponent transform) {
-        transforms[entity] = transform;
+    template <typename T>
+    void AddComponent(Entity entity, T component) {
+        auto type = std::type_index(typeid(T));
+        // Eger bu tip icin bir havuz yoksa, yeni bir tane olustur
+        if (pools.find(type) == pools.end()) {
+            pools[type] = std::make_shared<Pool<T>>();
+        }
+        // Arayuzden (IPool) asil veri tipine (Pool<T>) donusum yap
+        std::static_pointer_cast<Pool<T>>(pools[type])->data[entity] = component;
     }
 
-    void AddVelocity(Entity entity, VelocityComponent velocity) {
-        velocities[entity] = velocity;
+    template <typename T>
+    T& GetComponent(Entity entity) {
+        auto type = std::type_index(typeid(T));
+        return std::static_pointer_cast<Pool<T>>(pools[type])->data[entity];
     }
 
-    TransformComponent& GetTransform(Entity entity) {
-        return transforms[entity];
+    template <typename T>
+    bool HasComponent(Entity entity) {
+        auto type = std::type_index(typeid(T));
+        if (pools.find(type) == pools.end()) return false;
+
+        auto pool = std::static_pointer_cast<Pool<T>>(pools[type]);
+        return pool->data.find(entity) != pool->data.end();
     }
 
-    VelocityComponent& GetVelocity(Entity entity) {
-        return velocities[entity];
+    // Sistemlerin tum verilere ulasmasi icin
+    template <typename T>
+    std::unordered_map<Entity, T>& GetView() {
+        auto type = std::type_index(typeid(T));
+        // Havuz yoksa bos bir havuz yaratip dondur (hata almamak icin)
+        if (pools.find(type) == pools.end()) {
+            pools[type] = std::make_shared<Pool<T>>();
+        }
+        return std::static_pointer_cast<Pool<T>>(pools[type])->data;
     }
-
-    bool HasVelocity(Entity entity) {
-        return velocities.find(entity) != velocities.end();
-    }
-
-    auto& GetTransforms() { return transforms; }
 };
 
 } // namespace Astral
