@@ -1,0 +1,59 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "mingw-debug",
+      "displayName": "MinGW Debug",
+      "description": "Ninja + MinGW-w64 Derleme (Debug) - Windows",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "C:/mingw64/bin/x86_64-w64-mingw32-gcc.exe",
+        "CMAKE_CXX_COMPILER": "C:/mingw64/bin/x86_64-w64-mingw32-g++.exe",
+        "CMAKE_AR": "C:/mingw64/bin/x86_64-w64-mingw32-gcc-ar.exe",
+        "CMAKE_RANLIB": "C:/mingw64/bin/x86_64-w64-mingw32-gcc-ranlib.exe",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "mingw-release",
+      "displayName": "MinGW Release",
+      "description": "Ninja + MinGW-w64 Derleme (Release) - Windows",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_COMPILER": "C:/mingw64/bin/x86_64-w64-mingw32-gcc.exe",
+        "CMAKE_CXX_COMPILER": "C:/mingw64/bin/x86_64-w64-mingw32-g++.exe",
+        "CMAKE_AR": "C:/mingw64/bin/x86_64-w64-mingw32-gcc-ar.exe",
+        "CMAKE_RANLIB": "C:/mingw64/bin/x86_64-w64-mingw32-gcc-ranlib.exe",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "mingw-debug",
+      "configurePreset": "mingw-debug"
+    },
+    {
+      "name": "mingw-release",
+      "configurePreset": "mingw-release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "mingw-debug",
+      "configurePreset": "mingw-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

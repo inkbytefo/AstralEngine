@@ -1,0 +1,33 @@
+# Build klasörleri
+build/
+build-*/
+out/
+cmake-build-*/
+
+# IDE dosyaları
+.vs/
+.vscode/
+.idea/
+*.user
+*.sln
+*.suo
+
+# Derleme çıktıları
+*.o
+*.obj
+*.exe
+*.dll
+*.lib
+*.pdb
+*.ilk
+
+# OS dosyaları
+.DS_Store
+Thumbs.db
+
+# CMake cache
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
