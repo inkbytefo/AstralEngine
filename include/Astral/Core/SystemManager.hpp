@@ -34,6 +34,23 @@ public:
         }
     }
 
+    void RenderAll(const RenderContext& context) {
+        for (const auto& system : m_Systems) {
+            if (system->IsEnabled()) {
+                system->OnRender(context);
+            }
+        }
+    }
+
+    bool HasRenderSubsystem() const {
+        for (const auto& system : m_Systems) {
+            if (system->IsEnabled() && system->HasRenderPass()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     void ShutdownAll() {
         for (auto system = m_Systems.rbegin(); system != m_Systems.rend(); ++system) {
             (*system)->OnShutdown();

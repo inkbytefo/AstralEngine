@@ -534,13 +534,25 @@ void VulkanContext::EndFrameBlit(vk::Image sourceImage, uint32_t srcWidth, uint3
     toTransferDst.srcAccessMask = {};
     toTransferDst.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
 
+    // sourceImage eGeneral duzeninde transfer okumasina hazirlanir
+    vk::ImageMemoryBarrier srcBarrier{};
+    srcBarrier.oldLayout = vk::ImageLayout::eGeneral;
+    srcBarrier.newLayout = vk::ImageLayout::eGeneral;
+    srcBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    srcBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    srcBarrier.image = sourceImage;
+    srcBarrier.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
+    srcBarrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite | vk::AccessFlagBits::eShaderRead;
+    srcBarrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
+
+    std::array<vk::ImageMemoryBarrier, 2> barriers = { toTransferDst, srcBarrier };
     cmd.pipelineBarrier(
-        vk::PipelineStageFlagBits::eTopOfPipe,
+        vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eComputeShader | vk::PipelineStageFlagBits::eTransfer,
         vk::PipelineStageFlagBits::eTransfer,
-        {}, nullptr, nullptr, toTransferDst
+        {}, nullptr, nullptr, barriers
     );
 
-    // 2. Blit sourceImage (m_StorageImage) -> swapImage
+    // 2. Blit sourceImage (m_StorageImage, eGeneral) -> swapImage (eTransferDstOptimal)
     vk::ImageBlit blitRegion{};
     blitRegion.srcSubresource = { vk::ImageAspectFlagBits::eColor, 0, 0, 1 };
     blitRegion.srcOffsets[0] = vk::Offset3D{ 0, 0, 0 };
@@ -550,12 +562,12 @@ void VulkanContext::EndFrameBlit(vk::Image sourceImage, uint32_t srcWidth, uint3
     blitRegion.dstOffsets[1] = vk::Offset3D{ static_cast<int32_t>(extent.width), static_cast<int32_t>(extent.height), 1 };
 
     cmd.blitImage(
-        sourceImage, vk::ImageLayout::eTransferSrcOptimal,
+        sourceImage, vk::ImageLayout::eGeneral,
         swapImage, vk::ImageLayout::eTransferDstOptimal,
         1, &blitRegion, vk::Filter::eLinear
     );
 
-    // 3. Swapchain image'i ImGui Dynamic Rendering icin ColorAttachmentOptimal yap
+    // 3. Swapchain image'i Present oncesi ColorAttachmentOptimal yap
     vk::ImageMemoryBarrier toColorAttachment{};
     toColorAttachment.oldLayout = vk::ImageLayout::eTransferDstOptimal;
     toColorAttachment.newLayout = vk::ImageLayout::eColorAttachmentOptimal;

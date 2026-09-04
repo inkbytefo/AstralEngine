@@ -6,6 +6,8 @@
 #include <memory>
 #include <cstdint>
 
+#include <vulkan/vulkan.h>
+
 namespace Astral {
 
 class SDFRenderer;
@@ -25,7 +27,9 @@ class ViewportPanel {
 public:
     ViewportPanel() = default;
     explicit ViewportPanel(SDFRenderer* renderer, const InputSystem* input = nullptr);
-    ~ViewportPanel() = default;
+    ~ViewportPanel();
+
+    void CleanupDescriptorSet();
 
     void SetRenderer(SDFRenderer* renderer) noexcept { m_Renderer = renderer; }
     void SetInputSystem(const InputSystem* input) noexcept { m_Input = input; }
@@ -67,6 +71,8 @@ private:
     bool m_IsFocused = false;
     TransformGizmo m_TransformGizmo;
     ViewportGizmoToolbar m_GizmoToolbar;
+    VkDescriptorSet m_ViewportDescriptorSet = VK_NULL_HANDLE;
+    VkImageView m_RegisteredImageView = VK_NULL_HANDLE;
 };
 
 } // namespace Astral

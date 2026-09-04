@@ -12,7 +12,6 @@
 #include <stdexcept>
 #include <array>
 #include <filesystem>
-#include <imgui_impl_vulkan.h>
 
 namespace Astral {
 
@@ -117,10 +116,6 @@ SDFRenderer::SDFRenderer(VulkanContext& context, const std::string& spvPath, int
 
 SDFRenderer::~SDFRenderer() {
     m_Device.waitIdle();
-    if (m_ViewportDescriptorSet != VK_NULL_HANDLE) {
-        ImGui_ImplVulkan_RemoveTexture(m_ViewportDescriptorSet);
-        m_ViewportDescriptorSet = VK_NULL_HANDLE;
-    }
     m_ViewportSampler.reset();
 
     m_DescriptorPool.reset();
@@ -391,11 +386,6 @@ void SDFRenderer::Resize(int width, int height) {
 
     m_Device.waitIdle();
 
-    if (m_ViewportDescriptorSet != VK_NULL_HANDLE) {
-        ImGui_ImplVulkan_RemoveTexture(m_ViewportDescriptorSet);
-        m_ViewportDescriptorSet = VK_NULL_HANDLE;
-    }
-
     m_Width = width;
     m_Height = height;
 
@@ -403,19 +393,6 @@ void SDFRenderer::Resize(int width, int height) {
     CreateImages();
     UpdateDescriptorSets();
     m_HistoryInitialized = false;
-}
-
-VkDescriptorSet SDFRenderer::GetViewportTextureID() {
-    if (m_ViewportDescriptorSet == VK_NULL_HANDLE && m_ViewportSampler && m_StorageImageView) {
-        if (ImGui::GetCurrentContext()) {
-            m_ViewportDescriptorSet = ImGui_ImplVulkan_AddTexture(
-                static_cast<VkSampler>(m_ViewportSampler.get()),
-                static_cast<VkImageView>(m_StorageImageView.get()),
-                VK_IMAGE_LAYOUT_GENERAL
-            );
-        }
-    }
-    return m_ViewportDescriptorSet;
 }
 
 void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode, int width, int height,

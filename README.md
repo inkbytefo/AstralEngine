@@ -1,21 +1,16 @@
 # AstralEngine
 
-Modern C++20 ile yazılmış, modüler, yüksek performanslı genel amaçlı oyun motoru çekirdeği ve Vulkan 1.4 tabanlı Signed Distance Field (SDF) render alt-sistemi.
-
-Detaylı teknik analiz ve mimari yol haritası için: **[RENDERER_ARCHITECTURE.md](RENDERER_ARCHITECTURE.md)**
+Modern C++20 ile yazılmış, modüler, yüksek performanslı genel amaçlı oyun motoru çekirdeği ve Vulkan 1.4 tabanlı Signed Distance Field (SDF) compute raymarching render alt-sistemi.
 
 ---
 
-## Temel Özellikler
+## Temel Mimari Prensipleri
 
-- **C++20 Standartları**: Konseptler, modern RAII ve tip güvenliği.
-- **Cache-Friendly ECS**: Hızlı ardışık bellek erişimi sunan sparse-set tabanlı bileşen havuzları (`Astral::Registry`).
-- **Vulkan 1.4 Render Alt-Sistemi (`Astral::VulkanContext`)**:
-  - `VK_KHR_dynamic_rendering` ve `VK_KHR_synchronization2` modern çekirdek özellikleri.
-  - `vulkan.hpp` dinamik dispatcher (`VULKAN_HPP_DISPATCH_LOADER_DYNAMIC`).
-  - Gelişmiş doğrulama katmanı ve debug messenger (`VK_LAYER_KHRONOS_validation` + `VkDebugUtilsMessengerEXT`).
-- **Pencere & Girdi Yönetimi (`Astral::Window`)**: GLFW 3.3.8 tabanlı yüksek performanslı pencereleme.
-- **Otomasyon & Bağımsızlık**: `FetchContent` ile GLFW, GLM ve harici kütüphanelerin CMake seviyesinde otomatik yönetimi.
+- **Modüler Hedef Ayrımı**: Motor (`AstralEngine` statik kütüphane), editör (`AstralEditor`), oyunlar (`Projects/*`) ve regresyon testleri (`EngineTests`) birbirinden tamamen bağımsız CMake hedefleridir.
+- **EntryPoint Deseni**: Motor ana döngüsü (`main()`) `Astral/EntryPoint.hpp` içine taşınmıştır. İstemci oyunlar `Astral::Application` sınıfından türer ve `Astral::CreateApplication()` uygulamasını sunar.
+- **Şemsiye Başlık (`AstralEngine.h`)**: Tüm motor API'si (Core, Scene, ECS, Math) tek bir `#include "AstralEngine.h"` ile istemci projelerine sunulur.
+- **Zero-ImGui Motor Çekirdeği**: `libAstralEngine.a` ve oyun projeleri hiçbir Dear ImGui bağımlılığı içermez. Tüm ImGui ve ImGuizmo kodları müstakil `AstralEditor.exe` hedefine izole edilmiştir.
+- **Headless CI-Dostu Testler**: Regresyon testleri (`EngineTests.exe`) pencere/GPU gerektirmeden saf CPU üzerinde (<15 ms) çalışır. GPU gerektiren testler opsiyonel `--gpu` parametresiyle kategorize edilmiştir.
 
 ---
 
@@ -23,91 +18,135 @@ Detaylı teknik analiz ve mimari yol haritası için: **[RENDERER_ARCHITECTURE.m
 
 ```
 AstralEngine/
-├── CMakeLists.txt              # Ana derleme yapılandırması (C++20, FetchContent, Vulkan)
-├── CMakePresets.json           # MinGW ve MSVC hazır derleme presetleri
-├── RENDERER_ARCHITECTURE.md    # Kapsamlı SDF render mimarisi ve teknik analiz dokümanı
-├── include/Astral/             # Dışarı açık başlık dosyaları
-│   ├── Core/
-│   │   ├── Application.hpp     # Ana motor yaşam döngüsü
-│   │   ├── Registry.hpp        # Tip silinmiş (type-erased) SparseSet ECS motoru
-│   │   └── Window.hpp          # GLFW pencere yöneticisi
-│   └── Renderer/
-│       └── VulkanContext.hpp   # Vulkan 1.4 context, validation layer ve debug messenger
-├── src/                        # Kaynak kodları
-│   ├── Core/
-│   │   ├── Application.cpp
-│   │   └── Window.cpp
-│   ├── Renderer/
-│   │   └── VulkanContext.cpp
-│   └── main.cpp                # Sandbox test ve doğrulama uygulaması
-├── renderingexample/           # [Referans Repo] inkbytefo/SDFRENDEREXAMPLE (.gitignore'da)
-└── build/                      # Derleme çıktıları
+├── CMakeLists.txt                  # Ana kök derleme yapılandırması
+├── AstralEngine/                   # Motor çekirdek statik kütüphanesi (libAstralEngine.a)
+│   └── CMakeLists.txt
+├── include/                        # Motorun genel (public) API başlıkları
+│   ├── AstralEngine.h              # Tüm motoru tek seferde dahil eden şemsiye başlık
+│   └── Astral/
+│       ├── EntryPoint.hpp          # Motor ana döngü / main() giriş noktası
+│       ├── Core/                   # Application, ISubsystem, SystemManager, Window, Registry, vb.
+│       ├── Renderer/               # VulkanContext, SDFRenderer, Buffer, BrickGrid, vb.
+│       └── Scene/                  # Scene, Entity, SceneSerializer, Components, vb.
+├── src/                            # Motor çekirdek kaynak kodları (Core, Renderer, Scene)
+├── Tools/
+│   └── AstralEditor/               # Bağımsız editör hedefi (AstralEditor.exe — ImGui & ImGuizmo)
+│       ├── CMakeLists.txt
+│       └── src/                    # EditorUI, paneller (Viewport, Hierarchy, Inspector, vb.)
+├── Projects/
+│   ├── Sandbox/                    # Referans çalışma zamanı oyunu (Sandbox.exe)
+│   │   ├── CMakeLists.txt
+│   │   └── src/main.cpp
+│   └── EmptyGameTemplate/          # Minimal 15 satırlık şablon oyun projesi
+│       ├── CMakeLists.txt
+│       └── src/main.cpp
+├── Tests/
+│   └── EngineTests/                # Bağımsız regresyon test koşucusu (EngineTests.exe)
+│       ├── CMakeLists.txt
+│       └── src/                    # ECS, Physics, Identity, Scene, Serialization, GpuSmokeTest
+└── assets/                         # Shaders ve sahne ikili dosyaları (.astral)
 ```
 
 ---
 
-## Önkoşullar
+## Yeni Bir Oyun Projesi Nasıl Oluşturulur?
 
-- **Vulkan SDK**: 1.3 veya 1.4 (Vulkan 1.4 ve `VK_LAYER_KHRONOS_validation` önerilir)
-- **C++20 Uyumlu Derleyici**:
-  - MinGW-w64 GCC 13+ (ör. GCC 15.2)
-  - veya Visual Studio 2022 (MSVC v143+)
-- **CMake**: 3.20 veya üzeri
-- **Ninja**: (MinGW presetleri için önerilir)
+AstralEngine üzerinde yeni bir oyun projesi eklemek yalnızca birkaç adım sürer:
+
+### 1. Şablonu Kopyalayın
+`Projects/EmptyGameTemplate/` klasörünü `Projects/YeniOyunum/` olarak kopyalayın.
+
+### 2. CMakeLists.txt Dosyasını Düzenleyin
+`Projects/YeniOyunum/CMakeLists.txt`:
+```cmake
+add_executable(YeniOyunum
+    src/main.cpp
+)
+
+target_link_libraries(YeniOyunum PRIVATE AstralEngine)
+
+set_target_properties(YeniOyunum PROPERTIES
+    VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+)
+```
+
+### 3. Oyun Kodunuzu Yazın
+`Projects/YeniOyunum/src/main.cpp`:
+```cpp
+#include "AstralEngine.h"
+#include <iostream>
+
+class YeniOyunApp : public Astral::Application {
+public:
+    YeniOyunApp()
+        : Astral::Application() {
+        std::cout << "Yeni Oyun baslatildi!\n";
+        // Oyun mantığı sistemleri ISubsystem üzerinden PushSystem ile eklenir:
+        // PushSystem<OyuncuKontrolSistemi>();
+    }
+};
+
+namespace Astral {
+Application* CreateApplication() {
+    return new YeniOyunApp();
+}
+}
+
+// Motor ana giriş noktasını bağlar
+#include "Astral/EntryPoint.hpp"
+```
+
+### 4. Kök CMakeLists.txt'ye Ekleyin
+Kök `CMakeLists.txt` dosyasının alt kısmına projenizi ekleyin:
+```cmake
+add_subdirectory(Projects/YeniOyunum)
+```
+
+Artık `cmake --build build-release` çalıştırdığınızda projeniz bağımsız bir `.exe` olarak derlenecektir!
 
 ---
 
 ## Derleme ve Çalıştırma
 
-### 1. Windows - MinGW + Ninja (CMake Presets)
+### Gereksinimler
+- **Vulkan SDK**: 1.3 veya 1.4 (Vulkan 1.4 önerilir)
+- **C++20 Uyumlu Derleyici**: MinGW-w64 GCC 13+ veya MSVC v143+
+- **CMake**: 3.20+ ve **Ninja**
 
+### Derleme (Release)
 ```powershell
-# Yapılandırma ve derleme (Debug)
-cmake --preset mingw-debug
-cmake --build --preset mingw-debug
-
-# Doğrulama testi çalıştırma (10 kare test modu)
-.\build\Sandbox.exe --test
-
-# İnteraktif pencere modunda çalıştırma
-.\build\Sandbox.exe
+cmake -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build-release --config Release
 ```
 
-### 2. Windows - Visual Studio 2022 (MSVC)
+### Hedefleri Çalıştırma
 
-```powershell
-# Yapılandırma ve derleme
-cmake --preset msvc-debug
-cmake --build --preset msvc-debug --config Debug
+1. **Bağımsız Regresyon Test Koşucusu (`EngineTests.exe`)**:
+   ```powershell
+   # Headless CI-uyumlu regresyon testleri (ECS, Physics, Identity, Scene, Serialization):
+   .\build-release\EngineTests.exe
 
-# Çalıştırma
-.\build-msvc\Debug\Sandbox.exe --test
-```
+   # Vulkan 1.4 GPU & Compute donanım testi dahil tüm testler:
+   .\build-release\EngineTests.exe --all
+   ```
 
-### 3. Komut Satırı Argümanları
+2. **Görsel Editör (`AstralEditor.exe`)**:
+   ```powershell
+   # Dear ImGui Docking, 3D Raymarched Viewport, Sahne Hiyerarşisi ve Gizmo:
+   .\build-release\AstralEditor.exe
+   ```
 
-- `--test` veya `--test-only`: 10 kare çalıştıktan sonra Vulkan kaynaklarını temizleyerek otomatik kapanır.
-- `--bench`: Donanımsal GPU timestamp profilleyicisini aktif eder.
-- `--bench-frames <N>`: Belirtilen $N$ kare sayısı kadar test çalıştırıp çıkar.
-- `--bench-out <dosya.csv>`: Kıyaslama verilerini CSV ve JSON formatında diske kaydeder.
-- `--width <W> --height <H>`: Render ve pencere çözünürlüğünü dinamik ayarlar.
-- *Argümansız*: Kullanıcı pencereyi kapatana kadar ana olay döngüsünü işletir.
+3. **Referans Çalışma Zamanı Oyunu (`Sandbox.exe`)**:
+   ```powershell
+   # Saf SDF compute simülasyonu (ImGui'siz tam ekran render):
+   .\build-release\Sandbox.exe
+   ```
 
----
-
-## Benchmark Otomasyonu (PR-3)
-
-Farklı çözünürlük matrislerinde ardışık test koşturmak ve konsolide raporlar üretmek için:
-
-```powershell
-# 720p ve 1080p presetlerinde 100'er kare otomatik benchmark ve HTML raporu üretimi:
-python tools/run_bench.py --frames 100 --presets 720p 1080p
-
-# Çıktı dosyaları:
-# - artifacts/bench/matrix_summary.csv
-# - artifacts/bench/matrix_summary.json
-# - artifacts/bench/report.html (Tarayıcıda açılabilir görsel SVG raporu)
-```
+4. **Minimal Oyun Şablonu (`EmptyGameTemplate.exe`)**:
+   ```powershell
+   .\build-release\EmptyGameTemplate.exe --frames 10
+   ```
 
 ---
 

@@ -73,12 +73,11 @@ public:
     void SetSelectedHitIndex(int hitIndex) noexcept { m_SelectedHitIndex = hitIndex; }
     [[nodiscard]] int GetSelectedHitIndex() const noexcept { return m_SelectedHitIndex; }
 
-    /// Returns ImGui texture ID (VkDescriptorSet) for Viewport panel rendering (lazily allocated)
-    [[nodiscard]] VkDescriptorSet GetViewportTextureID();
+    /// Viewport ornekleyicisi getter'i (Editor ImGui doku kaydini kendisi yapar)
+    [[nodiscard]] vk::Sampler GetViewportSampler() const noexcept { return m_ViewportSampler.get(); }
 
 private:
     vk::UniqueSampler m_ViewportSampler;
-    VkDescriptorSet m_ViewportDescriptorSet = VK_NULL_HANDLE;
     VulkanContext& m_Context;
     vk::Device m_Device;
     vk::PhysicalDevice m_PhysicalDevice;

@@ -9,7 +9,6 @@
 #include "Astral/Core/Systems/PhysicsSubsystem.hpp"
 #include "Astral/Core/Systems/TransformSubsystem.hpp"
 #include "Astral/Core/Systems/RenderExtractionSubsystem.hpp"
-#include "Astral/Editor/EditorUI.hpp"
 #include <glm/gtc/quaternion.hpp>
 
 #include <iostream>
@@ -35,9 +34,6 @@ Application::~Application() {
         m_VulkanContext->WaitIdle();
     }
     m_SceneManager.UnloadCurrentScene();
-    if (m_EditorUI) {
-        m_EditorUI.reset();
-    }
     if (m_SDFRenderer) {
         m_SDFRenderer.reset();
     }
@@ -94,20 +90,12 @@ void Application::Run(int maxFrames) {
             !m_Config.legacyMap
         );
 
-        // 4. Editör UI Arayuzu Kurulumu
-        m_EditorUI = std::make_unique<EditorUI>(
-            *m_VulkanContext,
-            m_Window->GetNativeWindow(),
-            m_Window->GetInputSystem()
-        );
-        m_EditorUI->SetRenderer(m_SDFRenderer.get());
-
-        // 5. Benchmark logger kurulumu
+        // 4. Benchmark logger kurulumu
         if (m_Config.benchMode) {
             m_BenchmarkLogger = std::make_unique<BenchmarkLogger>();
         }
 
-        int targetFrames = maxFrames > 0 ? maxFrames : (m_Config.benchMode ? m_Config.benchFrames : -1);
+        int targetFrames = maxFrames > 0 ? maxFrames : (m_Config.maxFrames > 0 ? m_Config.maxFrames : (m_Config.benchMode ? m_Config.benchFrames : -1));
 
         m_Running = true;
         std::cout << "[Astral::Application] Normal Modu: " << (m_Config.normalMode == 1 ? "Tetrahedron (4-tap optimize)" : "Central Differences (6-tap)") << "\n";
@@ -202,8 +190,7 @@ void Application::Run(int maxFrames) {
         auto runtimeScene = Scene::Copy(editorScene);
         m_SceneManager.SetActiveScene(runtimeScene);
         runtimeScene->OnRuntimeStart();
-
-        Entity selectedEntity;
+        m_SelectedEntity = Entity{};
         uint32_t frameIndex = 0;
         double cpuFrameMs = 0.0;
         double gpuTotalMs = 0.0;
@@ -269,18 +256,6 @@ void Application::Run(int maxFrames) {
                 m_SDFRenderer->SetPickingRequest(cx, cy);
             }
 
-            // Editör Viewport'u yeniden boyutlandırıldıysa, Vulkan komut tamponu başlamadan önce güvenli yeniden boyutlandırma yap
-            if (m_EditorUI) {
-                auto& viewportPanel = m_EditorUI->GetViewportPanel();
-                if (viewportPanel.HasPendingResize()) {
-                    auto newSize = viewportPanel.GetPendingResize();
-                    if (newSize.x > 0.0f && newSize.y > 0.0f) {
-                        m_SDFRenderer->Resize(static_cast<int>(newSize.x), static_cast<int>(newSize.y));
-                    }
-                    viewportPanel.ClearPendingResize();
-                }
-            }
-
             // GPU SSBO'ya yaz ve Two-Level Grid'i guncelle
             m_SDFRenderer->UpdateEdits(sceneEdits, m_Config.legacyMap);
 
@@ -292,8 +267,8 @@ void Application::Run(int maxFrames) {
 
             // Seçili varlığın render edit indeksini bul ve shader Fresnel Rim-Light için ayarla
             int selectedHitIndex = -1;
-            if (selectedEntity.IsValid()) {
-                EntityHandle selHandle = selectedEntity.GetHandle();
+            if (m_SelectedEntity.IsValid()) {
+                EntityHandle selHandle = m_SelectedEntity.GetHandle();
                 for (size_t i = 0; i < sceneEntities.size(); ++i) {
                     if (sceneEntities[i] == selHandle) {
                         selectedHitIndex = static_cast<int>(i);
@@ -320,17 +295,29 @@ void Application::Run(int maxFrames) {
             );
 
             if (hasSwapchainImage) {
-                // 2. Swapchain resmini ImGui Dynamic Rendering icin hazırla
-                m_VulkanContext->PrepareSwapchainImage();
+                // 2. Eger calisan bir render/editor alt sistemi varsa swapchain goruntusunu UI render'ina hazirla;
+                // yoksa (saf runtime oyun modu) Compute Shader ciktisini dogrudan swapchain'e blit et.
+                if (m_SystemManager.HasRenderSubsystem()) {
+                    m_VulkanContext->PrepareSwapchainImage();
+                } else {
+                    m_VulkanContext->EndFrameBlit(
+                        m_SDFRenderer->GetStorageImage(),
+                        m_SDFRenderer->GetWidth(),
+                        m_SDFRenderer->GetHeight()
+                    );
+                }
 
-                // 3. ImGui Editör Panelleri Render (Dynamic Rendering)
-                m_EditorUI->BeginFrame();
-                m_EditorUI->RenderPanels(*runtimeScene, selectedEntity, static_cast<float>(gpuTotalMs), static_cast<float>(cpuFrameMs));
-                m_EditorUI->EndFrame(
+                // 3. Alt sistemlerin render hook'larini calistir (or. AstralEditor ImGui panellerini cizer)
+                RenderContext renderCtx{
                     cmd,
                     m_VulkanContext->GetSwapchain()->GetImageViews()[m_VulkanContext->GetCurrentImageIndex()],
-                    m_VulkanContext->GetSwapchain()->GetExtent()
-                );
+                    m_VulkanContext->GetSwapchain()->GetExtent(),
+                    runtimeScene.get(),
+                    &m_SelectedEntity,
+                    static_cast<float>(gpuTotalMs),
+                    static_cast<float>(cpuFrameMs)
+                };
+                m_SystemManager.RenderAll(renderCtx);
 
                 // 4. Semaphor'larla submit et ve ekrana sun (Present)
                 m_VulkanContext->EndFramePresent();
@@ -345,7 +332,7 @@ void Application::Run(int maxFrames) {
                 if (pickResult.hasHit) {
                     if (pickResult.hitIndex >= 0 && static_cast<size_t>(pickResult.hitIndex) < sceneEntities.size()) {
                         Entity hitEntity(sceneEntities[pickResult.hitIndex], runtimeScene.get());
-                        selectedEntity = hitEntity; // Editörde seçili nesneyi güncelle
+                        m_SelectedEntity = hitEntity; // Editörde seçili nesneyi güncelle
                         std::cout << "[Astral::Picking] ISABET: hitIndex = " << pickResult.hitIndex 
                                   << " -> " << hitEntity.ToDisplayString()
                                   << " (Valid: " << (hitEntity.IsValid() ? "true" : "false") << ")"

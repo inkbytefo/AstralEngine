@@ -5,6 +5,7 @@
 #include "Astral/Core/InputSystem.hpp"
 
 #include <imgui.h>
+#include <imgui_impl_vulkan.h>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
@@ -15,6 +16,18 @@ namespace Astral {
 
 ViewportPanel::ViewportPanel(SDFRenderer* renderer, const InputSystem* input)
     : m_Renderer(renderer), m_Input(input) {}
+
+ViewportPanel::~ViewportPanel() {
+    CleanupDescriptorSet();
+}
+
+void ViewportPanel::CleanupDescriptorSet() {
+    if (m_ViewportDescriptorSet != VK_NULL_HANDLE) {
+        ImGui_ImplVulkan_RemoveTexture(m_ViewportDescriptorSet);
+        m_ViewportDescriptorSet = VK_NULL_HANDLE;
+    }
+    m_RegisteredImageView = VK_NULL_HANDLE;
+}
 
 void ViewportPanel::OnImGuiRender() {
     Entity nullEntity;
@@ -30,20 +43,37 @@ void ViewportPanel::OnImGuiRender(Scene& scene, Entity& selectedEntity) {
     m_IsFocused = ImGui::IsWindowFocused();
 
     ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
+    int targetW = static_cast<int>(viewportPanelSize.x);
+    int targetH = static_cast<int>(viewportPanelSize.y);
 
     // 1. Dynamic Resize & Aspect Ratio (Between-frame deferred resize for Vulkan safety)
-    if (viewportPanelSize.x > 0.0f && viewportPanelSize.y > 0.0f) {
-        glm::vec2 newSize = { viewportPanelSize.x, viewportPanelSize.y };
-        if (m_ViewportSize != newSize) {
+    if (m_Renderer && targetW > 0 && targetH > 0) {
+        if (targetW != m_Renderer->GetWidth() || targetH != m_Renderer->GetHeight()) {
             m_PendingResize = true;
-            m_PendingSize = newSize;
-            m_ViewportSize = newSize;
+            m_PendingSize = { static_cast<float>(targetW), static_cast<float>(targetH) };
         }
     }
 
+    m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
+
     // 2. Render Vulkan Image in ImGui
-    if (m_Renderer && m_Renderer->GetViewportTextureID() && m_ViewportSize.x > 0.0f && m_ViewportSize.y > 0.0f) {
-        ImTextureID textureID = reinterpret_cast<ImTextureID>(m_Renderer->GetViewportTextureID());
+    VkImageView currentImageView = m_Renderer ? static_cast<VkImageView>(m_Renderer->GetStorageImageView()) : VK_NULL_HANDLE;
+
+    // Eger render hedefi boyutu degismis veya goruntu yeniden olusturulmussa eski descriptor set'i temizle
+    if (m_RegisteredImageView != currentImageView) {
+        CleanupDescriptorSet();
+    }
+
+    if (currentImageView != VK_NULL_HANDLE && m_Renderer->GetViewportSampler() && m_ViewportSize.x > 0.0f && m_ViewportSize.y > 0.0f) {
+        if (m_ViewportDescriptorSet == VK_NULL_HANDLE) {
+            m_ViewportDescriptorSet = ImGui_ImplVulkan_AddTexture(
+                static_cast<VkSampler>(m_Renderer->GetViewportSampler()),
+                currentImageView,
+                VK_IMAGE_LAYOUT_GENERAL
+            );
+            m_RegisteredImageView = currentImageView;
+        }
+        ImTextureID textureID = reinterpret_cast<ImTextureID>(m_ViewportDescriptorSet);
         ImGui::Image(textureID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y });
     } else {
         // Fallback placeholder while initializing
