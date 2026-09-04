@@ -22,9 +22,11 @@
 
 namespace Astral {
 
+class InputSystem;
+
 class EditorUI {
 public:
-    EditorUI(VulkanContext& context, GLFWwindow* window);
+    EditorUI(VulkanContext& context, GLFWwindow* window, const InputSystem& input);
     ~EditorUI();
 
     EditorUI(const EditorUI&) = delete;
@@ -47,6 +49,7 @@ public:
 
 private:
     VulkanContext& m_Context;
+    const InputSystem& m_Input;
     vk::UniqueDescriptorPool m_ImguiPool;
 
     // Vulkan 1.3 / 1.4 Dynamic Rendering fonksiyon isaretcileri

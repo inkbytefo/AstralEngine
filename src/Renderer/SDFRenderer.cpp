@@ -372,17 +372,17 @@ void SDFRenderer::UpdateDescriptorSets() {
 
 void SDFRenderer::UpdateEdits(const std::vector<SDFEditGPU>& edits, bool useLegacyMapUnmap) {
     m_ActiveEditCount = std::min(edits.size(), MAX_EDITS);
-    if (m_ActiveEditCount == 0) return;
-
-    size_t uploadBytes = m_ActiveEditCount * sizeof(SDFEditGPU);
-    if (useLegacyMapUnmap) {
-        m_EditBuffer->UpdateDataLegacy(edits.data(), uploadBytes);
-    } else {
-        m_EditBuffer->UpdateData(edits.data(), uploadBytes);
+    if (m_ActiveEditCount > 0) {
+        size_t uploadBytes = m_ActiveEditCount * sizeof(SDFEditGPU);
+        if (useLegacyMapUnmap) {
+            m_EditBuffer->UpdateDataLegacy(edits.data(), uploadBytes);
+        } else {
+            m_EditBuffer->UpdateData(edits.data(), uploadBytes);
+        }
     }
 
     if (m_BrickGrid) {
-        m_BrickGrid->Build(edits);
+        m_BrickGrid->Build(std::span<const SDFEditGPU>(edits.data(), m_ActiveEditCount));
     }
 }
 

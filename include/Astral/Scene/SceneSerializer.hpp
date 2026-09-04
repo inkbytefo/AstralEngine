@@ -40,9 +40,8 @@ struct ComponentChunkHeader {
  * @brief High-performance Data-Oriented custom binary serialization module
  *        for AstralEngine C++20 SparseSet ECS.
  *
- * Direct contiguous bulk dump of SparseSet dense memory buffers (mEntities + mData) to/from disk.
- * Zero per-entity iteration overhead. Strictly enforces compile-time trivial copyability,
- * atomic staging deserialization, and forward-compatible graceful chunk skipping.
+ * Trivial componentleri dogrudan bulk dump eder; degisken uzunluklu hierarchy verisini ozel chunk ile yazar.
+ * Atomic staging deserialization ve forward-compatible graceful chunk skipping uygular.
  */
 class SceneSerializer {
 public:

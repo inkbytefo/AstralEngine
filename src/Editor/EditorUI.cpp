@@ -1,6 +1,7 @@
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 #include "Astral/Editor/EditorUI.hpp"
 #include "Astral/Core/Components.hpp"
+#include "Astral/Core/InputSystem.hpp"
 #include "Astral/Renderer/Swapchain.hpp"
 
 #include <imgui.h>
@@ -15,8 +16,8 @@
 
 namespace Astral {
 
-EditorUI::EditorUI(VulkanContext& context, GLFWwindow* window)
-    : m_Context(context) {
+EditorUI::EditorUI(VulkanContext& context, GLFWwindow* window, const InputSystem& input)
+    : m_Context(context), m_Input(input), m_ViewportPanel(nullptr, &input) {
     InitImGui(window);
 }
 
@@ -188,7 +189,7 @@ void EditorUI::SetupDockSpace(Scene& scene, Entity& selectedEntity) {
 
     // Draw Menu Bar
     MenuBarActions actions{};
-    DrawEditorMenuBar(scene, selectedEntity, actions, m_ShowDemoWindow);
+    DrawEditorMenuBar(scene, selectedEntity, actions, m_ShowDemoWindow, m_Input);
 
     // Process menu bar actions
     if (actions.resetLayout) {
@@ -229,7 +230,7 @@ void EditorUI::SetupDockSpace(Scene& scene, Entity& selectedEntity) {
             toDestroy.push_back(entityId);
         }
         for (auto id : toDestroy) {
-            scene.GetRegistry().DestroyEntity(id);
+            scene.DestroyEntity(id);
         }
         selectedEntity = Entity();
     }

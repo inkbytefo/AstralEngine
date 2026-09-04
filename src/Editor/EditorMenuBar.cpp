@@ -1,5 +1,6 @@
 #include "Astral/Editor/EditorMenuBar.hpp"
 #include "Astral/Core/Components.hpp"
+#include "Astral/Core/InputSystem.hpp"
 #include "Astral/Scene/SceneSerializer.hpp"
 
 #include <imgui.h>
@@ -144,26 +145,27 @@ void SetEditorCurrentScenePath(const std::string& path) {
 }
 
 void DrawEditorMenuBar(Scene& scene, Entity& selectedEntity,
-                       MenuBarActions& actions, bool& showDemoWindowState) {
+                       MenuBarActions& actions, bool& showDemoWindowState,
+                       const InputSystem& input) {
     ImGuiIO& io = ImGui::GetIO();
 
     // ── Keyboard Shortcuts (Ctrl+S, Ctrl+O, Ctrl+N) ───────────
     if (!io.WantTextInput) {
-        bool ctrlPressed = io.KeyCtrl;
-        bool shiftPressed = io.KeyShift;
+        bool ctrlPressed = input.IsKeyPressed(GLFW_KEY_LEFT_CONTROL) || input.IsKeyPressed(GLFW_KEY_RIGHT_CONTROL);
+        bool shiftPressed = input.IsKeyPressed(GLFW_KEY_LEFT_SHIFT) || input.IsKeyPressed(GLFW_KEY_RIGHT_SHIFT);
 
-        if (ctrlPressed && !shiftPressed && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
+        if (ctrlPressed && !shiftPressed && input.IsKeyJustPressed(GLFW_KEY_S)) {
             if (s_CurrentScenePath.empty()) {
                 s_ShowSaveAsPopup_Pending = true;
             } else {
                 ExecuteSave(scene, s_CurrentScenePath);
                 actions.saveScene = true;
             }
-        } else if (ctrlPressed && shiftPressed && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
+        } else if (ctrlPressed && shiftPressed && input.IsKeyJustPressed(GLFW_KEY_S)) {
             s_ShowSaveAsPopup_Pending = true;
-        } else if (ctrlPressed && ImGui::IsKeyPressed(ImGuiKey_O, false)) {
+        } else if (ctrlPressed && input.IsKeyJustPressed(GLFW_KEY_O)) {
             s_ShowLoadPopup_Pending = true;
-        } else if (ctrlPressed && ImGui::IsKeyPressed(ImGuiKey_N, false)) {
+        } else if (ctrlPressed && input.IsKeyJustPressed(GLFW_KEY_N)) {
             if (scene.GetRegistry().GetAliveEntityCount() > 0) {
                 s_ShowNewConfirmPopup_Pending = true;
             } else {

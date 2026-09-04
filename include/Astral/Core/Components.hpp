@@ -6,6 +6,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include "Astral/Core/EntityHandle.hpp"
 
 namespace Astral {
 
@@ -17,6 +18,12 @@ struct TransformComponent {
     glm::vec3 position{0.0f};
     glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f}; // w, x, y, z
     glm::vec3 scale{1.0f};
+};
+
+/// Parent-child baglantilari ayri tutulur; TransformComponent kontigu ve trivially-copyable kalir.
+struct HierarchyComponent {
+    EntityHandle parent = NullEntityHandle;
+    std::vector<EntityHandle> children;
 };
 
 struct VelocityComponent {
@@ -81,6 +88,7 @@ struct ComponentTraits {
     }
 
 ASTRAL_REGISTER_COMPONENT_TRAIT(TransformComponent);
+ASTRAL_REGISTER_COMPONENT_TRAIT(HierarchyComponent);
 ASTRAL_REGISTER_COMPONENT_TRAIT(VelocityComponent);
 ASTRAL_REGISTER_COMPONENT_TRAIT(HealthComponent);
 ASTRAL_REGISTER_COMPONENT_TRAIT(SDFComponent);

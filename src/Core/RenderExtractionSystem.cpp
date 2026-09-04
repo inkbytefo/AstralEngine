@@ -1,6 +1,7 @@
 #include "Astral/Core/RenderExtractionSystem.hpp"
 #include "Astral/Core/Registry.hpp"
 #include "Astral/Core/Components.hpp"
+#include "Astral/Core/TransformSystem.hpp"
 #include "Astral/Renderer/SDFEdit.hpp"
 #include <cstring>
 #include <algorithm>
@@ -16,18 +17,25 @@ void ExtractRenderData(Registry& registry, std::vector<SDFEditGPU>& outEdits, st
     auto& transforms = registry.GetView<TransformComponent>();
 
     for (auto&& [entity, transform] : transforms) {
+        (void)transform;
         if (registry.HasComponent<SDFComponent>(entity)) {
             const auto& sdf = registry.GetComponent<SDFComponent>(entity);
 
+            const glm::mat4 worldMatrix = GetWorldTransformMatrix(registry, entity);
+            glm::vec3 worldPosition;
+            glm::quat worldRotation;
+            glm::vec3 worldScale;
+            DecomposeTransformMatrix(worldMatrix, worldPosition, worldRotation, worldScale);
+
             SDFEditGPU gpuData{};
-            gpuData.position = transform.position;
+            gpuData.position = worldPosition;
             gpuData.rotation = glm::vec4(
-                transform.rotation.x,
-                transform.rotation.y,
-                transform.rotation.z,
-                transform.rotation.w
+                worldRotation.x,
+                worldRotation.y,
+                worldRotation.z,
+                worldRotation.w
             );
-            gpuData.scale = transform.scale;
+            gpuData.scale = worldScale;
             gpuData.primitiveType = sdf.primitiveType;
             gpuData.operation = sdf.operation;
             gpuData.blendFactor = sdf.blendFactor;

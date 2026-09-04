@@ -88,7 +88,11 @@ void Application::Run(int maxFrames) {
         );
 
         // 4. Editör UI Arayuzu Kurulumu
-        m_EditorUI = std::make_unique<EditorUI>(*m_VulkanContext, m_Window->GetNativeWindow());
+        m_EditorUI = std::make_unique<EditorUI>(
+            *m_VulkanContext,
+            m_Window->GetNativeWindow(),
+            m_Window->GetInputSystem()
+        );
         m_EditorUI->SetRenderer(m_SDFRenderer.get());
 
         // 5. Benchmark logger kurulumu

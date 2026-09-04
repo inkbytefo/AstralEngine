@@ -2,6 +2,7 @@
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#include "Astral/Core/InputSystem.hpp"
 #include <string>
 #include <vector>
 
@@ -16,7 +17,7 @@ public:
     Window& operator=(const Window&) = delete;
 
     bool ShouldClose() const { return glfwWindowShouldClose(m_Window); }
-    void PollEvents() { glfwPollEvents(); }
+    void PollEvents();
 
     GLFWwindow* GetNativeWindow() const { return m_Window; }
     void GetFramebufferSize(int& width, int& height) const {
@@ -26,13 +27,8 @@ public:
     int GetWidth() const { return m_Width; }
     int GetHeight() const { return m_Height; }
 
-    void GetCursorPos(double& xpos, double& ypos) const {
-        glfwGetCursorPos(m_Window, &xpos, &ypos);
-    }
-
-    bool IsMouseButtonPressed(int button = GLFW_MOUSE_BUTTON_LEFT) const {
-        return glfwGetMouseButton(m_Window, button) == GLFW_PRESS;
-    }
+    InputSystem& GetInputSystem() { return m_InputSystem; }
+    const InputSystem& GetInputSystem() const { return m_InputSystem; }
 
     static std::vector<const char*> GetRequiredExtensions();
 
@@ -41,6 +37,7 @@ private:
     int m_Width;
     int m_Height;
     std::string m_Title;
+    InputSystem m_InputSystem;
 
     void Init();
 };

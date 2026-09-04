@@ -10,6 +10,7 @@
 #include <fstream>
 #include <filesystem>
 #include <string>
+#include <cmath>
 
 // Fizik Sistemi: yalnizca verileri isler, kendi icinde durum tutmaz.
 // SparseSet'in dense (kontigu) dizisini gezer -> cache dostu.
@@ -212,6 +213,8 @@ static void RunSerializationTests() {
         glm::vec3(0.2f, 0.4f, 0.8f),
         0.4f, 0.1f
     );
+    assert(sourceScene->SetParent(e2, e0) && "Child parent'a baglanabilmeli!");
+    assert(!sourceScene->SetParent(e0, e2) && "Dongusel parent atamasi reddedilmeli!");
 
     // Arada Index 3..16 arasinda 14 adet bosluk olusturuyoruz
     std::vector<Astral::Entity> dummies;
@@ -281,6 +284,24 @@ static void RunSerializationTests() {
     assert(!loadedE2.HasComponent<Astral::HealthComponent>());
     assert(!loadedE2.HasComponent<Astral::VelocityComponent>());
 
+    // Hierarchy referanslari tam 64-bit index+generation ile round-trip yapmali.
+    assert(loadedE0.HasComponent<Astral::HierarchyComponent>());
+    assert(loadedE2.HasComponent<Astral::HierarchyComponent>());
+    const auto& loadedParentHierarchy = loadedE0.GetComponent<Astral::HierarchyComponent>();
+    const auto& loadedChildHierarchy = loadedE2.GetComponent<Astral::HierarchyComponent>();
+    assert(loadedChildHierarchy.parent == loadedE0.GetHandle());
+    assert(loadedParentHierarchy.children.size() == 1);
+    assert(loadedParentHierarchy.children[0] == loadedE2.GetHandle());
+
+    // Render extraction local child pozisyonunu degil parent.world * local sonucunu kullanmali.
+    std::vector<Astral::SDFEditGPU> hierarchyEdits;
+    std::vector<Astral::EntityHandle> hierarchyEntities;
+    Astral::ExtractRenderData(loadedScene->GetRegistry(), hierarchyEdits, hierarchyEntities);
+    assert(hierarchyEdits.size() == 1 && hierarchyEntities[0] == loadedE2.GetHandle());
+    assert(std::abs(hierarchyEdits[0].position.x - 1.5f) < 0.0001f);
+    assert(std::abs(hierarchyEdits[0].position.y - 2.5f) < 0.0001f);
+    assert(std::abs(hierarchyEdits[0].position.z + 3.0f) < 0.0001f);
+
     // Varlık #17 doğrulaması: Velocity + Health var; Transform ve SDF YOK!
     Astral::Entity loadedE17(e17.GetHandle(), loadedScene.get());
     assert(loadedE17.IsValid());
@@ -290,6 +311,9 @@ static void RunSerializationTests() {
     assert(loadedE17.GetComponent<Astral::HealthComponent>().hp == 50);
     assert(!loadedE17.HasComponent<Astral::TransformComponent>());
     assert(!loadedE17.HasComponent<Astral::SDFComponent>());
+
+    loadedScene->DestroyEntity(loadedE0);
+    assert(!loadedE0.IsValid() && !loadedE2.IsValid() && "Parent silinince child cascade silinmeli!");
 
     std::cout << "[Serialization Test] DOD Binary Dogrulama (v2): Non-sequential seyrek Entity-Component eslemesi %100 dogrulandi!\n";
 

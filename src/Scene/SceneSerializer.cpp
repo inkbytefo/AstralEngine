@@ -7,6 +7,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <unordered_map>
 #include <vector>
 
@@ -53,9 +54,45 @@ static bool ReadChunkDirect(Registry& registry, std::istream& stream, const Comp
     return true;
 }
 
+static bool ReadHierarchyChunk(Registry& registry, std::istream& stream, const ComponentChunkHeader& chunkHeader) {
+    const uint32_t elementCount = chunkHeader.elementCount;
+    const std::streamsize entityBytes = static_cast<std::streamsize>(chunkHeader.entityDataSize);
+    if (entityBytes != static_cast<std::streamsize>(elementCount * sizeof(EntityHandle))) return false;
+
+    std::vector<EntityHandle> entities(elementCount);
+    if (entityBytes > 0) {
+        stream.read(reinterpret_cast<char*>(entities.data()), entityBytes);
+        if (!stream || stream.gcount() != entityBytes) return false;
+    }
+
+    std::vector<HierarchyComponent> data(elementCount);
+    uint64_t bytesRead = 0;
+    for (HierarchyComponent& hierarchy : data) {
+        uint32_t childCount = 0;
+        stream.read(reinterpret_cast<char*>(&hierarchy.parent), sizeof(EntityHandle));
+        stream.read(reinterpret_cast<char*>(&childCount), sizeof(uint32_t));
+        if (!stream) return false;
+        bytesRead += sizeof(EntityHandle) + sizeof(uint32_t);
+
+        const uint64_t childBytes = static_cast<uint64_t>(childCount) * sizeof(EntityHandle);
+        if (bytesRead + childBytes > chunkHeader.componentDataSize) return false;
+        hierarchy.children.resize(childCount);
+        if (childBytes > 0) {
+            stream.read(reinterpret_cast<char*>(hierarchy.children.data()), static_cast<std::streamsize>(childBytes));
+            if (!stream || stream.gcount() != static_cast<std::streamsize>(childBytes)) return false;
+        }
+        bytesRead += childBytes;
+    }
+
+    if (bytesRead != chunkHeader.componentDataSize) return false;
+    registry.GetView<HierarchyComponent>().AssignDirect(std::move(entities), std::move(data));
+    return true;
+}
+
 static std::unordered_map<uint64_t, ChunkDeserializerFn>& GetDeserializerRegistry() {
     static std::unordered_map<uint64_t, ChunkDeserializerFn> registry = {
         { ComponentTraits<TransformComponent>::TypeHash, &ReadChunkDirect<TransformComponent> },
+        { ComponentTraits<HierarchyComponent>::TypeHash, &ReadHierarchyChunk },
         { ComponentTraits<VelocityComponent>::TypeHash,  &ReadChunkDirect<VelocityComponent> },
         { ComponentTraits<HealthComponent>::TypeHash,    &ReadChunkDirect<HealthComponent> },
         { ComponentTraits<SDFComponent>::TypeHash,       &ReadChunkDirect<SDFComponent> }
@@ -157,12 +194,54 @@ bool SceneSerializer::Serialize(const Scene& scene, const std::filesystem::path&
     // 2. Component Chunks (Data-Oriented Dump: zero per-entity iteration)
     for (const auto& [typeIndex, pool] : registry.GetPools()) {
         if (!pool || pool->Size() == 0) continue;
+        const uint64_t typeId = pool->GetTypeHash();
+
+        if (typeId == ComponentTraits<HierarchyComponent>::TypeHash) {
+            const auto* hierarchyPool = dynamic_cast<const Pool<HierarchyComponent>*>(pool.get());
+            if (!hierarchyPool) return false;
+
+            const auto& set = hierarchyPool->set;
+            uint64_t componentBytes64 = 0;
+            for (const HierarchyComponent& hierarchy : set.Data()) {
+                componentBytes64 += sizeof(EntityHandle) + sizeof(uint32_t) +
+                                    hierarchy.children.size() * sizeof(EntityHandle);
+            }
+            if (componentBytes64 > std::numeric_limits<uint32_t>::max()) return false;
+
+            const uint32_t elementCount = static_cast<uint32_t>(set.Size());
+            const uint32_t entityDataSize = static_cast<uint32_t>(elementCount * sizeof(EntityHandle));
+            const uint32_t componentDataSize = static_cast<uint32_t>(componentBytes64);
+            const ComponentChunkHeader chunkHeader{
+                .typeId = typeId,
+                .version = 1,
+                .flags = 0,
+                .elementCount = elementCount,
+                .entityDataSize = entityDataSize,
+                .componentDataSize = componentDataSize
+            };
+
+            stream.write(reinterpret_cast<const char*>(&chunkHeader), sizeof(chunkHeader));
+            stream.write(reinterpret_cast<const char*>(set.Entities().data()), entityDataSize);
+            for (const HierarchyComponent& hierarchy : set.Data()) {
+                const uint32_t childCount = static_cast<uint32_t>(hierarchy.children.size());
+                stream.write(reinterpret_cast<const char*>(&hierarchy.parent), sizeof(EntityHandle));
+                stream.write(reinterpret_cast<const char*>(&childCount), sizeof(uint32_t));
+                if (childCount > 0) {
+                    stream.write(
+                        reinterpret_cast<const char*>(hierarchy.children.data()),
+                        static_cast<std::streamsize>(childCount * sizeof(EntityHandle))
+                    );
+                }
+            }
+            if (!stream) return false;
+            continue;
+        }
+
         if (!pool->IsTriviallyCopyable()) {
             // Cannot be bulk dumped according to C++20 trivial copyability mandate
             continue;
         }
 
-        const uint64_t typeId = pool->GetTypeHash();
         if (typeId == 0) continue;
 
         const uint32_t elementCount = static_cast<uint32_t>(pool->Size());

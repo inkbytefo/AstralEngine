@@ -9,6 +9,7 @@ struct ImDrawList;
 namespace Astral {
 
 class SDFRenderer;
+class InputSystem;
 class Scene;
 class Entity;
 
@@ -23,10 +24,11 @@ class Entity;
 class ViewportPanel {
 public:
     ViewportPanel() = default;
-    explicit ViewportPanel(SDFRenderer* renderer);
+    explicit ViewportPanel(SDFRenderer* renderer, const InputSystem* input = nullptr);
     ~ViewportPanel() = default;
 
     void SetRenderer(SDFRenderer* renderer) noexcept { m_Renderer = renderer; }
+    void SetInputSystem(const InputSystem* input) noexcept { m_Input = input; }
     [[nodiscard]] SDFRenderer* GetRenderer() const noexcept { return m_Renderer; }
 
     /// Primary interface called during ImGui editor rendering with ECS Scene & Entity
@@ -56,6 +58,7 @@ public:
 
 private:
     SDFRenderer* m_Renderer = nullptr;
+    const InputSystem* m_Input = nullptr;
     glm::vec2 m_ViewportSize{ 0.0f, 0.0f };
     glm::vec2 m_PendingSize{ 0.0f, 0.0f };
     glm::vec2 m_MousePosInViewport{ -1.0f, -1.0f };
@@ -63,6 +66,7 @@ private:
     bool m_IsHovered = false;
     bool m_IsFocused = false;
     bool m_IsUsingGizmo = false;
+    bool m_GizmoStyleInitialized = false;
 
     // Gizmo state: 0 = Translate, 1 = Rotate, 2 = Scale, 3 = Universal, -1 = None
     int m_GizmoType = 0;

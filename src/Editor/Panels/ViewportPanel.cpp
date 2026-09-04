@@ -3,6 +3,8 @@
 #include "Astral/Scene/Scene.hpp"
 #include "Astral/Scene/Entity.hpp"
 #include "Astral/Core/Components.hpp"
+#include "Astral/Core/InputSystem.hpp"
+#include "Astral/Core/TransformSystem.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -13,13 +15,14 @@
 #include <glm/gtx/quaternion.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cmath>
 
 namespace Astral {
 
-ViewportPanel::ViewportPanel(SDFRenderer* renderer)
-    : m_Renderer(renderer) {}
+ViewportPanel::ViewportPanel(SDFRenderer* renderer, const InputSystem* input)
+    : m_Renderer(renderer), m_Input(input) {}
 
 void ViewportPanel::OnImGuiRender() {
     Entity nullEntity;
@@ -28,7 +31,6 @@ void ViewportPanel::OnImGuiRender() {
 }
 
 void ViewportPanel::OnImGuiRender(Scene& scene, Entity& selectedEntity) {
-    (void)scene;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0.0f, 0.0f });
     ImGui::Begin("3D Viewport", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
@@ -67,7 +69,8 @@ void ViewportPanel::OnImGuiRender(Scene& scene, Entity& selectedEntity) {
     ImVec2 viewportOffset = ImGui::GetWindowPos();
     ImVec2 viewportBoundsMin = { viewportMinRegion.x + viewportOffset.x, viewportMinRegion.y + viewportOffset.y };
 
-    ImVec2 mousePos = ImGui::GetMousePos();
+    const glm::dvec2 rawMousePos = m_Input ? m_Input->GetMousePosition() : glm::dvec2(0.0);
+    ImVec2 mousePos(static_cast<float>(rawMousePos.x), static_cast<float>(rawMousePos.y));
     glm::vec2 mousePosInViewport = { mousePos.x - viewportBoundsMin.x, mousePos.y - viewportBoundsMin.y };
 
     // Clamp coordinates within viewport limits
@@ -78,11 +81,11 @@ void ViewportPanel::OnImGuiRender(Scene& scene, Entity& selectedEntity) {
     // 4. Shortcut Keys for Gizmo Operation (W: Translate, E: Rotate, R: Scale, Q: None)
     if (m_IsFocused || m_IsHovered) {
         if (!ImGui::GetIO().WantTextInput) {
-            if (ImGui::IsKeyPressed(ImGuiKey_W)) { m_GizmoType = 0; } // Translate
-            if (ImGui::IsKeyPressed(ImGuiKey_E)) { m_GizmoType = 1; } // Rotate (3D Sphere)
-            if (ImGui::IsKeyPressed(ImGuiKey_R)) { m_GizmoType = 2; } // Scale
-            if (ImGui::IsKeyPressed(ImGuiKey_T)) { m_GizmoType = 3; } // Universal 3D Sphere Gizmo
-            if (ImGui::IsKeyPressed(ImGuiKey_Q)) { m_GizmoType = -1; } // None / Select
+            if (m_Input && m_Input->IsKeyJustPressed(GLFW_KEY_W)) { m_GizmoType = 0; } // Translate
+            if (m_Input && m_Input->IsKeyJustPressed(GLFW_KEY_E)) { m_GizmoType = 1; } // Rotate (3D Sphere)
+            if (m_Input && m_Input->IsKeyJustPressed(GLFW_KEY_R)) { m_GizmoType = 2; } // Scale
+            if (m_Input && m_Input->IsKeyJustPressed(GLFW_KEY_T)) { m_GizmoType = 3; } // Universal 3D Sphere Gizmo
+            if (m_Input && m_Input->IsKeyJustPressed(GLFW_KEY_Q)) { m_GizmoType = -1; } // None / Select
         }
     }
 
@@ -102,30 +105,29 @@ void ViewportPanel::OnImGuiRender(Scene& scene, Entity& selectedEntity) {
         ImGuizmo::SetDrawlist();
         ImGuizmo::SetRect(viewportBoundsMin.x, viewportBoundsMin.y, m_ViewportSize.x, m_ViewportSize.y);
 
-        // Modern 3D Kure Gizmo Stili (Kalinlastirilmis PBR antialiased cizgiler & merkez kure)
-        auto& gizmoStyle = ImGuizmo::GetStyle();
-        gizmoStyle.TranslationLineThickness = 3.5f;
-        gizmoStyle.TranslationLineArrowSize = 8.0f;
-        gizmoStyle.RotationLineThickness = 3.5f;
-        gizmoStyle.RotationOuterLineThickness = 3.5f;
-        gizmoStyle.ScaleLineThickness = 3.5f;
-        gizmoStyle.ScaleLineCircleSize = 7.0f;
-        gizmoStyle.CenterCircleSize = 6.5f;
-        gizmoStyle.HatchedAxisLineThickness = 2.5f;
-
-        gizmoStyle.Colors[ImGuizmo::DIRECTION_X] = ImVec4(0.95f, 0.22f, 0.22f, 1.0f);
-        gizmoStyle.Colors[ImGuizmo::DIRECTION_Y] = ImVec4(0.22f, 0.85f, 0.35f, 1.0f);
-        gizmoStyle.Colors[ImGuizmo::DIRECTION_Z] = ImVec4(0.22f, 0.55f, 0.95f, 1.0f);
-        gizmoStyle.Colors[ImGuizmo::PLANE_X]     = ImVec4(0.95f, 0.22f, 0.22f, 0.45f);
-        gizmoStyle.Colors[ImGuizmo::PLANE_Y]     = ImVec4(0.22f, 0.85f, 0.35f, 0.45f);
-        gizmoStyle.Colors[ImGuizmo::PLANE_Z]     = ImVec4(0.22f, 0.55f, 0.95f, 0.45f);
-        gizmoStyle.Colors[ImGuizmo::ROTATION_USING_FILL]   = ImVec4(0.20f, 0.55f, 0.95f, 0.35f);
-        gizmoStyle.Colors[ImGuizmo::ROTATION_USING_BORDER] = ImVec4(1.00f, 0.85f, 0.25f, 1.0f);
+        if (!m_GizmoStyleInitialized) {
+            auto& gizmoStyle = ImGuizmo::GetStyle();
+            gizmoStyle.TranslationLineThickness = 3.5f;
+            gizmoStyle.TranslationLineArrowSize = 8.0f;
+            gizmoStyle.RotationLineThickness = 3.5f;
+            gizmoStyle.RotationOuterLineThickness = 3.5f;
+            gizmoStyle.ScaleLineThickness = 3.5f;
+            gizmoStyle.ScaleLineCircleSize = 7.0f;
+            gizmoStyle.CenterCircleSize = 6.5f;
+            gizmoStyle.HatchedAxisLineThickness = 2.5f;
+            gizmoStyle.Colors[ImGuizmo::DIRECTION_X] = ImVec4(0.95f, 0.22f, 0.22f, 1.0f);
+            gizmoStyle.Colors[ImGuizmo::DIRECTION_Y] = ImVec4(0.22f, 0.85f, 0.35f, 1.0f);
+            gizmoStyle.Colors[ImGuizmo::DIRECTION_Z] = ImVec4(0.22f, 0.55f, 0.95f, 1.0f);
+            gizmoStyle.Colors[ImGuizmo::PLANE_X] = ImVec4(0.95f, 0.22f, 0.22f, 0.45f);
+            gizmoStyle.Colors[ImGuizmo::PLANE_Y] = ImVec4(0.22f, 0.85f, 0.35f, 0.45f);
+            gizmoStyle.Colors[ImGuizmo::PLANE_Z] = ImVec4(0.22f, 0.55f, 0.95f, 0.45f);
+            gizmoStyle.Colors[ImGuizmo::ROTATION_USING_FILL] = ImVec4(0.20f, 0.55f, 0.95f, 0.35f);
+            gizmoStyle.Colors[ImGuizmo::ROTATION_USING_BORDER] = ImVec4(1.00f, 0.85f, 0.25f, 1.0f);
+            m_GizmoStyleInitialized = true;
+        }
 
         auto& tc = selectedEntity.GetComponent<TransformComponent>();
-        glm::mat4 transform = glm::translate(glm::mat4(1.0f), tc.position)
-                            * glm::mat4_cast(tc.rotation)
-                            * glm::scale(glm::mat4(1.0f), tc.scale);
+        glm::mat4 transform = scene.GetWorldTransform(selectedEntity.GetHandle());
 
         ImGuizmo::OPERATION op = ImGuizmo::TRANSLATE;
         if (m_GizmoType == 1) op = ImGuizmo::ROTATE;
@@ -135,7 +137,8 @@ void ViewportPanel::OnImGuiRender(Scene& scene, Entity& selectedEntity) {
         ImGuizmo::MODE mode = (m_GizmoMode == 1) ? ImGuizmo::LOCAL : ImGuizmo::WORLD;
 
         // Snapping (Ctrl key modifier)
-        bool snap = ImGui::GetIO().KeyCtrl;
+        bool snap = m_Input && (m_Input->IsKeyPressed(GLFW_KEY_LEFT_CONTROL) ||
+                                m_Input->IsKeyPressed(GLFW_KEY_RIGHT_CONTROL));
         float snapValue = (m_GizmoType == 1) ? 45.0f : 0.5f; // 45 deg or 0.5m
         float snapValues[3] = { snapValue, snapValue, snapValue };
 
@@ -151,26 +154,21 @@ void ViewportPanel::OnImGuiRender(Scene& scene, Entity& selectedEntity) {
 
         if (ImGuizmo::IsUsing()) {
             m_IsUsingGizmo = true;
-            float matrixTranslation[3], matrixRotation[3], matrixScale[3];
-            ImGuizmo::DecomposeMatrixToComponents(
-                glm::value_ptr(transform),
-                matrixTranslation,
-                matrixRotation,
-                matrixScale
-            );
-
-            tc.position = glm::vec3(matrixTranslation[0], matrixTranslation[1], matrixTranslation[2]);
-            tc.scale = glm::vec3(matrixScale[0], matrixScale[1], matrixScale[2]);
-
-            // Quaternion conversion from Euler angles in degrees (prevents Gimbal Lock)
-            glm::vec3 radEuler = glm::radians(glm::vec3(matrixRotation[0], matrixRotation[1], matrixRotation[2]));
-            tc.rotation = glm::quat(radEuler);
+            glm::mat4 localTransform = transform;
+            const auto& registry = scene.GetRegistry();
+            if (registry.HasComponent<HierarchyComponent>(selectedEntity.GetHandle())) {
+                const EntityHandle parent = registry.GetComponent<HierarchyComponent>(selectedEntity.GetHandle()).parent;
+                if (registry.IsAlive(parent)) {
+                    localTransform = glm::inverse(scene.GetWorldTransform(parent)) * transform;
+                }
+            }
+            DecomposeTransformMatrix(localTransform, tc.position, tc.rotation, tc.scale);
         }
     }
 
     // 6. Send picking request to GPU compute if user clicked inside hovered viewport (and not interacting with Gizmo)
     bool isGizmoInteracting = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
-    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && m_IsHovered && !isGizmoInteracting) {
+    if (m_Input && m_Input->IsMouseButtonJustPressed(GLFW_MOUSE_BUTTON_LEFT) && m_IsHovered && !isGizmoInteracting) {
         if (m_Renderer && m_ViewportSize.x > 0.0f && m_ViewportSize.y > 0.0f) {
             m_Renderer->SetPickingRequest(
                 static_cast<int>(mousePosInViewport.x),
@@ -286,14 +284,14 @@ void ViewportPanel::DrawNavigationSphere(ImDrawList* drawList, const glm::vec2& 
         bool isPositive;
     };
 
-    std::vector<AxisInfo> axes = {
+    std::array<AxisInfo, 6> axes = {{
         { "X", glm::vec3( 1.0f,  0.0f,  0.0f), IM_COL32(235, 55, 65, 255),  IM_COL32(130, 40, 45, 140), 0.0f, {}, true },
         { "-X", glm::vec3(-1.0f,  0.0f,  0.0f), IM_COL32(235, 55, 65, 255),  IM_COL32(100, 35, 40, 120), 0.0f, {}, false },
         { "Y", glm::vec3( 0.0f,  1.0f,  0.0f), IM_COL32(65, 215, 80, 255),  IM_COL32(40, 120, 50, 140), 0.0f, {}, true },
         { "-Y", glm::vec3( 0.0f, -1.0f,  0.0f), IM_COL32(65, 215, 80, 255),  IM_COL32(35, 95, 45, 120), 0.0f, {}, false },
         { "Z", glm::vec3( 0.0f,  0.0f,  1.0f), IM_COL32(50, 145, 250, 255), IM_COL32(35, 85, 150, 140), 0.0f, {}, true },
         { "-Z", glm::vec3( 0.0f,  0.0f, -1.0f), IM_COL32(50, 145, 250, 255), IM_COL32(30, 70, 125, 120), 0.0f, {}, false }
-    };
+    }};
 
     float armLength = radius * 0.72f;
 
@@ -308,7 +306,8 @@ void ViewportPanel::DrawNavigationSphere(ImDrawList* drawList, const glm::vec2& 
         return a.depth < b.depth;
     });
 
-    ImVec2 mousePos = ImGui::GetIO().MousePos;
+    const glm::dvec2 inputMousePos = m_Input ? m_Input->GetMousePosition() : glm::dvec2(0.0);
+    ImVec2 mousePos(static_cast<float>(inputMousePos.x), static_cast<float>(inputMousePos.y));
 
     // 3. Arka Eksenleri Ciz (Kameraya uzak olan negatif eksenler)
     for (const auto& ax : axes) {
@@ -353,4 +352,3 @@ void ViewportPanel::DrawNavigationSphere(ImDrawList* drawList, const glm::vec2& 
 }
 
 } // namespace Astral
-

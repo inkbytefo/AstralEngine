@@ -5,6 +5,8 @@
 
 namespace Astral {
 
+class InputSystem;
+
 /// Draws the main editor menu bar inside the DockSpace host window.
 /// Returns actions via out-parameters so the caller (EditorUI) can execute them.
 struct MenuBarActions {
@@ -24,7 +26,8 @@ struct MenuBarActions {
 };
 
 void DrawEditorMenuBar(Scene& scene, Entity& selectedEntity,
-                       MenuBarActions& actions, bool& showDemoWindowState);
+                       MenuBarActions& actions, bool& showDemoWindowState,
+                       const InputSystem& input);
 
 [[nodiscard]] std::string GetEditorCurrentScenePath();
 void SetEditorCurrentScenePath(const std::string& path);

@@ -21,6 +21,11 @@ Window::~Window() {
     glfwTerminate();
 }
 
+void Window::PollEvents() {
+    glfwPollEvents();
+    m_InputSystem.BeginFrame();
+}
+
 void Window::Init() {
     glfwSetErrorCallback(GLFWErrorCallback);
 
@@ -47,6 +52,37 @@ void Window::Init() {
             self->m_Height = height;
         }
     });
+
+    glfwSetKeyCallback(m_Window, [](GLFWwindow* window, int key, int, int action, int) {
+        if (auto* self = static_cast<Window*>(glfwGetWindowUserPointer(window))) {
+            self->m_InputSystem.OnKey(key, action);
+        }
+    });
+    glfwSetMouseButtonCallback(m_Window, [](GLFWwindow* window, int button, int action, int) {
+        if (auto* self = static_cast<Window*>(glfwGetWindowUserPointer(window))) {
+            self->m_InputSystem.OnMouseButton(button, action);
+        }
+    });
+    glfwSetCursorPosCallback(m_Window, [](GLFWwindow* window, double x, double y) {
+        if (auto* self = static_cast<Window*>(glfwGetWindowUserPointer(window))) {
+            self->m_InputSystem.OnCursorPosition(x, y);
+        }
+    });
+    glfwSetScrollCallback(m_Window, [](GLFWwindow* window, double xOffset, double yOffset) {
+        if (auto* self = static_cast<Window*>(glfwGetWindowUserPointer(window))) {
+            self->m_InputSystem.OnScroll(xOffset, yOffset);
+        }
+    });
+    glfwSetWindowFocusCallback(m_Window, [](GLFWwindow* window, int focused) {
+        if (auto* self = static_cast<Window*>(glfwGetWindowUserPointer(window))) {
+            self->m_InputSystem.OnFocusChanged(focused == GLFW_TRUE);
+        }
+    });
+
+    double mouseX = 0.0;
+    double mouseY = 0.0;
+    glfwGetCursorPos(m_Window, &mouseX, &mouseY);
+    m_InputSystem.OnCursorPosition(mouseX, mouseY);
 
     std::cout << "[Astral::Window] Pencere basariyla olusturuldu (" << m_Width << "x" << m_Height << "): " << m_Title << "\n";
 }

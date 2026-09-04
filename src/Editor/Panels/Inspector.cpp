@@ -1,5 +1,6 @@
 #include "Astral/Editor/Panels/Inspector.hpp"
 #include "Astral/Core/Components.hpp"
+#include "Astral/Core/TransformSystem.hpp"
 
 #include <imgui.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -13,8 +14,9 @@ static const char* s_PrimitiveNames[] = {
     "Kure (Sphere)",
     "Kutu (Box)",
     "Torus (Simit)",
-    "Silindir (Cylinder)",
-    "Zemin (Plane)"
+    "Zemin (Plane)",
+    "Kapsul (Capsule)",
+    "Silindir (Cylinder)"
 };
 
 static const char* s_OperationNames[] = {
@@ -27,8 +29,6 @@ static const char* s_OperationNames[] = {
 };
 
 void Inspector::Draw(Scene& scene, Entity& selectedEntity) {
-    (void)scene;
-
     ImGui::Begin("Bilesen Denetcisi");
 
     if (!selectedEntity.IsValid()) {
@@ -64,6 +64,26 @@ void Inspector::Draw(Scene& scene, Entity& selectedEntity) {
             ImGui::Text("Konum (m)");
             ImGui::DragFloat3("##Position", glm::value_ptr(transform.position), 0.05f);
 
+            if (selectedEntity.HasComponent<HierarchyComponent>()) {
+                const auto& hierarchy = selectedEntity.GetComponent<HierarchyComponent>();
+                if (scene.GetRegistry().IsAlive(hierarchy.parent)) {
+                    glm::vec3 worldPosition;
+                    glm::quat worldRotation;
+                    glm::vec3 worldScale;
+                    DecomposeTransformMatrix(
+                        scene.GetWorldTransform(selectedEntity.GetHandle()),
+                        worldPosition,
+                        worldRotation,
+                        worldScale
+                    );
+                    ImGui::TextDisabled("World: %.2f, %.2f, %.2f  ·  Parent #%u",
+                                        worldPosition.x, worldPosition.y, worldPosition.z,
+                                        GetEntityIndex(hierarchy.parent));
+                } else if (!hierarchy.children.empty()) {
+                    ImGui::TextDisabled("Root  ·  %zu alt nesne", hierarchy.children.size());
+                }
+            }
+
             ImGui::Dummy(ImVec2(0, 2.0f));
 
             ImGui::Text("Rotasyon (Derece)");
@@ -74,7 +94,7 @@ void Inspector::Draw(Scene& scene, Entity& selectedEntity) {
 
             // ── 3D Standart Kure Rotasyon Gizmosu (Interactive Trackball Sphere) ──
             ImGui::Dummy(ImVec2(0, 3.0f));
-            ImGui::TextDisabled("3D Kure Gizmo (Surukleyerek Dondur):");
+            ImGui::TextDisabled("Hizli rotasyon · surukle");
             
             float sphereWidgetRadius = 36.0f;
             float sphereWidgetHeight = sphereWidgetRadius * 2.0f + 6.0f;

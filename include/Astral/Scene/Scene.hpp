@@ -6,6 +6,7 @@
 #include <memory>
 #include <cassert>
 #include <utility>
+#include <glm/glm.hpp>
 
 namespace Astral {
 
@@ -59,6 +60,12 @@ public:
     void DestroyEntity(Entity entity);
     void DestroyEntity(EntityHandle handle);
     void Clear();
+
+    /// Yerel transformu koruyarak child'i parent altina baglar. Dongu olusacaksa false doner.
+    [[nodiscard]] bool SetParent(EntityHandle child, EntityHandle parent);
+    [[nodiscard]] bool SetParent(Entity child, Entity parent);
+    [[nodiscard]] bool ClearParent(EntityHandle child);
+    [[nodiscard]] glm::mat4 GetWorldTransform(EntityHandle entity) const;
 
     /// Atomic Transaction Commit: swaps internal ECS registry and state
     void Swap(Scene& other) noexcept {
@@ -127,15 +134,6 @@ inline bool Entity::RemoveComponent() {
 
 inline Entity Scene::CreateEntity() {
     return Entity(m_Registry.CreateEntity(), this);
-}
-
-inline void Scene::DestroyEntity(EntityHandle handle) {
-    m_Registry.DestroyEntity(handle);
-}
-
-inline void Scene::DestroyEntity(Entity entity) {
-    assert(entity.GetScene() == this && "[Astral::Scene] Entity baska bir sahneye ait!");
-    m_Registry.DestroyEntity(entity.GetHandle());
 }
 
 inline void Scene::Clear() {

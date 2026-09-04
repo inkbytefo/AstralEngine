@@ -9,6 +9,7 @@
 #include <vulkan/vulkan.hpp>
 #include <glm/glm.hpp>
 #include <vector>
+#include <span>
 #include <memory>
 #include "Astral/Renderer/SDFEdit.hpp"
 
@@ -32,7 +33,10 @@ public:
     BrickGrid& operator=(const BrickGrid&) = delete;
 
     /// Sahnedeki primitiflerin AABB / yaricaplarina gore 3D izgarayi gunceller
-    void Build(const std::vector<SDFEditGPU>& edits);
+    void Build(std::span<const SDFEditGPU> edits);
+
+    /// Son Build cagrisinda kac hucrenin yeniden degerlendirildigini dondurur (test ve profil icin)
+    size_t GetLastUpdatedCellCount() const { return m_LastUpdatedCellCount; }
 
     Buffer* GetBuffer() const { return m_GridBuffer.get(); }
     glm::vec3 GetMinBounds() const { return m_MinBounds; }
@@ -43,6 +47,9 @@ public:
     }
 
 private:
+    float EvaluateCell(uint32_t x, uint32_t y, uint32_t z, std::span<const SDFEditGPU> edits) const;
+    void FullRebuild(std::span<const SDFEditGPU> edits);
+
     vk::Device m_Device;
     vk::PhysicalDevice m_PhysicalDevice;
 
@@ -52,6 +59,9 @@ private:
 
     std::unique_ptr<Buffer> m_GridBuffer;
     std::vector<float> m_CellDistances;
+    std::vector<SDFEditGPU> m_CachedEdits;
+    bool m_IsInitialized = false;
+    size_t m_LastUpdatedCellCount = 0;
 };
 
 } // namespace Astral

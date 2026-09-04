@@ -114,6 +114,8 @@ add_custom_target(CompileShaders ALL DEPENDS ${SHADER_SPV} ${TAA_SHADER_SPV})
 add_library(AstralCore
     src/Core/Application.cpp
     src/Core/Window.cpp
+    src/Core/InputSystem.cpp
+    src/Core/TransformSystem.cpp
     src/Core/BenchmarkLogger.cpp
     src/Core/RenderExtractionSystem.cpp
     src/Renderer/VulkanContext.cpp
