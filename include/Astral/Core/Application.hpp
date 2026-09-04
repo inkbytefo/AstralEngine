@@ -2,9 +2,11 @@
 
 #include <string>
 #include <memory>
+#include <vector>
 #include "Astral/Core/Registry.hpp"
 #include "Astral/Scene/Scene.hpp"
 #include "Astral/Scene/SceneManager.hpp"
+#include "Astral/Renderer/SDFEdit.hpp"
 
 namespace Astral {
 
@@ -59,6 +61,10 @@ private:
     std::unique_ptr<BenchmarkLogger> m_BenchmarkLogger;
     std::unique_ptr<EditorUI> m_EditorUI;
     bool m_Running = false;
+
+    // Per-frame persistent extraction buffers (eliminates per-frame heap allocations)
+    std::vector<SDFEditGPU> m_SceneEdits;
+    std::vector<EntityHandle> m_SceneEntities;
 };
 
 } // namespace Astral

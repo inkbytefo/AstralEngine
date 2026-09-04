@@ -7,7 +7,7 @@
 
 namespace Astral {
 
-void ExtractRenderData(Registry& registry, std::vector<SDFEditGPU>& outEdits, std::vector<uint32_t>& outEntities) {
+void ExtractRenderData(Registry& registry, std::vector<SDFEditGPU>& outEdits, std::vector<EntityHandle>& outEntities) {
     outEdits.clear();
     outEntities.clear();
     outEdits.reserve(256);
@@ -43,7 +43,7 @@ void ExtractRenderData(Registry& registry, std::vector<SDFEditGPU>& outEdits, st
 }
 
 void ExtractRenderData(Registry& registry, std::vector<SDFEditGPU>& outEdits) {
-    std::vector<uint32_t> unusedEntities;
+    std::vector<EntityHandle> unusedEntities;
     ExtractRenderData(registry, outEdits, unusedEntities);
 }
 

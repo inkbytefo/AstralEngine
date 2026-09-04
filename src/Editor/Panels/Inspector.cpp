@@ -49,7 +49,7 @@ void Inspector::Draw(Scene& scene, Entity& selectedEntity) {
     ImGui::Separator();
     ImGui::Dummy(ImVec2(0, 4.0f));
 
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Secili Varlik: #%u", selectedEntity.GetID());
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Secili Varlik: %s", selectedEntity.ToDisplayString().c_str());
     ImGui::Separator();
     ImGui::Dummy(ImVec2(0, 4.0f));
 

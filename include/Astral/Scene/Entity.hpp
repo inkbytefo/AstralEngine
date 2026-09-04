@@ -3,6 +3,7 @@
 #include "Astral/Core/Registry.hpp"
 #include <cassert>
 #include <cstdint>
+#include <string>
 #include <utility>
 
 namespace Astral {
@@ -55,6 +56,10 @@ public:
 
     [[nodiscard]] constexpr uint32_t GetID() const noexcept {
         return GetIndex();
+    }
+
+    [[nodiscard]] std::string ToDisplayString() const {
+        return "Entity #" + std::to_string(GetIndex()) + " (gen " + std::to_string(GetGeneration()) + ")";
     }
 
     [[nodiscard]] constexpr Scene* GetScene() const noexcept {

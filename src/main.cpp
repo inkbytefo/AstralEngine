@@ -3,6 +3,9 @@
 #include "Astral/Scene/Scene.hpp"
 #include "Astral/Scene/SceneManager.hpp"
 #include "Astral/Scene/SceneSerializer.hpp"
+#include "Astral/Core/Components.hpp"
+#include "Astral/Core/RenderExtractionSystem.hpp"
+#include "Astral/Renderer/SDFEdit.hpp"
 #include <iostream>
 #include <fstream>
 #include <filesystem>
@@ -156,10 +159,24 @@ static void RunGenerationalIdentityTests() {
     Astral::Entity eB = scene->CreateEntity(); // Index 1, Gen 2
     assert(eB.GetIndex() == 1 && eB.GetGeneration() == 2);
     scene->DestroyEntity(eB);
+    // 7. Test_RenderExtraction_Generation_Preservation:
+    // ExtractRenderData fonksiyonunun 64-bit Generation bilgisini korudugunu ve picking nesnesinin IsValid oldugunu dogrula
     Astral::Entity eC = scene->CreateEntity(); // Index 1, Gen 3
     assert(eC.GetIndex() == 1 && eC.GetGeneration() == 3);
+    eC.AddComponent<Astral::TransformComponent>(glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f));
+    eC.AddComponent<Astral::SDFComponent>();
+    std::vector<Astral::SDFEditGPU> extractedEdits;
+    std::vector<Astral::EntityHandle> extractedHandles;
+    Astral::ExtractRenderData(scene->GetRegistry(), extractedEdits, extractedHandles);
+    assert(extractedHandles.size() == 1);
+    assert(extractedHandles[0] == eC.GetHandle() && "ExtractRenderData tam 64-bit kanonik handle'i korumali!");
+    assert(Astral::GetEntityGeneration(extractedHandles[0]) == 3 && "Generation 3 korunmus olmali (uint32 kirpilmamali)!");
+    Astral::Entity pickedEntity(extractedHandles[0], scene.get());
+    assert(pickedEntity.IsValid() && "Extracted handle ile kurulan Entity IsValid() olmali!");
+    assert(pickedEntity.GetGeneration() == 3 && "Picked entity generation 3 olmali!");
 
     std::cout << "[Identity Test] 64-bit Generational Handle, FreeList ve Ghost Mutation korumasi %100 dogrulandi!\n";
+    std::cout << "[Identity Test] ExtractRenderData 64-bit Generation korumasi ve Picking nesne gecerliligi dogrulandi!\n";
     std::cout << "=== [Generational Entity & Lifetime Testleri Basariyla Tamamlandi] ===\n\n";
 }
 

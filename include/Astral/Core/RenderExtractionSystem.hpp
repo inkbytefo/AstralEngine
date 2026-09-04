@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <cstdint>
+#include "Astral/Core/Registry.hpp"
 
 namespace Astral {
 
@@ -10,7 +11,7 @@ struct SDFEditGPU;
 
 /// ECS Registry icindeki TransformComponent ve SDFComponent bilesenlerini
 /// filtreleyip GPU tarafinda dogrudan okunabilir std430 SDFEditGPU dizisine ve Entity ID haritasina donusturur.
-void ExtractRenderData(Registry& registry, std::vector<SDFEditGPU>& outEdits, std::vector<uint32_t>& outEntities);
+void ExtractRenderData(Registry& registry, std::vector<SDFEditGPU>& outEdits, std::vector<EntityHandle>& outEntities);
 
 void ExtractRenderData(Registry& registry, std::vector<SDFEditGPU>& outEdits);
 

@@ -61,7 +61,7 @@ void SceneHierarchy::Draw(Scene& scene, Entity& selectedEntity) {
         bool isSelected = (selectedEntity == currentEntity);
 
         // Build display label
-        std::string label = "Entity #" + std::to_string(entityId);
+        std::string label = currentEntity.ToDisplayString();
         if (currentEntity.HasComponent<SDFComponent>()) {
             const auto& sdf = currentEntity.GetComponent<SDFComponent>();
             uint32_t pIdx = std::min(sdf.primitiveType, 4u);

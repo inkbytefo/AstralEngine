@@ -236,10 +236,8 @@ void Application::Run(int maxFrames) {
                 }
             }
 
-            // Render Extraction: ECS SparseSet -> std430 SDFEditGPU Buffer & Entity Haritasi
-            std::vector<SDFEditGPU> sceneEdits;
-            std::vector<uint32_t> sceneEntities;
-            ExtractRenderData(runtimeScene->GetRegistry(), sceneEdits, sceneEntities);
+            // Render Extraction: ECS SparseSet -> std430 SDFEditGPU Buffer & Entity Haritasi (Sifir her-kare heap allocation)
+            ExtractRenderData(runtimeScene->GetRegistry(), m_SceneEdits, m_SceneEntities);
 
             // PR-9: Test ve benchmark modunda merkezdeki nesneyi dogrulamak icin 3. karede ekran merkezini sec
             if ((m_Config.benchMode || targetFrames > 0) && frameIndex == 3) {
@@ -261,7 +259,7 @@ void Application::Run(int maxFrames) {
             }
 
             // GPU SSBO'ya yaz ve Two-Level Grid'i guncelle
-            m_SDFRenderer->UpdateEdits(sceneEdits, m_Config.legacyMap);
+            m_SDFRenderer->UpdateEdits(m_SceneEdits, m_Config.legacyMap);
 
             // Swapchain resmi edin
             bool hasSwapchainImage = false;
@@ -272,9 +270,9 @@ void Application::Run(int maxFrames) {
             // Seçili varlığın render edit indeksini bul ve shader Fresnel Rim-Light için ayarla
             int selectedHitIndex = -1;
             if (selectedEntity.IsValid()) {
-                EntityID selId = selectedEntity.GetID();
-                for (size_t i = 0; i < sceneEntities.size(); ++i) {
-                    if (sceneEntities[i] == selId) {
+                EntityHandle selHandle = selectedEntity.GetHandle();
+                for (size_t i = 0; i < m_SceneEntities.size(); ++i) {
+                    if (m_SceneEntities[i] == selHandle) {
                         selectedHitIndex = static_cast<int>(i);
                         break;
                     }
@@ -322,11 +320,12 @@ void Application::Run(int maxFrames) {
             if (m_SDFRenderer->HasPendingSelection()) {
                 auto pickResult = m_SDFRenderer->ConsumeSelectionResult();
                 if (pickResult.hasHit) {
-                    if (pickResult.hitIndex >= 0 && static_cast<size_t>(pickResult.hitIndex) < sceneEntities.size()) {
-                        Entity hitEntity(sceneEntities[pickResult.hitIndex], runtimeScene.get());
+                    if (pickResult.hitIndex >= 0 && static_cast<size_t>(pickResult.hitIndex) < m_SceneEntities.size()) {
+                        Entity hitEntity(m_SceneEntities[pickResult.hitIndex], runtimeScene.get());
                         selectedEntity = hitEntity; // Editörde seçili nesneyi güncelle
                         std::cout << "[Astral::Picking] ISABET: hitIndex = " << pickResult.hitIndex 
-                                  << " -> Entity #" << hitEntity.GetID() 
+                                  << " -> " << hitEntity.ToDisplayString()
+                                  << " (Valid: " << (hitEntity.IsValid() ? "true" : "false") << ")"
                                   << " | Nokta: (" << pickResult.hitPoint.x << ", " << pickResult.hitPoint.y << ", " << pickResult.hitPoint.z << ")"
                                   << " | Mesafe: " << pickResult.hitDistance << "m\n";
                     } else {

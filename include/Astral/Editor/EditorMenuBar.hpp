@@ -18,9 +18,15 @@ struct MenuBarActions {
     bool deleteSelected = false;
     bool clearScene    = false;
     bool exitApp       = false;
+    bool newScene      = false;
+    bool saveScene     = false;
+    bool openScene     = false;
 };
 
 void DrawEditorMenuBar(Scene& scene, Entity& selectedEntity,
                        MenuBarActions& actions, bool& showDemoWindowState);
+
+[[nodiscard]] std::string GetEditorCurrentScenePath();
+void SetEditorCurrentScenePath(const std::string& path);
 
 } // namespace Astral

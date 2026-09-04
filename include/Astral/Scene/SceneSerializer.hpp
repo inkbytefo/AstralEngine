@@ -52,6 +52,8 @@ public:
     /// Primary C++20 DOD Static Interfaces
     [[nodiscard]] static bool Serialize(const std::shared_ptr<Scene>& scene, const std::filesystem::path& filepath);
     [[nodiscard]] static bool Deserialize(const std::shared_ptr<Scene>& scene, const std::filesystem::path& filepath);
+    [[nodiscard]] static bool Serialize(const Scene& scene, const std::filesystem::path& filepath);
+    [[nodiscard]] static bool Deserialize(Scene& scene, const std::filesystem::path& filepath);
 
     /// Convenience instance constructor & methods
     explicit SceneSerializer(std::shared_ptr<Scene> scene) : m_Scene(std::move(scene)) {}

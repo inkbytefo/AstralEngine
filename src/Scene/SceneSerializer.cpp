@@ -114,7 +114,10 @@ bool SceneSerializer::Serialize(const std::shared_ptr<Scene>& scene, const std::
         std::cerr << "[Astral::SceneSerializer] Error: Cannot serialize null scene!\n";
         return false;
     }
+    return Serialize(*scene, filepath);
+}
 
+bool SceneSerializer::Serialize(const Scene& scene, const std::filesystem::path& filepath) {
     try {
         if (filepath.has_parent_path()) {
             std::filesystem::create_directories(filepath.parent_path());
@@ -130,7 +133,7 @@ bool SceneSerializer::Serialize(const std::shared_ptr<Scene>& scene, const std::
         return false;
     }
 
-    const auto& registry = scene->GetRegistry();
+    const auto& registry = scene.GetRegistry();
     uint32_t activeEntityCount = registry.GetAliveEntityCount();
     if (activeEntityCount == 0) {
         for (const auto& [typeIndex, pool] : registry.GetPools()) {
@@ -291,7 +294,10 @@ bool SceneSerializer::Deserialize(const std::shared_ptr<Scene>& scene, const std
         std::cerr << "[Astral::SceneSerializer] Error: Cannot deserialize into null scene!\n";
         return false;
     }
+    return Deserialize(*scene, filepath);
+}
 
+bool SceneSerializer::Deserialize(Scene& scene, const std::filesystem::path& filepath) {
     std::ifstream stream(filepath, std::ios::in | std::ios::binary);
     if (!stream.is_open()) {
         std::cerr << "[Astral::SceneSerializer] Error: Cannot open file for reading: " << filepath.string() << "\n";
@@ -305,10 +311,10 @@ bool SceneSerializer::Deserialize(const std::shared_ptr<Scene>& scene, const std
     }
 
     // Atomic Commit: Two-Phase Commit swap ensures live scene was never partially mutated
-    scene->Swap(*stagingScene);
+    scene.Swap(*stagingScene);
 
     std::cout << "[Astral::SceneSerializer] Scene successfully deserialized from: " << filepath.string()
-              << " (" << scene->GetRegistry().GetAliveEntityCount() << " entities)\n";
+              << " (" << scene.GetRegistry().GetAliveEntityCount() << " entities)\n";
     return true;
 }
 
