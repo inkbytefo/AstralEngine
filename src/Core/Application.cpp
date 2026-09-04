@@ -209,11 +209,14 @@ void Application::Run(int maxFrames) {
 
             float timeSec = static_cast<float>(frameIndex) * 0.016f;
 
-            // Kinematik & Fizik Guncellemesi (Scene::OnUpdate)
-            runtimeScene->OnUpdate(0.016f);
+            // Demo hareketleri yalnizca otomatik test/benchmark kosularinda ilerletilir.
+            // Interaktif editor modunda transformlar inspector ve viewport gizmosuna aittir.
+            const bool runDemoSimulation = m_Config.benchMode || targetFrames > 0;
+            if (runDemoSimulation) {
+                runtimeScene->OnUpdate(0.016f);
+            }
 
-            // Dinamik nesnelerin animasyon pozisyonlarini guncelle
-            if (m_Config.stressTest) {
+            if (runDemoSimulation && m_Config.stressTest) {
                 auto& transforms = runtimeScene->GetRegistry().GetView<TransformComponent>();
                 size_t idx = 0;
                 for (auto&& [entity, transform] : transforms) {
@@ -223,7 +226,7 @@ void Application::Run(int maxFrames) {
                     }
                     idx++;
                 }
-            } else {
+            } else if (runDemoSimulation) {
                 Entity rBox(boxEntity.GetHandle(), runtimeScene.get());
                 if (rBox.HasComponent<TransformComponent>()) {
                     auto& boxTr = rBox.GetComponent<TransformComponent>();

@@ -1,10 +1,10 @@
 #pragma once
 
+#include "Astral/Editor/Gizmo/TransformGizmo.hpp"
+#include "Astral/Editor/Gizmo/ViewportGizmoToolbar.hpp"
 #include <glm/glm.hpp>
 #include <memory>
 #include <cstdint>
-
-struct ImDrawList;
 
 namespace Astral {
 
@@ -48,13 +48,13 @@ public:
     [[nodiscard]] glm::vec2 GetPendingResize() const noexcept { return m_PendingSize; }
     void ClearPendingResize() noexcept { m_PendingResize = false; }
 
-    [[nodiscard]] int GetGizmoType() const noexcept { return m_GizmoType; }
-    void SetGizmoType(int type) noexcept { m_GizmoType = type; }
+    [[nodiscard]] int GetGizmoType() const noexcept { return static_cast<int>(m_TransformGizmo.State().operation); }
+    void SetGizmoType(int type) noexcept { m_TransformGizmo.State().operation = static_cast<GizmoOperation>(type); }
 
-    [[nodiscard]] int GetGizmoMode() const noexcept { return m_GizmoMode; }
-    void SetGizmoMode(int mode) noexcept { m_GizmoMode = mode; }
+    [[nodiscard]] int GetGizmoMode() const noexcept { return static_cast<int>(m_TransformGizmo.State().space); }
+    void SetGizmoMode(int mode) noexcept { m_TransformGizmo.State().space = static_cast<GizmoSpace>(mode); }
 
-    [[nodiscard]] bool IsUsingGizmo() const noexcept { return m_IsUsingGizmo; }
+    [[nodiscard]] bool IsUsingGizmo() const noexcept { return m_TransformGizmo.State().usingGizmo; }
 
 private:
     SDFRenderer* m_Renderer = nullptr;
@@ -65,16 +65,8 @@ private:
     bool m_PendingResize = false;
     bool m_IsHovered = false;
     bool m_IsFocused = false;
-    bool m_IsUsingGizmo = false;
-    bool m_GizmoStyleInitialized = false;
-
-    // Gizmo state: 0 = Translate, 1 = Rotate, 2 = Scale, 3 = Universal, -1 = None
-    int m_GizmoType = 0;
-    // Gizmo coordinate space: 0 = World, 1 = Local
-    int m_GizmoMode = 0;
-
-    /// Renders Blender-standard 3D Navigation Sphere Gizmo in the top-right corner of the Viewport
-    void DrawNavigationSphere(::ImDrawList* drawList, const glm::vec2& center, float radius, const glm::mat4& view);
+    TransformGizmo m_TransformGizmo;
+    ViewportGizmoToolbar m_GizmoToolbar;
 };
 
 } // namespace Astral

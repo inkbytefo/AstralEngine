@@ -6,244 +6,149 @@
 #include <glm/gtc/type_ptr.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
-#include <glm/gtx/euler_angles.hpp>
+
+#include <algorithm>
+#include <cstdio>
+#include <string>
 
 namespace Astral {
+namespace {
 
-static const char* s_PrimitiveNames[] = {
-    "Kure (Sphere)",
-    "Kutu (Box)",
-    "Torus (Simit)",
-    "Zemin (Plane)",
-    "Kapsul (Capsule)",
-    "Silindir (Cylinder)"
+constexpr const char* PrimitiveNames[] = {
+    "Kure (Sphere)", "Kutu (Box)", "Torus", "Zemin (Plane)", "Kapsul (Capsule)", "Silindir (Cylinder)"
+};
+constexpr const char* OperationNames[] = {
+    "Birlestir (Union)", "Cikar (Subtract)", "Kesisim (Intersect)", "Yumusak Birlestir", "Yumusak Cikar"
 };
 
-static const char* s_OperationNames[] = {
-    "Birlestir (Union)",
-    "Cikar (Subtract)",
-    "Kesisim (Intersect)",
-    "Yumusak Birlestir (SmoothUnion)",
-    "Yumusak Cikar (SmoothSub)",
-    "Yumusak Kesisim (SmoothIntersect)"
-};
+bool DrawVec3Property(const char* label, const char* id, glm::vec3& value, float speed,
+                      const glm::vec3& resetValue, float minValue = 0.0f, float maxValue = 0.0f) {
+    ImGui::PushID(id);
+    ImGui::TextDisabled("%s", label);
+    ImGui::SameLine();
+    const float resetWidth = ImGui::CalcTextSize("Sifirla").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+    ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - resetWidth));
+    bool changed = false;
+    if (ImGui::SmallButton("Sifirla")) { value = resetValue; changed = true; }
+    ImGui::SetNextItemWidth(-1.0f);
+    changed |= ImGui::DragFloat3("##Value", glm::value_ptr(value), speed, minValue, maxValue, "%.3f");
+    ImGui::PopID();
+    return changed;
+}
+
+void DrawWorldTransform(Scene& scene, Entity entity) {
+    glm::vec3 position, scale;
+    glm::quat rotation;
+    DecomposeTransformMatrix(scene.GetWorldTransform(entity.GetHandle()), position, rotation, scale);
+    const glm::vec3 euler = glm::degrees(glm::eulerAngles(rotation));
+    if (ImGui::BeginTable("WorldTransform", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
+        ImGui::TableSetupColumn("Alan", ImGuiTableColumnFlags_WidthFixed, 72.0f);
+        ImGui::TableSetupColumn("Deger");
+        const auto row = [](const char* name, const glm::vec3& value) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn(); ImGui::TextDisabled("%s", name);
+            ImGui::TableNextColumn(); ImGui::Text("%.2f  %.2f  %.2f", value.x, value.y, value.z);
+        };
+        row("Konum", position); row("Rotasyon", euler); row("Olcek", scale);
+        ImGui::EndTable();
+    }
+}
+
+void DrawEmptyState() {
+    ImGui::Dummy(ImVec2(0.0f, std::max(20.0f, ImGui::GetContentRegionAvail().y * 0.18f)));
+    const char* title = "Nesne secilmedi";
+    ImGui::SetCursorPosX(std::max(8.0f, (ImGui::GetWindowWidth() - ImGui::CalcTextSize(title).x) * 0.5f));
+    ImGui::TextDisabled("%s", title);
+    ImGui::Spacing();
+    ImGui::TextWrapped("Ozellikleri duzenlemek icin Sahne Agaci veya 3D Viewport uzerinden bir nesne secin.");
+}
+
+} // namespace
 
 void Inspector::Draw(Scene& scene, Entity& selectedEntity) {
     ImGui::Begin("Bilesen Denetcisi");
-
     if (!selectedEntity.IsValid()) {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.600f, 0.600f, 0.600f, 1.0f));
-        ImGui::Text("BILESEN DENETCISI");
-        ImGui::PopStyleColor();
-        ImGui::Separator();
-        ImGui::Dummy(ImVec2(0, 8.0f));
-        ImGui::TextDisabled("Duzenlemek icin bir nesne secin.");
+        m_NameEntity = NullEntityHandle;
+        DrawEmptyState();
         ImGui::End();
         return;
     }
 
-    // ── Header ───────────────────────────────────────────────
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.600f, 0.600f, 0.600f, 1.0f));
-    ImGui::Text("BILESEN DENETCISI");
-    ImGui::PopStyleColor();
-    ImGui::Separator();
-    ImGui::Dummy(ImVec2(0, 4.0f));
-
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Secili Varlik: %s", selectedEntity.ToDisplayString().c_str());
-    ImGui::Separator();
-    ImGui::Dummy(ImVec2(0, 4.0f));
-
-    // ── 1. Transform Component ───────────────────────────────
-    if (selectedEntity.HasComponent<TransformComponent>()) {
-        if (ImGui::CollapsingHeader("Transform Bileseni", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::Indent(8.0f);
-            auto& transform = selectedEntity.GetComponent<TransformComponent>();
-
-            ImGui::PushItemWidth(-1);
-
-            ImGui::Text("Konum (m)");
-            ImGui::DragFloat3("##Position", glm::value_ptr(transform.position), 0.05f);
-
-            if (selectedEntity.HasComponent<HierarchyComponent>()) {
-                const auto& hierarchy = selectedEntity.GetComponent<HierarchyComponent>();
-                if (scene.GetRegistry().IsAlive(hierarchy.parent)) {
-                    glm::vec3 worldPosition;
-                    glm::quat worldRotation;
-                    glm::vec3 worldScale;
-                    DecomposeTransformMatrix(
-                        scene.GetWorldTransform(selectedEntity.GetHandle()),
-                        worldPosition,
-                        worldRotation,
-                        worldScale
-                    );
-                    ImGui::TextDisabled("World: %.2f, %.2f, %.2f  ·  Parent #%u",
-                                        worldPosition.x, worldPosition.y, worldPosition.z,
-                                        GetEntityIndex(hierarchy.parent));
-                } else if (!hierarchy.children.empty()) {
-                    ImGui::TextDisabled("Root  ·  %zu alt nesne", hierarchy.children.size());
-                }
-            }
-
-            ImGui::Dummy(ImVec2(0, 2.0f));
-
-            ImGui::Text("Rotasyon (Derece)");
-            glm::vec3 eulerAngles = glm::degrees(glm::eulerAngles(transform.rotation));
-            if (ImGui::DragFloat3("##Rotation", glm::value_ptr(eulerAngles), 1.0f)) {
-                transform.rotation = glm::quat(glm::radians(eulerAngles));
-            }
-
-            // ── 3D Standart Kure Rotasyon Gizmosu (Interactive Trackball Sphere) ──
-            ImGui::Dummy(ImVec2(0, 3.0f));
-            ImGui::TextDisabled("Hizli rotasyon · surukle");
-            
-            float sphereWidgetRadius = 36.0f;
-            float sphereWidgetHeight = sphereWidgetRadius * 2.0f + 6.0f;
-            ImVec2 canvasPos = ImGui::GetCursorScreenPos();
-            float availWidth = ImGui::GetContentRegionAvail().x;
-            ImVec2 sphereCenterPos = ImVec2(canvasPos.x + availWidth * 0.5f, canvasPos.y + sphereWidgetRadius + 3.0f);
-            
-            ImGui::InvisibleButton("##TrackballSphereGizmo", ImVec2(availWidth, sphereWidgetHeight));
-            bool isSphereHovered = ImGui::IsItemHovered();
-            bool isSphereActive = ImGui::IsItemActive();
-            
-            ImDrawList* iDrawList = ImGui::GetWindowDrawList();
-            
-            // Fare ile 3D Kureyi cevirme (Virtual Trackball / Arcball)
-            if (isSphereActive && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
-                ImVec2 delta = ImGui::GetIO().MouseDelta;
-                if (std::abs(delta.x) > 0.001f || std::abs(delta.y) > 0.001f) {
-                    float speed = 0.015f;
-                    glm::quat rotY = glm::angleAxis(delta.x * speed, glm::vec3(0.0f, 1.0f, 0.0f));
-                    glm::quat rotX = glm::angleAxis(delta.y * speed, glm::vec3(1.0f, 0.0f, 0.0f));
-                    transform.rotation = glm::normalize(rotY * rotX * transform.rotation);
-                }
-            }
-            
-            // Kure Tabani ve 3D Golgeleme
-            iDrawList->AddCircleFilled(sphereCenterPos, sphereWidgetRadius, IM_COL32(24, 28, 36, 230), 36);
-            iDrawList->AddCircle(sphereCenterPos, sphereWidgetRadius, isSphereActive ? IM_COL32(65, 155, 255, 240) : isSphereHovered ? IM_COL32(95, 125, 160, 200) : IM_COL32(60, 70, 85, 150), 36, 1.6f);
-            
-            // 3D Kure Isik Vurgusu (Specular highlight)
-            iDrawList->AddCircleFilled(ImVec2(sphereCenterPos.x - sphereWidgetRadius * 0.32f, sphereCenterPos.y - sphereWidgetRadius * 0.32f), sphereWidgetRadius * 0.5f, IM_COL32(255, 255, 255, 22), 24);
-            
-            // Nesnenin anlik rotasyon eksenlerini kure uzerinde 3D ciz (X Kirmizi, Y Yesil, Z Mavi)
-            glm::mat3 objRot = glm::mat3_cast(transform.rotation);
-            struct GizmoAxis {
-                glm::vec3 dir;
-                ImU32 color;
-                const char* label;
-            };
-            GizmoAxis gAxes[3] = {
-                { objRot[0], IM_COL32(235, 60, 65, 255), "X" },
-                { objRot[1], IM_COL32(65, 215, 80, 255), "Y" },
-                { objRot[2], IM_COL32(55, 145, 250, 255), "Z" }
-            };
-            
-            for (const auto& gax : gAxes) {
-                float armLen = sphereWidgetRadius * 0.72f;
-                ImVec2 axTip(sphereCenterPos.x + gax.dir.x * armLen, sphereCenterPos.y - gax.dir.y * armLen);
-                iDrawList->AddLine(sphereCenterPos, axTip, gax.color, 2.2f);
-                iDrawList->AddCircleFilled(axTip, 4.0f, gax.color, 12);
-                iDrawList->AddCircle(axTip, 4.0f, IM_COL32(255, 255, 255, 180), 12, 1.0f);
-            }
-            // Merkez pivot noktasi
-            iDrawList->AddCircleFilled(sphereCenterPos, 3.0f, IM_COL32(200, 210, 225, 220), 16);
-
-            ImGui::Dummy(ImVec2(0, 2.0f));
-
-            ImGui::Text("Olcek");
-            ImGui::DragFloat3("##Scale", glm::value_ptr(transform.scale), 0.02f, 0.01f, 10.0f);
-
-            ImGui::PopItemWidth();
-            ImGui::Unindent(8.0f);
-        }
+    if (m_NameEntity != selectedEntity.GetHandle()) {
+        m_NameEntity = selectedEntity.GetHandle();
+        const std::string name = selectedEntity.HasComponent<TagComponent>()
+            ? selectedEntity.GetComponent<TagComponent>().tag : "Entity " + std::to_string(selectedEntity.GetIndex());
+        std::snprintf(m_NameBuffer.data(), m_NameBuffer.size(), "%s", name.c_str());
     }
 
-    ImGui::Dummy(ImVec2(0, 4.0f));
-
-    // ── 2. SDF Component ─────────────────────────────────────
-    if (selectedEntity.HasComponent<SDFComponent>()) {
-        if (ImGui::CollapsingHeader("SDF Geometri & Materyal", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::Indent(8.0f);
-            auto& sdf = selectedEntity.GetComponent<SDFComponent>();
-
-            ImGui::PushItemWidth(-1);
-
-            // Primitive Type
-            ImGui::Text("Sekil (Primitive)");
-            int primType = static_cast<int>(sdf.primitiveType);
-            if (ImGui::Combo("##Primitive", &primType, s_PrimitiveNames, IM_ARRAYSIZE(s_PrimitiveNames))) {
-                sdf.primitiveType = static_cast<uint32_t>(primType);
-            }
-
-            ImGui::Dummy(ImVec2(0, 2.0f));
-
-            // CSG Operation
-            ImGui::Text("CSG Islemi");
-            int opType = static_cast<int>(sdf.operation);
-            if (ImGui::Combo("##Operation", &opType, s_OperationNames, IM_ARRAYSIZE(s_OperationNames))) {
-                sdf.operation = static_cast<uint32_t>(opType);
-            }
-
-            ImGui::Dummy(ImVec2(0, 2.0f));
-
-            // Blend factor
-            ImGui::Text("Yumusaklik (Blend k)");
-            ImGui::SliderFloat("##Blend", &sdf.blendFactor, 0.0f, 1.5f, "%.2f m");
-
-            ImGui::PopItemWidth();
-            ImGui::Dummy(ImVec2(0, 6.0f));
-
-            // ── Material sub-section ─────────────────────────
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.600f, 0.600f, 0.600f, 1.0f));
-            ImGui::Text("MATERYAL");
-            ImGui::PopStyleColor();
-            ImGui::Separator();
-            ImGui::Dummy(ImVec2(0, 4.0f));
-
-            ImGui::PushItemWidth(-1);
-
-            ImGui::Text("Albedo Rengi");
-            ImGui::ColorEdit3("##Albedo", glm::value_ptr(sdf.albedo));
-
-            ImGui::Dummy(ImVec2(0, 2.0f));
-
-            ImGui::Text("Puruzluluk (Roughness)");
-            ImGui::SliderFloat("##Roughness", &sdf.roughness, 0.0f, 1.0f);
-
-            ImGui::Dummy(ImVec2(0, 2.0f));
-
-            ImGui::Text("Metalik (Metallic)");
-            ImGui::SliderFloat("##Metallic", &sdf.metallic, 0.0f, 1.0f);
-
-            ImGui::PopItemWidth();
-            ImGui::Unindent(8.0f);
-        }
+    ImGui::TextDisabled("ENTITY #%u  ·  GEN %u", selectedEntity.GetIndex(), selectedEntity.GetGeneration());
+    ImGui::SetNextItemWidth(-1.0f);
+    ImGui::InputTextWithHint("##EntityName", "Nesne adi", m_NameBuffer.data(), m_NameBuffer.size());
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        if (!selectedEntity.HasComponent<TagComponent>()) selectedEntity.AddComponent<TagComponent>();
+        selectedEntity.GetComponent<TagComponent>().tag = m_NameBuffer.data();
     }
 
-    ImGui::Dummy(ImVec2(0, 4.0f));
-
-    // ── 3. Velocity Component ────────────────────────────────
-    if (selectedEntity.HasComponent<VelocityComponent>()) {
-        if (ImGui::CollapsingHeader("Fizik & Kinematik Hiz", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::Indent(8.0f);
-            auto& vel = selectedEntity.GetComponent<VelocityComponent>();
-
-            ImGui::PushItemWidth(-1);
-
-            ImGui::Text("Cizgisel Hiz (m/s)");
-            ImGui::DragFloat3("##LinearVelocity", glm::value_ptr(vel.linear), 0.1f);
-
-            ImGui::Dummy(ImVec2(0, 2.0f));
-
-            ImGui::Text("Acisal Hiz (rad/s)");
-            ImGui::DragFloat3("##AngularVelocity", glm::value_ptr(vel.angular), 0.1f);
-
-            ImGui::PopItemWidth();
-            ImGui::Unindent(8.0f);
+    ImGui::Spacing();
+    ImGui::SeparatorText("HIYERARSI");
+    if (selectedEntity.HasComponent<HierarchyComponent>()) {
+        const auto& hierarchy = selectedEntity.GetComponent<HierarchyComponent>();
+        const bool hasParent = scene.GetRegistry().IsAlive(hierarchy.parent);
+        const std::string parentName = hasParent ? "Entity " + std::to_string(GetEntityIndex(hierarchy.parent)) : "Root";
+        ImGui::TextDisabled("Parent"); ImGui::SameLine(88.0f); ImGui::TextUnformatted(parentName.c_str());
+        ImGui::TextDisabled("Alt nesneler"); ImGui::SameLine(88.0f); ImGui::Text("%zu", hierarchy.children.size());
+        if (hasParent && ImGui::Button("Parent bagini kaldir", ImVec2(-1.0f, 0.0f))) {
+            (void)scene.ClearParent(selectedEntity.GetHandle());
         }
+    } else {
+        ImGui::TextDisabled("Root  ·  Alt nesne yok");
     }
 
+    ImGui::Spacing();
+    if (selectedEntity.HasComponent<TransformComponent>() && ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen)) {
+        auto& transform = selectedEntity.GetComponent<TransformComponent>();
+        ImGui::Indent(6.0f);
+        ImGui::TextDisabled("LOCAL");
+        DrawVec3Property("Konum", "Position", transform.position, 0.05f, glm::vec3(0.0f));
+        glm::vec3 euler = glm::degrees(glm::eulerAngles(transform.rotation));
+        if (DrawVec3Property("Rotasyon", "Rotation", euler, 0.5f, glm::vec3(0.0f))) {
+            transform.rotation = glm::normalize(glm::quat(glm::radians(euler)));
+        }
+        DrawVec3Property("Olcek", "Scale", transform.scale, 0.02f, glm::vec3(1.0f), 0.001f, 1000.0f);
+        ImGui::Spacing(); ImGui::TextDisabled("WORLD  ·  SALT OKUNUR");
+        DrawWorldTransform(scene, selectedEntity);
+        ImGui::Unindent(6.0f);
+    }
+
+    if (selectedEntity.HasComponent<SDFComponent>() && ImGui::CollapsingHeader("SDF Geometri", ImGuiTreeNodeFlags_DefaultOpen)) {
+        auto& sdf = selectedEntity.GetComponent<SDFComponent>();
+        ImGui::Indent(6.0f);
+        int primitive = static_cast<int>(std::min<uint32_t>(sdf.primitiveType, std::size(PrimitiveNames) - 1));
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::Combo("##Primitive", &primitive, PrimitiveNames, IM_ARRAYSIZE(PrimitiveNames))) sdf.primitiveType = static_cast<uint32_t>(primitive);
+        int operation = static_cast<int>(std::min<uint32_t>(sdf.operation, std::size(OperationNames) - 1));
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::Combo("##Operation", &operation, OperationNames, IM_ARRAYSIZE(OperationNames))) sdf.operation = static_cast<uint32_t>(operation);
+        ImGui::SetNextItemWidth(-1.0f); ImGui::SliderFloat("##Blend", &sdf.blendFactor, 0.0f, 1.5f, "Blend %.2f m");
+        ImGui::Unindent(6.0f);
+    }
+
+    if (selectedEntity.HasComponent<SDFComponent>() && ImGui::CollapsingHeader("Materyal")) {
+        auto& sdf = selectedEntity.GetComponent<SDFComponent>();
+        ImGui::Indent(6.0f);
+        ImGui::SetNextItemWidth(-1.0f); ImGui::ColorEdit3("##Albedo", glm::value_ptr(sdf.albedo));
+        ImGui::SetNextItemWidth(-1.0f); ImGui::SliderFloat("##Roughness", &sdf.roughness, 0.0f, 1.0f, "Puruzluluk %.2f");
+        ImGui::SetNextItemWidth(-1.0f); ImGui::SliderFloat("##Metallic", &sdf.metallic, 0.0f, 1.0f, "Metalik %.2f");
+        ImGui::Unindent(6.0f);
+    }
+
+    if (selectedEntity.HasComponent<VelocityComponent>() && ImGui::CollapsingHeader("Fizik ve Hiz")) {
+        auto& velocity = selectedEntity.GetComponent<VelocityComponent>();
+        ImGui::Indent(6.0f);
+        DrawVec3Property("Lineer hiz", "LinearVelocity", velocity.linear, 0.1f, glm::vec3(0.0f));
+        DrawVec3Property("Acisal hiz", "AngularVelocity", velocity.angular, 0.1f, glm::vec3(0.0f));
+        ImGui::Unindent(6.0f);
+    }
     ImGui::End();
 }
 

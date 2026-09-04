@@ -131,6 +131,8 @@ add_library(AstralCore
     src/Editor/EditorWorkspace.cpp
     src/Editor/EditorMenuBar.cpp
     src/Editor/EditorStatusBar.cpp
+    src/Editor/Gizmo/TransformGizmo.cpp
+    src/Editor/Gizmo/ViewportGizmoToolbar.cpp
     src/Editor/Panels/SceneHierarchy.cpp
     src/Editor/Panels/Inspector.cpp
     src/Editor/Panels/Statistics.cpp
