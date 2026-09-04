@@ -40,6 +40,46 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glm)
 
+# Dear ImGui
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG v1.92.9b-docking
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(imgui)
+
+# ImGuizmo (3D Transform Manipulator)
+FetchContent_Declare(
+    imguizmo
+    GIT_REPOSITORY https://github.com/CedricGuillemet/ImGuizmo.git
+    GIT_TAG master
+    GIT_SHALLOW TRUE
+)
+FetchContent_GetProperties(imguizmo)
+if(NOT imguizmo_POPULATED)
+    FetchContent_Populate(imguizmo)
+endif()
+
+add_library(imgui_lib STATIC
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_demo.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+    ${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp
+)
+target_include_directories(imgui_lib PUBLIC 
+    ${imgui_SOURCE_DIR} 
+    ${imgui_SOURCE_DIR}/backends
+    ${imguizmo_SOURCE_DIR}/src
+)
+target_compile_definitions(imgui_lib PRIVATE VK_NO_PROTOTYPES)
+target_compile_definitions(imgui_lib PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1)
+target_link_libraries(imgui_lib PUBLIC Vulkan::Vulkan glfw)
+
 # Vulkan SDK
 find_package(Vulkan REQUIRED)
 
@@ -81,7 +121,19 @@ add_library(AstralCore
     src/Renderer/Buffer.cpp
     src/Renderer/BrickGrid.cpp
     src/Renderer/SDFRenderer.cpp
+    src/Renderer/Swapchain.cpp
     src/Scene/Scene.cpp
+    src/Scene/SceneSerializer.cpp
+    src/Editor/EditorUI.cpp
+    src/Editor/EditorTheme.cpp
+    src/Editor/EditorWorkspace.cpp
+    src/Editor/EditorMenuBar.cpp
+    src/Editor/EditorStatusBar.cpp
+    src/Editor/Panels/SceneHierarchy.cpp
+    src/Editor/Panels/Inspector.cpp
+    src/Editor/Panels/Statistics.cpp
+    src/Editor/Panels/ViewportPanel.cpp
+    src/Editor/Panels/ContentBrowser.cpp
 )
 
 add_dependencies(AstralCore CompileShaders)
@@ -89,6 +141,8 @@ add_dependencies(AstralCore CompileShaders)
 target_include_directories(AstralCore PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
 )
 
 target_compile_definitions(AstralCore PUBLIC
@@ -100,6 +154,7 @@ target_link_libraries(AstralCore PUBLIC
     Vulkan::Vulkan
     glfw
     glm::glm
+    imgui_lib
 )
 
 set_target_properties(AstralCore PROPERTIES

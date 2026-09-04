@@ -1,0 +1,26 @@
+#pragma once
+
+#include "Astral/Scene/Scene.hpp"
+#include "Astral/Scene/Entity.hpp"
+
+namespace Astral {
+
+/// Draws the main editor menu bar inside the DockSpace host window.
+/// Returns actions via out-parameters so the caller (EditorUI) can execute them.
+struct MenuBarActions {
+    bool resetLayout   = false;
+    bool showDemoWindow = false;
+    bool addSphere     = false;
+    bool addBox        = false;
+    bool addTorus      = false;
+    bool addCylinder   = false;
+    bool addPlane      = false;
+    bool deleteSelected = false;
+    bool clearScene    = false;
+    bool exitApp       = false;
+};
+
+void DrawEditorMenuBar(Scene& scene, Entity& selectedEntity,
+                       MenuBarActions& actions, bool& showDemoWindowState);
+
+} // namespace Astral

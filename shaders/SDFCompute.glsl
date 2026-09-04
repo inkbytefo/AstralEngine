@@ -425,6 +425,15 @@ void main() {
         vec3 ambient = hit.albedo * vec3(0.08, 0.1, 0.15) * ao;
 
         color = diffuse + specular + ambient;
+
+        // Secili Obje Fresnel Rim-Light (Kenar Isimasi Vurgusu)
+        int selectedIndex = int(round(mouseParams.w));
+        if (selectedIndex >= 0 && hit.index == selectedIndex) {
+            float fresnel = 1.0 - max(dot(viewDir, n), 0.0);
+            fresnel = pow(fresnel, 3.0);
+            vec3 rimColor = vec3(1.0, 0.65, 0.1); // Parlak Turuncu / Altin Isima
+            color += rimColor * fresnel * 2.5;
+        }
     } else {
         float skyT = 0.5 * (rd.y + 1.0);
         color = mix(vec3(0.15, 0.2, 0.3), vec3(0.02, 0.03, 0.06), skyT);

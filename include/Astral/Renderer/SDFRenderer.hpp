@@ -47,8 +47,17 @@ public:
     /// Fare tiklamasiyla piksel secim istegi gonderir
     void SetPickingRequest(int mouseX, int mouseY);
 
-    /// GPU compute sonrasi fence-senkronize secim sonucunu dondurur
+    /// GPU compute sonrasi bekleyen secim sonucu olup olmadigini dondurur
+    [[nodiscard]] bool HasPendingSelection() const noexcept { return m_PickPendingRead; }
+
+    /// GPU compute sonrasi fence-senkronize secim sonucunu dondurur ve sonucu tuketir (tek seferlik okuma)
+    SelectionResult ConsumeSelectionResult();
+
+    /// GPU compute sonrasi fence-senkronize secim sonucunu dondurur (okuma sonrasi sifirlamaz)
     SelectionResult GetSelectionResult() const;
+
+    /// Secim tamponunu sifirlar (-1 yazar)
+    void ClearSelectionResult();
 
     vk::Image GetStorageImage() const { return m_StorageImage.get(); }
     vk::ImageView GetStorageImageView() const { return m_StorageImageView.get(); }
@@ -57,7 +66,19 @@ public:
     BrickGrid* GetBrickGrid() const { return m_BrickGrid.get(); }
     size_t GetActiveEditCount() const { return m_ActiveEditCount; }
 
+    [[nodiscard]] int GetWidth() const noexcept { return m_Width; }
+    [[nodiscard]] int GetHeight() const noexcept { return m_Height; }
+
+    /// Secili nesne Fresnel Rim-Light vurgusu icin hit indeksini ayarlar (-1 = secim yok)
+    void SetSelectedHitIndex(int hitIndex) noexcept { m_SelectedHitIndex = hitIndex; }
+    [[nodiscard]] int GetSelectedHitIndex() const noexcept { return m_SelectedHitIndex; }
+
+    /// Returns ImGui texture ID (VkDescriptorSet) for Viewport panel rendering (lazily allocated)
+    [[nodiscard]] VkDescriptorSet GetViewportTextureID();
+
 private:
+    vk::UniqueSampler m_ViewportSampler;
+    VkDescriptorSet m_ViewportDescriptorSet = VK_NULL_HANDLE;
     VulkanContext& m_Context;
     vk::Device m_Device;
     vk::PhysicalDevice m_PhysicalDevice;
@@ -72,8 +93,11 @@ private:
     std::unique_ptr<BrickGrid> m_BrickGrid;
 
     bool m_PickingRequested = false;
+    bool m_PickPendingRead = false;
     int m_PickingMouseX = -1;
     int m_PickingMouseY = -1;
+    int m_SelectedHitIndex = -1;
+    bool m_HistoryInitialized = false;
 
     // TAA Pipeline (PR-8)
     std::string m_TaaSpvPath;

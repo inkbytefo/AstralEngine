@@ -2,9 +2,11 @@
 #include "Astral/Core/Window.hpp"
 #include "Astral/Core/BenchmarkLogger.hpp"
 #include "Astral/Renderer/VulkanContext.hpp"
+#include "Astral/Renderer/Swapchain.hpp"
 #include "Astral/Renderer/SDFRenderer.hpp"
 #include "Astral/Core/RenderExtractionSystem.hpp"
 #include "Astral/Core/Components.hpp"
+#include "Astral/Editor/EditorUI.hpp"
 #include <glm/gtc/quaternion.hpp>
 
 #include <iostream>
@@ -22,12 +24,17 @@ Application::Application(const AppConfig& config)
 }
 
 Application::~Application() {
+    if (m_VulkanContext) {
+        m_VulkanContext->WaitIdle();
+    }
     m_SceneManager.UnloadCurrentScene();
+    if (m_EditorUI) {
+        m_EditorUI.reset();
+    }
     if (m_SDFRenderer) {
         m_SDFRenderer.reset();
     }
     if (m_VulkanContext) {
-        m_VulkanContext->WaitIdle();
         m_VulkanContext.reset();
     }
     m_Window.reset();
@@ -80,7 +87,11 @@ void Application::Run(int maxFrames) {
             !m_Config.legacyMap
         );
 
-        // 4. Benchmark logger kurulumu
+        // 4. Editör UI Arayuzu Kurulumu
+        m_EditorUI = std::make_unique<EditorUI>(*m_VulkanContext, m_Window->GetNativeWindow());
+        m_EditorUI->SetRenderer(m_SDFRenderer.get());
+
+        // 5. Benchmark logger kurulumu
         if (m_Config.benchMode) {
             m_BenchmarkLogger = std::make_unique<BenchmarkLogger>();
         }
@@ -181,9 +192,12 @@ void Application::Run(int maxFrames) {
         m_SceneManager.SetActiveScene(runtimeScene);
         runtimeScene->OnRuntimeStart();
 
+        Entity selectedEntity;
         uint32_t frameIndex = 0;
+        double cpuFrameMs = 0.0;
+        double gpuTotalMs = 0.0;
 
-        // 5. Ana render ve profil dongusu
+        // 6. Ana render, UI ve profil dongusu
         while (m_Running && !m_Window->ShouldClose()) {
             auto cpuStart = std::chrono::high_resolution_clock::now();
 
@@ -227,60 +241,97 @@ void Application::Run(int maxFrames) {
             std::vector<uint32_t> sceneEntities;
             ExtractRenderData(runtimeScene->GetRegistry(), sceneEdits, sceneEntities);
 
-            // PR-9: Mouse Picking Kontrolu
-            double mouseX = 0.0, mouseY = 0.0;
-            m_Window->GetCursorPos(mouseX, mouseY);
-            bool mouseClicked = m_Window->IsMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT);
-
-            bool pickThisFrame = false;
-            if (mouseClicked) {
-                m_SDFRenderer->SetPickingRequest(static_cast<int>(mouseX), static_cast<int>(mouseY));
-                pickThisFrame = true;
-            } else if ((m_Config.benchMode || targetFrames > 0) && frameIndex == 3) {
-                // Test ve benchmark modunda merkezdeki nesneyi dogrulamak icin 3. karede ekran merkezini sec
+            // PR-9: Test ve benchmark modunda merkezdeki nesneyi dogrulamak icin 3. karede ekran merkezini sec
+            if ((m_Config.benchMode || targetFrames > 0) && frameIndex == 3) {
                 int cx = m_Window->GetWidth() / 2;
                 int cy = m_Window->GetHeight() / 2;
                 m_SDFRenderer->SetPickingRequest(cx, cy);
-                pickThisFrame = true;
+            }
+
+            // Editör Viewport'u yeniden boyutlandırıldıysa, Vulkan komut tamponu başlamadan önce güvenli yeniden boyutlandırma yap
+            if (m_EditorUI) {
+                auto& viewportPanel = m_EditorUI->GetViewportPanel();
+                if (viewportPanel.HasPendingResize()) {
+                    auto newSize = viewportPanel.GetPendingResize();
+                    if (newSize.x > 0.0f && newSize.y > 0.0f) {
+                        m_SDFRenderer->Resize(static_cast<int>(newSize.x), static_cast<int>(newSize.y));
+                    }
+                    viewportPanel.ClearPendingResize();
+                }
             }
 
             // GPU SSBO'ya yaz ve Two-Level Grid'i guncelle
             m_SDFRenderer->UpdateEdits(sceneEdits, m_Config.legacyMap);
 
+            // Swapchain resmi edin
+            bool hasSwapchainImage = false;
+            if (!m_Config.benchMode && targetFrames < 0) {
+                hasSwapchainImage = m_VulkanContext->AcquireNextImage();
+            }
+
+            // Seçili varlığın render edit indeksini bul ve shader Fresnel Rim-Light için ayarla
+            int selectedHitIndex = -1;
+            if (selectedEntity.IsValid()) {
+                EntityID selId = selectedEntity.GetID();
+                for (size_t i = 0; i < sceneEntities.size(); ++i) {
+                    if (sceneEntities[i] == selId) {
+                        selectedHitIndex = static_cast<int>(i);
+                        break;
+                    }
+                }
+            }
+            m_SDFRenderer->SetSelectedHitIndex(selectedHitIndex);
+
             // GPU Komut Tamponu & Timestamp Olcumu
             auto cmd = m_VulkanContext->BeginFrameCommand();
 
+            // 1. 3D SDF Compute Raymarching
             m_SDFRenderer->Render(
                 cmd,
                 timeSec,
                 m_Config.normalMode,
-                m_Window->GetWidth(),
-                m_Window->GetHeight(),
+                m_SDFRenderer->GetWidth(),
+                m_SDFRenderer->GetHeight(),
                 m_Config.useGrid,
                 m_Config.optShadow,
                 m_Config.enableTAA,
                 frameIndex
             );
 
-            // GPU islemini tamamla ve Fence ile bekle (Zero Race Condition)
-            m_VulkanContext->EndAndSubmitFrameCommand();
+            if (hasSwapchainImage) {
+                // 2. Swapchain resmini ImGui Dynamic Rendering icin hazırla
+                m_VulkanContext->PrepareSwapchainImage();
 
-            // PR-9: Fence sonrasi donanımsal guvenli secim okumasi
-            if (pickThisFrame) {
-                auto pickResult = m_SDFRenderer->GetSelectionResult();
-                if (pickResult.hasHit && pickResult.hitIndex >= 0 && static_cast<size_t>(pickResult.hitIndex) < sceneEntities.size()) {
-                    Entity hitEntity(sceneEntities[pickResult.hitIndex], runtimeScene.get());
-                    std::cout << "[Astral::Picking] ISABET: hitIndex = " << pickResult.hitIndex 
-                              << " -> Entity #" << hitEntity.GetID() 
-                              << " | Nokta: (" << pickResult.hitPoint.x << ", " << pickResult.hitPoint.y << ", " << pickResult.hitPoint.z << ")"
-                              << " | Mesafe: " << pickResult.hitDistance << "m\n";
+                // 3. ImGui Editör Panelleri Render (Dynamic Rendering)
+                m_EditorUI->BeginFrame();
+                m_EditorUI->RenderPanels(*runtimeScene, selectedEntity, static_cast<float>(gpuTotalMs), static_cast<float>(cpuFrameMs));
+                m_EditorUI->EndFrame(
+                    cmd,
+                    m_VulkanContext->GetSwapchain()->GetImageViews()[m_VulkanContext->GetCurrentImageIndex()],
+                    m_VulkanContext->GetSwapchain()->GetExtent()
+                );
 
-                    if (hitEntity.HasComponent<SDFComponent>()) {
-                        auto& sdf = hitEntity.GetComponent<SDFComponent>();
-                        sdf.albedo = glm::vec3(1.0f, 0.85f, 0.1f); // Altin rengi ile secim vurgulamasi
+                // 4. Semaphor'larla submit et ve ekrana sun (Present)
+                m_VulkanContext->EndFramePresent();
+            } else {
+                // Headless veya test modu: Dogrudan komut tamponunu submit et
+                m_VulkanContext->EndAndSubmitFrameCommand();
+            }
+
+            // PR-9: Fence sonrasi donanımsal guvenli secim okumasi (tek seferlik tuketim)
+            if (m_SDFRenderer->HasPendingSelection()) {
+                auto pickResult = m_SDFRenderer->ConsumeSelectionResult();
+                if (pickResult.hasHit) {
+                    if (pickResult.hitIndex >= 0 && static_cast<size_t>(pickResult.hitIndex) < sceneEntities.size()) {
+                        Entity hitEntity(sceneEntities[pickResult.hitIndex], runtimeScene.get());
+                        selectedEntity = hitEntity; // Editörde seçili nesneyi güncelle
+                        std::cout << "[Astral::Picking] ISABET: hitIndex = " << pickResult.hitIndex 
+                                  << " -> Entity #" << hitEntity.GetID() 
+                                  << " | Nokta: (" << pickResult.hitPoint.x << ", " << pickResult.hitPoint.y << ", " << pickResult.hitPoint.z << ")"
+                                  << " | Mesafe: " << pickResult.hitDistance << "m\n";
+                    } else {
+                        std::cout << "[Astral::Picking] ISABET YOK (Gokyuzu/Bosluk)\n";
                     }
-                } else {
-                    std::cout << "[Astral::Picking] ISABET YOK (Gokyuzu/Bosluk)\n";
                 }
             }
 

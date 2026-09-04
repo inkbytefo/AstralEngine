@@ -31,24 +31,30 @@ public:
     ~Entity() = default;
 
     // ---- Lifecycle & Validity ----
-    [[nodiscard]] constexpr bool IsValid() const noexcept {
-        return m_EntityHandle != NullEntity && m_Scene != nullptr;
-    }
+    [[nodiscard]] bool IsValid() const noexcept;
 
-    [[nodiscard]] constexpr explicit operator bool() const noexcept {
+    [[nodiscard]] explicit operator bool() const noexcept {
         return IsValid();
     }
 
-    [[nodiscard]] constexpr EntityID GetHandle() const noexcept {
+    [[nodiscard]] constexpr EntityHandle GetHandle() const noexcept {
         return m_EntityHandle;
     }
 
-    [[nodiscard]] constexpr operator EntityID() const noexcept {
+    [[nodiscard]] constexpr operator EntityHandle() const noexcept {
         return m_EntityHandle;
+    }
+
+    [[nodiscard]] constexpr EntityIndex GetIndex() const noexcept {
+        return GetEntityIndex(m_EntityHandle);
+    }
+
+    [[nodiscard]] constexpr EntityGeneration GetGeneration() const noexcept {
+        return GetEntityGeneration(m_EntityHandle);
     }
 
     [[nodiscard]] constexpr uint32_t GetID() const noexcept {
-        return static_cast<uint32_t>(m_EntityHandle);
+        return GetIndex();
     }
 
     [[nodiscard]] constexpr Scene* GetScene() const noexcept {

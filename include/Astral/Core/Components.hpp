@@ -3,8 +3,15 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <cstdint>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace Astral {
+
+struct TagComponent {
+    std::string tag = "Entity";
+};
 
 struct TransformComponent {
     glm::vec3 position{0.0f};
@@ -30,5 +37,54 @@ struct SDFComponent {
     float roughness = 0.5f;
     float metallic = 0.0f;
 };
+
+// Astral Araç Fiziği için Soft-Body Deformasyon Düğümü
+struct SoftBodyNode {
+    glm::vec3 position{0.0f};
+    glm::vec3 velocity{0.0f};
+    float mass = 1.0f;
+};
+
+// Astral Araç Fiziği / Deforme Olabilir Gövde Bileşeni
+struct SoftBodyComponent {
+    std::vector<SoftBodyNode> nodes;
+    float stiffness = 0.85f;
+    float damping = 0.05f;
+    float pressure = 1.0f;
+};
+
+// ============================================================================
+// Component Traits & Compile-Time Identifiers for DOD Binary Serialization
+// ============================================================================
+namespace Detail {
+    constexpr uint64_t FNV1a64(std::string_view str) {
+        uint64_t hash = 14695981039346656037ull;
+        for (char c : str) {
+            hash ^= static_cast<uint64_t>(c);
+            hash *= 1099511628211ull;
+        }
+        return hash;
+    }
+}
+
+template <typename T>
+struct ComponentTraits {
+    static constexpr uint64_t TypeHash = 0;
+    static constexpr const char* Name = "Unknown";
+};
+
+#define ASTRAL_REGISTER_COMPONENT_TRAIT(Type) \
+    template <> \
+    struct ComponentTraits<Type> { \
+        static constexpr uint64_t TypeHash = Detail::FNV1a64(#Type); \
+        static constexpr const char* Name = #Type; \
+    }
+
+ASTRAL_REGISTER_COMPONENT_TRAIT(TransformComponent);
+ASTRAL_REGISTER_COMPONENT_TRAIT(VelocityComponent);
+ASTRAL_REGISTER_COMPONENT_TRAIT(HealthComponent);
+ASTRAL_REGISTER_COMPONENT_TRAIT(SDFComponent);
+
+#undef ASTRAL_REGISTER_COMPONENT_TRAIT
 
 } // namespace Astral

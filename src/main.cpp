@@ -2,7 +2,10 @@
 #include "Astral/Core/Registry.hpp"
 #include "Astral/Scene/Scene.hpp"
 #include "Astral/Scene/SceneManager.hpp"
+#include "Astral/Scene/SceneSerializer.hpp"
 #include <iostream>
+#include <fstream>
+#include <filesystem>
 #include <string>
 
 // Fizik Sistemi: yalnizca verileri isler, kendi icinde durum tutmaz.
@@ -97,11 +100,262 @@ static void RunSceneTests() {
 
     // 5. Runtime sahnesinde nesneyi Destroy et
     runtimeScene->DestroyEntity(clonedShip);
+    assert(!clonedShip.IsValid() && "Destroy edilen clonedShip artik IsValid olmamalidir!");
     assert(!clonedShip.HasComponent<Astral::HealthComponent>());
+    assert(originalShip.IsValid() && "Editor nesnesi silinmemelidir ve IsValid kalmalidir!");
     assert(originalShip.HasComponent<Astral::HealthComponent>() && "Editor nesnesi silinmemelidir!");
 
     sceneManager.UnloadCurrentScene();
     std::cout << "=== [Scene Management & Deep-Copy Dogrulama Testi Basariyla Tamamlandi] ===\n\n";
+}
+
+static void RunGenerationalIdentityTests() {
+    std::cout << "=== [Astral Engine: Generational Entity & Lifetime Tests] ===\n";
+    auto scene = std::make_shared<Astral::Scene>("Identity Test Scene");
+    auto& reg = scene->GetRegistry();
+
+    // 1. Test_Create_IsAlive
+    Astral::Entity e0 = scene->CreateEntity();
+    assert(e0.IsValid() && "Yeni olusturulan varlik IsValid olmali!");
+    assert(reg.IsAlive(e0.GetHandle()) && "Registry IsAlive true donmeli!");
+    assert(e0.GetIndex() == 0 && "Ilk entity index 0 olmali!");
+    assert(e0.GetGeneration() == 1 && "Ilk entity generation 1 olmali!");
+    e0.AddComponent<Astral::HealthComponent>(100);
+
+    // 2. Test_Destroy_Invalidation
+    scene->DestroyEntity(e0);
+    assert(!e0.IsValid() && "Destroy sonrasi e0.IsValid false olmali!");
+    assert(!reg.IsAlive(e0.GetHandle()) && "Destroy sonrasi reg.IsAlive false olmali!");
+    assert(!e0.HasComponent<Astral::HealthComponent>() && "Bilesenler temizlenmis olmali!");
+
+    // 3. Test_FreeList_Recycling & Stale Handle Protection
+    // Ayni indekse sahip yeni entity olustur (Gen 2 olacak)
+    Astral::Entity e0_recycled = scene->CreateEntity();
+    assert(e0_recycled.GetIndex() == 0 && "Free-list ayni indeksi (0) recycle etmeli!");
+    assert(e0_recycled.GetGeneration() == 2 && "Recycle edilen entity'nin generation'i 2 olmali!");
+    assert(e0_recycled.GetHandle() != e0.GetHandle() && "Eski ve yeni 64-bit handle'lar farkli olmali!");
+    assert(e0_recycled.IsValid() && "Recycle entity gecerli olmali!");
+    assert(!e0.IsValid() && "Eski handle (e0) gecersiz kalmali!");
+    assert(!reg.IsAlive(e0.GetHandle()) && "Eski handle Registry tarafindan kesinlikle reddedilmeli!");
+
+    // 4. Ghost Mutation Engeli: e0_recycled'a can verelim
+    e0_recycled.AddComponent<Astral::HealthComponent>(500);
+    assert(e0_recycled.GetComponent<Astral::HealthComponent>().hp == 500);
+    // Eski e0 handle'i uzerinden HasComponent cagrisi IsValid assert'i / IsAlive korumasi saglar:
+    assert(!e0.HasComponent<Astral::HealthComponent>() && "Eski handle yeni component'e erisememeli!");
+
+    // 5. Test_Double_Destroy: Eski handle uzerinden tekrar destroy cagrisi hicbir seyi bozmamali
+    scene->DestroyEntity(e0); // Gecersiz handle, sessizce yok sayilmali
+    assert(e0_recycled.IsValid() && "Gecersiz destroy cagrisi yasayan entity'yi etkilememeli!");
+    assert(reg.IsAlive(e0_recycled.GetHandle()));
+
+    // 6. Test_Multiple_Recycling_Generations: Birden fazla geri donusum dongusu
+    Astral::Entity eA = scene->CreateEntity(); // Index 1, Gen 1
+    assert(eA.GetIndex() == 1 && eA.GetGeneration() == 1);
+    scene->DestroyEntity(eA);
+    Astral::Entity eB = scene->CreateEntity(); // Index 1, Gen 2
+    assert(eB.GetIndex() == 1 && eB.GetGeneration() == 2);
+    scene->DestroyEntity(eB);
+    Astral::Entity eC = scene->CreateEntity(); // Index 1, Gen 3
+    assert(eC.GetIndex() == 1 && eC.GetGeneration() == 3);
+
+    std::cout << "[Identity Test] 64-bit Generational Handle, FreeList ve Ghost Mutation korumasi %100 dogrulandi!\n";
+    std::cout << "=== [Generational Entity & Lifetime Testleri Basariyla Tamamlandi] ===\n\n";
+}
+
+static void RunSerializationTests() {
+    std::cout << "=== [Astral Engine: Custom DOD Binary Scene Serialization Testi (v2)] ===\n";
+
+    auto sourceScene = std::make_shared<Astral::Scene>("Binary Serialization Level");
+
+    // 1. Varlık #0: Hero Sphere (Transform + Health)
+    Astral::Entity e0 = sourceScene->CreateEntity();
+    e0.AddComponent<Astral::TransformComponent>(
+        glm::vec3(1.5f, 2.0f, -3.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+        glm::vec3(0.5f)
+    );
+    e0.AddComponent<Astral::HealthComponent>(300);
+
+    // Varlık #1 (Index 1: Boşluk)
+    Astral::Entity e1_gap = sourceScene->CreateEntity();
+
+    // 2. Varlık #2: Static Box (Transform + SDF)
+    Astral::Entity e2 = sourceScene->CreateEntity();
+    assert(e2.GetID() == 2 && "e2 index 2 olmali!");
+    e2.AddComponent<Astral::TransformComponent>(
+        glm::vec3(0.0f, 1.0f, 0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+        glm::vec3(2.0f, 1.0f, 4.0f)
+    );
+    e2.AddComponent<Astral::SDFComponent>(
+        1u, // Box
+        0u, // Union
+        0.0f, 1u,
+        glm::vec3(0.2f, 0.4f, 0.8f),
+        0.4f, 0.1f
+    );
+
+    // Arada Index 3..16 arasinda 14 adet bosluk olusturuyoruz
+    std::vector<Astral::Entity> dummies;
+    dummies.push_back(e1_gap); // Index 1 de silinecek
+    for (int i = 3; i < 17; ++i) {
+        dummies.push_back(sourceScene->CreateEntity());
+    }
+
+    // 3. Varlık #17: Dynamic Rocket (Velocity + Health) - Transform ve SDF yok!
+    Astral::Entity e17 = sourceScene->CreateEntity();
+    assert(e17.GetID() == 17 && "Sparsity olusturulamadi!");
+    e17.AddComponent<Astral::VelocityComponent>(
+        glm::vec3(12.0f, -4.0f, 0.0f),
+        glm::vec3(0.0f, 1.0f, 0.0f)
+    );
+    e17.AddComponent<Astral::HealthComponent>(50);
+
+    // Bosluk entity'lerini temizliyoruz (Index 1 ve 3..16 free-list'e gider)
+    for (auto& dummy : dummies) {
+        sourceScene->DestroyEntity(dummy);
+    }
+
+    // 1. Serileştir (.astral custom binary format v2) - Static C++20 Interface
+    const std::filesystem::path testFile = "assets/scenes/level_binary.astral";
+    bool serSuccess = Astral::SceneSerializer::Serialize(sourceScene, testFile);
+    assert(serSuccess && "Binary Serialize basarisiz!");
+
+    // 2. Yeni boş sahne oluştur ve Deserialize et - Static C++20 Interface
+    auto loadedScene = std::make_shared<Astral::Scene>("Empty");
+    bool deserSuccess = Astral::SceneSerializer::Deserialize(loadedScene, testFile);
+    assert(deserSuccess && "Binary Deserialize basarisiz!");
+
+    // 3. Doğrulamalar: Contiguous SparseSet Pools & Non-Sequential Entity-Component Fidelity
+    auto& transforms = loadedScene->GetRegistry().GetView<Astral::TransformComponent>();
+    auto& sdfs       = loadedScene->GetRegistry().GetView<Astral::SDFComponent>();
+    auto& velocities = loadedScene->GetRegistry().GetView<Astral::VelocityComponent>();
+    auto& healths    = loadedScene->GetRegistry().GetView<Astral::HealthComponent>();
+
+    assert(transforms.Size() == 2 && "Deserialization sonrasi Transform sayisi uyusmuyor!");
+    assert(sdfs.Size() == 1 && "Deserialization sonrasi SDF sayisi uyusmuyor!");
+    assert(velocities.Size() == 1 && "Deserialization sonrasi Velocity sayisi uyusmuyor!");
+    assert(healths.Size() == 2 && "Deserialization sonrasi Health sayisi uyusmuyor!");
+
+    // SparseSet Invariant Dogrulamalari:
+    assert(transforms.Entities()[0] == e0.GetHandle() && transforms.Entities()[1] == e2.GetHandle());
+    assert(healths.Entities()[0] == e0.GetHandle() && healths.Entities()[1] == e17.GetHandle());
+    assert(sdfs.Entities()[0] == e2.GetHandle());
+    assert(velocities.Entities()[0] == e17.GetHandle());
+
+    // Varlık #0 doğrulaması: Transform + Health var; SDF ve Velocity YOK!
+    Astral::Entity loadedE0(e0.GetHandle(), loadedScene.get());
+    assert(loadedE0.IsValid());
+    assert(loadedE0.HasComponent<Astral::TransformComponent>());
+    assert(loadedE0.GetComponent<Astral::TransformComponent>().position.x == 1.5f);
+    assert(loadedE0.HasComponent<Astral::HealthComponent>());
+    assert(loadedE0.GetComponent<Astral::HealthComponent>().hp == 300);
+    assert(!loadedE0.HasComponent<Astral::SDFComponent>());
+    assert(!loadedE0.HasComponent<Astral::VelocityComponent>());
+
+    // Varlık #2 doğrulaması: Transform + SDF var; Health ve Velocity YOK!
+    Astral::Entity loadedE2(e2.GetHandle(), loadedScene.get());
+    assert(loadedE2.IsValid());
+    assert(loadedE2.HasComponent<Astral::TransformComponent>());
+    assert(loadedE2.GetComponent<Astral::TransformComponent>().scale.x == 2.0f);
+    assert(loadedE2.HasComponent<Astral::SDFComponent>());
+    assert(loadedE2.GetComponent<Astral::SDFComponent>().primitiveType == 1u);
+    assert(!loadedE2.HasComponent<Astral::HealthComponent>());
+    assert(!loadedE2.HasComponent<Astral::VelocityComponent>());
+
+    // Varlık #17 doğrulaması: Velocity + Health var; Transform ve SDF YOK!
+    Astral::Entity loadedE17(e17.GetHandle(), loadedScene.get());
+    assert(loadedE17.IsValid());
+    assert(loadedE17.HasComponent<Astral::VelocityComponent>());
+    assert(loadedE17.GetComponent<Astral::VelocityComponent>().linear.x == 12.0f);
+    assert(loadedE17.HasComponent<Astral::HealthComponent>());
+    assert(loadedE17.GetComponent<Astral::HealthComponent>().hp == 50);
+    assert(!loadedE17.HasComponent<Astral::TransformComponent>());
+    assert(!loadedE17.HasComponent<Astral::SDFComponent>());
+
+    std::cout << "[Serialization Test] DOD Binary Dogrulama (v2): Non-sequential seyrek Entity-Component eslemesi %100 dogrulandi!\n";
+
+    // 4. Unknown Chunk Graceful Skipping (Ileri Uyumluluk) Testi
+    const std::filesystem::path unknownChunkFile = "assets/scenes/unknown_chunk.astral";
+    const Astral::EntityID dummyId = Astral::MakeEntityHandle(0, 1);
+    {
+        std::ofstream stream(unknownChunkFile, std::ios::binary | std::ios::trunc);
+        // Header v2
+        Astral::SceneFileHeader fh{ .magic = { 'A', 'S', 'T', 'R' }, .version = 2, .activeEntityCount = 1 };
+        stream.write(reinterpret_cast<const char*>(&fh), sizeof(fh));
+
+        // 1. Bilinmeyen Chunk (TypeID 0xCAFEBABEDEAD, 1 entity, 16 bytes component)
+        Astral::ComponentChunkHeader unkChunk{
+            .typeId = 0xCAFEBABEDEADull,
+            .version = 1,
+            .flags = 0,
+            .elementCount = 1,
+            .entityDataSize = sizeof(Astral::EntityID),
+            .componentDataSize = 16
+        };
+        stream.write(reinterpret_cast<const char*>(&unkChunk), sizeof(unkChunk));
+        stream.write(reinterpret_cast<const char*>(&dummyId), sizeof(dummyId));
+        char dummyPayload[16] = "UNKNOWN_DATA!!!";
+        stream.write(dummyPayload, 16);
+
+        // 2. Bilinen Chunk: HealthComponent (Entity 0, hp 777)
+        Astral::ComponentChunkHeader healthChunk{
+            .typeId = Astral::ComponentTraits<Astral::HealthComponent>::TypeHash,
+            .version = 1,
+            .flags = 0,
+            .elementCount = 1,
+            .entityDataSize = sizeof(Astral::EntityID),
+            .componentDataSize = sizeof(Astral::HealthComponent)
+        };
+        stream.write(reinterpret_cast<const char*>(&healthChunk), sizeof(healthChunk));
+        stream.write(reinterpret_cast<const char*>(&dummyId), sizeof(dummyId));
+        Astral::HealthComponent hpComp{ .hp = 777 };
+        stream.write(reinterpret_cast<const char*>(&hpComp), sizeof(hpComp));
+    }
+
+    auto unkScene = std::make_shared<Astral::Scene>("UnknownChunkTest");
+    bool unkSuccess = Astral::SceneSerializer::Deserialize(unkScene, unknownChunkFile);
+    assert(unkSuccess && "Bilinmeyen chunk graceful sekilde atlanamadi!");
+    assert(unkScene->GetRegistry().GetView<Astral::HealthComponent>().Size() == 1);
+    assert(unkScene->GetRegistry().GetComponent<Astral::HealthComponent>(dummyId).hp == 777);
+    std::cout << "[Serialization Test] Forward-Compatibility: Bilinmeyen chunk basariyla atlandi ve sahne yuklendi!\n";
+
+    // 5. Atomic Staging Rollback Testi
+    auto liveScene = std::make_shared<Astral::Scene>("LiveScene");
+    Astral::Entity liveE = liveScene->CreateEntity();
+    liveE.AddComponent<Astral::HealthComponent>(999);
+
+    // Bozuk dosyayı deserialize etmeye çalışalım
+    const std::filesystem::path truncatedFile = "assets/scenes/truncated.astral";
+    {
+        std::ofstream truncStream(truncatedFile, std::ios::binary);
+        char partialHeader[6] = { 'A', 'S', 'T', 'R', 2, 0 };
+        truncStream.write(partialHeader, 6);
+    }
+    bool atomicFail = Astral::SceneSerializer::Deserialize(liveScene, truncatedFile);
+    assert(!atomicFail && "Truncated file fail etmeli!");
+    // Canlı sahne bozulmamış olmalı (Atomic Staging)
+    assert(liveScene->GetRegistry().GetView<Astral::HealthComponent>().Size() == 1);
+    assert(liveScene->GetRegistry().GetComponent<Astral::HealthComponent>(liveE.GetHandle()).hp == 999);
+    std::cout << "[Serialization Test] Atomic Staging Rollback: Hatali dosya canli sahneyi bozmadi!\n";
+
+    // 6. Diger Fast-Fail Testleri
+    assert(!Astral::SceneSerializer::Serialize(nullptr, testFile));
+    assert(!Astral::SceneSerializer::Deserialize(nullptr, testFile));
+
+    const std::filesystem::path corruptMagicFile = "assets/scenes/corrupt_magic.astral";
+    {
+        std::ofstream corruptStream(corruptMagicFile, std::ios::binary);
+        char badMagic[12] = { 'X', 'X', 'X', 'X', 2, 0, 0, 0, 2, 0, 0, 0 };
+        corruptStream.write(badMagic, 12);
+    }
+    auto dummyScene = std::make_shared<Astral::Scene>("Dummy");
+    assert(!Astral::SceneSerializer::Deserialize(dummyScene, corruptMagicFile) && "Bozuk magic bytes fast-fail etmeli!");
+    assert(!Astral::SceneSerializer::Deserialize(dummyScene, "non_existent_file.astral"));
+
+    std::cout << "[Serialization Test] Fast-Fail Guvenlik Testleri: Gecersiz magic, EOF ve null kontrolleri basarili!\n";
+    std::cout << "=== [Custom DOD Binary Scene Serialization Testi Basariyla Tamamlandi] ===\n\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -157,10 +411,16 @@ int main(int argc, char* argv[]) {
     // 1. ECS Cekirdek Testlerini Calistir
     RunEcsTests();
 
-    // 2. Scene Management & Deep-Copy Testlerini Calistir
+    // 2. Generational Entity & Lifetime Testlerini Calistir (Phase 4)
+    RunGenerationalIdentityTests();
+
+    // 3. Scene Management & Deep-Copy Testlerini Calistir
     RunSceneTests();
 
-    // 3. Astral Engine Vulkan 1.4 & Pencere Uygulamasini Calistir
+    // 4. Scene Serialization & Deserialization Testlerini Calistir
+    RunSerializationTests();
+
+    // 4. Astral Engine Vulkan 1.4 & Pencere Uygulamasini Calistir
     Astral::Application app(config);
     app.Run(maxFrames);
 

@@ -15,6 +15,7 @@
 namespace Astral {
 
 class Window;
+class Swapchain;
 
 struct QueueFamilyIndices {
     uint32_t graphicsFamily = 0;
@@ -59,6 +60,16 @@ public:
     void EndAndSubmitFrameCommand();
     double GetLastGpuTimeMs();
 
+    // Swapchain & Presentation
+    void CreateSwapchain();
+    void RecreateSwapchain();
+    Swapchain* GetSwapchain() const { return m_Swapchain.get(); }
+    uint32_t GetCurrentImageIndex() const { return m_CurrentImageIndex; }
+    bool AcquireNextImage();
+    void PrepareSwapchainImage();
+    void EndFrameBlit(vk::Image sourceImage, uint32_t srcWidth, uint32_t srcHeight);
+    void EndFramePresent();
+
     void WaitIdle();
 
 private:
@@ -82,6 +93,13 @@ private:
     float m_TimestampPeriod = 1.0f;
     double m_LastGpuTimeMs = 0.0;
     bool m_HasValidGpuTime = false;
+
+    // Swapchain & Synch
+    std::unique_ptr<Swapchain> m_Swapchain;
+    std::vector<vk::UniqueSemaphore> m_ImageAvailableSemaphores;
+    std::vector<vk::UniqueSemaphore> m_RenderFinishedSemaphores;
+    uint32_t m_CurrentImageIndex = 0;
+    size_t m_CurrentFrame = 0;
 
     void CreateInstance();
     void SetupDebugMessenger();

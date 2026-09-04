@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <array>
 #include <filesystem>
+#include <imgui_impl_vulkan.h>
 
 namespace Astral {
 
@@ -94,6 +95,21 @@ SDFRenderer::SDFRenderer(VulkanContext& context, const std::string& spvPath, int
     CreateTAAPipeline();
     CreateDescriptorPoolAndSets();
 
+    // 1. ImGui Viewport Sampler
+    vk::SamplerCreateInfo samplerInfo{};
+    samplerInfo.magFilter = vk::Filter::eLinear;
+    samplerInfo.minFilter = vk::Filter::eLinear;
+    samplerInfo.mipmapMode = vk::SamplerMipmapMode::eLinear;
+    samplerInfo.addressModeU = vk::SamplerAddressMode::eClampToEdge;
+    samplerInfo.addressModeV = vk::SamplerAddressMode::eClampToEdge;
+    samplerInfo.addressModeW = vk::SamplerAddressMode::eClampToEdge;
+    samplerInfo.mipLodBias = 0.0f;
+    samplerInfo.maxAnisotropy = 1.0f;
+    samplerInfo.minLod = 0.0f;
+    samplerInfo.maxLod = 1.0f;
+    samplerInfo.borderColor = vk::BorderColor::eFloatOpaqueBlack;
+    m_ViewportSampler = m_Device.createSamplerUnique(samplerInfo);
+
     std::cout << "[Astral::SDFRenderer] SDF Renderer baslatildi (" << m_Width << "x" << m_Height 
               << ", EditBuffer: " << (MAX_EDITS * sizeof(SDFEditGPU)) / 1024 << " KB"
               << ", Two-Level BrickGrid & TAA Aktif, SelectionBuffer Hazir).\n";
@@ -101,6 +117,12 @@ SDFRenderer::SDFRenderer(VulkanContext& context, const std::string& spvPath, int
 
 SDFRenderer::~SDFRenderer() {
     m_Device.waitIdle();
+    if (m_ViewportDescriptorSet != VK_NULL_HANDLE) {
+        ImGui_ImplVulkan_RemoveTexture(m_ViewportDescriptorSet);
+        m_ViewportDescriptorSet = VK_NULL_HANDLE;
+    }
+    m_ViewportSampler.reset();
+
     m_DescriptorPool.reset();
     m_TAAPipeline.reset();
     m_TaaPipelineLayout.reset();
@@ -154,7 +176,8 @@ void SDFRenderer::CreateTexture(vk::UniqueImage& img, vk::UniqueDeviceMemory& me
 
 void SDFRenderer::CreateImages() {
     CreateTexture(m_StorageImage, m_StorageImageMemory, m_StorageImageView,
-                  vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst);
+                  vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc | 
+                  vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled);
 
     CreateTexture(m_RawColorImage, m_RawColorImageMemory, m_RawColorImageView,
                   vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc);
@@ -367,19 +390,38 @@ void SDFRenderer::Resize(int width, int height) {
     if (width <= 0 || height <= 0 || (width == m_Width && height == m_Height)) return;
 
     m_Device.waitIdle();
+
+    if (m_ViewportDescriptorSet != VK_NULL_HANDLE) {
+        ImGui_ImplVulkan_RemoveTexture(m_ViewportDescriptorSet);
+        m_ViewportDescriptorSet = VK_NULL_HANDLE;
+    }
+
     m_Width = width;
     m_Height = height;
 
     CleanupImages();
     CreateImages();
     UpdateDescriptorSets();
+    m_HistoryInitialized = false;
+}
+
+VkDescriptorSet SDFRenderer::GetViewportTextureID() {
+    if (m_ViewportDescriptorSet == VK_NULL_HANDLE && m_ViewportSampler && m_StorageImageView) {
+        if (ImGui::GetCurrentContext()) {
+            m_ViewportDescriptorSet = ImGui_ImplVulkan_AddTexture(
+                static_cast<VkSampler>(m_ViewportSampler.get()),
+                static_cast<VkImageView>(m_StorageImageView.get()),
+                VK_IMAGE_LAYOUT_GENERAL
+            );
+        }
+    }
+    return m_ViewportDescriptorSet;
 }
 
 void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode, int width, int height,
                          bool useGrid, bool optShadow, bool enableTAA, uint32_t frameIndex) {
-    if (width != m_Width || height != m_Height) {
-        Resize(width, height);
-    }
+    (void)width;
+    (void)height;
 
     // 1. Raymarching ciktisini (m_RawColorImage) eGeneral durumuna gecir
     vk::ImageMemoryBarrier rawBarrier{};
@@ -432,12 +474,12 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
     glm::vec2 jitter = enableTAA ? HALTON_8[frameIndex % 8] : glm::vec2(0.0f);
     pushConstants.taaParams = glm::vec4(jitter.x, jitter.y, enableTAA ? 1.0f : 0.0f, 0.12f);
 
-    // PR-9: Mouse Picking Params
+    // PR-9: Mouse Picking Params & Secili Nesne Fresnel Vurgusu
     pushConstants.mouseParams = glm::vec4(
         static_cast<float>(m_PickingMouseX),
         static_cast<float>(m_PickingMouseY),
         m_PickingRequested ? 1.0f : 0.0f,
-        0.0f
+        static_cast<float>(m_SelectedHitIndex)
     );
 
     if (m_PickingRequested && m_SelectionBuffer && m_SelectionBuffer->GetMappedData()) {
@@ -479,6 +521,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
         );
 
         m_PickingRequested = false;
+        m_PickPendingRead = true;
     }
 
     if (enableTAA) {
@@ -506,13 +549,15 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
         storageBarrier.srcAccessMask = {};
         storageBarrier.dstAccessMask = vk::AccessFlagBits::eShaderWrite;
 
-        // m_HistoryImage ilk karede undefined'dan General'a geçir
+        // m_HistoryImage ilk karede veya resize sonrasi undefined'dan General'a geçir
+        bool isFirstHistory = !m_HistoryInitialized || (frameIndex == 0);
         vk::ImageMemoryBarrier histBarrier = toTaaBarrier;
         histBarrier.image = m_HistoryImage.get();
-        histBarrier.oldLayout = (frameIndex == 0) ? vk::ImageLayout::eUndefined : vk::ImageLayout::eGeneral;
+        histBarrier.oldLayout = isFirstHistory ? vk::ImageLayout::eUndefined : vk::ImageLayout::eGeneral;
         histBarrier.newLayout = vk::ImageLayout::eGeneral;
-        histBarrier.srcAccessMask = (frameIndex == 0) ? vk::AccessFlags{} : vk::AccessFlagBits::eTransferWrite;
+        histBarrier.srcAccessMask = isFirstHistory ? vk::AccessFlags{} : vk::AccessFlagBits::eTransferWrite;
         histBarrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+        m_HistoryInitialized = true;
 
         std::array<vk::ImageMemoryBarrier, 3> taaBarriers = { toTaaBarrier, storageBarrier, histBarrier };
         cmd.pipelineBarrier(
@@ -538,7 +583,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
         taaPush.screenRes = glm::vec4(
             static_cast<float>(m_Width),
             static_cast<float>(m_Height),
-            static_cast<float>(frameIndex),
+            isFirstHistory ? 0.0f : static_cast<float>(frameIndex),
             0.12f // EMA Blend Alpha
         );
 
@@ -679,6 +724,26 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
             1, &afterCopyStorage
         );
     }
+
+    // m_StorageImage'i ImGui Viewport sampling icin eGeneral duzenine gecir (Shader Read)
+    vk::ImageMemoryBarrier toGeneral{};
+    toGeneral.oldLayout = vk::ImageLayout::eTransferSrcOptimal;
+    toGeneral.newLayout = vk::ImageLayout::eGeneral;
+    toGeneral.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toGeneral.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toGeneral.image = m_StorageImage.get();
+    toGeneral.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
+    toGeneral.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+    toGeneral.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTransfer,
+        vk::PipelineStageFlagBits::eFragmentShader,
+        {},
+        0, nullptr,
+        0, nullptr,
+        1, &toGeneral
+    );
 }
 
 void SDFRenderer::SetPickingRequest(int mouseX, int mouseY) {
@@ -697,6 +762,20 @@ SDFRenderer::SelectionResult SDFRenderer::GetSelectionResult() const {
         result.hitDistance = data->hitPoint.w;
     }
     return result;
+}
+
+SDFRenderer::SelectionResult SDFRenderer::ConsumeSelectionResult() {
+    SelectionResult result = GetSelectionResult();
+    ClearSelectionResult();
+    return result;
+}
+
+void SDFRenderer::ClearSelectionResult() {
+    m_PickPendingRead = false;
+    if (m_SelectionBuffer && m_SelectionBuffer->GetMappedData()) {
+        auto* data = static_cast<SelectionDataGPU*>(m_SelectionBuffer->GetMappedData());
+        data->hitIndex = -1;
+    }
 }
 
 } // namespace Astral

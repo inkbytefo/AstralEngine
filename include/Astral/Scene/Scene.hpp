@@ -57,6 +57,15 @@ public:
     // ---- Entity Factory Methods ----
     [[nodiscard]] Entity CreateEntity();
     void DestroyEntity(Entity entity);
+    void DestroyEntity(EntityHandle handle);
+    void Clear();
+
+    /// Atomic Transaction Commit: swaps internal ECS registry and state
+    void Swap(Scene& other) noexcept {
+        m_Registry.Swap(other.m_Registry);
+        m_Name.swap(other.m_Name);
+        std::swap(m_IsRunning, other.m_IsRunning);
+    }
 
     // ---- Accessors ----
     [[nodiscard]] Registry& GetRegistry() noexcept { return m_Registry; }
@@ -76,6 +85,12 @@ private:
 // ============================================================================
 // Entity Template Forwarding Implementation (Inline Zero-Cost Abstraction)
 // ============================================================================
+
+inline bool Entity::IsValid() const noexcept {
+    return m_EntityHandle != NullEntityHandle && 
+           m_Scene != nullptr && 
+           m_Scene->GetRegistry().IsAlive(m_EntityHandle);
+}
 
 template <typename T, typename... Args>
 inline T& Entity::AddComponent(Args&&... args) {
@@ -100,13 +115,13 @@ inline const T& Entity::GetComponent() const {
 
 template <typename T>
 inline bool Entity::HasComponent() const {
-    assert(IsValid() && "[Astral::Entity] Gecersiz Entity uzerinde HasComponent cagrildi!");
+    if (!IsValid()) return false;
     return m_Scene->GetRegistry().HasComponent<T>(m_EntityHandle);
 }
 
 template <typename T>
 inline bool Entity::RemoveComponent() {
-    assert(IsValid() && "[Astral::Entity] Gecersiz Entity uzerinde RemoveComponent cagrildi!");
+    if (!IsValid()) return false;
     return m_Scene->GetRegistry().RemoveComponent<T>(m_EntityHandle);
 }
 
@@ -114,9 +129,17 @@ inline Entity Scene::CreateEntity() {
     return Entity(m_Registry.CreateEntity(), this);
 }
 
+inline void Scene::DestroyEntity(EntityHandle handle) {
+    m_Registry.DestroyEntity(handle);
+}
+
 inline void Scene::DestroyEntity(Entity entity) {
     assert(entity.GetScene() == this && "[Astral::Scene] Entity baska bir sahneye ait!");
     m_Registry.DestroyEntity(entity.GetHandle());
+}
+
+inline void Scene::Clear() {
+    m_Registry.Clear();
 }
 
 } // namespace Astral

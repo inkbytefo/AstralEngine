@@ -1,5 +1,6 @@
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 #include "Astral/Renderer/VulkanContext.hpp"
+#include "Astral/Renderer/Swapchain.hpp"
 #include "Astral/Core/Window.hpp"
 
 #include <iostream>
@@ -94,12 +95,17 @@ VulkanContext::VulkanContext(Window& window, bool enableValidation)
 
     CreateCommandPoolAndBuffers();
     CreateTimestampQueryPool();
+    CreateSwapchain();
 
     std::cout << "[Astral::VulkanContext] Vulkan 1.4 ve GPU Timestamp altyapisi basariyla hazirlandi.\n";
 }
 
 VulkanContext::~VulkanContext() {
     WaitIdle();
+
+    m_Swapchain.reset();
+    m_RenderFinishedSemaphores.clear();
+    m_ImageAvailableSemaphores.clear();
 
     m_TimestampQueryPool.reset();
     m_FrameFence.reset();
@@ -273,6 +279,14 @@ void VulkanContext::CreateLogicalDevice() {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME
     };
 
+    auto availableDeviceExts = m_PhysicalDevice.enumerateDeviceExtensionProperties();
+    for (const auto& ext : availableDeviceExts) {
+        if (std::strcmp(ext.extensionName, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME) == 0) {
+            deviceExtensions.push_back(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
+            break;
+        }
+    }
+
     // Vulkan 1.3 / 1.4 core ozellikleri (Dynamic rendering + synchronization2)
     vk::PhysicalDeviceVulkan13Features features13{};
     features13.dynamicRendering = VK_TRUE;
@@ -427,6 +441,219 @@ bool VulkanContext::CheckValidationLayerSupport() {
     }
 
     return true;
+}
+
+void VulkanContext::CreateSwapchain() {
+    m_Swapchain = std::make_unique<Swapchain>(
+        m_Device.get(),
+        m_PhysicalDevice,
+        m_Surface.get(),
+        static_cast<uint32_t>(m_Window.GetWidth()),
+        static_cast<uint32_t>(m_Window.GetHeight())
+    );
+
+    m_ImageAvailableSemaphores.clear();
+    m_RenderFinishedSemaphores.clear();
+    size_t count = m_Swapchain->GetImages().size();
+    vk::SemaphoreCreateInfo semInfo{};
+    for (size_t i = 0; i < count; ++i) {
+        m_ImageAvailableSemaphores.push_back(m_Device->createSemaphoreUnique(semInfo));
+        m_RenderFinishedSemaphores.push_back(m_Device->createSemaphoreUnique(semInfo));
+    }
+    m_CurrentFrame = 0;
+}
+
+void VulkanContext::RecreateSwapchain() {
+    int width = m_Window.GetWidth();
+    int height = m_Window.GetHeight();
+    if (width <= 0 || height <= 0) return;
+
+    m_Device->waitIdle();
+    m_Swapchain.reset();
+    CreateSwapchain();
+}
+
+bool VulkanContext::AcquireNextImage() {
+    if (!m_Swapchain || m_ImageAvailableSemaphores.empty()) return false;
+
+    auto result = m_Device->acquireNextImageKHR(
+        m_Swapchain->GetSwapchain(),
+        UINT64_MAX,
+        m_ImageAvailableSemaphores[m_CurrentFrame].get(),
+        nullptr,
+        &m_CurrentImageIndex
+    );
+
+    if (result == vk::Result::eErrorOutOfDateKHR) {
+        RecreateSwapchain();
+        return false;
+    } else if (result != vk::Result::eSuccess && result != vk::Result::eSuboptimalKHR) {
+        return false;
+    }
+    return true;
+}
+
+void VulkanContext::PrepareSwapchainImage() {
+    if (!m_Swapchain) return;
+
+    auto cmd = m_CommandBuffer.get();
+    vk::Image swapImage = m_Swapchain->GetImages()[m_CurrentImageIndex];
+
+    vk::ImageMemoryBarrier toColorAttachment{};
+    toColorAttachment.oldLayout = vk::ImageLayout::eUndefined;
+    toColorAttachment.newLayout = vk::ImageLayout::eColorAttachmentOptimal;
+    toColorAttachment.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toColorAttachment.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toColorAttachment.image = swapImage;
+    toColorAttachment.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
+    toColorAttachment.srcAccessMask = {};
+    toColorAttachment.dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTopOfPipe,
+        vk::PipelineStageFlagBits::eColorAttachmentOutput,
+        {}, nullptr, nullptr, toColorAttachment
+    );
+}
+
+void VulkanContext::EndFrameBlit(vk::Image sourceImage, uint32_t srcWidth, uint32_t srcHeight) {
+    if (!m_Swapchain) return;
+
+    auto cmd = m_CommandBuffer.get();
+    vk::Image swapImage = m_Swapchain->GetImages()[m_CurrentImageIndex];
+    auto extent = m_Swapchain->GetExtent();
+
+    // 1. Swapchain image'i TransferDst Optimal yap
+    vk::ImageMemoryBarrier toTransferDst{};
+    toTransferDst.oldLayout = vk::ImageLayout::eUndefined;
+    toTransferDst.newLayout = vk::ImageLayout::eTransferDstOptimal;
+    toTransferDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransferDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransferDst.image = swapImage;
+    toTransferDst.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
+    toTransferDst.srcAccessMask = {};
+    toTransferDst.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
+
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTopOfPipe,
+        vk::PipelineStageFlagBits::eTransfer,
+        {}, nullptr, nullptr, toTransferDst
+    );
+
+    // 2. Blit sourceImage (m_StorageImage) -> swapImage
+    vk::ImageBlit blitRegion{};
+    blitRegion.srcSubresource = { vk::ImageAspectFlagBits::eColor, 0, 0, 1 };
+    blitRegion.srcOffsets[0] = vk::Offset3D{ 0, 0, 0 };
+    blitRegion.srcOffsets[1] = vk::Offset3D{ static_cast<int32_t>(srcWidth), static_cast<int32_t>(srcHeight), 1 };
+    blitRegion.dstSubresource = { vk::ImageAspectFlagBits::eColor, 0, 0, 1 };
+    blitRegion.dstOffsets[0] = vk::Offset3D{ 0, 0, 0 };
+    blitRegion.dstOffsets[1] = vk::Offset3D{ static_cast<int32_t>(extent.width), static_cast<int32_t>(extent.height), 1 };
+
+    cmd.blitImage(
+        sourceImage, vk::ImageLayout::eTransferSrcOptimal,
+        swapImage, vk::ImageLayout::eTransferDstOptimal,
+        1, &blitRegion, vk::Filter::eLinear
+    );
+
+    // 3. Swapchain image'i ImGui Dynamic Rendering icin ColorAttachmentOptimal yap
+    vk::ImageMemoryBarrier toColorAttachment{};
+    toColorAttachment.oldLayout = vk::ImageLayout::eTransferDstOptimal;
+    toColorAttachment.newLayout = vk::ImageLayout::eColorAttachmentOptimal;
+    toColorAttachment.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toColorAttachment.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toColorAttachment.image = swapImage;
+    toColorAttachment.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
+    toColorAttachment.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+    toColorAttachment.dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTransfer,
+        vk::PipelineStageFlagBits::eColorAttachmentOutput,
+        {}, nullptr, nullptr, toColorAttachment
+    );
+}
+
+void VulkanContext::EndFramePresent() {
+    if (!m_Swapchain) return;
+
+    auto cmd = m_CommandBuffer.get();
+    vk::Image swapImage = m_Swapchain->GetImages()[m_CurrentImageIndex];
+
+    // 1. Swapchain image'i PresentSrcKHR yap
+    vk::ImageMemoryBarrier toPresent{};
+    toPresent.oldLayout = vk::ImageLayout::eColorAttachmentOptimal;
+    toPresent.newLayout = vk::ImageLayout::ePresentSrcKHR;
+    toPresent.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toPresent.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toPresent.image = swapImage;
+    toPresent.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
+    toPresent.srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+    toPresent.dstAccessMask = {};
+
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eColorAttachmentOutput,
+        vk::PipelineStageFlagBits::eBottomOfPipe,
+        {}, nullptr, nullptr, toPresent
+    );
+
+    m_CommandBuffer->writeTimestamp(vk::PipelineStageFlagBits::eBottomOfPipe, m_TimestampQueryPool.get(), QUERY_FRAME_END);
+    m_CommandBuffer->end();
+
+    // 2. Submit with Semaphores
+    vk::PipelineStageFlags waitStages[] = { vk::PipelineStageFlagBits::eColorAttachmentOutput };
+    vk::SubmitInfo submitInfo{};
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = &m_ImageAvailableSemaphores[m_CurrentFrame].get();
+    submitInfo.pWaitDstStageMask = waitStages;
+    submitInfo.commandBufferCount = 1;
+    vk::CommandBuffer rawCmd = m_CommandBuffer.get();
+    submitInfo.pCommandBuffers = &rawCmd;
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = &m_RenderFinishedSemaphores[m_CurrentImageIndex].get();
+
+    auto resSubmit = m_GraphicsQueue.submit(1, &submitInfo, m_FrameFence.get());
+    (void)resSubmit;
+
+    // 3. Present
+    vk::PresentInfoKHR presentInfo{};
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores = &m_RenderFinishedSemaphores[m_CurrentImageIndex].get();
+    presentInfo.swapchainCount = 1;
+    vk::SwapchainKHR rawSwapchain = m_Swapchain->GetSwapchain();
+    presentInfo.pSwapchains = &rawSwapchain;
+    presentInfo.pImageIndices = &m_CurrentImageIndex;
+
+    m_CurrentFrame = (m_CurrentFrame + 1) % m_ImageAvailableSemaphores.size();
+
+    try {
+        auto resPresent = m_PresentQueue.presentKHR(presentInfo);
+        if (resPresent == vk::Result::eSuboptimalKHR) {
+            RecreateSwapchain();
+        }
+    } catch (const vk::OutOfDateKHRError&) {
+        RecreateSwapchain();
+    }
+
+    // 4. Fence bekle ve GPU zamanini oku
+    auto res = m_Device->waitForFences(1, &m_FrameFence.get(), VK_TRUE, UINT64_MAX);
+    (void)res;
+
+    uint64_t timestamps[2] = {0, 0};
+    auto qr = m_Device->getQueryPoolResults(
+        m_TimestampQueryPool.get(),
+        0,
+        2,
+        sizeof(timestamps),
+        timestamps,
+        sizeof(uint64_t),
+        vk::QueryResultFlagBits::e64 | vk::QueryResultFlagBits::eWait
+    );
+
+    if (qr == vk::Result::eSuccess && timestamps[1] >= timestamps[0]) {
+        uint64_t deltaTicks = timestamps[1] - timestamps[0];
+        m_LastGpuTimeMs = (static_cast<double>(deltaTicks) * static_cast<double>(m_TimestampPeriod)) / 1e6;
+        m_HasValidGpuTime = true;
+    }
 }
 
 } // namespace Astral

@@ -12,6 +12,7 @@ class Window;
 class VulkanContext;
 class BenchmarkLogger;
 class SDFRenderer;
+class EditorUI;
 
 struct AppConfig {
     bool benchMode = false;
@@ -56,6 +57,7 @@ private:
     std::unique_ptr<VulkanContext> m_VulkanContext;
     std::unique_ptr<SDFRenderer> m_SDFRenderer;
     std::unique_ptr<BenchmarkLogger> m_BenchmarkLogger;
+    std::unique_ptr<EditorUI> m_EditorUI;
     bool m_Running = false;
 };
 
