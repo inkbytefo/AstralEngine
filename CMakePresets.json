@@ -16,8 +16,8 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_C_COMPILER": "C:/mingw64/bin/x86_64-w64-mingw32-gcc.exe",
         "CMAKE_CXX_COMPILER": "C:/mingw64/bin/x86_64-w64-mingw32-g++.exe",
-        "CMAKE_AR": "C:/mingw64/bin/x86_64-w64-mingw32-gcc-ar.exe",
-        "CMAKE_RANLIB": "C:/mingw64/bin/x86_64-w64-mingw32-gcc-ranlib.exe",
+        "CMAKE_AR": "C:/mingw64/x86_64-w64-mingw32/bin/ar.exe",
+        "CMAKE_RANLIB": "C:/mingw64/x86_64-w64-mingw32/bin/ranlib.exe",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
     },
@@ -31,8 +31,8 @@
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_C_COMPILER": "C:/mingw64/bin/x86_64-w64-mingw32-gcc.exe",
         "CMAKE_CXX_COMPILER": "C:/mingw64/bin/x86_64-w64-mingw32-g++.exe",
-        "CMAKE_AR": "C:/mingw64/bin/x86_64-w64-mingw32-gcc-ar.exe",
-        "CMAKE_RANLIB": "C:/mingw64/bin/x86_64-w64-mingw32-gcc-ranlib.exe",
+        "CMAKE_AR": "C:/mingw64/x86_64-w64-mingw32/bin/ar.exe",
+        "CMAKE_RANLIB": "C:/mingw64/x86_64-w64-mingw32/bin/ranlib.exe",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
     },

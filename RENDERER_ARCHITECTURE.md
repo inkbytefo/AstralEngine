@@ -81,6 +81,10 @@ C++ ve GLSL `std430` hizalama kurallarına göre birebir eşleşen 96-byte belle
 | `matPad1..3` | `float[3]` | `float[3]` | 84 | 12 | 16-byte hizalama tamamlayıcı dolgu |
 | **Toplam** | | | | **96 byte** | $256 \times 96 = 24,576 \text{ byte}$ ($24 \text{ KB}$) |
 
+> [!NOTE]
+> **256-Edit Sınırının Kaynağı ve Yönetimi (`MAX_SDF_EDITS`)**:
+> 256 sınırı bir Vulkan donanım kısıtı değil; ışın yürütme döngüsünde (128 adım) her adımda analitik primitiflerin $O(N)$ taranması nedeniyle 60+ FPS raymarching bütçesini korumak için belirlenmiş bir mimari tercihtir. Bu sınır `Astral/Renderer/SDFEdit.hpp` içinde `MAX_SDF_EDITS = 256`, `SDFRenderer::MAX_EDITS` ve `SDFCompute.glsl` içinde `#define MAX_EDITS 256` ile tek merkezden yönetilir.
+
 #### b) `SelectionBuffer` (SSBO Binding 4)
 - Yapı: `int hitIndex; float hitPosX, hitPosY, hitPosZ;` (16 byte).
 - Boyut: 16 byte (`sizeof(SelectionData)`).

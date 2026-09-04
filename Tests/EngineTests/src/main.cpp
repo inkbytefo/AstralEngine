@@ -9,6 +9,10 @@ namespace Astral::Test {
     void RunGenerationalIdentityTests();
     void RunSceneTests();
     void RunSerializationTests();
+    void RunBrickGridTests();
+    void RunCommandStackTests();
+    void RunEventBusTests();
+    void RunActionMapTests();
     void RunGpuSmokeTest(int frames);
 }
 
@@ -22,6 +26,10 @@ int main(int argc, char** argv) {
     bool runIdentity = false;
     bool runScene = false;
     bool runSerialization = false;
+    bool runBrickGrid = false;
+    bool runCommand = false;
+    bool runEventBus = false;
+    bool runActionMap = false;
     bool runGpu = false;
     int gpuFrames = 5;
 
@@ -41,10 +49,14 @@ int main(int argc, char** argv) {
                       << "  --identity           Yalnizca Generational Entity Handle testlerini calistirir\n"
                       << "  --scene              Yalnizca Scene Management testlerini calistirir\n"
                       << "  --serialization      Yalnizca DOD Binary Serialization testlerini calistirir\n"
+                      << "  --brickgrid          Yalnizca Two-Level BrickGrid testlerini calistirir\n"
+                      << "  --command            Yalnizca Undo/Redo Command-Stack testlerini calistirir\n"
+                      << "  --eventbus           Yalnizca EventBus mimarisi testlerini calistirir\n"
+                      << "  --actionmap          Yalnizca ActionMap & Enhanced Input testlerini calistirir\n"
                       << "  --help, -h           Bu yardim mesajini gosterir\n";
             return 0;
         } else if (arg == "--all") {
-            runEcs = runPhysics = runIdentity = runScene = runSerialization = runGpu = true;
+            runEcs = runPhysics = runIdentity = runScene = runSerialization = runBrickGrid = runCommand = runEventBus = runActionMap = runGpu = true;
             hasSpecificFlag = true;
         } else if (arg == "--gpu") {
             runGpu = true;
@@ -66,12 +78,24 @@ int main(int argc, char** argv) {
         } else if (arg == "--serialization") {
             runSerialization = true;
             hasSpecificFlag = true;
+        } else if (arg == "--brickgrid") {
+            runBrickGrid = true;
+            hasSpecificFlag = true;
+        } else if (arg == "--command") {
+            runCommand = true;
+            hasSpecificFlag = true;
+        } else if (arg == "--eventbus") {
+            runEventBus = true;
+            hasSpecificFlag = true;
+        } else if (arg == "--actionmap") {
+            runActionMap = true;
+            hasSpecificFlag = true;
         }
     }
 
     // Varsayilan davranis: Eger ozel bir bayrak verilmediyse tum headless testler calistirilir (CI guvenli)
     if (!hasSpecificFlag) {
-        runEcs = runPhysics = runIdentity = runScene = runSerialization = true;
+        runEcs = runPhysics = runIdentity = runScene = runSerialization = runBrickGrid = runCommand = runEventBus = runActionMap = true;
     }
 
     auto& runner = Astral::Test::TestRunner::Instance();
@@ -90,6 +114,18 @@ int main(int argc, char** argv) {
     }
     if (runSerialization) {
         runner.RunSuite("DOD Binary Scene Serialization Suite (v2)", Astral::Test::RunSerializationTests);
+    }
+    if (runBrickGrid) {
+        runner.RunSuite("Two-Level Spatial BrickGrid Acceleration Suite", Astral::Test::RunBrickGridTests);
+    }
+    if (runCommand) {
+        runner.RunSuite("Undo/Redo Command-Stack Architecture Suite", Astral::Test::RunCommandStackTests);
+    }
+    if (runEventBus) {
+        runner.RunSuite("Type-Safe EventBus Architecture Suite", Astral::Test::RunEventBusTests);
+    }
+    if (runActionMap) {
+        runner.RunSuite("Action-Mapping & Enhanced Input Suite", Astral::Test::RunActionMapTests);
     }
     if (runGpu) {
         runner.RunSuite("Vulkan 1.4 GPU & SDF Compute Smoke Suite", [gpuFrames]() {

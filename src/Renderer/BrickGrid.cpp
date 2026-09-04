@@ -20,19 +20,21 @@ BrickGrid::BrickGrid(vk::Device device, vk::PhysicalDevice physicalDevice)
 
     m_CellDistances.resize(TOTAL_CELLS, 10.0f);
 
-    vk::DeviceSize bufferSize = TOTAL_CELLS * sizeof(float); // 64 KB
-    m_GridBuffer = std::make_unique<Buffer>(
-        m_Device,
-        m_PhysicalDevice,
-        bufferSize,
-        vk::BufferUsageFlagBits::eStorageBuffer,
-        vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-        true // Persistent Mapping aktif
-    );
+    if (m_Device) {
+        vk::DeviceSize bufferSize = TOTAL_CELLS * sizeof(float); // 64 KB
+        m_GridBuffer = std::make_unique<Buffer>(
+            m_Device,
+            m_PhysicalDevice,
+            bufferSize,
+            vk::BufferUsageFlagBits::eStorageBuffer,
+            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
+            true // Persistent Mapping aktif
+        );
 
-    std::cout << "[Astral::BrickGrid] Two-Level Spatial Grid baslatildi (" 
-              << DIM_X << "x" << DIM_Y << "x" << DIM_Z 
-              << ", Hucre boyutu: " << m_CellSize.x << "m, Tampon: " << bufferSize / 1024 << " KB).\n";
+        std::cout << "[Astral::BrickGrid] Two-Level Spatial Grid baslatildi (" 
+                  << DIM_X << "x" << DIM_Y << "x" << DIM_Z 
+                  << ", Hucre boyutu: " << m_CellSize.x << "m, Tampon: " << bufferSize / 1024 << " KB).\n";
+    }
 }
 
 BrickGrid::~BrickGrid() {
@@ -76,7 +78,9 @@ void BrickGrid::FullRebuild(std::span<const SDFEditGPU> edits) {
     }
 
     // GPU Tamponuna kalici pointer uzerinden tek seferde memcpy
-    m_GridBuffer->UpdateData(m_CellDistances.data(), m_CellDistances.size() * sizeof(float));
+    if (m_GridBuffer) {
+        m_GridBuffer->UpdateData(m_CellDistances.data(), m_CellDistances.size() * sizeof(float));
+    }
     m_LastUpdatedCellCount = TOTAL_CELLS;
 }
 
@@ -183,24 +187,26 @@ void BrickGrid::Build(std::span<const SDFEditGPU> edits) {
     }
 
     // 7. Sirali hucreleri araliklar halinde GPU tamponuna aktar ve onbellegi esle.
-    // Hucreler AABB dolasiminda sirali eklenmedigi icin once fiziksel tampon sirasina getir.
-    std::sort(dirtyCellIndices.begin(), dirtyCellIndices.end());
-    size_t rangeBegin = 0;
-    while (rangeBegin < dirtyCellIndices.size()) {
-        size_t rangeEnd = rangeBegin + 1;
-        while (rangeEnd < dirtyCellIndices.size() &&
-               dirtyCellIndices[rangeEnd] == dirtyCellIndices[rangeEnd - 1] + 1) {
-            ++rangeEnd;
-        }
+    if (m_GridBuffer) {
+        // Hucreler AABB dolasiminda sirali eklenmedigi icin once fiziksel tampon sirasina getir.
+        std::sort(dirtyCellIndices.begin(), dirtyCellIndices.end());
+        size_t rangeBegin = 0;
+        while (rangeBegin < dirtyCellIndices.size()) {
+            size_t rangeEnd = rangeBegin + 1;
+            while (rangeEnd < dirtyCellIndices.size() &&
+                   dirtyCellIndices[rangeEnd] == dirtyCellIndices[rangeEnd - 1] + 1) {
+                ++rangeEnd;
+            }
 
-        const size_t firstCell = dirtyCellIndices[rangeBegin];
-        const size_t cellCount = dirtyCellIndices[rangeEnd - 1] - firstCell + 1;
-        m_GridBuffer->UpdateData(
-            m_CellDistances.data() + firstCell,
-            cellCount * sizeof(float),
-            firstCell * sizeof(float)
-        );
-        rangeBegin = rangeEnd;
+            const size_t firstCell = dirtyCellIndices[rangeBegin];
+            const size_t cellCount = dirtyCellIndices[rangeEnd - 1] - firstCell + 1;
+            m_GridBuffer->UpdateData(
+                m_CellDistances.data() + firstCell,
+                cellCount * sizeof(float),
+                firstCell * sizeof(float)
+            );
+            rangeBegin = rangeEnd;
+        }
     }
 
     m_CachedEdits.assign(edits.begin(), edits.end());

@@ -24,6 +24,11 @@ public:
     [[nodiscard]] glm::dvec2 GetMouseDelta() const { return m_MouseDelta; }
     [[nodiscard]] glm::dvec2 GetScrollDelta() const { return m_ScrollDelta; }
 
+    /// Testler, girdi tekrarı (replay) ve simülasyon için yardımcı fonksiyonlar
+    void SimulateKey(int key, int action) { OnKey(key, action); }
+    void SimulateMouseButton(int button, int action) { OnMouseButton(button, action); }
+    void SimulateCursorPosition(double x, double y) { OnCursorPosition(x, y); }
+
 private:
     friend class Window;
 

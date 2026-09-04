@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Astral/Core/InputSystem.hpp"
+#include "Astral/Core/Input/ActionMap.hpp"
+#include "Astral/Core/Events/EventBus.hpp"
 #include "Astral/Core/Registry.hpp"
 #include "Astral/Core/Window.hpp"
 
@@ -14,6 +16,8 @@ class Entity;
 struct FrameContext {
     Registry& registry;
     InputSystem& input;
+    ActionMap& actions;
+    EventBus& events;
     Window& window;
     float deltaTime;
 };

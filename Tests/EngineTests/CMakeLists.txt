@@ -5,6 +5,10 @@ add_executable(EngineTests
     src/IdentityTests.cpp
     src/SceneTests.cpp
     src/SerializationTests.cpp
+    src/BrickGridTests.cpp
+    src/CommandStackTests.cpp
+    src/EventBusTests.cpp
+    src/ActionMapTests.cpp
     src/GpuSmokeTest.cpp
 )
 

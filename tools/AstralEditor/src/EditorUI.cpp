@@ -2,6 +2,7 @@
 #include "Astral/Editor/EditorUI.hpp"
 #include "Astral/Core/Components.hpp"
 #include "Astral/Core/InputSystem.hpp"
+#include "Astral/Scene/SceneCommands.hpp"
 #include "Astral/Renderer/Swapchain.hpp"
 
 #include <imgui.h>
@@ -189,39 +190,41 @@ void EditorUI::SetupDockSpace(Scene& scene, Entity& selectedEntity) {
 
     // Draw Menu Bar
     MenuBarActions actions{};
-    DrawEditorMenuBar(scene, selectedEntity, actions, m_ShowDemoWindow, m_Input);
+    DrawEditorMenuBar(scene, selectedEntity, actions, m_ShowDemoWindow, m_Input, m_CommandStack);
 
     // Process menu bar actions
     if (actions.resetLayout) {
         m_ResetLayout = true;
     }
+    if (actions.newScene || actions.openScene) {
+        m_CommandStack.Clear();
+    }
     if (actions.exitApp) {
         // Signal exit via GLFW (Application polls ShouldClose)
-        // We can't directly access the window here, but the user will handle this
     }
     if (actions.deleteSelected && selectedEntity.IsValid()) {
-        scene.DestroyEntity(selectedEntity);
-        selectedEntity = Entity();
+        m_CommandStack.PushAndExecute(std::make_unique<DeleteEntityCommand>(scene, selectedEntity, &selectedEntity));
     }
     if (actions.addSphere || actions.addBox || actions.addTorus || actions.addCylinder || actions.addPlane) {
-        Entity newObj = scene.CreateEntity();
         uint32_t primType = 0;
+        std::string name = "Sphere";
         glm::vec3 albedo(0.85f, 0.35f, 0.15f);
-        if (actions.addSphere)   { primType = 0; albedo = glm::vec3(0.9f, 0.25f, 0.2f); }
-        if (actions.addBox)      { primType = 1; albedo = glm::vec3(0.2f, 0.5f, 0.9f); }
-        if (actions.addTorus)    { primType = 2; albedo = glm::vec3(0.9f, 0.75f, 0.15f); }
-        if (actions.addCylinder) { primType = 3; albedo = glm::vec3(0.3f, 0.8f, 0.4f); }
-        if (actions.addPlane)    { primType = 4; albedo = glm::vec3(0.3f, 0.32f, 0.35f); }
+        if (actions.addSphere)   { primType = 0; name = "Sphere";   albedo = glm::vec3(0.9f, 0.25f, 0.2f); }
+        if (actions.addBox)      { primType = 1; name = "Box";      albedo = glm::vec3(0.2f, 0.5f, 0.9f); }
+        if (actions.addTorus)    { primType = 2; name = "Torus";    albedo = glm::vec3(0.9f, 0.75f, 0.15f); }
+        if (actions.addCylinder) { primType = 3; name = "Cylinder"; albedo = glm::vec3(0.3f, 0.8f, 0.4f); }
+        if (actions.addPlane)    { primType = 4; name = "Plane";    albedo = glm::vec3(0.3f, 0.32f, 0.35f); }
 
-        newObj.AddComponent<TransformComponent>(
+        TransformComponent t(
             glm::vec3(0.0f, 0.8f, 0.0f),
             glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
             glm::vec3(0.5f)
         );
-        newObj.AddComponent<SDFComponent>(
+        SDFComponent s(
             primType, 3u, 0.25f, 1u, albedo, 0.3f, 0.5f
         );
-        selectedEntity = newObj;
+
+        m_CommandStack.PushAndExecute(std::make_unique<CreateEntityCommand>(scene, name, t, s, &selectedEntity));
     }
     if (actions.clearScene) {
         auto& transforms = scene.GetRegistry().GetView<TransformComponent>();
@@ -233,6 +236,7 @@ void EditorUI::SetupDockSpace(Scene& scene, Entity& selectedEntity) {
             scene.DestroyEntity(id);
         }
         selectedEntity = Entity();
+        m_CommandStack.Clear();
     }
 
     ImGui::End();

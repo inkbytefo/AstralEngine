@@ -9,6 +9,7 @@
 #include "Astral/Core/Systems/PhysicsSubsystem.hpp"
 #include "Astral/Core/Systems/TransformSubsystem.hpp"
 #include "Astral/Core/Systems/RenderExtractionSubsystem.hpp"
+#include "Astral/Core/Events/EngineEvents.hpp"
 #include <glm/gtc/quaternion.hpp>
 
 #include <iostream>
@@ -189,6 +190,7 @@ void Application::Run(int maxFrames) {
         // 2. Editor -> Runtime Gecisi: Orijinal editor seviyesini bozmadan tam derin kopyalama (Deep-Copy)
         auto runtimeScene = Scene::Copy(editorScene);
         m_SceneManager.SetActiveScene(runtimeScene);
+        m_EventBus.Publish(SceneLoadedEvent{ runtimeScene->GetName(), runtimeScene.get() });
         runtimeScene->OnRuntimeStart();
         m_SelectedEntity = Entity{};
         uint32_t frameIndex = 0;
@@ -242,6 +244,8 @@ void Application::Run(int maxFrames) {
             FrameContext frameContext{
                 runtimeScene->GetRegistry(),
                 m_Window->GetInputSystem(),
+                m_ActionMap,
+                m_EventBus,
                 *m_Window,
                 deltaTime
             };
@@ -333,6 +337,7 @@ void Application::Run(int maxFrames) {
                     if (pickResult.hitIndex >= 0 && static_cast<size_t>(pickResult.hitIndex) < sceneEntities.size()) {
                         Entity hitEntity(sceneEntities[pickResult.hitIndex], runtimeScene.get());
                         m_SelectedEntity = hitEntity; // Editörde seçili nesneyi güncelle
+                        m_EventBus.Publish(EntitySelectedEvent{ hitEntity.GetHandle(), runtimeScene.get() });
                         std::cout << "[Astral::Picking] ISABET: hitIndex = " << pickResult.hitIndex 
                                   << " -> " << hitEntity.ToDisplayString()
                                   << " (Valid: " << (hitEntity.IsValid() ? "true" : "false") << ")"

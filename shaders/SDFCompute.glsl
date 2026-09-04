@@ -5,6 +5,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(binding = 0, rgba8) uniform writeonly image2D outImage;
 
 // =================== Dynamic SSBO Edit Buffer (PR-5) ===================
+#define MAX_EDITS 256
 
 struct SDFEditGPU {
     vec3 position; float pad1;
@@ -140,7 +141,7 @@ HitInfo mapScene(vec3 p) {
     int editCount = int(screenRes.z);
 
     if (editCount > 0) {
-        for (int i = 0; i < editCount && i < 256; ++i) {
+        for (int i = 0; i < editCount && i < MAX_EDITS; ++i) {
             SDFEditGPU e = edits[i];
             float d = evalPrimitive(p, e);
 

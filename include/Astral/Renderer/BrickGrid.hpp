@@ -26,7 +26,7 @@ public:
     static constexpr uint32_t DIM_Z = 32;
     static constexpr size_t TOTAL_CELLS = DIM_X * DIM_Y * DIM_Z; // 16,384 hucre
 
-    BrickGrid(vk::Device device, vk::PhysicalDevice physicalDevice);
+    explicit BrickGrid(vk::Device device = {}, vk::PhysicalDevice physicalDevice = {});
     ~BrickGrid();
 
     BrickGrid(const BrickGrid&) = delete;

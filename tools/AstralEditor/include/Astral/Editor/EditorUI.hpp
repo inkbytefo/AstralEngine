@@ -46,6 +46,7 @@ public:
 
     void SetRenderer(class SDFRenderer* renderer) noexcept { m_ViewportPanel.SetRenderer(renderer); }
     [[nodiscard]] ViewportPanel& GetViewportPanel() noexcept { return m_ViewportPanel; }
+    [[nodiscard]] CommandStack& GetCommandStack() noexcept { return m_CommandStack; }
 
 private:
     VulkanContext& m_Context;
@@ -62,6 +63,9 @@ private:
     Statistics m_Statistics;
     ViewportPanel m_ViewportPanel;
     ContentBrowser m_ContentBrowser;
+
+    // Undo / Redo Command Stack
+    CommandStack m_CommandStack;
 
     // Editor state
     bool m_ResetLayout = false;

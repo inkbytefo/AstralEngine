@@ -43,6 +43,8 @@ add_library(AstralEngine STATIC
     ${CMAKE_SOURCE_DIR}/src/Renderer/BrickGrid.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/SDFRenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/Swapchain.cpp
+    ${CMAKE_SOURCE_DIR}/src/Core/CommandStack.cpp
+    ${CMAKE_SOURCE_DIR}/src/Core/Input/ActionMap.cpp
     ${CMAKE_SOURCE_DIR}/src/Scene/Scene.cpp
     ${CMAKE_SOURCE_DIR}/src/Scene/SceneSerializer.cpp
 )

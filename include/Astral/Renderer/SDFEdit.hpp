@@ -49,4 +49,10 @@ struct alignas(16) SDFEditGPU {
 
 static_assert(sizeof(SDFEditGPU) == 96, "SDFEditGPU struct boyutu tam olarak 96 bayt olmalidir!");
 
+/// Raymarching analitik primitif degerlendirme butcesi ve SSBO sabit tahsis limiti.
+/// Vulkan 1.4 SSBO donanim kisitlamasi degil, 60+ FPS hedeflenen isin adimi basina (128 max adim)
+/// O(N) analitik test maliyetini ve 24 KB (256 * 96 B) onbellek dostu tampon boyutunu optimize eden
+/// merkezi sahne limiti.
+inline constexpr size_t MAX_SDF_EDITS = 256;
+
 } // namespace Astral

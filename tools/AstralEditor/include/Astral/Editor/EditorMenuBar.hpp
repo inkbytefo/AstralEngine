@@ -2,6 +2,7 @@
 
 #include "Astral/Scene/Scene.hpp"
 #include "Astral/Scene/Entity.hpp"
+#include "Astral/Core/CommandStack.hpp"
 
 namespace Astral {
 
@@ -12,6 +13,8 @@ class InputSystem;
 struct MenuBarActions {
     bool resetLayout   = false;
     bool showDemoWindow = false;
+    bool undo          = false;
+    bool redo          = false;
     bool addSphere     = false;
     bool addBox        = false;
     bool addTorus      = false;
@@ -27,7 +30,7 @@ struct MenuBarActions {
 
 void DrawEditorMenuBar(Scene& scene, Entity& selectedEntity,
                        MenuBarActions& actions, bool& showDemoWindowState,
-                       const InputSystem& input);
+                       const InputSystem& input, CommandStack& commandStack);
 
 [[nodiscard]] std::string GetEditorCurrentScenePath();
 void SetEditorCurrentScenePath(const std::string& path);

@@ -11,8 +11,8 @@ namespace Astral {
 void ExtractRenderData(Registry& registry, std::vector<SDFEditGPU>& outEdits, std::vector<EntityHandle>& outEntities) {
     outEdits.clear();
     outEntities.clear();
-    outEdits.reserve(256);
-    outEntities.reserve(256);
+    outEdits.reserve(MAX_SDF_EDITS);
+    outEntities.reserve(MAX_SDF_EDITS);
 
     auto& transforms = registry.GetView<TransformComponent>();
 

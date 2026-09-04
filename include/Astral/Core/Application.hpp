@@ -2,9 +2,11 @@
 
 #include <string>
 #include <memory>
-#include "Astral/Core/Registry.hpp"
+#include "Astral/Core/Window.hpp"
+#include "Astral/Core/BenchmarkLogger.hpp"
 #include "Astral/Core/SystemManager.hpp"
-#include "Astral/Scene/Scene.hpp"
+#include "Astral/Core/Events/EventBus.hpp"
+#include "Astral/Core/Input/ActionMap.hpp"
 #include "Astral/Scene/SceneManager.hpp"
 
 #include "Astral/Scene/Entity.hpp"
@@ -90,6 +92,11 @@ public:
     [[nodiscard]] SDFRenderer* GetRenderer() const noexcept { return m_SDFRenderer.get(); }
     [[nodiscard]] BenchmarkLogger* GetBenchmarkLogger() const noexcept { return m_BenchmarkLogger.get(); }
 
+    [[nodiscard]] EventBus& GetEventBus() noexcept { return m_EventBus; }
+    [[nodiscard]] const EventBus& GetEventBus() const noexcept { return m_EventBus; }
+    [[nodiscard]] ActionMap& GetActionMap() noexcept { return m_ActionMap; }
+    [[nodiscard]] const ActionMap& GetActionMap() const noexcept { return m_ActionMap; }
+
     [[nodiscard]] Entity& GetSelectedEntity() noexcept { return m_SelectedEntity; }
     [[nodiscard]] const Entity& GetSelectedEntity() const noexcept { return m_SelectedEntity; }
     void SetSelectedEntity(const Entity& entity) { m_SelectedEntity = entity; }
@@ -116,6 +123,8 @@ private:
     AppConfig m_Config;
     SceneManager m_SceneManager;
     SystemManager m_SystemManager;
+    EventBus m_EventBus;
+    ActionMap m_ActionMap;
     std::unique_ptr<Window> m_Window;
     std::unique_ptr<VulkanContext> m_VulkanContext;
     std::unique_ptr<SDFRenderer> m_SDFRenderer;

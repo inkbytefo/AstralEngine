@@ -22,7 +22,7 @@ class Buffer;
 
 class SDFRenderer {
 public:
-    static constexpr size_t MAX_EDITS = 256;
+    static constexpr size_t MAX_EDITS = MAX_SDF_EDITS;
 
     SDFRenderer(VulkanContext& context, const std::string& spvPath, int width, int height, bool persistentMap = true, const std::string& taaSpvPath = "");
     ~SDFRenderer();

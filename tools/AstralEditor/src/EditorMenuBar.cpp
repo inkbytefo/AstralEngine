@@ -42,6 +42,7 @@ static bool s_ShowNotificationPopup_Pending = false;
 static bool s_ShowNewConfirmPopup_Pending = false;
 static bool s_ShowSaveAsPopup_Pending = false;
 static bool s_ShowLoadPopup_Pending = false;
+static bool s_ShowAboutModal_Pending = false;
 
 static void ShowNotification(const std::string& title, const std::string& message, bool isError) {
     s_NotificationTitle = title;
@@ -146,10 +147,10 @@ void SetEditorCurrentScenePath(const std::string& path) {
 
 void DrawEditorMenuBar(Scene& scene, Entity& selectedEntity,
                        MenuBarActions& actions, bool& showDemoWindowState,
-                       const InputSystem& input) {
+                       const InputSystem& input, CommandStack& commandStack) {
     ImGuiIO& io = ImGui::GetIO();
 
-    // ── Keyboard Shortcuts (Ctrl+S, Ctrl+O, Ctrl+N) ───────────
+    // ── Keyboard Shortcuts (Ctrl+S, Ctrl+O, Ctrl+N, Ctrl+Z, Ctrl+Y) ───────────
     if (!io.WantTextInput) {
         bool ctrlPressed = input.IsKeyPressed(GLFW_KEY_LEFT_CONTROL) || input.IsKeyPressed(GLFW_KEY_RIGHT_CONTROL);
         bool shiftPressed = input.IsKeyPressed(GLFW_KEY_LEFT_SHIFT) || input.IsKeyPressed(GLFW_KEY_RIGHT_SHIFT);
@@ -171,6 +172,17 @@ void DrawEditorMenuBar(Scene& scene, Entity& selectedEntity,
             } else {
                 ExecuteNewScene(scene, selectedEntity);
                 actions.newScene = true;
+            }
+        } else if (ctrlPressed && !shiftPressed && input.IsKeyJustPressed(GLFW_KEY_Z)) {
+            if (commandStack.CanUndo()) {
+                commandStack.Undo();
+                actions.undo = true;
+            }
+        } else if ((ctrlPressed && input.IsKeyJustPressed(GLFW_KEY_Y)) ||
+                   (ctrlPressed && shiftPressed && input.IsKeyJustPressed(GLFW_KEY_Z))) {
+            if (commandStack.CanRedo()) {
+                commandStack.Redo();
+                actions.redo = true;
             }
         }
     }
@@ -210,12 +222,24 @@ void DrawEditorMenuBar(Scene& scene, Entity& selectedEntity,
 
         // ── Edit ──────────────────────────────────────────────────
         if (ImGui::BeginMenu("Edit")) {
-            if (ImGui::MenuItem("Geri Al", "Ctrl+Z", false, false)) {
-                // Placeholder: undo
+            std::string undoLabel = "Geri Al";
+            if (commandStack.CanUndo()) {
+                undoLabel += " (" + commandStack.GetUndoName() + ")";
             }
-            if (ImGui::MenuItem("Yeniden Yap", "Ctrl+Y", false, false)) {
-                // Placeholder: redo
+            if (ImGui::MenuItem(undoLabel.c_str(), "Ctrl+Z", false, commandStack.CanUndo())) {
+                commandStack.Undo();
+                actions.undo = true;
             }
+
+            std::string redoLabel = "Yeniden Yap";
+            if (commandStack.CanRedo()) {
+                redoLabel += " (" + commandStack.GetRedoName() + ")";
+            }
+            if (ImGui::MenuItem(redoLabel.c_str(), "Ctrl+Y", false, commandStack.CanRedo())) {
+                commandStack.Redo();
+                actions.redo = true;
+            }
+
             ImGui::Separator();
             if (ImGui::MenuItem("Secili Nesneyi Sil", "Delete", false, selectedEntity.IsValid())) {
                 actions.deleteSelected = true;
@@ -252,11 +276,8 @@ void DrawEditorMenuBar(Scene& scene, Entity& selectedEntity,
 
         // ── Help ──────────────────────────────────────────────────
         if (ImGui::BeginMenu("Help")) {
-            if (ImGui::MenuItem("Astral Engine Hakkinda")) {
-                ShowNotification("Astral Engine v1.0.0",
-                                 "Vulkan 1.4 Dynamic Rendering & Signed Distance Field (SDF) Compute Raymarcher Engine.\n"
-                                 "Data-Oriented Design (DOD) ECS mimarisi ve yuksek basarimli ikili serilestirici.",
-                                 false);
+            if (ImGui::MenuItem("Astral Engine Hakkinda...")) {
+                s_ShowAboutModal_Pending = true;
             }
             ImGui::EndMenu();
         }
@@ -432,6 +453,45 @@ void DrawEditorMenuBar(Scene& scene, Entity& selectedEntity,
         ImGui::Dummy(ImVec2(0, 4.0f));
 
         if (ImGui::Button("Tamam", ImVec2(100, 28))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    // 6. About Modal Diyalogu
+    if (s_ShowAboutModal_Pending) {
+        ImGui::OpenPopup("Astral Engine Hakkinda##AboutModal");
+        s_ShowAboutModal_Pending = false;
+    }
+
+    if (ImGui::BeginPopupModal("Astral Engine Hakkinda##AboutModal", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextColored(ImVec4(0.35f, 0.75f, 1.0f, 1.0f), "Astral Engine v1.0.0");
+        ImGui::TextDisabled("Vulkan 1.4 Dynamic Rendering & Signed Distance Field (SDF) Compute Raymarcher");
+        ImGui::Dummy(ImVec2(0, 4.0f));
+        ImGui::Separator();
+        ImGui::Dummy(ImVec2(0, 6.0f));
+
+        ImGui::Text("Mimari Bilesenler:");
+        ImGui::BulletText("Vulkan 1.4 Compute Raymarcher & Dinamik SSBO Edit Buffer (MAX_SDF_EDITS = 256)");
+        ImGui::BulletText("Two-Level BrickGrid (32x16x32) Hizlandirma Yapisi & AABB Dirty Tracking");
+        ImGui::BulletText("Data-Oriented Design (DOD) ECS Mimarisi & Generational Entity Handles");
+        ImGui::BulletText("DOD Binary Scene Serializer v2 (Sihirli baslik, CRC32, Chunk formati)");
+        ImGui::BulletText("Temporal Anti-Aliasing (Halton Jitter Subpixel + 3x3 Clamping)");
+        ImGui::BulletText("Command-Stack Tabanli Geri Al / Yeniden Yap (Undo / Redo)");
+
+        ImGui::Dummy(ImVec2(0, 6.0f));
+        ImGui::Separator();
+        ImGui::Dummy(ImVec2(0, 6.0f));
+
+        ImGui::Text("Kutuphaneler ve Standartlar:");
+        ImGui::TextDisabled("  - Vulkan SDK 1.4 | C++20 | GLSL Compute Shaders");
+        ImGui::TextDisabled("  - GLFW 3.4 | Dear ImGui (Docking) | ImGuizmo | GLM");
+
+        ImGui::Dummy(ImVec2(0, 10.0f));
+        ImGui::Separator();
+        ImGui::Dummy(ImVec2(0, 6.0f));
+
+        if (ImGui::Button("Kapat", ImVec2(120, 28))) {
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
