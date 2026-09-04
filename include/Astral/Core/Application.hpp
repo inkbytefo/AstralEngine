@@ -2,11 +2,10 @@
 
 #include <string>
 #include <memory>
-#include <vector>
 #include "Astral/Core/Registry.hpp"
+#include "Astral/Core/SystemManager.hpp"
 #include "Astral/Scene/Scene.hpp"
 #include "Astral/Scene/SceneManager.hpp"
-#include "Astral/Renderer/SDFEdit.hpp"
 
 namespace Astral {
 
@@ -15,6 +14,8 @@ class VulkanContext;
 class BenchmarkLogger;
 class SDFRenderer;
 class EditorUI;
+class PhysicsSubsystem;
+class RenderExtractionSubsystem;
 
 struct AppConfig {
     bool benchMode = false;
@@ -55,16 +56,15 @@ public:
 private:
     AppConfig m_Config;
     SceneManager m_SceneManager;
+    SystemManager m_SystemManager;
     std::unique_ptr<Window> m_Window;
     std::unique_ptr<VulkanContext> m_VulkanContext;
     std::unique_ptr<SDFRenderer> m_SDFRenderer;
     std::unique_ptr<BenchmarkLogger> m_BenchmarkLogger;
     std::unique_ptr<EditorUI> m_EditorUI;
+    PhysicsSubsystem* m_PhysicsSubsystem = nullptr;
+    RenderExtractionSubsystem* m_RenderExtractionSubsystem = nullptr;
     bool m_Running = false;
-
-    // Per-frame persistent extraction buffers (eliminates per-frame heap allocations)
-    std::vector<SDFEditGPU> m_SceneEdits;
-    std::vector<EntityHandle> m_SceneEntities;
 };
 
 } // namespace Astral

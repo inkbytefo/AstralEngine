@@ -21,7 +21,11 @@ void ExtractRenderData(Registry& registry, std::vector<SDFEditGPU>& outEdits, st
         if (registry.HasComponent<SDFComponent>(entity)) {
             const auto& sdf = registry.GetComponent<SDFComponent>(entity);
 
-            const glm::mat4 worldMatrix = GetWorldTransformMatrix(registry, entity);
+            if (!registry.HasComponent<WorldTransformComponent>(entity)) {
+                continue;
+            }
+
+            const glm::mat4& worldMatrix = registry.GetComponent<WorldTransformComponent>(entity).matrix;
             glm::vec3 worldPosition;
             glm::quat worldRotation;
             glm::vec3 worldScale;

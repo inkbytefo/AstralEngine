@@ -23,7 +23,6 @@ Window::~Window() {
 
 void Window::PollEvents() {
     glfwPollEvents();
-    m_InputSystem.BeginFrame();
 }
 
 void Window::Init() {

@@ -5,6 +5,9 @@
 #include "Astral/Scene/SceneSerializer.hpp"
 #include "Astral/Core/Components.hpp"
 #include "Astral/Core/RenderExtractionSystem.hpp"
+#include "Astral/Core/TransformSystem.hpp"
+#include "Astral/Core/Systems/RenderExtractionSubsystem.hpp"
+#include "Astral/Core/Systems/PhysicsSubsystem.hpp"
 #include "Astral/Renderer/SDFEdit.hpp"
 #include <iostream>
 #include <fstream>
@@ -12,22 +15,13 @@
 #include <string>
 #include <cmath>
 
-// Fizik Sistemi: yalnizca verileri isler, kendi icinde durum tutmaz.
-// SparseSet'in dense (kontigu) dizisini gezer -> cache dostu.
-static void PhysicsSystem(Astral::Registry& registry, float deltaTime) {
-    auto& transforms = registry.GetView<Astral::TransformComponent>();
-
-    for (auto&& [entity, transform] : transforms) {
-        if (registry.HasComponent<Astral::VelocityComponent>(entity)) {
-            auto& velocity = registry.GetComponent<Astral::VelocityComponent>(entity);
-            transform.position += velocity.linear * deltaTime;
-        }
-    }
-}
-
 static void RunEcsTests() {
     std::cout << "=== [Astral Engine: ECS Dogrulama Testi] ===\n";
     Astral::Registry registry;
+
+    Astral::RenderExtractionSubsystem extractionSubsystem;
+    assert(extractionSubsystem.GetLastExtractedEdits().empty());
+    assert(extractionSubsystem.GetLastExtractedEntities().empty());
 
     // 1. Oyuncu gemisi (Transform + Velocity + Health)
     Astral::EntityID playerShip = registry.CreateEntity();
@@ -49,7 +43,7 @@ static void RunEcsTests() {
     std::cout << "[ECS Test] station has hp? = "
               << (registry.HasComponent<Astral::HealthComponent>(spaceStation) ? "evet" : "hayir") << "\n";
 
-    PhysicsSystem(registry, 1.0f);
+    Astral::PhysicsSubsystem::Integrate(registry, 1.0f);
 
     const bool removed = registry.RemoveComponent<Astral::VelocityComponent>(asteroid);
     std::cout << "[ECS Test] Goktasi hizi kaldirildi mi? -> " << (removed ? "evet" : "hayir") << "\n";
@@ -78,6 +72,10 @@ static void RunSceneTests() {
     auto runtimeScene = Astral::Scene::Copy(editorScene);
     assert(runtimeScene != nullptr);
     assert(runtimeScene != editorScene);
+
+    runtimeScene->OnUpdate(2.0f);
+    assert(runtimeScene->GetRegistry().GetComponent<Astral::TransformComponent>(originalShip.GetHandle()).position.x == 10.0f &&
+           "Runtime baslamadan fizik transform'u degistirmemeli!");
 
     Astral::SceneManager sceneManager;
     sceneManager.SetActiveScene(runtimeScene);
@@ -111,6 +109,40 @@ static void RunSceneTests() {
 
     sceneManager.UnloadCurrentScene();
     std::cout << "=== [Scene Management & Deep-Copy Dogrulama Testi Basariyla Tamamlandi] ===\n\n";
+}
+
+static void RunPhysicsPipelineTests() {
+    std::cout << "=== [Astral Engine: Physics Pipeline Tests] ===\n";
+
+    Astral::Registry registry;
+    const Astral::EntityHandle entity = registry.CreateEntity();
+    registry.AddComponent<Astral::TransformComponent>(entity, {});
+    registry.AddComponent<Astral::VelocityComponent>(
+        entity,
+        {glm::vec3(2.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f)}
+    );
+    registry.AddComponent<Astral::SDFComponent>(entity, {});
+
+    Astral::PhysicsSubsystem physics;
+    assert(physics.IsEnabled());
+    physics.SetEnabled(false);
+    assert(!physics.IsEnabled());
+    physics.SetEnabled(true);
+
+    Astral::PhysicsSubsystem::Integrate(registry, 0.016f);
+    assert(std::abs(registry.GetComponent<Astral::TransformComponent>(entity).position.x - 0.032f) < 0.0001f);
+    assert(std::abs(glm::length(registry.GetComponent<Astral::TransformComponent>(entity).rotation) - 1.0f) < 0.0001f);
+
+    Astral::UpdateWorldTransforms(registry);
+    std::vector<Astral::SDFEditGPU> edits;
+    std::vector<Astral::EntityHandle> entities;
+    Astral::ExtractRenderData(registry, edits, entities);
+    assert(edits.size() == 1);
+    assert(std::abs(edits[0].position.x - 0.032f) < 0.0001f &&
+           "Physics sonucu ayni karede world transform ve render extraction'a yansimali!");
+
+    std::cout << "[Physics Pipeline Test] Play/Edit gate, linear/angular Euler ve ayni-kare Physics->Transform->Extraction dogrulandi!\n";
+    std::cout << "=== [Physics Pipeline Testleri Basariyla Tamamlandi] ===\n\n";
 }
 
 static void RunGenerationalIdentityTests() {
@@ -168,6 +200,9 @@ static void RunGenerationalIdentityTests() {
     eC.AddComponent<Astral::SDFComponent>();
     std::vector<Astral::SDFEditGPU> extractedEdits;
     std::vector<Astral::EntityHandle> extractedHandles;
+    Astral::UpdateWorldTransforms(scene->GetRegistry());
+    assert(eC.HasComponent<Astral::WorldTransformComponent>());
+    assert(std::abs(eC.GetComponent<Astral::WorldTransformComponent>().matrix[3].x) < 0.0001f);
     Astral::ExtractRenderData(scene->GetRegistry(), extractedEdits, extractedHandles);
     assert(extractedHandles.size() == 1);
     assert(extractedHandles[0] == eC.GetHandle() && "ExtractRenderData tam 64-bit kanonik handle'i korumali!");
@@ -237,6 +272,10 @@ static void RunSerializationTests() {
         sourceScene->DestroyEntity(dummy);
     }
 
+    Astral::UpdateWorldTransforms(sourceScene->GetRegistry());
+    assert(e0.HasComponent<Astral::WorldTransformComponent>());
+    assert(e2.HasComponent<Astral::WorldTransformComponent>());
+
     // 1. Serileştir (.astral custom binary format v2) - Static C++20 Interface
     const std::filesystem::path testFile = "assets/scenes/level_binary.astral";
     bool serSuccess = Astral::SceneSerializer::Serialize(sourceScene, testFile);
@@ -283,6 +322,8 @@ static void RunSerializationTests() {
     assert(loadedE2.GetComponent<Astral::SDFComponent>().primitiveType == 1u);
     assert(!loadedE2.HasComponent<Astral::HealthComponent>());
     assert(!loadedE2.HasComponent<Astral::VelocityComponent>());
+    assert(!loadedE0.HasComponent<Astral::WorldTransformComponent>() && "Transient world transform serialize edilmemeli!");
+    assert(!loadedE2.HasComponent<Astral::WorldTransformComponent>() && "Transient world transform deserialize edilmemeli!");
 
     // Hierarchy referanslari tam 64-bit index+generation ile round-trip yapmali.
     assert(loadedE0.HasComponent<Astral::HierarchyComponent>());
@@ -294,6 +335,9 @@ static void RunSerializationTests() {
     assert(loadedParentHierarchy.children[0] == loadedE2.GetHandle());
 
     // Render extraction local child pozisyonunu degil parent.world * local sonucunu kullanmali.
+    Astral::UpdateWorldTransforms(loadedScene->GetRegistry());
+    assert(loadedE0.HasComponent<Astral::WorldTransformComponent>());
+    assert(loadedE2.HasComponent<Astral::WorldTransformComponent>());
     std::vector<Astral::SDFEditGPU> hierarchyEdits;
     std::vector<Astral::EntityHandle> hierarchyEntities;
     Astral::ExtractRenderData(loadedScene->GetRegistry(), hierarchyEdits, hierarchyEntities);
@@ -301,6 +345,12 @@ static void RunSerializationTests() {
     assert(std::abs(hierarchyEdits[0].position.x - 1.5f) < 0.0001f);
     assert(std::abs(hierarchyEdits[0].position.y - 2.5f) < 0.0001f);
     assert(std::abs(hierarchyEdits[0].position.z + 3.0f) < 0.0001f);
+
+    loadedE0.GetComponent<Astral::TransformComponent>().position.x = 4.0f;
+    Astral::UpdateWorldTransforms(loadedScene->GetRegistry());
+    Astral::ExtractRenderData(loadedScene->GetRegistry(), hierarchyEdits, hierarchyEntities);
+    assert(std::abs(hierarchyEdits[0].position.x - 4.0f) < 0.0001f &&
+           "Parent hareketi child world transform'una ve extraction'a yansimali!");
 
     // Varlık #17 doğrulaması: Velocity + Health var; Transform ve SDF YOK!
     Astral::Entity loadedE17(e17.GetHandle(), loadedScene.get());
@@ -314,6 +364,8 @@ static void RunSerializationTests() {
 
     loadedScene->DestroyEntity(loadedE0);
     assert(!loadedE0.IsValid() && !loadedE2.IsValid() && "Parent silinince child cascade silinmeli!");
+
+    std::cout << "[Hierarchy/Transform Test] Parent-child world transform, parent hareketi, dongu reddi, transient cache ve cascade delete dogrulandi!\n";
 
     std::cout << "[Serialization Test] DOD Binary Dogrulama (v2): Non-sequential seyrek Entity-Component eslemesi %100 dogrulandi!\n";
 
@@ -453,15 +505,18 @@ int main(int argc, char* argv[]) {
     RunEcsTests();
 
     // 2. Generational Entity & Lifetime Testlerini Calistir (Phase 4)
+    RunPhysicsPipelineTests();
+
+    // 3. Generational Entity & Lifetime Testlerini Calistir (Phase 4)
     RunGenerationalIdentityTests();
 
-    // 3. Scene Management & Deep-Copy Testlerini Calistir
+    // 4. Scene Management & Deep-Copy Testlerini Calistir
     RunSceneTests();
 
-    // 4. Scene Serialization & Deserialization Testlerini Calistir
+    // 5. Scene Serialization & Deserialization Testlerini Calistir
     RunSerializationTests();
 
-    // 4. Astral Engine Vulkan 1.4 & Pencere Uygulamasini Calistir
+    // 6. Astral Engine Vulkan 1.4 & Pencere Uygulamasini Calistir
     Astral::Application app(config);
     app.Run(maxFrames);
 

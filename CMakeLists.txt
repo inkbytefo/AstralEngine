@@ -115,6 +115,10 @@ add_library(AstralCore
     src/Core/Application.cpp
     src/Core/Window.cpp
     src/Core/InputSystem.cpp
+    src/Core/Systems/InputSubsystem.cpp
+    src/Core/Systems/PhysicsSubsystem.cpp
+    src/Core/Systems/TransformSubsystem.cpp
+    src/Core/Systems/RenderExtractionSubsystem.cpp
     src/Core/TransformSystem.cpp
     src/Core/BenchmarkLogger.cpp
     src/Core/RenderExtractionSystem.cpp

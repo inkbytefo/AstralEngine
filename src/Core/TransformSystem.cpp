@@ -50,6 +50,15 @@ glm::mat4 GetWorldTransformMatrix(const Registry& registry, EntityHandle entity)
     return GetWorldTransformMatrixRecursive(registry, entity, visiting);
 }
 
+void UpdateWorldTransforms(Registry& registry) {
+    auto& transforms = registry.GetView<TransformComponent>();
+    for (auto&& [entity, transform] : transforms) {
+        (void)transform;
+        WorldTransformComponent worldTransform{GetWorldTransformMatrix(registry, entity)};
+        registry.AddComponent<WorldTransformComponent>(entity, std::move(worldTransform));
+    }
+}
+
 void DecomposeTransformMatrix(
     const glm::mat4& matrix,
     glm::vec3& position,

@@ -20,6 +20,11 @@ struct TransformComponent {
     glm::vec3 scale{1.0f};
 };
 
+/// TransformSystem tarafindan her kare uretilen, serialize edilmeyen world-space cache.
+struct WorldTransformComponent {
+    glm::mat4 matrix{1.0f};
+};
+
 /// Parent-child baglantilari ayri tutulur; TransformComponent kontigu ve trivially-copyable kalir.
 struct HierarchyComponent {
     EntityHandle parent = NullEntityHandle;

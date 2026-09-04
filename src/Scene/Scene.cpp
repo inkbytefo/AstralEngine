@@ -2,7 +2,7 @@
 #include "Astral/Scene/Scene.hpp"
 #include "Astral/Core/Components.hpp"
 #include "Astral/Core/TransformSystem.hpp"
-#include <glm/gtx/quaternion.hpp>
+#include "Astral/Core/Systems/PhysicsSubsystem.hpp"
 #include <algorithm>
 #include <iostream>
 #include <unordered_set>
@@ -105,24 +105,7 @@ void Scene::OnRuntimeStart() {
 
 void Scene::OnUpdate(float deltaTime) {
     if (!m_IsRunning) return;
-
-    // Fizik ve Kinematik Simülasyonu (Contiguous SparseSet Traversal)
-    auto& transforms = m_Registry.GetView<TransformComponent>();
-
-    for (auto&& [entity, transform] : transforms) {
-        if (m_Registry.HasComponent<VelocityComponent>(entity)) {
-            const auto& velocity = m_Registry.GetComponent<VelocityComponent>(entity);
-
-            // Çizgisel öteleme
-            transform.position += velocity.linear * deltaTime;
-
-            // Açısal rotasyon (Euler -> Quaternion integration)
-            if (glm::length(velocity.angular) > 0.0001f) {
-                glm::quat deltaRot = glm::quat(velocity.angular * deltaTime);
-                transform.rotation = glm::normalize(deltaRot * transform.rotation);
-            }
-        }
-    }
+    PhysicsSubsystem::Integrate(m_Registry, deltaTime);
 }
 
 void Scene::OnRuntimeStop() {

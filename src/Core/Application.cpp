@@ -4,8 +4,11 @@
 #include "Astral/Renderer/VulkanContext.hpp"
 #include "Astral/Renderer/Swapchain.hpp"
 #include "Astral/Renderer/SDFRenderer.hpp"
-#include "Astral/Core/RenderExtractionSystem.hpp"
 #include "Astral/Core/Components.hpp"
+#include "Astral/Core/Systems/InputSubsystem.hpp"
+#include "Astral/Core/Systems/PhysicsSubsystem.hpp"
+#include "Astral/Core/Systems/TransformSubsystem.hpp"
+#include "Astral/Core/Systems/RenderExtractionSubsystem.hpp"
 #include "Astral/Editor/EditorUI.hpp"
 #include <glm/gtc/quaternion.hpp>
 
@@ -20,6 +23,10 @@ Application::Application()
 
 Application::Application(const AppConfig& config)
     : m_Config(config) {
+    m_SystemManager.PushSystem<InputSubsystem>();
+    m_PhysicsSubsystem = &m_SystemManager.PushSystem<PhysicsSubsystem>();
+    m_SystemManager.PushSystem<TransformSubsystem>();
+    m_RenderExtractionSubsystem = &m_SystemManager.PushSystem<RenderExtractionSubsystem>();
     std::cout << "[Astral::Application] " << GetName() << " v" << GetVersion() << " olusturuldu.\n";
 }
 
@@ -200,6 +207,9 @@ void Application::Run(int maxFrames) {
         uint32_t frameIndex = 0;
         double cpuFrameMs = 0.0;
         double gpuTotalMs = 0.0;
+        auto previousFrameTime = std::chrono::high_resolution_clock::now();
+
+        m_SystemManager.InitAll();
 
         // 6. Ana render, UI ve profil dongusu
         while (m_Running && !m_Window->ShouldClose()) {
@@ -207,15 +217,13 @@ void Application::Run(int maxFrames) {
 
             m_Window->PollEvents();
 
+            const float deltaTime = std::chrono::duration<float>(cpuStart - previousFrameTime).count();
+            previousFrameTime = cpuStart;
             float timeSec = static_cast<float>(frameIndex) * 0.016f;
 
             // Demo hareketleri yalnizca otomatik test/benchmark kosularinda ilerletilir.
             // Interaktif editor modunda transformlar inspector ve viewport gizmosuna aittir.
             const bool runDemoSimulation = m_Config.benchMode || targetFrames > 0;
-            if (runDemoSimulation) {
-                runtimeScene->OnUpdate(0.016f);
-            }
-
             if (runDemoSimulation && m_Config.stressTest) {
                 auto& transforms = runtimeScene->GetRegistry().GetView<TransformComponent>();
                 size_t idx = 0;
@@ -243,8 +251,16 @@ void Application::Run(int maxFrames) {
                 }
             }
 
-            // Render Extraction: ECS SparseSet -> std430 SDFEditGPU Buffer & Entity Haritasi (Sifir her-kare heap allocation)
-            ExtractRenderData(runtimeScene->GetRegistry(), m_SceneEdits, m_SceneEntities);
+            m_PhysicsSubsystem->SetEnabled(runDemoSimulation);
+            FrameContext frameContext{
+                runtimeScene->GetRegistry(),
+                m_Window->GetInputSystem(),
+                *m_Window,
+                deltaTime
+            };
+            m_SystemManager.UpdateAll(frameContext);
+            const auto& sceneEdits = m_RenderExtractionSubsystem->GetLastExtractedEdits();
+            const auto& sceneEntities = m_RenderExtractionSubsystem->GetLastExtractedEntities();
 
             // PR-9: Test ve benchmark modunda merkezdeki nesneyi dogrulamak icin 3. karede ekran merkezini sec
             if ((m_Config.benchMode || targetFrames > 0) && frameIndex == 3) {
@@ -266,7 +282,7 @@ void Application::Run(int maxFrames) {
             }
 
             // GPU SSBO'ya yaz ve Two-Level Grid'i guncelle
-            m_SDFRenderer->UpdateEdits(m_SceneEdits, m_Config.legacyMap);
+            m_SDFRenderer->UpdateEdits(sceneEdits, m_Config.legacyMap);
 
             // Swapchain resmi edin
             bool hasSwapchainImage = false;
@@ -278,8 +294,8 @@ void Application::Run(int maxFrames) {
             int selectedHitIndex = -1;
             if (selectedEntity.IsValid()) {
                 EntityHandle selHandle = selectedEntity.GetHandle();
-                for (size_t i = 0; i < m_SceneEntities.size(); ++i) {
-                    if (m_SceneEntities[i] == selHandle) {
+                for (size_t i = 0; i < sceneEntities.size(); ++i) {
+                    if (sceneEntities[i] == selHandle) {
                         selectedHitIndex = static_cast<int>(i);
                         break;
                     }
@@ -327,8 +343,8 @@ void Application::Run(int maxFrames) {
             if (m_SDFRenderer->HasPendingSelection()) {
                 auto pickResult = m_SDFRenderer->ConsumeSelectionResult();
                 if (pickResult.hasHit) {
-                    if (pickResult.hitIndex >= 0 && static_cast<size_t>(pickResult.hitIndex) < m_SceneEntities.size()) {
-                        Entity hitEntity(m_SceneEntities[pickResult.hitIndex], runtimeScene.get());
+                    if (pickResult.hitIndex >= 0 && static_cast<size_t>(pickResult.hitIndex) < sceneEntities.size()) {
+                        Entity hitEntity(sceneEntities[pickResult.hitIndex], runtimeScene.get());
                         selectedEntity = hitEntity; // Editörde seçili nesneyi güncelle
                         std::cout << "[Astral::Picking] ISABET: hitIndex = " << pickResult.hitIndex 
                                   << " -> " << hitEntity.ToDisplayString()
@@ -367,6 +383,7 @@ void Application::Run(int maxFrames) {
             }
         }
 
+        m_SystemManager.ShutdownAll();
         m_Running = false;
         std::cout << "[Astral::Application] Ana olay dongusu sonlandi (Toplam " << frameIndex << " kare).\n";
 
