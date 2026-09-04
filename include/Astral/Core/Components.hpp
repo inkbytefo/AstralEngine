@@ -48,6 +48,11 @@ struct SDFComponent {
     glm::vec3 albedo{1.0f};
     float roughness = 0.5f;
     float metallic = 0.0f;
+    uint32_t isVisible = 1;     // 1: Gorunur, 0: Gizli
+};
+
+struct VisibilityComponent {
+    bool isVisible = true;
 };
 
 // Astral Araç Fiziği için Soft-Body Deformasyon Düğümü
@@ -97,6 +102,7 @@ ASTRAL_REGISTER_COMPONENT_TRAIT(HierarchyComponent);
 ASTRAL_REGISTER_COMPONENT_TRAIT(VelocityComponent);
 ASTRAL_REGISTER_COMPONENT_TRAIT(HealthComponent);
 ASTRAL_REGISTER_COMPONENT_TRAIT(SDFComponent);
+ASTRAL_REGISTER_COMPONENT_TRAIT(VisibilityComponent);
 
 #undef ASTRAL_REGISTER_COMPONENT_TRAIT
 

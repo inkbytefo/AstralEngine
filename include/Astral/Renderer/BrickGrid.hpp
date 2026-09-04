@@ -7,6 +7,7 @@
 #endif
 
 #include <vulkan/vulkan.hpp>
+#include <vk_mem_alloc.h>
 #include <glm/glm.hpp>
 #include <vector>
 #include <span>
@@ -27,6 +28,7 @@ public:
     static constexpr size_t TOTAL_CELLS = DIM_X * DIM_Y * DIM_Z; // 16,384 hucre
 
     explicit BrickGrid(vk::Device device = {}, vk::PhysicalDevice physicalDevice = {});
+    BrickGrid(VmaAllocator allocator, vk::Device device, vk::PhysicalDevice physicalDevice);
     ~BrickGrid();
 
     BrickGrid(const BrickGrid&) = delete;

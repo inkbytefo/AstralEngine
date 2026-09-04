@@ -35,6 +35,60 @@ void DestroyEntityCascade(Registry& registry, EntityHandle entity, std::unordere
 
 } // namespace
 
+Entity Scene::DuplicateEntity(EntityHandle source) {
+    if (!m_Registry.IsAlive(source)) return Entity();
+
+    Entity newEntity = CreateEntity();
+
+    // TagComponent
+    if (m_Registry.HasComponent<TagComponent>(source)) {
+        const auto& tag = m_Registry.GetComponent<TagComponent>(source);
+        newEntity.AddComponent<TagComponent>(tag.tag + " (Copy)");
+    }
+
+    // TransformComponent (Hafifçe ötelenmiş: +0.5m x ve z ekseninde)
+    if (m_Registry.HasComponent<TransformComponent>(source)) {
+        auto transform = m_Registry.GetComponent<TransformComponent>(source);
+        transform.position += glm::vec3(0.5f, 0.0f, 0.5f);
+        newEntity.AddComponent<TransformComponent>(transform);
+    }
+
+    // SDFComponent
+    if (m_Registry.HasComponent<SDFComponent>(source)) {
+        newEntity.AddComponent<SDFComponent>(m_Registry.GetComponent<SDFComponent>(source));
+    }
+
+    // VelocityComponent
+    if (m_Registry.HasComponent<VelocityComponent>(source)) {
+        newEntity.AddComponent<VelocityComponent>(m_Registry.GetComponent<VelocityComponent>(source));
+    }
+
+    // HealthComponent
+    if (m_Registry.HasComponent<HealthComponent>(source)) {
+        newEntity.AddComponent<HealthComponent>(m_Registry.GetComponent<HealthComponent>(source));
+    }
+
+    // VisibilityComponent
+    if (m_Registry.HasComponent<VisibilityComponent>(source)) {
+        newEntity.AddComponent<VisibilityComponent>(m_Registry.GetComponent<VisibilityComponent>(source));
+    }
+
+    // Eger kaynagin bir parent'i varsa kopyayi da ayni parent altina al
+    if (m_Registry.HasComponent<HierarchyComponent>(source)) {
+        EntityHandle parent = m_Registry.GetComponent<HierarchyComponent>(source).parent;
+        if (parent != NullEntityHandle && m_Registry.IsAlive(parent)) {
+            (void)SetParent(newEntity.GetHandle(), parent);
+        }
+    }
+
+    return newEntity;
+}
+
+Entity Scene::DuplicateEntity(Entity source) {
+    assert(source.GetScene() == this && "[Astral::Scene] Entity baska bir sahneye ait!");
+    return DuplicateEntity(source.GetHandle());
+}
+
 void Scene::DestroyEntity(EntityHandle handle) {
     std::unordered_set<EntityHandle> visited;
     DestroyEntityCascade(m_Registry, handle, visited);

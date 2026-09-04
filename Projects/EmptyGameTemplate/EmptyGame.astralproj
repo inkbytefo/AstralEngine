@@ -1,0 +1,8 @@
+{
+  "Project": {
+    "Name": "EmptyGame",
+    "EngineVersion": "1.0.0",
+    "AssetDirectory": "assets",
+    "StartScene": "assets/scenes/untitled.astral"
+  }
+}

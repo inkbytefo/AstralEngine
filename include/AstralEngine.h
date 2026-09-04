@@ -24,6 +24,10 @@
 #include "Astral/Scene/SceneManager.hpp"
 #include "Astral/Scene/SceneSerializer.hpp"
 
+// --- Project Management ---
+#include "Astral/Project/Project.hpp"
+#include "Astral/Project/ProjectSerializer.hpp"
+
 // --- Math (GLM) ---
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>

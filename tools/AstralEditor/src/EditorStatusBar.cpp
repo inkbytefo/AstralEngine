@@ -36,6 +36,8 @@ void DrawEditorStatusBar(const StatusBarInfo& info) {
     float maxMs = std::max(info.gpuTimeMs, info.cpuTimeMs);
     if (maxMs > 0.001f) {
         fps = 1000.0f / maxMs;
+    } else {
+        fps = ImGui::GetIO().Framerate;
     }
 
     char fpsText[32];

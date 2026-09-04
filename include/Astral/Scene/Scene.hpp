@@ -57,6 +57,8 @@ public:
 
     // ---- Entity Factory Methods ----
     [[nodiscard]] Entity CreateEntity();
+    [[nodiscard]] Entity DuplicateEntity(EntityHandle source);
+    [[nodiscard]] Entity DuplicateEntity(Entity source);
     void DestroyEntity(Entity entity);
     void DestroyEntity(EntityHandle handle);
     void Clear();

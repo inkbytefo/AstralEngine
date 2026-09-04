@@ -40,16 +40,6 @@ static std::vector<char> ReadFile(const std::string& filename) {
     return buffer;
 }
 
-static uint32_t FindMemoryType(vk::PhysicalDevice physDev, uint32_t typeFilter, vk::MemoryPropertyFlags properties) {
-    auto memProps = physDev.getMemoryProperties();
-    for (uint32_t i = 0; i < memProps.memoryTypeCount; i++) {
-        if ((typeFilter & (1 << i)) && (memProps.memoryTypes[i].propertyFlags & properties) == properties) {
-            return i;
-        }
-    }
-    throw std::runtime_error("[Astral::SDFRenderer] Uygun bellek tipi bulunamadi!");
-}
-
 SDFRenderer::SDFRenderer(VulkanContext& context, const std::string& spvPath, int width, int height, bool persistentMap, const std::string& taaSpvPath)
     : m_Context(context),
       m_Device(context.GetDevice()),
@@ -77,6 +67,7 @@ SDFRenderer::SDFRenderer(VulkanContext& context, const std::string& spvPath, int
 
     // PR-9: Selection Buffer (32 bayt, persistent mapped, host-visible & coherent)
     m_SelectionBuffer = std::make_unique<Buffer>(
+        m_Context.GetAllocator(),
         m_Device,
         m_PhysicalDevice,
         sizeof(SelectionDataGPU),
@@ -90,7 +81,7 @@ SDFRenderer::SDFRenderer(VulkanContext& context, const std::string& spvPath, int
         std::memcpy(m_SelectionBuffer->GetMappedData(), &initData, sizeof(SelectionDataGPU));
     }
 
-    m_BrickGrid = std::make_unique<BrickGrid>(m_Device, m_PhysicalDevice);
+    m_BrickGrid = std::make_unique<BrickGrid>(m_Context.GetAllocator(), m_Device, m_PhysicalDevice);
     CreateTAAPipeline();
     CreateDescriptorPoolAndSets();
 
@@ -129,32 +120,31 @@ SDFRenderer::~SDFRenderer() {
     CleanupImages();
     m_ComputePipeline.reset();
 }
-
-void SDFRenderer::CreateTexture(vk::UniqueImage& img, vk::UniqueDeviceMemory& mem, vk::UniqueImageView& view, vk::ImageUsageFlags usage) {
-    vk::ImageCreateInfo imageInfo{};
-    imageInfo.imageType = vk::ImageType::e2D;
-    imageInfo.extent = vk::Extent3D(static_cast<uint32_t>(m_Width), static_cast<uint32_t>(m_Height), 1);
+void SDFRenderer::CreateTexture(VmaImage& img, vk::UniqueImageView& view, vk::ImageUsageFlags usage) {
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.extent = VkExtent3D{static_cast<uint32_t>(m_Width), static_cast<uint32_t>(m_Height), 1};
     imageInfo.mipLevels = 1;
     imageInfo.arrayLayers = 1;
-    imageInfo.format = vk::Format::eR8G8B8A8Unorm;
-    imageInfo.tiling = vk::ImageTiling::eOptimal;
-    imageInfo.initialLayout = vk::ImageLayout::eUndefined;
-    imageInfo.usage = usage;
-    imageInfo.samples = vk::SampleCountFlagBits::e1;
-    imageInfo.sharingMode = vk::SharingMode::eExclusive;
+    imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    imageInfo.usage = static_cast<VkImageUsageFlags>(usage);
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    img = m_Device.createImageUnique(imageInfo);
+    VmaAllocationCreateInfo allocCreateInfo{};
+    allocCreateInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
-    auto memReq = m_Device.getImageMemoryRequirements(img.get());
-    uint32_t memTypeIndex = FindMemoryType(
-        m_PhysicalDevice,
-        memReq.memoryTypeBits,
-        vk::MemoryPropertyFlagBits::eDeviceLocal
-    );
-
-    vk::MemoryAllocateInfo allocInfo(memReq.size, memTypeIndex);
-    mem = m_Device.allocateMemoryUnique(allocInfo);
-    m_Device.bindImageMemory(img.get(), mem.get(), 0);
+    VkImage rawImg = VK_NULL_HANDLE;
+    VmaAllocation alloc = VK_NULL_HANDLE;
+    VkResult res = vmaCreateImage(m_Context.GetAllocator(), &imageInfo, &allocCreateInfo, &rawImg, &alloc, nullptr);
+    if (res != VK_SUCCESS) {
+        throw std::runtime_error("[Astral::SDFRenderer] vmaCreateImage basarisiz! VkResult: " + std::to_string(res));
+    }
+    img.image = rawImg;
+    img.allocation = alloc;
 
     vk::ImageViewCreateInfo viewInfo{};
     viewInfo.image = img.get();
@@ -170,34 +160,43 @@ void SDFRenderer::CreateTexture(vk::UniqueImage& img, vk::UniqueDeviceMemory& me
 }
 
 void SDFRenderer::CreateImages() {
-    CreateTexture(m_StorageImage, m_StorageImageMemory, m_StorageImageView,
+    CreateTexture(m_StorageImage, m_StorageImageView,
                   vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc | 
                   vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled);
 
-    CreateTexture(m_RawColorImage, m_RawColorImageMemory, m_RawColorImageView,
+    CreateTexture(m_RawColorImage, m_RawColorImageView,
                   vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc);
 
-    CreateTexture(m_HistoryImage, m_HistoryImageMemory, m_HistoryImageView,
+    CreateTexture(m_HistoryImage, m_HistoryImageView,
                   vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferDst);
 }
 
 void SDFRenderer::CleanupImages() {
+    VmaAllocator allocator = m_Context.GetAllocator();
+
     m_HistoryImageView.reset();
-    m_HistoryImage.reset();
-    m_HistoryImageMemory.reset();
+    if (m_HistoryImage.image && allocator != VK_NULL_HANDLE) {
+        vmaDestroyImage(allocator, m_HistoryImage.image, m_HistoryImage.allocation);
+        m_HistoryImage.reset();
+    }
 
     m_RawColorImageView.reset();
-    m_RawColorImage.reset();
-    m_RawColorImageMemory.reset();
+    if (m_RawColorImage.image && allocator != VK_NULL_HANDLE) {
+        vmaDestroyImage(allocator, m_RawColorImage.image, m_RawColorImage.allocation);
+        m_RawColorImage.reset();
+    }
 
     m_StorageImageView.reset();
-    m_StorageImage.reset();
-    m_StorageImageMemory.reset();
+    if (m_StorageImage.image && allocator != VK_NULL_HANDLE) {
+        vmaDestroyImage(allocator, m_StorageImage.image, m_StorageImage.allocation);
+        m_StorageImage.reset();
+    }
 }
 
 void SDFRenderer::CreateEditBuffer(bool persistentMap) {
     vk::DeviceSize bufferSize = MAX_EDITS * sizeof(SDFEditGPU);
     m_EditBuffer = std::make_unique<Buffer>(
+        m_Context.GetAllocator(),
         m_Device,
         m_PhysicalDevice,
         bufferSize,

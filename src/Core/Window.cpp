@@ -25,6 +25,13 @@ void Window::PollEvents() {
     glfwPollEvents();
 }
 
+void Window::SetTitle(const std::string& title) {
+    m_Title = title;
+    if (m_Window) {
+        glfwSetWindowTitle(m_Window, m_Title.c_str());
+    }
+}
+
 void Window::Init() {
     glfwSetErrorCallback(GLFWErrorCallback);
 

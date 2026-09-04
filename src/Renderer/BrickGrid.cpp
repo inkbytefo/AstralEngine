@@ -9,6 +9,9 @@
 namespace Astral {
 
 BrickGrid::BrickGrid(vk::Device device, vk::PhysicalDevice physicalDevice)
+    : BrickGrid(VK_NULL_HANDLE, device, physicalDevice) {}
+
+BrickGrid::BrickGrid(VmaAllocator allocator, vk::Device device, vk::PhysicalDevice physicalDevice)
     : m_Device(device),
       m_PhysicalDevice(physicalDevice) {
 
@@ -20,9 +23,10 @@ BrickGrid::BrickGrid(vk::Device device, vk::PhysicalDevice physicalDevice)
 
     m_CellDistances.resize(TOTAL_CELLS, 10.0f);
 
-    if (m_Device) {
+    if (allocator != VK_NULL_HANDLE || m_Device) {
         vk::DeviceSize bufferSize = TOTAL_CELLS * sizeof(float); // 64 KB
         m_GridBuffer = std::make_unique<Buffer>(
+            allocator,
             m_Device,
             m_PhysicalDevice,
             bufferSize,
@@ -33,7 +37,8 @@ BrickGrid::BrickGrid(vk::Device device, vk::PhysicalDevice physicalDevice)
 
         std::cout << "[Astral::BrickGrid] Two-Level Spatial Grid baslatildi (" 
                   << DIM_X << "x" << DIM_Y << "x" << DIM_Z 
-                  << ", Hucre boyutu: " << m_CellSize.x << "m, Tampon: " << bufferSize / 1024 << " KB).\n";
+                  << ", Hucre boyutu: " << m_CellSize.x << "m, Tampon: " << bufferSize / 1024 << " KB, VMA: "
+                  << (allocator != VK_NULL_HANDLE ? "Evet" : "Hayir") << ").\n";
     }
 }
 

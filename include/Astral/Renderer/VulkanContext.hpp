@@ -7,6 +7,7 @@
 #endif
 
 #include <vulkan/vulkan.hpp>
+#include <vk_mem_alloc.h>
 #include <vector>
 #include <string>
 #include <memory>
@@ -24,6 +25,19 @@ struct QueueFamilyIndices {
     bool hasPresentFamily = false;
 
     bool IsComplete() const { return hasGraphicsFamily && hasPresentFamily; }
+};
+
+struct VmaImage {
+    vk::Image image = nullptr;
+    VmaAllocation allocation = VK_NULL_HANDLE;
+
+    [[nodiscard]] vk::Image get() const noexcept { return image; }
+    [[nodiscard]] operator vk::Image() const noexcept { return image; }
+    [[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(image); }
+    void reset() noexcept {
+        image = nullptr;
+        allocation = VK_NULL_HANDLE;
+    }
 };
 
 class VulkanContext {
@@ -59,6 +73,10 @@ public:
     void WriteTimestamp(vk::CommandBuffer cmd, vk::PipelineStageFlagBits stage, uint32_t queryIndex);
     void EndAndSubmitFrameCommand();
     double GetLastGpuTimeMs();
+
+    // Memory & VMA
+    [[nodiscard]] VmaAllocator GetAllocator() const noexcept { return m_Allocator; }
+    VmaTotalStatistics GetMemoryStats() const;
 
     // Swapchain & Presentation
     void CreateSwapchain();
@@ -108,6 +126,10 @@ private:
     void CreateLogicalDevice();
     void CreateCommandPoolAndBuffers();
     void CreateTimestampQueryPool();
+    void CreateAllocator();
+    void DestroyAllocator();
+
+    VmaAllocator m_Allocator = VK_NULL_HANDLE;
 
     QueueFamilyIndices FindQueueFamilies(vk::PhysicalDevice device);
     bool IsDeviceSuitable(vk::PhysicalDevice device);

@@ -18,6 +18,9 @@ public:
     /// Göz atılacak kök dizini değiştirir
     void SetBaseDirectory(const std::filesystem::path& path);
 
+    /// Aktif projenin varlık dizinini okuyarak kök dizini yeniler
+    void RefreshFromProject();
+
     /// Seçili öğenin yolunu döndürür
     [[nodiscard]] const std::filesystem::path& GetSelectedItem() const { return m_SelectedItem; }
 

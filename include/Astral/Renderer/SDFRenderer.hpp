@@ -13,10 +13,10 @@
 #include <array>
 #include "Astral/Renderer/SDFEdit.hpp"
 #include "Astral/Renderer/BrickGrid.hpp"
+#include "Astral/Renderer/VulkanContext.hpp"
 
 namespace Astral {
 
-class VulkanContext;
 class ComputePipeline;
 class Buffer;
 
@@ -59,7 +59,7 @@ public:
     /// Secim tamponunu sifirlar (-1 yazar)
     void ClearSelectionResult();
 
-    vk::Image GetStorageImage() const { return m_StorageImage.get(); }
+    vk::Image GetStorageImage() const { return m_StorageImage; }
     vk::ImageView GetStorageImageView() const { return m_StorageImageView.get(); }
     Buffer* GetEditBuffer() const { return m_EditBuffer.get(); }
     Buffer* GetSelectionBuffer() const { return m_SelectionBuffer.get(); }
@@ -106,17 +106,14 @@ private:
     vk::UniquePipeline m_TAAPipeline;
     vk::DescriptorSet m_TaaDescriptorSet;
 
-    // Render Hedefleri
-    vk::UniqueImage m_StorageImage;         // Son cikan goruntu (Swapchain'e blit edilen)
-    vk::UniqueDeviceMemory m_StorageImageMemory;
+    // Render Hedefleri (VMA ile yonetilir)
+    VmaImage m_StorageImage;         // Son cikan goruntu (Swapchain'e blit edilen)
     vk::UniqueImageView m_StorageImageView;
 
-    vk::UniqueImage m_RawColorImage;        // Raymarching ham ciktisi
-    vk::UniqueDeviceMemory m_RawColorImageMemory;
+    VmaImage m_RawColorImage;        // Raymarching ham ciktisi
     vk::UniqueImageView m_RawColorImageView;
 
-    vk::UniqueImage m_HistoryImage;         // Onceki kare birikim tamponu
-    vk::UniqueDeviceMemory m_HistoryImageMemory;
+    VmaImage m_HistoryImage;         // Onceki kare birikim tamponu
     vk::UniqueImageView m_HistoryImageView;
 
     vk::UniqueDescriptorPool m_DescriptorPool;
@@ -128,7 +125,7 @@ private:
     void CreateDescriptorPoolAndSets();
     void UpdateDescriptorSets();
     void CreateTAAPipeline();
-    void CreateTexture(vk::UniqueImage& img, vk::UniqueDeviceMemory& mem, vk::UniqueImageView& view, vk::ImageUsageFlags usage);
+    void CreateTexture(VmaImage& img, vk::UniqueImageView& view, vk::ImageUsageFlags usage);
 };
 
 } // namespace Astral

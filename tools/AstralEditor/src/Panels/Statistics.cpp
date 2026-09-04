@@ -24,6 +24,8 @@ void Statistics::Draw(float gpuTimeMs, float cpuTimeMs, size_t activeEntities) {
     float maxMs = std::max(gpuTimeMs, cpuTimeMs);
     if (maxMs > 0.001f) {
         fps = 1000.0f / maxMs;
+    } else {
+        fps = ImGui::GetIO().Framerate;
     }
     ImGui::Text("FPS (Tahmini): %.1f", fps);
 

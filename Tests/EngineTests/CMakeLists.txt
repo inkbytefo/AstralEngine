@@ -9,6 +9,10 @@ add_executable(EngineTests
     src/CommandStackTests.cpp
     src/EventBusTests.cpp
     src/ActionMapTests.cpp
+    src/VmaTests.cpp
+    src/JobSystemTests.cpp
+    src/TaskGraphTests.cpp
+    src/ProjectTests.cpp
     src/GpuSmokeTest.cpp
 )
 

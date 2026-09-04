@@ -7,6 +7,7 @@
 #include "Astral/Core/SystemManager.hpp"
 #include "Astral/Core/Events/EventBus.hpp"
 #include "Astral/Core/Input/ActionMap.hpp"
+#include "Astral/Core/Threading/JobSystem.hpp"
 #include "Astral/Scene/SceneManager.hpp"
 
 #include "Astral/Scene/Entity.hpp"
@@ -97,6 +98,9 @@ public:
     [[nodiscard]] ActionMap& GetActionMap() noexcept { return m_ActionMap; }
     [[nodiscard]] const ActionMap& GetActionMap() const noexcept { return m_ActionMap; }
 
+    [[nodiscard]] JobSystem& GetJobSystem() noexcept { return m_JobSystem; }
+    [[nodiscard]] const JobSystem& GetJobSystem() const noexcept { return m_JobSystem; }
+
     [[nodiscard]] Entity& GetSelectedEntity() noexcept { return m_SelectedEntity; }
     [[nodiscard]] const Entity& GetSelectedEntity() const noexcept { return m_SelectedEntity; }
     void SetSelectedEntity(const Entity& entity) { m_SelectedEntity = entity; }
@@ -121,6 +125,7 @@ protected:
 
 private:
     AppConfig m_Config;
+    JobSystem m_JobSystem;
     SceneManager m_SceneManager;
     SystemManager m_SystemManager;
     EventBus m_EventBus;

@@ -4,13 +4,19 @@
 
 namespace {
 
+static std::string s_ProjectArg = "";
+
 Astral::AppConfig ParseCommandLine(const Astral::CommandLineArgs& args) {
     Astral::AppConfig config;
     int maxFrames = -1;
 
     for (int i = 1; i < args.argc; ++i) {
         std::string arg = args.argv[i];
-        if (arg == "--frames" && i + 1 < args.argc) {
+        if (arg == "--project" && i + 1 < args.argc) {
+            s_ProjectArg = args.argv[++i];
+        } else if (arg.size() >= 11 && arg.compare(arg.size() - 11, 11, ".astralproj") == 0) {
+            s_ProjectArg = arg;
+        } else if (arg == "--frames" && i + 1 < args.argc) {
             maxFrames = std::stoi(args.argv[++i]);
         } else if (arg == "--width" && i + 1 < args.argc) {
             config.width = std::stoi(args.argv[++i]);
@@ -51,6 +57,18 @@ public:
     AstralEditorApp()
         : Astral::Application(ParseCommandLine(Astral::GetCommandLineArgs())) {
         
+        // Aktif projeyi yukle veya varsayilana baglan
+        if (!s_ProjectArg.empty() && std::filesystem::exists(s_ProjectArg)) {
+            Astral::Project::LoadProject(s_ProjectArg);
+        } else if (std::filesystem::exists("Projects/Sandbox/Sandbox.astralproj")) {
+            Astral::Project::LoadProject("Projects/Sandbox/Sandbox.astralproj");
+        } else if (std::filesystem::exists("../Projects/Sandbox/Sandbox.astralproj")) {
+            Astral::Project::LoadProject("../Projects/Sandbox/Sandbox.astralproj");
+        } else {
+            // Varsayılan proje hazırla
+            Astral::Project::NewProject(".", "DefaultProject");
+        }
+
         // AstralEditor'un temel arayuz ve panel sistemini kaydet
         PushSystem<Astral::EditorUISubsystem>(*this);
     }

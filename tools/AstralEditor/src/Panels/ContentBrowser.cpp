@@ -1,4 +1,5 @@
 #include "Astral/Editor/Panels/ContentBrowser.hpp"
+#include "Astral/Project/Project.hpp"
 
 #include <imgui.h>
 #include <algorithm>
@@ -31,7 +32,7 @@ static FileTypeInfo GetFileTypeInfo(const std::filesystem::path& path, bool isDi
     if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".dds" || ext == ".hdr") {
         return { "[TEX]", ImVec4(0.24f, 0.78f, 0.45f, 1.0f) };  // Yeşil
     }
-    if (ext == ".scene" || ext == ".astral" || ext == ".json") {
+    if (ext == ".scene" || ext == ".astral" || ext == ".json" || ext == ".astralproj") {
         return { "[SCENE]", ImVec4(0.95f, 0.60f, 0.20f, 1.0f) }; // Altın
     }
     if (ext == ".cpp" || ext == ".hpp" || ext == ".h" || ext == ".c") {
@@ -42,20 +43,36 @@ static FileTypeInfo GetFileTypeInfo(const std::filesystem::path& path, bool isDi
 }
 
 ContentBrowser::ContentBrowser() {
-    // assets dizini varsa onu kök yap, yoksa çalışma dizinini kullan
-    if (std::filesystem::exists("assets")) {
-        m_BaseDirectory = std::filesystem::canonical("assets");
+    RefreshFromProject();
+}
+
+void ContentBrowser::RefreshFromProject() {
+    auto activeProj = Project::GetActive();
+    if (activeProj && std::filesystem::exists(activeProj->GetAssetDirectory())) {
+        std::error_code ec;
+        m_BaseDirectory = std::filesystem::canonical(activeProj->GetAssetDirectory(), ec);
+        if (ec) {
+            m_BaseDirectory = activeProj->GetAssetDirectory();
+        }
+    } else if (std::filesystem::exists("assets")) {
+        std::error_code ec;
+        m_BaseDirectory = std::filesystem::canonical("assets", ec);
+        if (ec) m_BaseDirectory = "assets";
     } else {
         m_BaseDirectory = std::filesystem::current_path();
     }
     m_CurrentDirectory = m_BaseDirectory;
+    m_History.clear();
     m_History.push_back(m_CurrentDirectory);
     m_HistoryIndex = 0;
+    m_SelectedItem.clear();
 }
 
 void ContentBrowser::SetBaseDirectory(const std::filesystem::path& path) {
     if (std::filesystem::exists(path)) {
-        m_BaseDirectory = std::filesystem::canonical(path);
+        std::error_code ec;
+        m_BaseDirectory = std::filesystem::canonical(path, ec);
+        if (ec) m_BaseDirectory = path;
         NavigateTo(m_BaseDirectory);
     }
 }
@@ -90,6 +107,15 @@ void ContentBrowser::NavigateForward() {
 }
 
 void ContentBrowser::Draw() {
+    auto activeProj = Project::GetActive();
+    if (activeProj && std::filesystem::exists(activeProj->GetAssetDirectory())) {
+        std::error_code ec;
+        auto canonicalAssetDir = std::filesystem::canonical(activeProj->GetAssetDirectory(), ec);
+        if (!ec && canonicalAssetDir != m_BaseDirectory) {
+            SetBaseDirectory(canonicalAssetDir);
+        }
+    }
+
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
 
     ImGui::Begin("Varlik Tarayicisi (Content Browser)");

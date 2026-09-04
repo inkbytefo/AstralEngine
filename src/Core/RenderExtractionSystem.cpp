@@ -8,6 +8,34 @@
 
 namespace Astral {
 
+namespace {
+
+bool IsEntityVisibleInHierarchy(const Registry& registry, EntityHandle entity) {
+    if (!registry.IsAlive(entity)) return false;
+
+    if (registry.HasComponent<VisibilityComponent>(entity)) {
+        if (!registry.GetComponent<VisibilityComponent>(entity).isVisible) {
+            return false;
+        }
+    }
+
+    if (registry.HasComponent<SDFComponent>(entity)) {
+        if (registry.GetComponent<SDFComponent>(entity).isVisible == 0) {
+            return false;
+        }
+    }
+
+    if (registry.HasComponent<HierarchyComponent>(entity)) {
+        EntityHandle parent = registry.GetComponent<HierarchyComponent>(entity).parent;
+        if (registry.IsAlive(parent)) {
+            return IsEntityVisibleInHierarchy(registry, parent);
+        }
+    }
+    return true;
+}
+
+} // namespace
+
 void ExtractRenderData(Registry& registry, std::vector<SDFEditGPU>& outEdits, std::vector<EntityHandle>& outEntities) {
     outEdits.clear();
     outEntities.clear();
@@ -19,6 +47,11 @@ void ExtractRenderData(Registry& registry, std::vector<SDFEditGPU>& outEdits, st
     for (auto&& [entity, transform] : transforms) {
         (void)transform;
         if (registry.HasComponent<SDFComponent>(entity)) {
+            // Görünürlük kontrolü: Nesne veya ebeveyni gizlendiyse çizilmez ve seçilmez
+            if (!IsEntityVisibleInHierarchy(registry, entity)) {
+                continue;
+            }
+
             const auto& sdf = registry.GetComponent<SDFComponent>(entity);
 
             if (!registry.HasComponent<WorldTransformComponent>(entity)) {

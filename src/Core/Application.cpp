@@ -31,6 +31,7 @@ Application::Application(const AppConfig& config)
 }
 
 Application::~Application() {
+    m_JobSystem.Shutdown();
     if (m_VulkanContext) {
         m_VulkanContext->WaitIdle();
     }
@@ -198,6 +199,7 @@ void Application::Run(int maxFrames) {
         double gpuTotalMs = 0.0;
         auto previousFrameTime = std::chrono::high_resolution_clock::now();
 
+        m_JobSystem.Initialize();
         m_SystemManager.InitAll();
 
         // 6. Ana render, UI ve profil dongusu
@@ -246,6 +248,7 @@ void Application::Run(int maxFrames) {
                 m_Window->GetInputSystem(),
                 m_ActionMap,
                 m_EventBus,
+                m_JobSystem,
                 *m_Window,
                 deltaTime
             };
@@ -350,8 +353,8 @@ void Application::Run(int maxFrames) {
             }
 
             auto cpuEnd = std::chrono::high_resolution_clock::now();
-            double cpuFrameMs = std::chrono::duration<double, std::milli>(cpuEnd - cpuStart).count();
-            double gpuTotalMs = m_VulkanContext->GetLastGpuTimeMs();
+            cpuFrameMs = std::chrono::duration<double, std::milli>(cpuEnd - cpuStart).count();
+            gpuTotalMs = m_VulkanContext->GetLastGpuTimeMs();
 
             frameIndex++;
 
@@ -376,6 +379,7 @@ void Application::Run(int maxFrames) {
         }
 
         m_SystemManager.ShutdownAll();
+        m_JobSystem.Shutdown();
         m_Running = false;
         std::cout << "[Astral::Application] Ana olay dongusu sonlandi (Toplam " << frameIndex << " kare).\n";
 

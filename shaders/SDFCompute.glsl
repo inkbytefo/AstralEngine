@@ -196,49 +196,7 @@ HitInfo mapScene(vec3 p) {
         return res;
     }
 
-    // Fallback: Eger SSBO bos ise
-    float dPlane = sdPlane(p, vec3(0.0, 1.0, 0.0), 1.0);
-    res.dist = dPlane;
-    float checker = mod(floor(p.x) + floor(p.z), 2.0);
-    res.albedo = mix(vec3(0.2, 0.22, 0.25), vec3(0.35, 0.38, 0.42), checker);
-    res.roughness = 0.8;
-    res.metallic = 0.05;
-
-    float t = camPos.w;
-    vec3 pBox = p - vec3(-1.8, 0.2 + sin(t * 1.5) * 0.2, 0.0);
-    float c = cos(t); float s = sin(t);
-    mat2 rotY = mat2(c, -s, s, c);
-    pBox.xz = rotY * pBox.xz;
-    float dBox = sdBox(pBox, vec3(0.6));
-
-    vec3 pSphere = p - vec3(0.0, 0.3, 0.0);
-    float dSphere = sdSphere(pSphere, 0.85);
-
-    vec3 pTorus = p - vec3(1.8, 0.2 + cos(t * 1.5) * 0.2, 0.0);
-    mat2 rotX = mat2(c, s, -s, c);
-    pTorus.yz = rotX * pTorus.yz;
-    float dTorus = sdTorus(pTorus, vec2(0.7, 0.25));
-
-    float dObjects = opSmoothUnion(dSphere, dBox, 0.3);
-    dObjects = opSmoothUnion(dObjects, dTorus, 0.25);
-
-    if (dObjects < res.dist) {
-        res.dist = dObjects;
-        if (dSphere < dBox && dSphere < dTorus) {
-            res.albedo = vec3(0.9, 0.25, 0.2);
-            res.roughness = 0.2;
-            res.metallic = 0.8;
-        } else if (dBox < dTorus) {
-            res.albedo = vec3(0.2, 0.5, 0.9);
-            res.roughness = 0.4;
-            res.metallic = 0.3;
-        } else {
-            res.albedo = vec3(0.9, 0.75, 0.15);
-            res.roughness = 0.3;
-            res.metallic = 0.9;
-        }
-    }
-
+    // Sahnede primitif yoksa (editCount == 0), bos uzay dondur
     return res;
 }
 

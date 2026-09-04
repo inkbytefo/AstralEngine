@@ -2,6 +2,9 @@
 #include "Astral/Core/Components.hpp"
 #include "Astral/Core/InputSystem.hpp"
 #include "Astral/Scene/SceneSerializer.hpp"
+#include "Astral/Project/Project.hpp"
+#include "Astral/Project/ProjectSerializer.hpp"
+#include "Astral/Renderer/SDFEdit.hpp"
 
 #include <imgui.h>
 #include <filesystem>
@@ -33,6 +36,10 @@ static std::string s_CurrentScenePath = "";
 static char s_PathBuffer[512] = "assets/scenes/untitled.astral";
 static char s_OpenPathBuffer[512] = "assets/scenes/";
 
+static char s_NewProjectNameBuffer[128] = "MyNewGame";
+static char s_NewProjectPathBuffer[512] = "Projects/MyNewGame";
+static char s_OpenProjectPathBuffer[512] = "";
+
 static std::string s_NotificationTitle = "";
 static std::string s_NotificationMessage = "";
 static bool s_NotificationIsError = false;
@@ -43,6 +50,8 @@ static bool s_ShowNewConfirmPopup_Pending = false;
 static bool s_ShowSaveAsPopup_Pending = false;
 static bool s_ShowLoadPopup_Pending = false;
 static bool s_ShowAboutModal_Pending = false;
+static bool s_ShowNewProjectPopup_Pending = false;
+static bool s_ShowOpenProjectPopup_Pending = false;
 
 static void ShowNotification(const std::string& title, const std::string& message, bool isError) {
     s_NotificationTitle = title;
@@ -92,6 +101,27 @@ static std::string NativeSaveFileDialog(const char* filter = "Astral Scene (*.as
 }
 #endif
 
+#ifdef _WIN32
+static std::string NativeOpenProjectDialog() {
+    OPENFILENAMEA ofn;
+    CHAR szFile[512] = { 0 };
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = nullptr;
+    ofn.lpstrFile = szFile;
+    ofn.nMaxFile = sizeof(szFile);
+    ofn.lpstrFilter = "Astral Project (*.astralproj)\0*.astralproj\0All Files (*.*)\0*.*\0";
+    ofn.nFilterIndex = 1;
+    ofn.lpstrInitialDir = "Projects";
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
+
+    if (GetOpenFileNameA(&ofn) == TRUE) {
+        return std::string(ofn.lpstrFile);
+    }
+    return "";
+}
+#endif
+
 static void ExecuteSave(Scene& scene, const std::string& filepath) {
     if (filepath.empty()) return;
 
@@ -128,11 +158,91 @@ static void ExecuteOpen(Scene& scene, Entity& selectedEntity, const std::string&
     }
 }
 
-static void ExecuteNewScene(Scene& scene, Entity& selectedEntity) {
+enum class SceneTemplate {
+    Basic,
+    Empty
+};
+
+static void PopulateBasicScene(Scene& scene) {
     scene.Clear();
+
+    // 1. Zemin (Floor Platform)
+    Entity floorEntity = scene.CreateEntity();
+    floorEntity.AddComponent<TransformComponent>(
+        glm::vec3(0.0f, -0.5f, 0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+        glm::vec3(12.0f, 0.2f, 12.0f)
+    );
+    floorEntity.AddComponent<SDFComponent>(
+        static_cast<uint32_t>(PrimitiveType::Box),
+        static_cast<uint32_t>(CSGOperation::Union),
+        0.0f, 1u, glm::vec3(0.24f, 0.25f, 0.28f), 0.85f, 0.05f
+    );
+
+    // 2. Baslangic Kup Nesnesi (Default Cube)
+    Entity cubeEntity = scene.CreateEntity();
+    cubeEntity.AddComponent<TransformComponent>(
+        glm::vec3(0.0f, 0.5f, 0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+        glm::vec3(0.75f)
+    );
+    cubeEntity.AddComponent<SDFComponent>(
+        static_cast<uint32_t>(PrimitiveType::Box),
+        static_cast<uint32_t>(CSGOperation::Union),
+        0.05f, 1u, glm::vec3(0.2f, 0.55f, 0.95f), 0.35f, 0.4f
+    );
+}
+
+static void ExecuteNewScene(Scene& scene, Entity& selectedEntity, SceneTemplate templateType = SceneTemplate::Basic) {
     selectedEntity = Entity();
     s_CurrentScenePath.clear();
-    scene.SetName("Untitled Scene");
+
+    if (templateType == SceneTemplate::Basic) {
+        PopulateBasicScene(scene);
+        scene.SetName("Untitled Scene (Basic)");
+    } else {
+        scene.Clear();
+        scene.SetName("Untitled Scene (Empty)");
+    }
+}
+
+static void ExecuteOpenProject(Scene& scene, Entity& selectedEntity, const std::string& filepath) {
+    if (filepath.empty()) return;
+
+    std::filesystem::path p(filepath);
+    if (!std::filesystem::exists(p)) {
+        ShowNotification("Proje Bulunamadi", "Belirtilen proje dosyasi mevcut degil:\n" + filepath, true);
+        return;
+    }
+
+    auto project = Project::LoadProject(p);
+    if (project) {
+        // Varsa baslangic sahnesini yukle
+        auto startScenePath = project->GetAssetFileSystemPath(project->GetConfig().startScene);
+        if (std::filesystem::exists(startScenePath)) {
+            ExecuteOpen(scene, selectedEntity, startScenePath.string());
+        } else {
+            ExecuteNewScene(scene, selectedEntity);
+        }
+        ShowNotification("Proje Yuklendi", "Proje basariyla yuklendi:\n" + project->GetConfig().name + "\n" + p.string(), false);
+    } else {
+        ShowNotification("Proje Hatasi", "Proje dosyasi yuklenemedi veya bozuk!\nDosya: " + filepath, true);
+    }
+}
+
+static void ExecuteNewProject(Scene& scene, Entity& selectedEntity, const std::string& directory, const std::string& name) {
+    if (directory.empty() || name.empty()) {
+        ShowNotification("Gecersiz Parametre", "Proje dizini ve adi bos birakilamaz!", true);
+        return;
+    }
+
+    auto project = Project::NewProject(directory, name);
+    if (project) {
+        ExecuteNewScene(scene, selectedEntity);
+        ShowNotification("Proje Olusturuldu", "Yeni proje basariyla olusturuldu:\n" + project->GetConfig().name, false);
+    } else {
+        ShowNotification("Proje Hatasi", "Yeni proje olusturulamadi!", true);
+    }
 }
 
 } // namespace
@@ -155,7 +265,18 @@ void DrawEditorMenuBar(Scene& scene, Entity& selectedEntity,
         bool ctrlPressed = input.IsKeyPressed(GLFW_KEY_LEFT_CONTROL) || input.IsKeyPressed(GLFW_KEY_RIGHT_CONTROL);
         bool shiftPressed = input.IsKeyPressed(GLFW_KEY_LEFT_SHIFT) || input.IsKeyPressed(GLFW_KEY_RIGHT_SHIFT);
 
-        if (ctrlPressed && !shiftPressed && input.IsKeyJustPressed(GLFW_KEY_S)) {
+        if (ctrlPressed && shiftPressed && input.IsKeyJustPressed(GLFW_KEY_N)) {
+            s_ShowNewProjectPopup_Pending = true;
+        } else if (ctrlPressed && shiftPressed && input.IsKeyJustPressed(GLFW_KEY_O)) {
+#ifdef _WIN32
+            std::string selected = NativeOpenProjectDialog();
+            if (!selected.empty()) {
+                ExecuteOpenProject(scene, selectedEntity, selected);
+            }
+#else
+            s_ShowOpenProjectPopup_Pending = true;
+#endif
+        } else if (ctrlPressed && !shiftPressed && input.IsKeyJustPressed(GLFW_KEY_S)) {
             if (s_CurrentScenePath.empty()) {
                 s_ShowSaveAsPopup_Pending = true;
             } else {
@@ -164,9 +285,9 @@ void DrawEditorMenuBar(Scene& scene, Entity& selectedEntity,
             }
         } else if (ctrlPressed && shiftPressed && input.IsKeyJustPressed(GLFW_KEY_S)) {
             s_ShowSaveAsPopup_Pending = true;
-        } else if (ctrlPressed && input.IsKeyJustPressed(GLFW_KEY_O)) {
+        } else if (ctrlPressed && !shiftPressed && input.IsKeyJustPressed(GLFW_KEY_O)) {
             s_ShowLoadPopup_Pending = true;
-        } else if (ctrlPressed && input.IsKeyJustPressed(GLFW_KEY_N)) {
+        } else if (ctrlPressed && !shiftPressed && input.IsKeyJustPressed(GLFW_KEY_N)) {
             if (scene.GetRegistry().GetAliveEntityCount() > 0) {
                 s_ShowNewConfirmPopup_Pending = true;
             } else {
@@ -190,13 +311,41 @@ void DrawEditorMenuBar(Scene& scene, Entity& selectedEntity,
     if (ImGui::BeginMenuBar()) {
         // ── File ──────────────────────────────────────────────────
         if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("Yeni Sahne", "Ctrl+N")) {
-                if (scene.GetRegistry().GetAliveEntityCount() > 0) {
-                    s_ShowNewConfirmPopup_Pending = true;
+            if (ImGui::MenuItem("Yeni Proje...", "Ctrl+Shift+N")) {
+                s_ShowNewProjectPopup_Pending = true;
+            }
+            if (ImGui::MenuItem("Projeyi Ac...", "Ctrl+Shift+O")) {
+#ifdef _WIN32
+                std::string selected = NativeOpenProjectDialog();
+                if (!selected.empty()) {
+                    ExecuteOpenProject(scene, selectedEntity, selected);
+                }
+#else
+                s_ShowOpenProjectPopup_Pending = true;
+#endif
+            }
+            if (ImGui::MenuItem("Projeyi Kaydet", nullptr, false, Project::GetActive() != nullptr)) {
+                if (Project::SaveActive()) {
+                    ShowNotification("Basarili", "Proje dosyalari basariyla kaydedildi.", false);
                 } else {
-                    ExecuteNewScene(scene, selectedEntity);
+                    ShowNotification("Hata", "Proje kaydedilemedi!", true);
+                }
+            }
+            ImGui::Separator();
+            if (ImGui::BeginMenu("Yeni Sahne")) {
+                if (ImGui::MenuItem("Standart Seviye (Basic Level)", "Ctrl+N")) {
+                    ExecuteNewScene(scene, selectedEntity, SceneTemplate::Basic);
                     actions.newScene = true;
                 }
+                if (ImGui::MenuItem("Bos Seviye (Empty Level)", "Ctrl+Alt+N")) {
+                    ExecuteNewScene(scene, selectedEntity, SceneTemplate::Empty);
+                    actions.newScene = true;
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Sablon Penceresini Ac...")) {
+                    s_ShowNewConfirmPopup_Pending = true;
+                }
+                ImGui::EndMenu();
             }
             if (ImGui::MenuItem("Sahneyi Ac...", "Ctrl+O")) {
                 s_ShowLoadPopup_Pending = true;
@@ -290,6 +439,14 @@ void DrawEditorMenuBar(Scene& scene, Entity& selectedEntity,
     // ========================================================================
 
     // 1. Trigger pending popups
+    if (s_ShowNewProjectPopup_Pending) {
+        ImGui::OpenPopup("Yeni Proje Olustur##NewProjectModal");
+        s_ShowNewProjectPopup_Pending = false;
+    }
+    if (s_ShowOpenProjectPopup_Pending) {
+        ImGui::OpenPopup("Projeyi Ac##OpenProjectModal");
+        s_ShowOpenProjectPopup_Pending = false;
+    }
     if (s_ShowNewConfirmPopup_Pending) {
         ImGui::OpenPopup("Yeni Sahne Onayi##NewSceneConfirmModal");
         s_ShowNewConfirmPopup_Pending = false;
@@ -310,18 +467,96 @@ void DrawEditorMenuBar(Scene& scene, Entity& selectedEntity,
         s_ShowNotificationPopup_Pending = false;
     }
 
-    // 2. Yeni Sahne Onay Diyaloğu
-    if (ImGui::BeginPopupModal("Yeni Sahne Onayi##NewSceneConfirmModal", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("Mevcut sahnedeki tum varliklar temizlenecek.\nKaydedilmemis degisiklikler kaybolabilir.\n\nYeni sahne olusturmak istediginizden emin misiniz?");
-        ImGui::Separator();
-        ImGui::Dummy(ImVec2(0, 6.0f));
+    // 1.1. Yeni Proje Oluştur Diyaloğu
+    if (ImGui::BeginPopupModal("Yeni Proje Olustur##NewProjectModal", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Yeni bir AstralEngine projesi baslatin:");
+        ImGui::Dummy(ImVec2(0, 4.0f));
 
-        if (ImGui::Button("Evet, Yeni Sahne Olustur", ImVec2(200, 28))) {
-            ExecuteNewScene(scene, selectedEntity);
-            actions.newScene = true;
+        ImGui::Text("Proje Adi:");
+        ImGui::SetNextItemWidth(360.0f);
+        ImGui::InputText("##NewProjectName", s_NewProjectNameBuffer, sizeof(s_NewProjectNameBuffer));
+
+        ImGui::Dummy(ImVec2(0, 2.0f));
+        ImGui::Text("Proje Dizini:");
+        ImGui::SetNextItemWidth(360.0f);
+        ImGui::InputText("##NewProjectPath", s_NewProjectPathBuffer, sizeof(s_NewProjectPathBuffer));
+
+        ImGui::Dummy(ImVec2(0, 6.0f));
+        ImGui::Separator();
+        ImGui::Dummy(ImVec2(0, 4.0f));
+
+        if (ImGui::Button("Olustur", ImVec2(120, 28))) {
+            ExecuteNewProject(scene, selectedEntity, s_NewProjectPathBuffer, s_NewProjectNameBuffer);
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
+        if (ImGui::Button("Iptal", ImVec2(90, 28))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    // 1.2. Projeyi Aç Diyaloğu (Non-Windows / Fallback)
+    if (ImGui::BeginPopupModal("Projeyi Ac##OpenProjectModal", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Yuklenecek proje dosyasinin yolunu girin (.astralproj):");
+        ImGui::Dummy(ImVec2(0, 4.0f));
+
+        ImGui::SetNextItemWidth(360.0f);
+        ImGui::InputText("##OpenProjectPathInput", s_OpenProjectPathBuffer, sizeof(s_OpenProjectPathBuffer));
+
+        ImGui::Dummy(ImVec2(0, 6.0f));
+        ImGui::Separator();
+        ImGui::Dummy(ImVec2(0, 4.0f));
+
+        if (ImGui::Button("Yukle", ImVec2(120, 28))) {
+            ExecuteOpenProject(scene, selectedEntity, s_OpenProjectPathBuffer);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Iptal", ImVec2(90, 28))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    // 2. Yeni Sahne Şablon Seçim Diyaloğu (Unreal Engine Standartı)
+    if (ImGui::BeginPopupModal("Yeni Sahne Onayi##NewSceneConfirmModal", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextColored(ImVec4(0.35f, 0.75f, 1.0f, 1.0f), "YENI SAHNE SABLONU SECIN");
+        ImGui::TextDisabled("Unreal Engine standardinda baslangic seviyesi secenekleri:");
+        ImGui::Dummy(ImVec2(0, 4.0f));
+        ImGui::Separator();
+        ImGui::Dummy(ImVec2(0, 6.0f));
+
+        // 1. Kart: Standart Seviye (Basic Level)
+        ImGui::BeginChild("BasicLevelCard", ImVec2(420, 100), true);
+        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f), "[1] Standart Seviye (Basic Level) - Onerilen");
+        ImGui::TextWrapped("Zemin platformu (Floor) ve merkez baslangic kupu icerir. Hizli prototipleme ve genel tasarim icin idealdir.");
+        ImGui::Dummy(ImVec2(0, 2.0f));
+        if (ImGui::Button("Standart Seviye Olustur##BtnBasic", ImVec2(220, 26))) {
+            ExecuteNewScene(scene, selectedEntity, SceneTemplate::Basic);
+            actions.newScene = true;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndChild();
+
+        ImGui::Dummy(ImVec2(0, 4.0f));
+
+        // 2. Kart: Boş Seviye (Empty Level)
+        ImGui::BeginChild("EmptyLevelCard", ImVec2(420, 100), true);
+        ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.2f, 1.0f), "[2] Bos Seviye (Empty Level)");
+        ImGui::TextWrapped("Tamamen bos sahne. Hicbir varlik icermez (0 nesne). Sifirdan ozel ortam kurmak icin.");
+        ImGui::Dummy(ImVec2(0, 2.0f));
+        if (ImGui::Button("Bos Seviye Olustur##BtnEmpty", ImVec2(220, 26))) {
+            ExecuteNewScene(scene, selectedEntity, SceneTemplate::Empty);
+            actions.newScene = true;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndChild();
+
+        ImGui::Dummy(ImVec2(0, 6.0f));
+        ImGui::Separator();
+        ImGui::Dummy(ImVec2(0, 4.0f));
+
         if (ImGui::Button("Iptal", ImVec2(90, 28))) {
             ImGui::CloseCurrentPopup();
         }

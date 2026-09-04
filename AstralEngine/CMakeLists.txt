@@ -38,6 +38,7 @@ add_library(AstralEngine STATIC
     ${CMAKE_SOURCE_DIR}/src/Core/BenchmarkLogger.cpp
     ${CMAKE_SOURCE_DIR}/src/Core/RenderExtractionSystem.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/VulkanContext.cpp
+    ${CMAKE_SOURCE_DIR}/src/Renderer/VmaImplementation.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/ComputePipeline.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/Buffer.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/BrickGrid.cpp
@@ -45,8 +46,12 @@ add_library(AstralEngine STATIC
     ${CMAKE_SOURCE_DIR}/src/Renderer/Swapchain.cpp
     ${CMAKE_SOURCE_DIR}/src/Core/CommandStack.cpp
     ${CMAKE_SOURCE_DIR}/src/Core/Input/ActionMap.cpp
+    ${CMAKE_SOURCE_DIR}/src/Core/Threading/JobSystem.cpp
+    ${CMAKE_SOURCE_DIR}/src/Core/Threading/TaskGraph.cpp
     ${CMAKE_SOURCE_DIR}/src/Scene/Scene.cpp
     ${CMAKE_SOURCE_DIR}/src/Scene/SceneSerializer.cpp
+    ${CMAKE_SOURCE_DIR}/src/Project/Project.cpp
+    ${CMAKE_SOURCE_DIR}/src/Project/ProjectSerializer.cpp
 )
 
 add_dependencies(AstralEngine CompileShaders)
@@ -63,6 +68,7 @@ target_compile_definitions(AstralEngine PUBLIC
 
 target_link_libraries(AstralEngine PUBLIC
     Vulkan::Vulkan
+    VulkanMemoryAllocator
     glfw
     glm::glm
 )

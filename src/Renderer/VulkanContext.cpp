@@ -92,6 +92,7 @@ VulkanContext::VulkanContext(Window& window, bool enableValidation)
     PickPhysicalDevice();
     CreateLogicalDevice();
     VULKAN_HPP_DEFAULT_DISPATCHER.init(m_Device.get());
+    CreateAllocator();
 
     CreateCommandPoolAndBuffers();
     CreateTimestampQueryPool();
@@ -111,6 +112,8 @@ VulkanContext::~VulkanContext() {
     m_FrameFence.reset();
     m_CommandBuffer.reset();
     m_CommandPool.reset();
+
+    DestroyAllocator();
 
     m_Device.reset();
     m_Surface.reset();
@@ -666,6 +669,41 @@ void VulkanContext::EndFramePresent() {
         m_LastGpuTimeMs = (static_cast<double>(deltaTicks) * static_cast<double>(m_TimestampPeriod)) / 1e6;
         m_HasValidGpuTime = true;
     }
+}
+
+void VulkanContext::CreateAllocator() {
+    VmaVulkanFunctions vmaFunctions{};
+    vmaFunctions.vkGetInstanceProcAddr = VULKAN_HPP_DEFAULT_DISPATCHER.vkGetInstanceProcAddr;
+    vmaFunctions.vkGetDeviceProcAddr = VULKAN_HPP_DEFAULT_DISPATCHER.vkGetDeviceProcAddr;
+
+    VmaAllocatorCreateInfo allocatorCreateInfo{};
+    allocatorCreateInfo.vulkanApiVersion = VK_API_VERSION_1_4;
+    allocatorCreateInfo.physicalDevice = m_PhysicalDevice;
+    allocatorCreateInfo.device = m_Device.get();
+    allocatorCreateInfo.instance = m_Instance.get();
+    allocatorCreateInfo.pVulkanFunctions = &vmaFunctions;
+
+    VkResult result = vmaCreateAllocator(&allocatorCreateInfo, &m_Allocator);
+    if (result != VK_SUCCESS) {
+        throw std::runtime_error("[Astral::VulkanContext] VmaAllocator olusturulamadi! VkResult: " + std::to_string(result));
+    }
+    std::cout << "[Astral::VulkanContext] VMA (Vulkan Memory Allocator) basariyla baslatildi.\n";
+}
+
+void VulkanContext::DestroyAllocator() {
+    if (m_Allocator != VK_NULL_HANDLE) {
+        vmaDestroyAllocator(m_Allocator);
+        m_Allocator = VK_NULL_HANDLE;
+        std::cout << "[Astral::VulkanContext] VMA allocator serbest birakildi.\n";
+    }
+}
+
+VmaTotalStatistics VulkanContext::GetMemoryStats() const {
+    VmaTotalStatistics stats{};
+    if (m_Allocator != VK_NULL_HANDLE) {
+        vmaCalculateStatistics(m_Allocator, &stats);
+    }
+    return stats;
 }
 
 } // namespace Astral

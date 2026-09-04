@@ -23,9 +23,9 @@ void SetupDefaultEditorLayout(ImGuiID dockspace_id, bool force) {
     // │  (Sahne       │   3D Viewport      │   (Transform,   │
     // │  Hiyerarsisi) │    (Merkez)        │    SDF, Mat.)   │
     // │   ~20%        │     ~55%           │    ~25%         │
-    // │              │                    ├─────────────────┤
-    // │              │                    │   Istatistik    │
-    // │              │                    │   & Performans  │
+    // │              ├────────────────────┤                 │
+    // │              │ 1. Varlik Tarayici │                 │
+    // │              │ 2. Motor Istatistik│                 │
     // └──────────────┴────────────────────┴─────────────────┘
 
     ImGuiID dock_main = dockspace_id;
@@ -40,22 +40,17 @@ void SetupDefaultEditorLayout(ImGuiID dockspace_id, bool force) {
     ImGuiID dock_center;
     ImGui::DockBuilderSplitNode(dock_remaining, ImGuiDir_Right, 0.31f, &dock_right, &dock_center);
 
-    // Split center panel into top (3D Viewport) ~65% and bottom (Content Browser) ~35%
+    // Split center panel into top (3D Viewport) ~65% and bottom (Content Browser + Statistics tab) ~35%
     ImGuiID dock_center_top;
     ImGuiID dock_center_bottom;
     ImGui::DockBuilderSplitNode(dock_center, ImGuiDir_Down, 0.35f, &dock_center_bottom, &dock_center_top);
-
-    // Split right panel into top (Inspector) and bottom (Statistics)
-    ImGuiID dock_right_top;
-    ImGuiID dock_right_bottom;
-    ImGui::DockBuilderSplitNode(dock_right, ImGuiDir_Down, 0.35f, &dock_right_bottom, &dock_right_top);
 
     // Dock windows into their respective nodes
     ImGui::DockBuilderDockWindow("Sahne Hiyerarsisi", dock_left);
     ImGui::DockBuilderDockWindow("3D Viewport", dock_center_top);
     ImGui::DockBuilderDockWindow("Varlik Tarayicisi (Content Browser)", dock_center_bottom);
-    ImGui::DockBuilderDockWindow("Bilesen Denetcisi", dock_right_top);
-    ImGui::DockBuilderDockWindow("Motor Istatistikleri", dock_right_bottom);
+    ImGui::DockBuilderDockWindow("Motor Istatistikleri", dock_center_bottom);
+    ImGui::DockBuilderDockWindow("Bilesen Denetcisi", dock_right);
 
     ImGui::DockBuilderFinish(dockspace_id);
 }

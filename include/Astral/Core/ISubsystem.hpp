@@ -12,12 +12,14 @@ namespace Astral {
 
 class Scene;
 class Entity;
+class JobSystem;
 
 struct FrameContext {
     Registry& registry;
     InputSystem& input;
     ActionMap& actions;
     EventBus& events;
+    JobSystem& jobSystem;
     Window& window;
     float deltaTime;
 };

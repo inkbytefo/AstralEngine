@@ -13,6 +13,10 @@ namespace Astral::Test {
     void RunCommandStackTests();
     void RunEventBusTests();
     void RunActionMapTests();
+    void RunVmaTests(bool runGpu);
+    void RunJobSystemTests();
+    void RunTaskGraphTests();
+    void RunProjectTests();
     void RunGpuSmokeTest(int frames);
 }
 
@@ -30,6 +34,10 @@ int main(int argc, char** argv) {
     bool runCommand = false;
     bool runEventBus = false;
     bool runActionMap = false;
+    bool runVma = false;
+    bool runJobSystem = false;
+    bool runTaskGraph = false;
+    bool runProject = false;
     bool runGpu = false;
     int gpuFrames = 5;
 
@@ -53,10 +61,14 @@ int main(int argc, char** argv) {
                       << "  --command            Yalnizca Undo/Redo Command-Stack testlerini calistirir\n"
                       << "  --eventbus           Yalnizca EventBus mimarisi testlerini calistirir\n"
                       << "  --actionmap          Yalnizca ActionMap & Enhanced Input testlerini calistirir\n"
+                      << "  --vma                Yalnizca VMA bellek yonetimi testlerini calistirir\n"
+                      << "  --jobs               Yalnizca C++20 JobSystem testlerini calistirir\n"
+                      << "  --taskgraph          Yalnizca TaskGraph DAG planlayici testlerini calistirir\n"
+                      << "  --project            Yalnizca Project & ProjectSerializer testlerini calistirir\n"
                       << "  --help, -h           Bu yardim mesajini gosterir\n";
             return 0;
         } else if (arg == "--all") {
-            runEcs = runPhysics = runIdentity = runScene = runSerialization = runBrickGrid = runCommand = runEventBus = runActionMap = runGpu = true;
+            runEcs = runPhysics = runIdentity = runScene = runSerialization = runBrickGrid = runCommand = runEventBus = runActionMap = runVma = runJobSystem = runTaskGraph = runProject = runGpu = true;
             hasSpecificFlag = true;
         } else if (arg == "--gpu") {
             runGpu = true;
@@ -90,12 +102,24 @@ int main(int argc, char** argv) {
         } else if (arg == "--actionmap") {
             runActionMap = true;
             hasSpecificFlag = true;
+        } else if (arg == "--vma") {
+            runVma = true;
+            hasSpecificFlag = true;
+        } else if (arg == "--jobs") {
+            runJobSystem = true;
+            hasSpecificFlag = true;
+        } else if (arg == "--taskgraph") {
+            runTaskGraph = true;
+            hasSpecificFlag = true;
+        } else if (arg == "--project") {
+            runProject = true;
+            hasSpecificFlag = true;
         }
     }
 
     // Varsayilan davranis: Eger ozel bir bayrak verilmediyse tum headless testler calistirilir (CI guvenli)
     if (!hasSpecificFlag) {
-        runEcs = runPhysics = runIdentity = runScene = runSerialization = runBrickGrid = runCommand = runEventBus = runActionMap = true;
+        runEcs = runPhysics = runIdentity = runScene = runSerialization = runBrickGrid = runCommand = runEventBus = runActionMap = runVma = runJobSystem = runTaskGraph = runProject = true;
     }
 
     auto& runner = Astral::Test::TestRunner::Instance();
@@ -126,6 +150,20 @@ int main(int argc, char** argv) {
     }
     if (runActionMap) {
         runner.RunSuite("Action-Mapping & Enhanced Input Suite", Astral::Test::RunActionMapTests);
+    }
+    if (runVma) {
+        runner.RunSuite("Vulkan Memory Allocator (VMA) Architecture Suite", [runGpu]() {
+            Astral::Test::RunVmaTests(runGpu);
+        });
+    }
+    if (runJobSystem) {
+        runner.RunSuite("Modern C++20 JobSystem Architecture Suite", Astral::Test::RunJobSystemTests);
+    }
+    if (runTaskGraph) {
+        runner.RunSuite("DAG TaskGraph Frame Scheduling Suite", Astral::Test::RunTaskGraphTests);
+    }
+    if (runProject) {
+        runner.RunSuite("Project & ProjectSerializer Management Suite", Astral::Test::RunProjectTests);
     }
     if (runGpu) {
         runner.RunSuite("Vulkan 1.4 GPU & SDF Compute Smoke Suite", [gpuFrames]() {

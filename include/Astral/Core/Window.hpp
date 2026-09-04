@@ -27,6 +27,9 @@ public:
     int GetWidth() const { return m_Width; }
     int GetHeight() const { return m_Height; }
 
+    void SetTitle(const std::string& title);
+    [[nodiscard]] const std::string& GetTitle() const noexcept { return m_Title; }
+
     InputSystem& GetInputSystem() { return m_InputSystem; }
     const InputSystem& GetInputSystem() const { return m_InputSystem; }
 
