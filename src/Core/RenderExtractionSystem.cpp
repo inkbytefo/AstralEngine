@@ -5,6 +5,7 @@
 #include "Astral/Renderer/SDFEdit.hpp"
 #include <cstring>
 #include <algorithm>
+#include <unordered_map>
 
 namespace Astral {
 
@@ -80,6 +81,15 @@ void ExtractRenderData(Registry& registry, std::vector<SDFEditGPU>& outEdits, st
             gpuData.albedo = sdf.albedo;
             gpuData.roughness = sdf.roughness;
             gpuData.metallic = sdf.metallic;
+
+            static std::unordered_map<EntityHandle, glm::vec3> s_PrevEntityPositions;
+            auto it = s_PrevEntityPositions.find(entity);
+            if (it != s_PrevEntityPositions.end()) {
+                gpuData.SetPrevPosition(it->second);
+            } else {
+                gpuData.SetPrevPosition(worldPosition);
+            }
+            s_PrevEntityPositions[entity] = worldPosition;
 
             outEdits.push_back(gpuData);
             outEntities.push_back(entity);

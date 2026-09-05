@@ -398,6 +398,33 @@ double VulkanContext::GetLastGpuTimeMs() {
     return m_LastGpuTimeMs;
 }
 
+void VulkanContext::ExecuteImmediate(std::function<void(vk::CommandBuffer)> func) {
+    if (!func || !m_Device || !m_CommandPool) return;
+
+    vk::CommandBufferAllocateInfo allocInfo{};
+    allocInfo.commandPool = m_CommandPool.get();
+    allocInfo.level = vk::CommandBufferLevel::ePrimary;
+    allocInfo.commandBufferCount = 1;
+
+    auto cmdBuffers = m_Device->allocateCommandBuffersUnique(allocInfo);
+    vk::CommandBuffer cmd = cmdBuffers[0].get();
+
+    vk::CommandBufferBeginInfo beginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+    cmd.begin(beginInfo);
+
+    func(cmd);
+
+    cmd.end();
+
+    vk::SubmitInfo submitInfo{};
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &cmd;
+
+    auto submitRes = m_GraphicsQueue.submit(1, &submitInfo, VK_NULL_HANDLE);
+    (void)submitRes;
+    m_GraphicsQueue.waitIdle();
+}
+
 std::string VulkanContext::GetDeviceName() const {
     if (!m_PhysicalDevice) return "Bilinmeyen GPU";
     return std::string(m_PhysicalDevice.getProperties().deviceName.data());

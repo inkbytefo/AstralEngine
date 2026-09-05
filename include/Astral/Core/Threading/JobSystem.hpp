@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <algorithm>
+#include <chrono>
 
 namespace Astral {
 
@@ -43,7 +44,8 @@ public:
     void Dispatch(JobHandle parent, std::function<void()> job);
 
     /// Handle'in isaret ettigi tum isler bitene kadar Work-Helping ile bekler (thread uyumaz, kuyruktan is calistirir).
-    void Wait(const JobHandle& handle);
+    /// Isler belirtilen timeout suresi icinde tamamlanirsa true, zaman asimina ugrarsa false doner.
+    bool Wait(const JobHandle& handle, std::chrono::milliseconds timeout = std::chrono::milliseconds::max());
 
     /// Bir gorevin tamamlanip tamamlanmadigini kontrol eder.
     [[nodiscard]] bool IsDone(const JobHandle& handle) const noexcept;

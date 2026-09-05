@@ -1,0 +1,8 @@
+[Astral::SceneSerializer] Warning: Skipping unknown component TypeID: 0xcafebabedead (24 bytes) in: assets/scenes/unknown_chunk.astral
+[Astral::SceneSerializer] Error: Premature EOF reading file header in: assets/scenes/truncated.astral
+[Astral::SceneSerializer] Error: Cannot serialize null scene!
+[Astral::SceneSerializer] Error: Cannot deserialize into null scene!
+[Astral::SceneSerializer] Error: Corrupt or invalid magic signature in: assets/scenes/corrupt_magic.astral (got 'XXXX')
+[Astral::SceneSerializer] Error: Cannot open file for reading: non_existent_file.astral
+[Astral::ProjectSerializer] Proje dosyasi bulunamadi: C:\Dev\InkbytefoProjects\deneme\AstralEngine\artifacts\review-20260905\test_sandbox_project\non_existent_file_9999.astralproj
+[Astral::Project] HATA: Proje yuklenemedi: C:\Dev\InkbytefoProjects\deneme\AstralEngine\artifacts\review-20260905\test_sandbox_project\non_existent_file_9999.astralproj

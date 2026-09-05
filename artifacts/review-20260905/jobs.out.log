@@ -1,0 +1,13 @@
+================================================================================
+               AstralEngine Standalone Regression Test Runner                   
+================================================================================
+
+[ RUN      ] Modern C++20 JobSystem Architecture Suite
+  [INFO] C++20 JobSystem testleri baslatiliyor...
+[Astral::JobSystem] Baslatildi (4 worker thread).
+[Astral::JobSystem] Guvenle kapatildi.
+[       OK ] Modern C++20 JobSystem Architecture Suite (14.2205 ms)
+
+================================================================================
+[  PASSED  ] 1/1 test suites passed successfully (10 assertions verified).
+================================================================================

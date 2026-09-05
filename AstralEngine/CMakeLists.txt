@@ -24,7 +24,46 @@ add_custom_command(
     COMMENT "Compiling ${TAA_SHADER_SRC} -> ${TAA_SHADER_SPV}"
 )
 
-add_custom_target(CompileShaders ALL DEPENDS ${SHADER_SPV} ${TAA_SHADER_SPV})
+set(GBUFFER_SHADER_SRC "${CMAKE_SOURCE_DIR}/shaders/SDFGBuffer.glsl")
+set(GBUFFER_SHADER_SPV "${CMAKE_BINARY_DIR}/shaders/SDFGBuffer.spv")
+
+add_custom_command(
+    OUTPUT ${GBUFFER_SHADER_SPV}
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/shaders"
+    COMMAND ${GLSLC_EXECUTABLE} -fshader-stage=compute ${GBUFFER_SHADER_SRC} -o ${GBUFFER_SHADER_SPV}
+    DEPENDS ${GBUFFER_SHADER_SRC}
+    COMMENT "Compiling ${GBUFFER_SHADER_SRC} -> ${GBUFFER_SHADER_SPV}"
+)
+
+set(DEBUG_COMPOSITE_SHADER_SRC "${CMAKE_SOURCE_DIR}/shaders/SDFDebugComposite.glsl")
+set(DEBUG_COMPOSITE_SHADER_SPV "${CMAKE_BINARY_DIR}/shaders/SDFDebugComposite.spv")
+
+add_custom_command(
+    OUTPUT ${DEBUG_COMPOSITE_SHADER_SPV}
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/shaders"
+    COMMAND ${GLSLC_EXECUTABLE} -fshader-stage=compute ${DEBUG_COMPOSITE_SHADER_SRC} -o ${DEBUG_COMPOSITE_SHADER_SPV}
+    DEPENDS ${DEBUG_COMPOSITE_SHADER_SRC}
+    COMMENT "Compiling ${DEBUG_COMPOSITE_SHADER_SRC} -> ${DEBUG_COMPOSITE_SHADER_SPV}"
+)
+
+set(DEFERRED_LIGHTING_SHADER_SRC "${CMAKE_SOURCE_DIR}/shaders/DeferredLighting.glsl")
+set(DEFERRED_LIGHTING_SHADER_SPV "${CMAKE_BINARY_DIR}/shaders/DeferredLighting.spv")
+
+add_custom_command(
+    OUTPUT ${DEFERRED_LIGHTING_SHADER_SPV}
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/shaders"
+    COMMAND ${GLSLC_EXECUTABLE} -fshader-stage=compute ${DEFERRED_LIGHTING_SHADER_SRC} -o ${DEFERRED_LIGHTING_SHADER_SPV}
+    DEPENDS ${DEFERRED_LIGHTING_SHADER_SRC}
+    COMMENT "Compiling ${DEFERRED_LIGHTING_SHADER_SRC} -> ${DEFERRED_LIGHTING_SHADER_SPV}"
+)
+
+add_custom_target(CompileShaders ALL DEPENDS 
+    ${SHADER_SPV} 
+    ${TAA_SHADER_SPV} 
+    ${GBUFFER_SHADER_SPV} 
+    ${DEBUG_COMPOSITE_SHADER_SPV}
+    ${DEFERRED_LIGHTING_SHADER_SPV}
+)
 
 add_library(AstralEngine STATIC
     ${CMAKE_SOURCE_DIR}/src/Core/Application.cpp
@@ -42,6 +81,7 @@ add_library(AstralEngine STATIC
     ${CMAKE_SOURCE_DIR}/src/Renderer/ComputePipeline.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/Buffer.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/BrickGrid.cpp
+    ${CMAKE_SOURCE_DIR}/src/Renderer/IBLManager.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/SDFRenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/Swapchain.cpp
     ${CMAKE_SOURCE_DIR}/src/Core/CommandStack.cpp

@@ -15,6 +15,8 @@
 #include <iostream>
 #include <chrono>
 #include <filesystem>
+#include <array>
+#include <glm/gtc/matrix_transform.hpp>
 
 namespace Astral {
 
@@ -30,7 +32,9 @@ Application::Application(const AppConfig& config)
     std::cout << "[Astral::Application] " << GetName() << " v" << GetVersion() << " olusturuldu.\n";
 }
 
-Application::~Application() {
+void Application::Cleanup() {
+    m_Running = false;
+    m_SystemManager.ShutdownAll();
     m_JobSystem.Shutdown();
     if (m_VulkanContext) {
         m_VulkanContext->WaitIdle();
@@ -43,6 +47,10 @@ Application::~Application() {
         m_VulkanContext.reset();
     }
     m_Window.reset();
+}
+
+Application::~Application() {
+    Cleanup();
     std::cout << "[Astral::Application] " << GetName() << " basariyla kapatildi.\n";
 }
 
@@ -91,6 +99,8 @@ void Application::Run(int maxFrames) {
             m_Config.height,
             !m_Config.legacyMap
         );
+        m_SDFRenderer->SetUseGBuffer(m_Config.useGBuffer);
+        m_SDFRenderer->SetDebugMode(m_Config.debugMode);
 
         // 4. Benchmark logger kurulumu
         if (m_Config.benchMode) {
@@ -105,6 +115,10 @@ void Application::Run(int maxFrames) {
         std::cout << "[Astral::Application] Izgara Hizlandirmasi (PR-6): " << (m_Config.useGrid ? "AKTIF (Empty Space Skipping)" : "KAPALI (Brute Force)") << "\n";
         std::cout << "[Astral::Application] Golge Optimizasyonu (PR-7): " << (m_Config.optShadow ? "AKTIF (Erken Cikis & Back-Face Culling)" : "KAPALI (Kaba Kuvvet 24-Adim)") << "\n";
         std::cout << "[Astral::Application] Temporal Anti-Aliasing (PR-8): " << (m_Config.enableTAA ? "AKTIF (Halton Jitter + 3x3 Clamp TAA)" : "KAPALI (Ham No-AA)") << "\n";
+        std::cout << "[Astral::Application] Deferred G-Buffer (Faz 1): " << (m_Config.useGBuffer ? "AKTIF (Motion Vectors + G-Buffer)" : "KAPALI (Monolitik Raymarch)") << "\n";
+        if (m_Config.useGBuffer) {
+            std::cout << "[Astral::Application] G-Buffer Debug Modu: " << m_Config.debugMode << "\n";
+        }
         std::cout << "[Astral::Application] Sahne Modu: " << (m_Config.stressTest ? "Karmasik Stress Sahnesi (32 Nesne)" : "Standart Sahne (4 Nesne)") << "\n";
         if (targetFrames > 0) {
             std::cout << "[Astral::Application] Hedef: " << targetFrames << " kare calisip sonlanacak...\n";
@@ -288,6 +302,26 @@ void Application::Run(int maxFrames) {
             // GPU Komut Tamponu & Timestamp Olcumu
             auto cmd = m_VulkanContext->BeginFrameCommand();
 
+            // Kamera matrislerini besle (Motion Vectors & Deferred G-Buffer)
+            glm::vec3 camPos = glm::vec3(0.0f, 1.5f, 4.0f);
+            glm::vec3 camDir = glm::normalize(glm::vec3(0.0f, -0.25f, -1.0f));
+            glm::mat4 view = glm::lookAt(camPos, camPos + camDir, glm::vec3(0.0f, 1.0f, 0.0f));
+            float fovY = 2.0f * std::atan(0.5f / 1.5f);
+            float aspect = (m_SDFRenderer->GetHeight() > 0) ? (static_cast<float>(m_SDFRenderer->GetWidth()) / static_cast<float>(m_SDFRenderer->GetHeight())) : (16.0f / 9.0f);
+            glm::mat4 proj = glm::perspective(fovY, aspect, 0.1f, 100.0f);
+            static constexpr std::array<glm::vec2, 8> APP_HALTON_8 = {{
+                { 0.0f,        -0.333333f},
+                {-0.5f,         0.333333f},
+                { 0.5f,        -0.777778f},
+                {-0.75f,       -0.111111f},
+                { 0.25f,        0.555556f},
+                {-0.25f,       -0.555556f},
+                { 0.75f,        0.111111f},
+                {-0.875f,       0.777778f}
+            }};
+            glm::vec2 jitter = m_Config.enableTAA ? APP_HALTON_8[frameIndex % 8] : glm::vec2(0.0f);
+            m_SDFRenderer->SetCameraMatrices(view, proj, jitter);
+
             // 1. 3D SDF Compute Raymarching
             m_SDFRenderer->Render(
                 cmd,
@@ -357,6 +391,7 @@ void Application::Run(int maxFrames) {
             gpuTotalMs = m_VulkanContext->GetLastGpuTimeMs();
 
             frameIndex++;
+            m_TotalFramesRendered = frameIndex;
 
             if (m_BenchmarkLogger) {
                 FrameMetric metric{};
@@ -403,6 +438,12 @@ void Application::Run(int maxFrames) {
 
     } catch (const std::exception& e) {
         std::cerr << "[Astral::Application Kritik Hata]: " << e.what() << "\n";
+        Cleanup();
+        throw;
+    } catch (...) {
+        std::cerr << "[Astral::Application Kritik Hata]: Bilinmeyen kritik istisna yakalandi!\n";
+        Cleanup();
+        throw;
     }
 }
 

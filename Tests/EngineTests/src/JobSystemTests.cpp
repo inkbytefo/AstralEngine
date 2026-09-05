@@ -117,6 +117,43 @@ void RunJobSystemTests() {
 
     jobSystem.Shutdown();
     TEST_CHECK_MSG(suite, "JobSystemShutdown", !jobSystem.IsInitialized(), "JobSystem basariyla kapatilmis olmali");
+
+    // 6. Wait Timeout Testi
+    {
+        JobSystem jsTimeout;
+        jsTimeout.Initialize(2);
+
+        auto slowJob = jsTimeout.Dispatch([]() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        });
+
+        bool timedOut = !jsTimeout.Wait(slowJob, std::chrono::milliseconds(5));
+        TEST_CHECK_MSG(suite, "JobSystemWaitTimeout", timedOut,
+                       "Zaman asimi suresi asildiginda Wait() false dondurerek asili kalmayi engellemeli");
+
+        bool completed = jsTimeout.Wait(slowJob, std::chrono::seconds(2));
+        TEST_CHECK_MSG(suite, "JobSystemWaitCompleteAfterTimeout", completed,
+                       "Is tamamlandiginda sonraki Wait() true dondurmeli");
+
+        jsTimeout.Shutdown();
+    }
+
+    // 7. Hizli Initialize/Shutdown Stres Testi (Lost Wakeup Regresyonu)
+    {
+        bool stressOk = true;
+        for (int i = 0; i < 10; ++i) {
+            JobSystem jsStress;
+            jsStress.Initialize(4);
+            jsStress.Dispatch([]() {});
+            jsStress.Shutdown();
+            if (jsStress.IsInitialized()) {
+                stressOk = false;
+                break;
+            }
+        }
+        TEST_CHECK_MSG(suite, "JobSystemRapidShutdownStress", stressOk,
+                       "Hizli ardil Initialize/Shutdown donguleri takilmadan ve sızıntısız tamamlanmali");
+    }
 }
 
 } // namespace Astral::Test

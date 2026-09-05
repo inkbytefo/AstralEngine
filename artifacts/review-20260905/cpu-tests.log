@@ -1,0 +1,26 @@
+================================================================================
+               AstralEngine Standalone Regression Test Runner                   
+================================================================================
+
+[ RUN      ] ECS Architecture Suite
+[       OK ] ECS Architecture Suite (0.0297 ms)
+[ RUN      ] Physics & Extraction Pipeline Suite
+[       OK ] Physics & Extraction Pipeline Suite (0.0315 ms)
+[ RUN      ] Generational Identity & Lifetime Suite
+[       OK ] Generational Identity & Lifetime Suite (0.0243 ms)
+[ RUN      ] Scene Management & Deep-Copy Suite
+[Astral::SceneManager] Yeni sahne yuklendi: Authoring Level
+[Astral::Scene] 'Authoring Level' Runtime baslatildi.
+[Astral::Scene] 'Authoring Level' Runtime durduruldu.
+[Astral::SceneManager] Sahne kaldirildi: Authoring Level
+[       OK ] Scene Management & Deep-Copy Suite (0.0194 ms)
+[ RUN      ] DOD Binary Scene Serialization Suite (v2)
+[Astral::SceneSerializer] Scene successfully serialized to: assets/scenes/level_binary.astral (3 entities)
+[Astral::SceneSerializer] Scene successfully deserialized from: assets/scenes/level_binary.astral (3 entities)
+[Astral::SceneSerializer] Warning: Skipping unknown component TypeID: 0xcafebabedead (24 bytes) in: assets/scenes/unknown_chunk.astral
+[Astral::SceneSerializer] Scene successfully deserialized from: assets/scenes/unknown_chunk.astral (1 entities)
+[Astral::SceneSerializer] Error: Premature EOF reading file header in: assets/scenes/truncated.astral
+[Astral::SceneSerializer] Error: Cannot serialize null scene!
+[Astral::SceneSerializer] Error: Cannot deserialize into null scene!
+[Astral::SceneSerializer] Error: Corrupt or invalid magic signature in: assets/scenes/corrupt_magic.astral (got 'XXXX')
+[Astral::SceneSerializer] Error: Cannot open file for reading: non_existent_file.astral

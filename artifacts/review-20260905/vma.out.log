@@ -1,0 +1,12 @@
+================================================================================
+               AstralEngine Standalone Regression Test Runner                   
+================================================================================
+
+[ RUN      ] Vulkan Memory Allocator (VMA) Architecture Suite
+  [INFO] VMA (Vulkan Memory Allocator) testleri baslatiliyor...
+  [INFO] Canli GPU VMA testleri atlandi (--all veya --gpu ile calistirilabilir).
+[       OK ] Vulkan Memory Allocator (VMA) Architecture Suite (0.0892 ms)
+
+================================================================================
+[  PASSED  ] 1/1 test suites passed successfully (5 assertions verified).
+================================================================================

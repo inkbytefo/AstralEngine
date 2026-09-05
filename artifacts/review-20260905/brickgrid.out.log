@@ -1,0 +1,10 @@
+================================================================================
+               AstralEngine Standalone Regression Test Runner                   
+================================================================================
+
+[ RUN      ] Two-Level Spatial BrickGrid Acceleration Suite
+[       OK ] Two-Level Spatial BrickGrid Acceleration Suite (0.5469 ms)
+
+================================================================================
+[  PASSED  ] 1/1 test suites passed successfully (9 assertions verified).
+================================================================================

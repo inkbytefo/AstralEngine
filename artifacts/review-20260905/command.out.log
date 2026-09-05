@@ -1,0 +1,10 @@
+================================================================================
+               AstralEngine Standalone Regression Test Runner                   
+================================================================================
+
+[ RUN      ] Undo/Redo Command-Stack Architecture Suite
+[       OK ] Undo/Redo Command-Stack Architecture Suite (0.0487 ms)
+
+================================================================================
+[  PASSED  ] 1/1 test suites passed successfully (29 assertions verified).
+================================================================================

@@ -74,6 +74,9 @@ public:
     void EndAndSubmitFrameCommand();
     double GetLastGpuTimeMs();
 
+    /// Tek seferlik GPU komutlarini senkron yurutur (staging, doku yukleme vb.)
+    void ExecuteImmediate(std::function<void(vk::CommandBuffer)> func);
+
     // Memory & VMA
     [[nodiscard]] VmaAllocator GetAllocator() const noexcept { return m_Allocator; }
     VmaTotalStatistics GetMemoryStats() const;

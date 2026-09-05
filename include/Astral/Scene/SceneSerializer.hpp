@@ -47,6 +47,12 @@ class SceneSerializer {
 public:
     static constexpr uint32_t CURRENT_VERSION = 2;
     static constexpr char MAGIC[4] = { 'A', 'S', 'T', 'R' };
+    static constexpr uint64_t SCENE_METADATA_TYPE_ID = Detail::FNV1a64("SceneMetadata");
+    static constexpr uint64_t ENTITY_TABLE_TYPE_ID   = Detail::FNV1a64("EntityTable");
+    static constexpr uint32_t MAX_TAG_LENGTH        = 4096;
+    static constexpr uint32_t MAX_SCENE_NAME_LENGTH = 1024;
+    static constexpr uint32_t MAX_ELEMENT_COUNT     = 10'000'000;
+    static constexpr uint64_t MAX_FILE_SIZE_BUDGET  = 1024ULL * 1024ULL * 1024ULL; // 1 GB
 
     /// Primary C++20 DOD Static Interfaces
     [[nodiscard]] static bool Serialize(const std::shared_ptr<Scene>& scene, const std::filesystem::path& filepath);
@@ -68,9 +74,48 @@ public:
     void SetScene(std::shared_ptr<Scene> scene) noexcept { m_Scene = std::move(scene); }
     [[nodiscard]] const std::shared_ptr<Scene>& GetScene() const noexcept { return m_Scene; }
 
+    using ChunkDeserializerFn = bool(*)(Registry&, std::istream&, const ComponentChunkHeader&);
+    static void RegisterChunkDeserializer(uint64_t typeId, ChunkDeserializerFn deserializer);
+
+    template <TriviallyCopyableComponent T>
+    static bool ReadChunkDirect(Registry& registry, std::istream& stream, const ComponentChunkHeader& chunkHeader) {
+        static_assert(std::is_trivially_copyable_v<T>, "Component T must be trivially copyable for bulk dump.");
+
+        const uint32_t elementCount = chunkHeader.elementCount;
+        if (elementCount > MAX_ELEMENT_COUNT) {
+            return false;
+        }
+
+        std::vector<EntityID> entities(elementCount);
+        std::vector<T> data(elementCount);
+
+        if (elementCount > 0) {
+            const std::streamsize entityBytes = static_cast<std::streamsize>(chunkHeader.entityDataSize);
+            const std::streamsize componentBytes = static_cast<std::streamsize>(chunkHeader.componentDataSize);
+
+            if (entityBytes != static_cast<std::streamsize>(elementCount * sizeof(EntityID)) ||
+                componentBytes != static_cast<std::streamsize>(elementCount * sizeof(T))) {
+                return false;
+            }
+
+            stream.read(reinterpret_cast<char*>(entities.data()), entityBytes);
+            if (!stream || stream.gcount() != entityBytes) return false;
+
+            stream.read(reinterpret_cast<char*>(data.data()), componentBytes);
+            if (!stream || stream.gcount() != componentBytes) return false;
+        }
+
+        auto& view = registry.GetView<T>();
+        view.AssignDirect(std::move(entities), std::move(data));
+        return true;
+    }
+
     /// Compile-time checked manual chunk registration for new types
     template <TriviallyCopyableComponent T>
-    static void RegisterComponent();
+    static void RegisterComponent() {
+        static_assert(std::is_trivially_copyable_v<T>, "Component T must be trivially copyable.");
+        RegisterChunkDeserializer(ComponentTraits<T>::TypeHash, &ReadChunkDirect<T>);
+    }
 
     /// Compile-time bulk chunk writer for a specific component pool
     template <TriviallyCopyableComponent T>

@@ -47,6 +47,12 @@ static Astral::AppConfig ParseCommandLine(const Astral::CommandLineArgs& args) {
             config.enableTAA = true;
         } else if (arg == "--no-taa") {
             config.enableTAA = false;
+        } else if (arg == "--gbuffer") {
+            config.useGBuffer = true;
+        } else if (arg == "--no-gbuffer") {
+            config.useGBuffer = false;
+        } else if (arg == "--debug-mode" && i + 1 < args.argc) {
+            config.debugMode = std::stoi(args.argv[++i]);
         }
     }
 

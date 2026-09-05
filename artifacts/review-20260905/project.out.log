@@ -1,0 +1,14 @@
+================================================================================
+               AstralEngine Standalone Regression Test Runner                   
+================================================================================
+
+[ RUN      ] Project & ProjectSerializer Management Suite
+  [INFO] Project & ProjectSerializer testleri baslatiliyor...
+[Astral::Project] Yeni proje olusturuldu ve kaydedildi: C:\Dev\InkbytefoProjects\deneme\AstralEngine\artifacts\review-20260905\test_sandbox_project\AstroTestProject.astralproj
+[Astral::Project] Proje basariyla yuklendi: AstroTestProject (C:\Dev\InkbytefoProjects\deneme\AstralEngine\artifacts\review-20260905\test_sandbox_project\AstroTestProject.astralproj)
+  [INFO] Project testleri basariyla tamamlandi.
+[       OK ] Project & ProjectSerializer Management Suite (18.7452 ms)
+
+================================================================================
+[  PASSED  ] 1/1 test suites passed successfully (17 assertions verified).
+================================================================================

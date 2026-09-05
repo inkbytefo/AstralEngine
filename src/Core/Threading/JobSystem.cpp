@@ -34,7 +34,10 @@ void JobSystem::Shutdown() {
         return;
     }
 
-    m_Running.store(false, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lock(m_QueueMutex);
+        m_Running.store(false, std::memory_order_release);
+    }
     m_Condition.notify_all();
 
     for (auto& worker : m_Workers) {
@@ -76,15 +79,28 @@ void JobSystem::PushJobInternal(std::function<void()> task, JobHandle counter) {
     m_Condition.notify_one();
 }
 
-void JobSystem::Wait(const JobHandle& handle) {
-    if (!handle) return;
+bool JobSystem::Wait(const JobHandle& handle, std::chrono::milliseconds timeout) {
+    if (!handle) return true;
+
+    const bool hasTimeout = (timeout != std::chrono::milliseconds::max());
+    const auto startTime = std::chrono::steady_clock::now();
 
     while (handle->count.load(std::memory_order_acquire) > 0) {
-        // Work-Helping: Bekleyen thread bosta durmaz, kuyruktan is calistirir
-        if (!ExecuteOneJob()) {
+        if (hasTimeout) {
+            auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - startTime) >= timeout) {
+                return false;
+            }
             std::this_thread::yield();
+        } else {
+            // Work-Helping: Bekleyen thread bosta durmaz, kuyruktan is calistirir
+            if (!ExecuteOneJob()) {
+                std::this_thread::yield();
+            }
         }
     }
+
+    return true;
 }
 
 bool JobSystem::IsDone(const JobHandle& handle) const noexcept {
@@ -103,8 +119,15 @@ bool JobSystem::ExecuteOneJob() {
         m_Queue.pop_front();
     }
 
-    if (item.task) {
-        item.task();
+    try {
+        if (item.task) {
+            item.task();
+        }
+    } catch (...) {
+        if (item.counter) {
+            item.counter->count.fetch_sub(1, std::memory_order_acq_rel);
+        }
+        throw;
     }
 
     if (item.counter) {
@@ -133,8 +156,14 @@ void JobSystem::WorkerLoop() {
             }
         }
 
-        if (item.task) {
-            item.task();
+        try {
+            if (item.task) {
+                item.task();
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "[Astral::JobSystem Worker Hata]: " << e.what() << "\n";
+        } catch (...) {
+            std::cerr << "[Astral::JobSystem Worker Hata]: Bilinmeyen istisna yakalandi!\n";
         }
 
         if (item.counter) {

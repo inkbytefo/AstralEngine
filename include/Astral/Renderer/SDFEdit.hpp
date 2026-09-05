@@ -42,9 +42,19 @@ struct alignas(16) SDFEditGPU {
     float roughness = 0.5f;
 
     float metallic = 0.0f;
-    float matPad1 = 0.0f;
-    float matPad2 = 0.0f;
-    float matPad3 = 0.0f;
+    float prevPosX = 0.0f;
+    float prevPosY = 0.0f;
+    float prevPosZ = 0.0f;
+
+    void SetPrevPosition(const glm::vec3& p) {
+        prevPosX = p.x;
+        prevPosY = p.y;
+        prevPosZ = p.z;
+    }
+
+    glm::vec3 GetPrevPosition() const {
+        return glm::vec3(prevPosX, prevPosY, prevPosZ);
+    }
 };
 
 static_assert(sizeof(SDFEditGPU) == 96, "SDFEditGPU struct boyutu tam olarak 96 bayt olmalidir!");

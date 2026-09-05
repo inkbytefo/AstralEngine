@@ -2,7 +2,7 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(binding = 0, rgba8) uniform writeonly image2D outImage;
+layout(binding = 0, rgba16f) uniform writeonly image2D outImage;
 
 // =================== Dynamic SSBO Edit Buffer (PR-5) ===================
 #define MAX_EDITS 256
@@ -13,7 +13,10 @@ struct SDFEditGPU {
     vec3 scale; uint primitiveType;
     uint operation; float blendFactor; uint isDynamic; float pad2;
     vec3 albedo; float roughness;
-    float metallic; float matPad1; float matPad2; float matPad3;
+    float metallic;
+    float prevPosX;
+    float prevPosY;
+    float prevPosZ;
 };
 
 layout(std430, binding = 1) readonly buffer EditBuffer {
@@ -398,9 +401,7 @@ void main() {
         color = mix(vec3(0.15, 0.2, 0.3), vec3(0.02, 0.03, 0.06), skyT);
     }
 
-    color = acesTonemap(color);
-    color = pow(color, vec3(1.0 / 2.2));
-
+    // Dogrusal HDR ciktisini yaz (Tonemapping TAAResolve pass'inde yapilir)
     imageStore(outImage, pixel, vec4(color, 1.0));
 
     // PR-9: Thread-Safe Scene Picking

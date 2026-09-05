@@ -1,0 +1,10 @@
+================================================================================
+               AstralEngine Standalone Regression Test Runner                   
+================================================================================
+
+[ RUN      ] Type-Safe EventBus Architecture Suite
+[       OK ] Type-Safe EventBus Architecture Suite (0.0214 ms)
+
+================================================================================
+[  PASSED  ] 1/1 test suites passed successfully (16 assertions verified).
+================================================================================

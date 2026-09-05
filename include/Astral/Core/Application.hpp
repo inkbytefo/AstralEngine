@@ -49,6 +49,8 @@ struct AppConfig {
     bool stressTest = false; // PR-6: 32 dinamik nesneli karmasik sahne stres testi
     bool optShadow = true;   // PR-7: Golge erken terk ve back-face culling optimizasyonu aktif
     bool enableTAA = true;   // PR-8: Sub-Pixel Jitter & Temporal Anti-Aliasing (TAA) aktif
+    bool useGBuffer = true;  // Faz 1: Deferred G-Buffer & Motion Vectors hattı (Varsayılan aktif)
+    int debugMode = 0;       // G-Buffer Debug: 0=Shaded, 1=Albedo, 2=Normal, 3=Depth, 4=Motion, 5=Material
     std::string shaderPath = "";
     int maxFrames = -1;      // Belirtilen kare sayisina ulasildiginda otomatik sonlanma (-1 = sonsuz dongu)
 };
@@ -105,6 +107,8 @@ public:
     [[nodiscard]] const Entity& GetSelectedEntity() const noexcept { return m_SelectedEntity; }
     void SetSelectedEntity(const Entity& entity) { m_SelectedEntity = entity; }
 
+    [[nodiscard]] uint32_t GetTotalFramesRendered() const noexcept { return m_TotalFramesRendered; }
+
 protected:
     /// Base Application yapicisi yalnizca turetilmis siniflar tarafindan cagrilabilir.
     /// 
@@ -124,6 +128,8 @@ protected:
     AppConfig& GetConfig() { return m_Config; }
 
 private:
+    void Cleanup();
+
     AppConfig m_Config;
     JobSystem m_JobSystem;
     SceneManager m_SceneManager;
@@ -138,6 +144,7 @@ private:
     RenderExtractionSubsystem* m_RenderExtractionSubsystem = nullptr;
     Entity m_SelectedEntity;
     bool m_Running = false;
+    uint32_t m_TotalFramesRendered = 0;
 };
 
 /// Her oyun projesinin (istemci) kendi Application turevini olusturup dondurmesi

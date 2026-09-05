@@ -470,6 +470,27 @@ public:
     }
 
     [[nodiscard]] uint32_t GetAliveEntityCount() const noexcept { return m_AliveCount; }
+    [[nodiscard]] std::vector<EntityHandle> GetAliveEntities() const {
+        std::vector<EntityHandle> alive;
+        alive.reserve(m_AliveCount);
+        if (m_AliveCount == 0 || m_Generations.empty()) {
+            return alive;
+        }
+
+        std::vector<bool> isFree(m_Generations.size(), false);
+        for (EntityIndex freeIdx : m_FreeIndices) {
+            if (freeIdx < isFree.size()) {
+                isFree[freeIdx] = true;
+            }
+        }
+
+        for (EntityIndex i = 0; i < static_cast<EntityIndex>(m_Generations.size()); ++i) {
+            if (!isFree[i] && m_Generations[i] > 0) {
+                alive.push_back(MakeEntityHandle(i, m_Generations[i]));
+            }
+        }
+        return alive;
+    }
     [[nodiscard]] uint32_t GetTotalSlotCount() const noexcept { return static_cast<uint32_t>(m_Generations.size()); }
     [[nodiscard]] uint32_t GetNextEntityId() const noexcept { return static_cast<uint32_t>(m_Generations.size()); }
     void SetNextEntityId(uint32_t count) noexcept {
