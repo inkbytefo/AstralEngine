@@ -9,6 +9,7 @@
 #include <vector>
 #include <iostream>
 #include <limits>
+#include <stdexcept>
 
 #include "Astral/Core/Components.hpp"
 #include "Astral/Core/EntityHandle.hpp"
@@ -349,20 +350,62 @@ public:
     }
 
     template <typename T>
-    void AddComponent(EntityHandle entity, T component) {
+    bool AddComponent(EntityHandle entity, T component) {
+        if (!IsAlive(entity)) return false;
         GetOrCreatePool<T>().set.Add(entity, std::move(component));
+        return true;
     }
 
     template <typename T>
     T& GetComponent(EntityHandle entity) {
-        return GetOrCreatePool<T>().set.Get(entity);
+        if (!IsAlive(entity)) {
+            throw std::runtime_error("[Astral::Registry] Gecersiz veya olu Entity uzerinde GetComponent cagrildi!");
+        }
+        const auto it = pools.find(std::type_index(typeid(T)));
+        if (it == pools.end()) {
+            throw std::runtime_error("[Astral::Registry] Istenen bilesen havuzu bulunamadi!");
+        }
+        auto* pool = static_cast<Pool<T>*>(it->second.get());
+        if (!pool->set.Has(entity)) {
+            throw std::runtime_error("[Astral::Registry] Entity bilesene sahip degil!");
+        }
+        return pool->set.Get(entity);
     }
 
     template <typename T>
     const T& GetComponent(EntityHandle entity) const {
+        if (!IsAlive(entity)) {
+            throw std::runtime_error("[Astral::Registry] Gecersiz veya olu Entity uzerinde const GetComponent cagrildi!");
+        }
         const auto it = pools.find(std::type_index(typeid(T)));
-        assert(it != pools.end());
-        return static_cast<const Pool<T>*>(it->second.get())->set.Get(entity);
+        if (it == pools.end()) {
+            throw std::runtime_error("[Astral::Registry] Istenen bilesen havuzu bulunamadi!");
+        }
+        const auto* pool = static_cast<const Pool<T>*>(it->second.get());
+        if (!pool->set.Has(entity)) {
+            throw std::runtime_error("[Astral::Registry] Entity bilesene sahip degil!");
+        }
+        return pool->set.Get(entity);
+    }
+
+    template <typename T>
+    [[nodiscard]] T* TryGetComponent(EntityHandle entity) noexcept {
+        if (!IsAlive(entity)) return nullptr;
+        const auto it = pools.find(std::type_index(typeid(T)));
+        if (it == pools.end()) return nullptr;
+        auto* pool = static_cast<Pool<T>*>(it->second.get());
+        if (!pool->set.Has(entity)) return nullptr;
+        return &pool->set.Get(entity);
+    }
+
+    template <typename T>
+    [[nodiscard]] const T* TryGetComponent(EntityHandle entity) const noexcept {
+        if (!IsAlive(entity)) return nullptr;
+        const auto it = pools.find(std::type_index(typeid(T)));
+        if (it == pools.end()) return nullptr;
+        const auto* pool = static_cast<const Pool<T>*>(it->second.get());
+        if (!pool->set.Has(entity)) return nullptr;
+        return &pool->set.Get(entity);
     }
 
     template <typename T>
@@ -420,8 +463,22 @@ public:
         for (auto& entry : pools) {
             entry.second->Clear();
         }
-        m_Generations.clear();
+        // Mevcut tum tahsisli slotlarin generation degerlerini artirarak eski handle'lari kesin olarak gecersiz kil
+        for (size_t i = 0; i < m_Generations.size(); ++i) {
+            if (m_Generations[i] == std::numeric_limits<EntityGeneration>::max() || m_Generations[i] == 0) {
+                m_Generations[i] = 0; // Overflow / emekli slot
+            } else {
+                m_Generations[i]++;
+            }
+        }
         m_FreeIndices.clear();
+        m_FreeIndices.reserve(m_Generations.size());
+        for (EntityIndex i = static_cast<EntityIndex>(m_Generations.size()); i > 0; --i) {
+            EntityIndex idx = i - 1;
+            if (m_Generations[idx] != 0) {
+                m_FreeIndices.push_back(idx);
+            }
+        }
         m_AliveCount = 0;
     }
 
@@ -460,10 +517,11 @@ public:
                 m_Generations[idx] = gen;
             }
 
-            for (EntityIndex i = 0; i <= maxIndex; ++i) {
-                if (m_Generations[i] == 0) {
-                    m_Generations[i] = 1;
-                    m_FreeIndices.push_back(i);
+            for (EntityIndex i = maxIndex + 1; i > 0; --i) {
+                EntityIndex idx = i - 1;
+                if (m_Generations[idx] == 0) {
+                    m_Generations[idx] = 1;
+                    m_FreeIndices.push_back(idx);
                 }
             }
         }

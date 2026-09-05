@@ -22,8 +22,9 @@ public:
     static constexpr EntityID NullEntity = static_cast<EntityID>(-1);
 
     constexpr Entity() noexcept = default;
-    constexpr Entity(EntityID handle, Scene* scene) noexcept
-        : m_EntityHandle(handle), m_Scene(scene) {}
+    Entity(EntityID handle, Scene* scene) noexcept;
+    constexpr Entity(EntityID handle, Scene* scene, uint64_t sceneInstanceId) noexcept
+        : m_EntityHandle(handle), m_Scene(scene), m_SceneInstanceId(sceneInstanceId) {}
 
     Entity(const Entity&) noexcept = default;
     Entity& operator=(const Entity&) noexcept = default;
@@ -58,6 +59,10 @@ public:
         return GetIndex();
     }
 
+    [[nodiscard]] constexpr uint64_t GetSceneInstanceId() const noexcept {
+        return m_SceneInstanceId;
+    }
+
     [[nodiscard]] std::string ToDisplayString() const {
         return "Entity #" + std::to_string(GetIndex()) + " (gen " + std::to_string(GetGeneration()) + ")";
     }
@@ -67,7 +72,9 @@ public:
     }
 
     [[nodiscard]] friend constexpr bool operator==(const Entity& lhs, const Entity& rhs) noexcept {
-        return lhs.m_EntityHandle == rhs.m_EntityHandle && lhs.m_Scene == rhs.m_Scene;
+        return lhs.m_EntityHandle == rhs.m_EntityHandle && 
+               lhs.m_Scene == rhs.m_Scene && 
+               lhs.m_SceneInstanceId == rhs.m_SceneInstanceId;
     }
 
     [[nodiscard]] friend constexpr bool operator!=(const Entity& lhs, const Entity& rhs) noexcept {
@@ -86,6 +93,12 @@ public:
     [[nodiscard]] const T& GetComponent() const;
 
     template <typename T>
+    [[nodiscard]] T* TryGetComponent() noexcept;
+
+    template <typename T>
+    [[nodiscard]] const T* TryGetComponent() const noexcept;
+
+    template <typename T>
     [[nodiscard]] bool HasComponent() const;
 
     template <typename T>
@@ -94,6 +107,7 @@ public:
 private:
     EntityID m_EntityHandle{ NullEntity };
     Scene* m_Scene{ nullptr };
+    uint64_t m_SceneInstanceId{ 0 };
 };
 
 } // namespace Astral

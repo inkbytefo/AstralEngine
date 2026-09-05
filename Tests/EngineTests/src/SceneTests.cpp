@@ -1,5 +1,6 @@
 #include "TestFramework.hpp"
 #include "AstralEngine.h"
+#include "Astral/Scene/SceneCommands.hpp"
 #include <memory>
 
 namespace Astral::Test {
@@ -62,6 +63,50 @@ void RunSceneTests() {
                    "Editor nesnesi silinmemelidir!");
 
     sceneManager.UnloadCurrentScene();
+
+    // =========================================================================
+    // A1.2 — Sahne Gecislerinde Secim ve Undo/Redo (CommandStack) Guvenligi
+    // =========================================================================
+
+    // 6. Test_Selection_And_CommandStack_Across_Scene_Clear
+    auto commandScene = std::make_shared<Scene>("Command Transition Scene");
+    CommandStack commandStack(20);
+
+    Entity selected = commandScene->CreateEntity();
+    TransformComponent initialTransform(glm::vec3(0.0f));
+    TransformComponent modifiedTransform(glm::vec3(5.0f, 10.0f, 15.0f));
+    selected.AddComponent<TransformComponent>(initialTransform);
+
+    // Komutu calistir
+    commandStack.PushAndExecute(std::make_unique<ModifyTransformCommand>(selected, initialTransform, modifiedTransform));
+    TEST_CHECK(suite, "CommandModifiedTransformApplied", selected.GetComponent<TransformComponent>().position.x == 5.0f);
+
+    // Sahneyi temizle (ornek: yeni sahne acilisi veya sahne yuklemesi)
+    commandScene->Clear();
+
+    // Secili nesne artik gecersiz olmali
+    TEST_CHECK_MSG(suite, "SelectedEntityInvalidAfterClear", !selected.IsValid(),
+                   "Sahne temizlendikten sonra secili nesne gecersiz olmali!");
+
+    // Yeni bir nesne olusturalim (0. slotu yeni generation ile alacak)
+    Entity newEntity = commandScene->CreateEntity();
+    TransformComponent freshTransform(glm::vec3(100.0f, 200.0f, 300.0f));
+    newEntity.AddComponent<TransformComponent>(freshTransform);
+
+    // Gecmis komut stack'inde kalan eski ModifyTransformCommand'i Undo etmeyi deneyelim
+    TEST_CHECK(suite, "StackCanUndo", commandStack.CanUndo());
+    commandStack.Undo();
+
+    // Stale Undo cagrisi yeni nesneyi kesinlikle BOZMAMALIDIR!
+    TEST_CHECK_MSG(suite, "NewEntityNotMutatedByStaleUndo",
+                   newEntity.GetComponent<TransformComponent>().position.x == 100.0f,
+                   "Eski nesneye ait Undo cagrisi yeni sahnedeki nesneyi kesinlikle tahrif etmemelidir!");
+
+    // Sahne gecisi sirasinda Editor politikasi geregi stack temizlenir
+    commandStack.Clear();
+    selected = Entity();
+    TEST_CHECK(suite, "StackClearedAfterSceneTransition", !commandStack.CanUndo() && !commandStack.CanRedo());
+    TEST_CHECK(suite, "SelectedEntityCleared", selected.GetHandle() == NullEntityHandle);
 }
 
 } // namespace Astral::Test

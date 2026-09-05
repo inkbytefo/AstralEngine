@@ -5,6 +5,7 @@
 #include <string>
 #include <memory>
 #include <cassert>
+#include <stdexcept>
 #include <utility>
 #include <glm/glm.hpp>
 
@@ -19,28 +20,16 @@ namespace Astral {
  */
 class Scene {
 public:
-    Scene() = default;
-    explicit Scene(std::string name)
-        : m_Name(std::move(name)) {}
+    Scene();
+    explicit Scene(std::string name);
 
     /// Derin Kopyalama (Deep-Copy Constructor): Editor'den Runtime'a gecerken sahneyi klonlar
-    Scene(const Scene& other)
-        : m_Registry(other.m_Registry),
-          m_Name(other.m_Name),
-          m_IsRunning(false) {}
+    Scene(const Scene& other);
+    Scene& operator=(const Scene& other);
 
-    Scene& operator=(const Scene& other) {
-        if (this != &other) {
-            m_Registry = other.m_Registry;
-            m_Name = other.m_Name;
-            m_IsRunning = false;
-        }
-        return *this;
-    }
-
-    Scene(Scene&&) noexcept = default;
-    Scene& operator=(Scene&&) noexcept = default;
-    virtual ~Scene() = default;
+    Scene(Scene&& other) noexcept;
+    Scene& operator=(Scene&& other) noexcept;
+    virtual ~Scene();
 
     /// Sahne Klonlama Yardimcisi (Editor -> Play State)
     [[nodiscard]] static std::shared_ptr<Scene> Copy(const std::shared_ptr<Scene>& other) {
@@ -48,12 +37,17 @@ public:
         return std::make_shared<Scene>(*other);
     }
 
+    /// Sahne omru sorgusu (Use-After-Free korumasi)
+    [[nodiscard]] static bool IsSceneAlive(const Scene* scene) noexcept;
+    [[nodiscard]] static uint64_t GenerateInstanceId() noexcept;
+
     // ---- Lifecycle Methods ----
     virtual void OnRuntimeStart();
     virtual void OnUpdate(float deltaTime);
     virtual void OnRuntimeStop();
 
     [[nodiscard]] bool IsRunning() const noexcept { return m_IsRunning; }
+    [[nodiscard]] uint64_t GetInstanceId() const noexcept { return m_InstanceId; }
 
     // ---- Entity Factory Methods ----
     [[nodiscard]] Entity CreateEntity();
@@ -67,14 +61,11 @@ public:
     [[nodiscard]] bool SetParent(EntityHandle child, EntityHandle parent);
     [[nodiscard]] bool SetParent(Entity child, Entity parent);
     [[nodiscard]] bool ClearParent(EntityHandle child);
+    [[nodiscard]] bool ClearParent(Entity child);
     [[nodiscard]] glm::mat4 GetWorldTransform(EntityHandle entity) const;
 
     /// Atomic Transaction Commit: swaps internal ECS registry and state
-    void Swap(Scene& other) noexcept {
-        m_Registry.Swap(other.m_Registry);
-        m_Name.swap(other.m_Name);
-        std::swap(m_IsRunning, other.m_IsRunning);
-    }
+    void Swap(Scene& other) noexcept;
 
     // ---- Accessors ----
     [[nodiscard]] Registry& GetRegistry() noexcept { return m_Registry; }
@@ -87,6 +78,7 @@ private:
     Registry m_Registry;
     std::string m_Name = "Untitled Scene";
     bool m_IsRunning = false;
+    uint64_t m_InstanceId = 0;
 
     friend class Entity;
 };
@@ -95,31 +87,55 @@ private:
 // Entity Template Forwarding Implementation (Inline Zero-Cost Abstraction)
 // ============================================================================
 
+inline Entity::Entity(EntityID handle, Scene* scene) noexcept
+    : m_EntityHandle(handle),
+      m_Scene(scene),
+      m_SceneInstanceId(scene ? scene->GetInstanceId() : 0) {}
+
 inline bool Entity::IsValid() const noexcept {
     return m_EntityHandle != NullEntityHandle && 
            m_Scene != nullptr && 
+           m_SceneInstanceId != 0 &&
+           Scene::IsSceneAlive(m_Scene) &&
+           m_Scene->GetInstanceId() == m_SceneInstanceId &&
            m_Scene->GetRegistry().IsAlive(m_EntityHandle);
 }
 
 template <typename T, typename... Args>
 inline T& Entity::AddComponent(Args&&... args) {
-    assert(IsValid() && "[Astral::Entity] Gecersiz Entity uzerinde AddComponent cagrildi!");
+    if (!IsValid()) {
+        throw std::runtime_error("[Astral::Entity] Gecersiz Entity uzerinde AddComponent cagrildi!");
+    }
     m_Scene->GetRegistry().AddComponent<T>(m_EntityHandle, T{ std::forward<Args>(args)... });
     return m_Scene->GetRegistry().GetComponent<T>(m_EntityHandle);
 }
 
 template <typename T>
 inline T& Entity::GetComponent() {
-    assert(IsValid() && "[Astral::Entity] Gecersiz Entity uzerinde GetComponent cagrildi!");
-    assert(HasComponent<T>() && "[Astral::Entity] Entity istenen bilesene sahip degil!");
+    if (!IsValid()) {
+        throw std::runtime_error("[Astral::Entity] Gecersiz Entity uzerinde GetComponent cagrildi!");
+    }
     return m_Scene->GetRegistry().GetComponent<T>(m_EntityHandle);
 }
 
 template <typename T>
 inline const T& Entity::GetComponent() const {
-    assert(IsValid() && "[Astral::Entity] Gecersiz Entity uzerinde const GetComponent cagrildi!");
-    assert(HasComponent<T>() && "[Astral::Entity] Entity istenen bilesene sahip degil!");
+    if (!IsValid()) {
+        throw std::runtime_error("[Astral::Entity] Gecersiz Entity uzerinde const GetComponent cagrildi!");
+    }
     return m_Scene->GetRegistry().GetComponent<T>(m_EntityHandle);
+}
+
+template <typename T>
+inline T* Entity::TryGetComponent() noexcept {
+    if (!IsValid()) return nullptr;
+    return m_Scene->GetRegistry().TryGetComponent<T>(m_EntityHandle);
+}
+
+template <typename T>
+inline const T* Entity::TryGetComponent() const noexcept {
+    if (!IsValid()) return nullptr;
+    return m_Scene->GetRegistry().TryGetComponent<T>(m_EntityHandle);
 }
 
 template <typename T>
@@ -135,11 +151,20 @@ inline bool Entity::RemoveComponent() {
 }
 
 inline Entity Scene::CreateEntity() {
-    return Entity(m_Registry.CreateEntity(), this);
+    return Entity(m_Registry.CreateEntity(), this, m_InstanceId);
 }
 
 inline void Scene::Clear() {
+    m_InstanceId = GenerateInstanceId();
     m_Registry.Clear();
+}
+
+inline void Scene::Swap(Scene& other) noexcept {
+    m_InstanceId = GenerateInstanceId();
+    other.m_InstanceId = GenerateInstanceId();
+    m_Registry.Swap(other.m_Registry);
+    m_Name.swap(other.m_Name);
+    std::swap(m_IsRunning, other.m_IsRunning);
 }
 
 } // namespace Astral

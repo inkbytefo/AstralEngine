@@ -227,11 +227,11 @@ Takvim tahmini ekip kapasitesi ve A0/A3 ölçümleri sonrasında yapılır. A4�
 
 **Dosyalar:** `Registry.hpp`, `EntityHandle.hpp`, `Entity.hpp`, `Scene.hpp`, `Scene.cpp`, `IdentityTests.cpp`, `SceneTests.cpp`.
 
-- [ ] Nesne oluştur → handle tut → Clear → yeniden oluştur senaryosunda eski handle'ın geçersiz kaldığını test et.
-- [ ] Sahne değiştirme/yükleme sonrası seçim ve komut referanslarının davranışını test et.
-- [ ] Clear sırasında kimlik tekrarını engelleyen generation/epoch yaklaşımını uygula.
-- [ ] Public mutasyon API'sinin Release derlemesinde de geçersiz handle'ı reddetmesini sağla.
-- [ ] Sahne yok edilirken ham sahne referanslarının yaşam süresi sözleşmesini netleştir.
+- [x] Nesne oluştur → handle tut → Clear → yeniden oluştur senaryosunda eski handle'ın geçersiz kaldığını test et.
+- [x] Sahne değiştirme/yükleme sonrası seçim ve komut referanslarının davranışını test et.
+- [x] Clear sırasında kimlik tekrarını engelleyen generation/epoch yaklaşımını uygula.
+- [x] Public mutasyon API'sinin Release derlemesinde de geçersiz handle'ı reddetmesini sağla.
+- [x] Sahne yok edilirken ham sahne referanslarının yaşam süresi sözleşmesini netleştir.
 
 **Kabul:** Eski referans yeni nesneyi değiştiremez; seçim ve undo geçmişi sahne geçişinde güvenle sıfırlanır veya yeniden eşlenir.
 
@@ -364,5 +364,6 @@ Referans ürün: küçük bir SDF bulmaca sahnesi. Oyuncu hareket eder, bir CSG 
 | 2026-09-05 | A0.1 — Hata sözleşmesi ve GPU smoke testi (F04, F05) | Tamamlandı | `EngineTests --gpu` 3 assertion (happy + fault); `Sandbox --shader invalid.spv` exit 1; `Sandbox --frames 5` exit 0; 12 CPU grubu / 229 assertion korundu | A0.2 TaskGraph timeout incelemesi sırada |
 | 2026-09-05 | A0.2 — TaskGraph zaman aşımı ve JobSystem yaşam döngüsü (F06) | Tamamlandı | JobSystem lost-wakeup giderildi; TaskGraph Kahn DAG doğrulama, istisna iptali/yayılımı ve zaman aşımı koruması eklendi; 100 ardışık stres testi sıfır takılma ile geçti; 13 test grubu / 249 assertion | A0.3 Tekrarlanabilir doğrulama ve CTest entegrasyonu sırada |
 | 2026-09-05 | A1.1 — Kayıt/yükleme kayıplarını kapat (F01, F02) | Tamamlandı | TagComponent UTF-8/Unicode desteği ve Visibility okuyucu eklendi; SceneMetadata ve EntityTable chunk'ları ile sahne adı ve boş düğümler korundu; dosya boyutu ve payload güvenlik bütçeleri uygulandı; motor dışı custom bileşen kaydı doğrulandı; 98 assertion / 13 test grubu / 285 assertion | A1.2 Eski handle ve sahne ömrü (F03) sırada |
+| 2026-09-05 | A1.2 — Eski handle ve sahne ömrü (F03) | Tamamlandı | Registry::Clear generation koruma/artırma uygulandı; sahne örnek epok kimliği (m_SceneInstanceId) ve IsSceneAlive kayıtçısı eklendi; Release modda AddComponent/GetComponent mutasyon reddi ve TryGetComponent güvenli sorgusu sağlandı; CommandStack undo/sahne geçiş güvenliği doğrulandı; 13 test grubu / 367 assertion geçti | A1.3 veya A0.3 sırada |
 
 Yeni tamamlanan işler bu tabloya eklenir. Rapordaki başlangıç bulguları tarihsel kayıt olarak korunur; çözülme durumu iş kartına ve ilerleme kaydına yazılır.

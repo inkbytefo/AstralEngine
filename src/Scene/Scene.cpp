@@ -4,12 +4,28 @@
 #include "Astral/Core/TransformSystem.hpp"
 #include "Astral/Core/Systems/PhysicsSubsystem.hpp"
 #include <algorithm>
+#include <atomic>
 #include <iostream>
+#include <mutex>
 #include <unordered_set>
 
 namespace Astral {
 
 namespace {
+
+static std::unordered_set<const Scene*> s_AliveScenes;
+static std::mutex s_AliveScenesMutex;
+static std::atomic<uint64_t> s_NextInstanceId{ 1 };
+
+void RegisterScene(const Scene* scene) {
+    std::lock_guard<std::mutex> lock(s_AliveScenesMutex);
+    s_AliveScenes.insert(scene);
+}
+
+void UnregisterScene(const Scene* scene) {
+    std::lock_guard<std::mutex> lock(s_AliveScenesMutex);
+    s_AliveScenes.erase(scene);
+}
 
 void DestroyEntityCascade(Registry& registry, EntityHandle entity, std::unordered_set<EntityHandle>& visited) {
     if (!registry.IsAlive(entity) || !visited.insert(entity).second) return;
@@ -34,6 +50,69 @@ void DestroyEntityCascade(Registry& registry, EntityHandle entity, std::unordere
 }
 
 } // namespace
+
+bool Scene::IsSceneAlive(const Scene* scene) noexcept {
+    if (!scene) return false;
+    std::lock_guard<std::mutex> lock(s_AliveScenesMutex);
+    return s_AliveScenes.contains(scene);
+}
+
+uint64_t Scene::GenerateInstanceId() noexcept {
+    return s_NextInstanceId.fetch_add(1, std::memory_order_relaxed);
+}
+
+Scene::Scene()
+    : m_InstanceId(GenerateInstanceId()) {
+    RegisterScene(this);
+}
+
+Scene::Scene(std::string name)
+    : m_Name(std::move(name)),
+      m_InstanceId(GenerateInstanceId()) {
+    RegisterScene(this);
+}
+
+Scene::Scene(const Scene& other)
+    : m_Registry(other.m_Registry),
+      m_Name(other.m_Name),
+      m_IsRunning(false),
+      m_InstanceId(GenerateInstanceId()) {
+    RegisterScene(this);
+}
+
+Scene& Scene::operator=(const Scene& other) {
+    if (this != &other) {
+        m_Registry = other.m_Registry;
+        m_Name = other.m_Name;
+        m_IsRunning = false;
+        m_InstanceId = GenerateInstanceId();
+    }
+    return *this;
+}
+
+Scene::Scene(Scene&& other) noexcept
+    : m_Registry(std::move(other.m_Registry)),
+      m_Name(std::move(other.m_Name)),
+      m_IsRunning(other.m_IsRunning),
+      m_InstanceId(other.m_InstanceId) {
+    other.m_InstanceId = 0;
+    RegisterScene(this);
+}
+
+Scene& Scene::operator=(Scene&& other) noexcept {
+    if (this != &other) {
+        m_Registry = std::move(other.m_Registry);
+        m_Name = std::move(other.m_Name);
+        m_IsRunning = other.m_IsRunning;
+        m_InstanceId = other.m_InstanceId;
+        other.m_InstanceId = 0;
+    }
+    return *this;
+}
+
+Scene::~Scene() {
+    UnregisterScene(this);
+}
 
 Entity Scene::DuplicateEntity(EntityHandle source) {
     if (!m_Registry.IsAlive(source)) return Entity();
@@ -85,7 +164,7 @@ Entity Scene::DuplicateEntity(EntityHandle source) {
 }
 
 Entity Scene::DuplicateEntity(Entity source) {
-    assert(source.GetScene() == this && "[Astral::Scene] Entity baska bir sahneye ait!");
+    if (!source.IsValid() || source.GetScene() != this) return Entity();
     return DuplicateEntity(source.GetHandle());
 }
 
@@ -95,7 +174,7 @@ void Scene::DestroyEntity(EntityHandle handle) {
 }
 
 void Scene::DestroyEntity(Entity entity) {
-    assert(entity.GetScene() == this && "[Astral::Scene] Entity baska bir sahneye ait!");
+    if (!entity.IsValid() || entity.GetScene() != this) return;
     DestroyEntity(entity.GetHandle());
 }
 
@@ -140,12 +219,20 @@ bool Scene::SetParent(EntityHandle child, EntityHandle parent) {
 }
 
 bool Scene::SetParent(Entity child, Entity parent) {
-    if (child.GetScene() != this || parent.GetScene() != this) return false;
+    if (!child.IsValid() || child.GetScene() != this) return false;
+    if (parent.GetHandle() != NullEntityHandle) {
+        if (!parent.IsValid() || parent.GetScene() != this) return false;
+    }
     return SetParent(child.GetHandle(), parent.GetHandle());
 }
 
 bool Scene::ClearParent(EntityHandle child) {
     return SetParent(child, NullEntityHandle);
+}
+
+bool Scene::ClearParent(Entity child) {
+    if (!child.IsValid() || child.GetScene() != this) return false;
+    return ClearParent(child.GetHandle());
 }
 
 glm::mat4 Scene::GetWorldTransform(EntityHandle entity) const {

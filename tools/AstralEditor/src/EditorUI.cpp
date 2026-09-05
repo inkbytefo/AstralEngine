@@ -155,6 +155,11 @@ void EditorUI::BeginFrame() {
 }
 
 void EditorUI::SetupDockSpace(Scene& scene, Entity& selectedEntity) {
+    // Sanitize selected entity across scene reload/clear/destruction
+    if (selectedEntity.GetHandle() != NullEntityHandle && !selectedEntity.IsValid()) {
+        selectedEntity = Entity();
+    }
+
     ImGuiViewport* viewport = ImGui::GetMainViewport();
 
     float statusBarHeight = 24.0f;
@@ -197,6 +202,7 @@ void EditorUI::SetupDockSpace(Scene& scene, Entity& selectedEntity) {
         m_ResetLayout = true;
     }
     if (actions.newScene || actions.openScene) {
+        selectedEntity = Entity();
         m_CommandStack.Clear();
     }
     if (actions.exitApp) {
