@@ -59,6 +59,9 @@ layout(push_constant) uniform PushConstants {
     vec4 camPos;    // xyz: camPos, w: maxMipLevel (orn. 5.0)
     vec4 camDir;    // xyz: camDir, w: exposure (orn. 1.0)
     vec4 screenRes; // xy: resolution, z: iblIntensity (orn. 1.0), w: unused
+    vec4 cameraRight;
+    vec4 cameraUp;
+    vec4 rayParams;
 };
 
 const float PI = 3.14159265358979323846;
@@ -123,14 +126,14 @@ void main() {
     float depth     = imageLoad(g_Depth, pixel).r;
 
     // Isin Yonu (Camera Ray) Rekonstruksiyonu
-    vec2 uv = (vec2(pixel) - 0.5 * vec2(res)) / float(res.y);
+    vec2 uv = (vec2(pixel) + rayParams.xy - 0.5 * vec2(res)) / float(res.y);
     uv.y = -uv.y;
 
     vec3 ro = camPos.xyz;
     vec3 fwd = normalize(camDir.xyz);
-    vec3 right = normalize(cross(fwd, vec3(0.0, 1.0, 0.0)));
-    vec3 up = cross(right, fwd);
-    vec3 rd = normalize(fwd * 1.5 + right * uv.x + up * uv.y);
+    vec3 right = cameraRight.xyz;
+    vec3 up = cameraUp.xyz;
+    vec3 rd = normalize(fwd * cameraRight.w + right * uv.x + up * uv.y);
 
     // 1. Gokyuzu / Bosluk Kontrolu
     if (albedoData.a < 0.5) {

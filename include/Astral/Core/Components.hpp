@@ -20,6 +20,23 @@ struct TransformComponent {
     glm::vec3 scale{1.0f};
 };
 
+/// Fixed simulation adiminin baslangicindaki transform durumunu tutar.
+/// Render interpolasyonu ve simulasyon-render zaman farki entegrasyonu icin kullanilir.
+struct PreviousTransformComponent {
+    glm::vec3 position{0.0f};
+    glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
+    glm::vec3 scale{1.0f};
+};
+
+/// Perspective camera; local -Z is forward and +Y is up. Angles are radians.
+/// Selection is explicit: use SetActiveCamera to make exactly one camera primary.
+struct CameraComponent {
+    float verticalFovRadians = glm::radians(60.0f);
+    float nearClip = 0.01f;
+    float farClip = 50.0f;
+    uint32_t primary = 0;
+};
+
 /// TransformSystem tarafindan her kare uretilen, serialize edilmeyen world-space cache.
 struct WorldTransformComponent {
     glm::mat4 matrix{1.0f};
@@ -98,6 +115,8 @@ struct ComponentTraits {
     }
 
 ASTRAL_REGISTER_COMPONENT_TRAIT(TransformComponent);
+ASTRAL_REGISTER_COMPONENT_TRAIT(PreviousTransformComponent);
+ASTRAL_REGISTER_COMPONENT_TRAIT(CameraComponent);
 ASTRAL_REGISTER_COMPONENT_TRAIT(HierarchyComponent);
 ASTRAL_REGISTER_COMPONENT_TRAIT(TagComponent);
 ASTRAL_REGISTER_COMPONENT_TRAIT(VelocityComponent);

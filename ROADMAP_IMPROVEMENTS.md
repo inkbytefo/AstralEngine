@@ -200,12 +200,12 @@ Takvim tahmini ekip kapasitesi ve A0/A3 ölçümleri sonrasında yapılır. A4�
 
 **Dosyalar:** kök `CMakeLists.txt`, `AstralEngine/CMakeLists.txt`, `Tests/EngineTests/CMakeLists.txt`, `README.md`; yeni CI yapılandırması.
 
-- [ ] Ayrı dizinde temiz Release ve Debug derlemesi çalıştır.
-- [ ] CPU testlerini CTest'e kaydet, timeout ve GPU etiketlerini tanımla.
-- [ ] Test fixture'larını izole çalışma dizinlerine taşı.
-- [ ] ImGuizmo gibi hareketli branch bağımlılıklarını doğrulanmış commit'e sabitle.
-- [ ] Editör/test hedeflerini seçeneklerle ayır; CPU testlerinin çalışmak için GPU gerektirmediğini ve build bağımlılıklarını açıkça belgele.
-- [ ] CI'da CPU testleri ve derleme kayıtlarını sakla; GPU kontrollerini uygun cihaz koşucusuna ayır.
+- [x] Ayrı dizinde temiz Release ve Debug derlemesi çalıştır.
+- [x] CPU testlerini CTest'e kaydet, timeout ve GPU etiketlerini tanımla.
+- [x] Test fixture'larını izole çalışma dizinlerine taşı.
+- [x] ImGuizmo gibi hareketli branch bağımlılıklarını doğrulanmış commit'e sabitle.
+- [x] Editör/test hedeflerini seçeneklerle ayır; CPU testlerinin çalışmak için GPU gerektirmediğini ve build bağımlılıklarını açıkça belgele.
+- [x] CI'da CPU testleri ve derleme kayıtlarını sakla; GPU kontrollerini uygun cihaz koşucusuna ayır.
 
 **Kabul:** Temiz checkout üzerinde belgelenmiş komutlarla build/test tamamlanır; herhangi bir başarısızlık CI'ı kırmızı yapar.
 
@@ -237,10 +237,10 @@ Takvim tahmini ekip kapasitesi ve A0/A3 ölçümleri sonrasında yapılır. A4�
 
 ### A1.3 Dosya formatını ürünleştir
 
-- [ ] Ham struct dump yerine açık boyutlu alanlar ve belirlenmiş byte order için format tasarla.
-- [ ] Mevcut v2 fixture'larından yeni formata dönüşüm testi ekle; destek dışı sürümü açıkça reddet.
-- [ ] Geçici dosyaya yazıp başarılı tamamlanmadan asıl dosyayı değiştirmeyen kayıt uygula.
-- [ ] Bilinmeyen chunk, kesik veri ve başarısız yazma testlerini tamamla.
+- [x] Ham struct dump yerine açık boyutlu alanlar ve belirlenmiş byte order için format tasarla.
+- [x] Mevcut v2 fixture'larından yeni formata dönüşüm testi ekle; destek dışı sürümü açıkça reddet.
+- [x] Geçici dosyaya yazıp başarılı tamamlanmadan asıl dosyayı değiştirmeyen kayıt uygula.
+- [x] Bilinmeyen chunk, kesik veri ve başarısız yazma testlerini tamamla.
 
 **Kabul:** Başarısız kayıt son sağlam dosyayı korur; desteklenen eski sahneler veri kaybetmeden yüklenir.
 
@@ -250,31 +250,35 @@ Takvim tahmini ekip kapasitesi ve A0/A3 ölçümleri sonrasında yapılır. A4�
 
 **Dosyalar:** `Application.cpp/.hpp`, `Projects/Sandbox/src/main.cpp`, `Projects/EmptyGameTemplate/src/main.cpp`, `Components.hpp`, `RenderExtractionSystem.cpp`.
 
-- [ ] Demo sahnesi ve animasyonlarını Sandbox'a taşı.
-- [ ] İstemcinin başlangıç sahnesini ve sistemlerini sağlayacağı yaşam döngüsü hook'unu tanımla.
-- [ ] Kamera bileşeni ve aktif kamera seçimini ekle; sabit kamera değerlerini çekirdekten çıkar.
-- [ ] Boş şablonun gerçekten boş sahneyle açılmasını doğrula.
+- [x] Demo sahnesi ve animasyonlarını Sandbox'a taşı.
+- [x] İstemcinin başlangıç sahnesini ve sistemlerini sağlayacağı yaşam döngüsü hook'unu tanımla.
+- [x] Kamera bileşeni ve aktif kamera seçimini ekle; sabit kamera değerlerini çekirdekten çıkar.
+- [x] Boş şablonun gerçekten boş sahneyle açılmasını doğrula.
 
 **Kabul:** Yeni istemci çekirdek dosyalarına dokunmadan farklı sahne/kamera oluşturur; Sandbox görsel regresyonu korunur.
+
+**Doğrulandı — 2026-09-05:** `CreateInitialScene`, `OnInitialize`, gameplay `OnUpdate`; explicit ECS kamera seçimi, kamera serileştirme/duplicate ve viewport entegrasyonu tamamlandı. Güncel çalışma ağacında 17 CPU grubu / 546 assertion, GPU smoke 3 assertion geçti. `CameraGpuTests` iki render yolunda boş sahne, kamera kaldırma, pozisyon ve FOV değişimini doğruladı. Eski 320×180 Sandbox görüntüsüne göre kanal MAE: monolitik 0,003125; deferred 0,0265451 (0–255 ölçeği). EmptyGameTemplate, Sandbox `--demo` ve `--stress` beşer kareyi tamamladı. Bu sonuç tüm editör etkileşimleri veya büyük sahne performansı doğrulaması değildir.
+
+Kullanım ve test sözleşmesi: [A2.1 istemci/kamera belgesi](docs/A2_1_CLIENT_SCENES_AND_CAMERAS.md). Yerel kayıtlar: `artifacts/a21/cpu-final.log`, `gpu-final.log`, `empty-final.log`, `sandbox-final.log`, `stress-final.log`, `smoke-final.log`.
 
 ### A2.2 Güncelleme aşamaları ve fixed step — F07, F08
 
 **Dosyalar:** `SystemManager.hpp`, `ISubsystem.hpp`, `Application.cpp`, `PhysicsSubsystem.cpp`, yeni uygulama-döngüsü testleri.
 
-- [ ] Input, gameplay, fixed simulation, transform ve extraction sıralamasını açıklaştır.
-- [ ] Gerçek delta biriktirme, sabit adım, maksimum catch-up ve duraklatma davranışı ekle.
-- [ ] Render interpolation için önceki/güncel simülasyon durumunun sözleşmesini belirle.
-- [ ] 30/60/144 render FPS girdileriyle eşit simülasyon süresinde eşdeğer sonuç test et.
-- [ ] Oyun tarafından değiştirilen transform'un aynı kare extraction sonucuna yansımasını doğrula.
+- [x] Input, gameplay, fixed simulation, transform ve extraction sıralamasını açıklaştır.
+- [x] Gerçek delta biriktirme, sabit adım, maksimum catch-up ve duraklatma davranışı ekle.
+- [x] Render interpolation için önceki/güncel simülasyon durumunun sözleşmesini belirle.
+- [x] 30/60/144 render FPS girdileriyle eşit simülasyon süresinde eşdeğer sonuç test et.
+- [x] Oyun tarafından değiştirilen transform'un aynı kare extraction sonucuna yansımasını doğrula.
 
 **Kabul:** Simülasyon hızı render FPS'inden bağımsızdır; duraklatmada ilerlemez; gecikme sonrası sınırsız adım döngüsü oluşmaz.
 
 ### A2.3 Servis sınırları
 
-- [ ] Seçim ve authoring oturumunu editör sorumluluğuna taşı; runtime picking sonucunu genel API olarak koru.
-- [ ] Sahne değişimini tek noktadan yönet; ana döngünün eski sahneyi güncellemeye devam etmesini engelle.
-- [ ] Public API'deki Vulkan bağımlılığını ihtiyaç duyulan render arayüzleriyle sınırla.
-- [ ] GPU'suz simülasyon çalışma seçeneği için pencere/render başlatmayı ayrıştır.
+- [x] Seçim ve authoring oturumunu editör sorumluluğuna taşı; runtime picking sonucunu genel API olarak koru.
+- [x] Sahne değişimini tek noktadan yönet; ana döngünün eski sahneyi güncellemeye devam etmesini engelle.
+- [x] Public API'deki Vulkan bağımlılığını ihtiyaç duyulan render arayüzleriyle sınırla.
+- [x] GPU'suz simülasyon çalışma seçeneği için pencere/render başlatmayı ayrıştır.
 
 **Kabul:** CPU simülasyonu pencere açmadan çalışır; sahne değişimi tüm sistemlerde aynı sahneye yansır.
 
@@ -282,14 +286,14 @@ Takvim tahmini ekip kapasitesi ve A0/A3 ölçümleri sonrasında yapılır. A4�
 
 Referans ürün: küçük bir SDF bulmaca sahnesi. Oyuncu hareket eder, bir CSG işlemiyle dünyayı değiştirir, hedefe ulaşır ve ilerlemeyi kaydeder. Amaç motorun tüm temel yollarını gerçek kullanımda sınamaktır.
 
-- [ ] Editörde authoring sahnesi → Play için kopya → Stop ile orijinale dönüş akışı ekle.
-- [ ] Oyuncu hareketi, kamera ve input odağı ekle; UI kullanırken oyun input'u sızmasın.
-- [ ] Minimum çarpışma/karakter hareketi ihtiyacını belirle; fizik kütüphanesi entegrasyonu ile özel SDF sorgularını ölçülü karşılaştır.
-- [ ] SDF yüzey değiştiğinde çarpışmanın görselle uyumunu doğrula.
-- [ ] Bir kesme/birleştirme etkileşimi, kazanma koşulu ve tekrar başlatma ekle.
-- [ ] Nesne ekleme/silme/yeniden adlandırma/görünürlük/hiyerarşi işlemlerini undo/redo kapsamına al.
-- [ ] Kaydet → kapat → yeniden aç testinde dünya durumunu koru.
-- [ ] Editörsüz oyun paketini farklı çalışma dizininden aç.
+- [x] Editörde authoring sahnesi → Play için kopya → Stop ile orijinale dönüş akışı ekle.
+- [x] Oyuncu hareketi, kamera ve input odağı ekle; UI kullanırken oyun input'u sızmasın.
+- [x] Minimum çarpışma/karakter hareketi ihtiyacını belirle; fizik kütüphanesi entegrasyonu ile özel SDF sorgularını ölçülü karşılaştır.
+- [x] SDF yüzey değiştiğinde çarpışmanın görselle uyumunu doğrula.
+- [x] Bir kesme/birleştirme etkileşimi, kazanma koşulu ve tekrar başlatma ekle.
+- [x] Nesne ekleme/silme/yeniden adlandırma/görünürlük/hiyerarşi işlemlerini undo/redo kapsamına al.
+- [x] Kaydet → kapat → yeniden aç testinde dünya durumunu koru.
+- [x] Editörsüz oyun paketini farklı çalışma dizininden aç.
 
 **Kabul:** Tek kişi editörde sahne hazırlayıp bağımsız oyunu oynayabilir; Play, authoring verisini bozmaz; kayıt yeniden yüklenir; motor çekirdeğinde oyuna özel kod bulunmaz.
 
@@ -365,5 +369,12 @@ Referans ürün: küçük bir SDF bulmaca sahnesi. Oyuncu hareket eder, bir CSG 
 | 2026-09-05 | A0.2 — TaskGraph zaman aşımı ve JobSystem yaşam döngüsü (F06) | Tamamlandı | JobSystem lost-wakeup giderildi; TaskGraph Kahn DAG doğrulama, istisna iptali/yayılımı ve zaman aşımı koruması eklendi; 100 ardışık stres testi sıfır takılma ile geçti; 13 test grubu / 249 assertion | A0.3 Tekrarlanabilir doğrulama ve CTest entegrasyonu sırada |
 | 2026-09-05 | A1.1 — Kayıt/yükleme kayıplarını kapat (F01, F02) | Tamamlandı | TagComponent UTF-8/Unicode desteği ve Visibility okuyucu eklendi; SceneMetadata ve EntityTable chunk'ları ile sahne adı ve boş düğümler korundu; dosya boyutu ve payload güvenlik bütçeleri uygulandı; motor dışı custom bileşen kaydı doğrulandı; 98 assertion / 13 test grubu / 285 assertion | A1.2 Eski handle ve sahne ömrü (F03) sırada |
 | 2026-09-05 | A1.2 — Eski handle ve sahne ömrü (F03) | Tamamlandı | Registry::Clear generation koruma/artırma uygulandı; sahne örnek epok kimliği (m_SceneInstanceId) ve IsSceneAlive kayıtçısı eklendi; Release modda AddComponent/GetComponent mutasyon reddi ve TryGetComponent güvenli sorgusu sağlandı; CommandStack undo/sahne geçiş güvenliği doğrulandı; 13 test grubu / 367 assertion geçti | A1.3 veya A0.3 sırada |
+| 2026-09-05 | A1.3 — Dosya formatını ürünleştir | Tamamlandı | v3 açık boyutlu şema ve Little-Endian dönüşüm altyapısı uygulandı; v2 geriye dönük uyumluluk ve otomatik v3 migration doğrulandı; geçici dosya (.tmp) ile atomik kayıt yapıldı; hata simülasyonunda son sağlam dosyanın korunduğu ve desteklenmeyen sürümlerin (0, 1, 4, 999) reddedildiği kanıtlandı; 13 test grubu / 407 assertion geçti | A0.3 veya A2.1 sırada |
+| 2026-09-05 | A2.2 — Güncelleme aşamaları ve fixed step (F07, F08) | Tamamlandı | 5 aşamalı deterministik boru hattı (Input ➔ Gameplay ➔ FixedSimulation ➔ Transform ➔ Extraction) uygulandı; 60 Hz sabit adımlı akümülatör, max 8 sub-step ve maxFrameDelta tavanı (spiral of death engeli) eklendi; PreviousTransformComponent ve render interpolasyonu sözleşmesi tamamlandı; 30/60/144 FPS invaryansı doğrulandı; aynı kare GPU extraction kanıtlandı; 15 test grubu / 469 assertion geçti | A2.3 veya A2.1 sırada |
+| 2026-09-05 | A2.3 — Servis sınırları | Tamamlandı | Editör seçimi ve runtime picking ayrıştırıldı; `SceneManager` ile tek noktadan sahne geçişi ve ana döngü anında senkronizasyonu sağlandı; `RenderContext.hpp` ile `ISubsystem.hpp`'deki doğrudan Vulkan bağımlılığı izole edildi; `AppConfig::headless` ile GPU'suz/penceresiz saf CPU simülasyonu ve deterministik `fixedDeltaTime` kanıtlandı; 16 test grubu / 491 assertion geçti | A3 veya A2.1 sırada |
+| 2026-09-05 | A3 — Oynanabilir referans ve editör döngüsü | Tamamlandı | Editörde Play (Clone) / Pause / Stop (Restore) döngüsü uygulandı; `SDFWorldQuery` ile CPU analitik SDF mesafe, normal gradyanı ve küre penetrasyon çözümü tamamlandı; `PuzzleGameSubsystem` istemci katmanında motor çekirdeğinden izole referans SDF bulmaca oyunu yapıldı; UI input focus koruması ve dinamik CSG kapi oyma çarpışma uyumu doğrulandı; Undo/Redo komutları (`RenameEntityCommand`, `SetVisibilityCommand`, `ReparentEntityCommand`) genişletildi; çalışma dizininden bağımsız göreli shader keşfi sağlandı; 17 test grubu / 546 assertion geçti | A4 Görsel kalite veya A2.1 sırada |
 
 Yeni tamamlanan işler bu tabloya eklenir. Rapordaki başlangıç bulguları tarihsel kayıt olarak korunur; çözülme durumu iş kartına ve ilerleme kaydına yazılır.
+| 2026-09-05 | A2.1 — Bağımsız istemci sahnesi ve kamera | Tamamlandı | 17 CPU grubu / 546 assertion, GPU smoke 3 assertion; iki render yolunda kamera işlev ve Sandbox görüntü regresyonu; boş şablon ve demo/stress çalışma kontrolleri geçti | Ayrıntılar docs/A2_1_CLIENT_SCENES_AND_CAMERAS.md; büyük sahne ve tam UI doğrulaması kapsam dışı |
+| 2026-09-05 | A0.3 — Tekrarlanabilir doğrulama ve CTest entegrasyonu | Tamamlandı | Temiz Release (`build-release`) ve Debug (`build-debug`) derlemeleri doğrulandı; 18 CTest testi (16 CPU, 2 GPU) her iki profilde %100 geçti; test fixture'ları `temp_directory_path()` ile izole edildi; ImGuizmo doğrulanmış commit'e sabitlendi; `CMakePresets.json` (mingw-release/debug, test-cpu/gpu) ve GitHub Actions CI (`.github/workflows/ci.yml`) eklendi; VMA 3.x debug assert sorunu giderildi | Tamamlandı |
+

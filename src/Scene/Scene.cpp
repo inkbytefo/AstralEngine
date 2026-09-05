@@ -137,6 +137,12 @@ Entity Scene::DuplicateEntity(EntityHandle source) {
         newEntity.AddComponent<SDFComponent>(m_Registry.GetComponent<SDFComponent>(source));
     }
 
+    if (m_Registry.HasComponent<CameraComponent>(source)) {
+        auto camera = m_Registry.GetComponent<CameraComponent>(source);
+        camera.primary = 0; // Duplicating a camera must not steal the active view.
+        newEntity.AddComponent<CameraComponent>(camera);
+    }
+
     // VelocityComponent
     if (m_Registry.HasComponent<VelocityComponent>(source)) {
         newEntity.AddComponent<VelocityComponent>(m_Registry.GetComponent<VelocityComponent>(source));
@@ -233,6 +239,16 @@ bool Scene::ClearParent(EntityHandle child) {
 bool Scene::ClearParent(Entity child) {
     if (!child.IsValid() || child.GetScene() != this) return false;
     return ClearParent(child.GetHandle());
+}
+
+EntityHandle Scene::GetParent(EntityHandle child) const {
+    if (!m_Registry.HasComponent<HierarchyComponent>(child)) return NullEntityHandle;
+    return m_Registry.GetComponent<HierarchyComponent>(child).parent;
+}
+
+std::vector<EntityHandle> Scene::GetChildren(EntityHandle parent) const {
+    if (!m_Registry.HasComponent<HierarchyComponent>(parent)) return {};
+    return m_Registry.GetComponent<HierarchyComponent>(parent).children;
 }
 
 glm::mat4 Scene::GetWorldTransform(EntityHandle entity) const {

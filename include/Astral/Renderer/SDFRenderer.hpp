@@ -16,6 +16,8 @@
 #include "Astral/Renderer/VulkanContext.hpp"
 #include "Astral/Renderer/IBLManager.hpp"
 #include "Astral/Renderer/ComputePipeline.hpp"
+#include "Astral/Renderer/RenderCamera.hpp"
+#include <optional>
 
 namespace Astral {
 
@@ -65,7 +67,7 @@ public:
     void ClearSelectionResult();
 
     /// Kamera View ve Projection matrislerini ve TAA jitter ofsetini gunceller (Motion Vectors icin)
-    void SetCameraMatrices(const glm::mat4& view, const glm::mat4& proj, const glm::vec2& jitter = glm::vec2(0.0f));
+    void SetCamera(const std::optional<RenderCamera>& camera, const glm::vec2& jitter = glm::vec2(0.0f));
 
     /// G-Buffer modunu aktif/pasif yapar
     void SetUseGBuffer(bool enabled) noexcept { m_UseGBuffer = enabled; }
@@ -161,6 +163,8 @@ private:
     glm::vec2 m_CurrJitter{0.0f};
     glm::vec2 m_PrevJitter{0.0f};
     bool m_CameraMatricesInitialized = false;
+    std::optional<RenderCamera> m_RenderCamera;
+    void SetCameraMatrices(const glm::mat4& view, const glm::mat4& proj, const glm::vec2& jitter);
 
     // G-Buffer Compute Pipeline
     std::string m_GBufferSpvPath;

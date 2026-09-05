@@ -1,18 +1,26 @@
 #include "AstralEngine.h"
+#include "DemoScene.hpp"
+#include "PuzzleGameSubsystem.hpp"
+
 #include <iostream>
 #include <string>
 
-static Astral::AppConfig ParseCommandLine(const Astral::CommandLineArgs& args) {
-    Astral::AppConfig config;
+struct SandboxOptions { Astral::AppConfig engine; bool stress = false; bool puzzle = true; };
+
+static SandboxOptions ParseCommandLine(const Astral::CommandLineArgs& args) {
+    SandboxOptions options;
+    auto& config = options.engine;
     int maxFrames = -1;
 
     for (int i = 1; i < args.argc; ++i) {
         std::string arg = args.argv[i];
         if (arg == "--bench") {
             config.benchMode = true;
+            options.puzzle = false;
         } else if (arg == "--bench-frames" && i + 1 < args.argc) {
             config.benchFrames = std::stoi(args.argv[++i]);
             config.benchMode = true;
+            options.puzzle = false;
         } else if (arg == "--bench-out" && i + 1 < args.argc) {
             config.benchOutputFile = args.argv[++i];
             config.benchMode = true;
@@ -38,7 +46,12 @@ static Astral::AppConfig ParseCommandLine(const Astral::CommandLineArgs& args) {
         } else if (arg == "--no-grid") {
             config.useGrid = false;
         } else if (arg == "--stress") {
-            config.stressTest = true;
+            options.stress = true;
+            options.puzzle = false;
+        } else if (arg == "--demo") {
+            options.puzzle = false;
+        } else if (arg == "--puzzle") {
+            options.puzzle = true;
         } else if (arg == "--opt-shadow") {
             config.optShadow = true;
         } else if (arg == "--no-opt-shadow") {
@@ -57,7 +70,13 @@ static Astral::AppConfig ParseCommandLine(const Astral::CommandLineArgs& args) {
     }
 
     config.maxFrames = maxFrames;
-    return config;
+    config.simulatePhysics = config.benchMode || maxFrames > 0;
+    if (!options.puzzle && config.simulatePhysics) {
+        // The benchmark fixture preserves its historical frame-indexed animation.
+        config.fixedTimeStep = 0.016f;
+        config.fixedDeltaTime = 0.016f;
+    }
+    return options;
 }
 
 /// Sandbox uygulamasi — AstralEngine'in ilk somut istemcisi (client).
@@ -65,9 +84,36 @@ static Astral::AppConfig ParseCommandLine(const Astral::CommandLineArgs& args) {
 class SandboxApp : public Astral::Application {
 public:
     SandboxApp()
-        : Astral::Application(ParseCommandLine(Astral::GetCommandLineArgs())) {
-        std::cout << "[SandboxApp] Sandbox Calisma Zamani Uygulamasi baslatildi.\n";
+        : SandboxApp(ParseCommandLine(Astral::GetCommandLineArgs())) {}
+private:
+    explicit SandboxApp(const SandboxOptions& options)
+        : Astral::Application(options.engine), m_Stress(options.stress), m_Puzzle(options.puzzle) {
+        std::cout << "[SandboxApp] Sandbox Calisma Zamani Uygulamasi baslatildi (Mod: "
+                  << (m_Puzzle ? "SDF Bulmaca Referans Oyunu" : "Standart Demo") << ").\n";
     }
+protected:
+    std::shared_ptr<Astral::Scene> CreateInitialScene() override {
+        if (m_Puzzle) {
+            return Sandbox::PuzzleGameSubsystem::CreatePuzzleScene();
+        }
+        return m_Demo.Create(m_Stress);
+    }
+    void OnInitialize() override {
+        if (m_Puzzle) {
+            PushSystem<Sandbox::PuzzleGameSubsystem>();
+        }
+    }
+    void OnUpdate(Astral::FrameContext&, uint32_t frameIndex) override {
+        if (!m_Puzzle && GetConfig().simulatePhysics) {
+            m_Demo.Update(*GetActiveScene(), m_Stress, frameIndex);
+            if (frameIndex == 3) RequestPick(GetConfig().width / 2, GetConfig().height / 2);
+            if (GetLastPickResult().hasHit) SetHighlightEntity(GetLastPickResult().hitEntity);
+        }
+    }
+private:
+    Sandbox::DemoScene m_Demo;
+    bool m_Stress = false;
+    bool m_Puzzle = true;
 };
 
 namespace Astral {

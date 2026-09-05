@@ -14,6 +14,7 @@
 #include "Astral/Core/SystemManager.hpp"
 #include "Astral/Core/Registry.hpp"
 #include "Astral/Core/Components.hpp"
+#include "Astral/Core/RenderExtractionSystem.hpp"
 #include "Astral/Core/EntityHandle.hpp"
 #include "Astral/Core/Window.hpp"
 #include "Astral/Core/InputSystem.hpp"

@@ -1,0 +1,144 @@
+================================================================================
+               AstralEngine Standalone Regression Test Runner                   
+================================================================================
+
+[ RUN      ] Camera & Client Scene Suite
+[Astral::SceneSerializer] Scene successfully serialized to: camera-roundtrip.astral (3 entities)
+[Astral::SceneSerializer] Scene successfully deserialized from: camera-roundtrip.astral (3 entities)
+[Astral::Application] AstralEngine basariyla kapatildi.
+[       OK ] Camera & Client Scene Suite (3.811 ms)
+[ RUN      ] ECS Architecture Suite
+[       OK ] ECS Architecture Suite (0.03 ms)
+[ RUN      ] Physics & Extraction Pipeline Suite
+[       OK ] Physics & Extraction Pipeline Suite (0.0467 ms)
+[ RUN      ] Generational Identity & Lifetime Suite
+[       OK ] Generational Identity & Lifetime Suite (0.2265 ms)
+[ RUN      ] Scene Management & Deep-Copy Suite
+[Astral::SceneManager] Yeni sahne yuklendi: Authoring Level
+[Astral::Scene] 'Authoring Level' Runtime baslatildi.
+[Astral::Scene] 'Authoring Level' Runtime durduruldu.
+[Astral::SceneManager] Sahne kaldirildi: Authoring Level
+[       OK ] Scene Management & Deep-Copy Suite (0.0477 ms)
+[ RUN      ] DOD Binary Scene Serialization Suite (v2)
+[Astral::SceneSerializer] Scene successfully serialized to: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\level_binary.astral (3 entities)
+[Astral::SceneSerializer] Scene successfully deserialized from: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\level_binary.astral (3 entities)
+[Astral::SceneSerializer] Scene successfully serialized to: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\authoring_roundtrip.astral (6 entities)
+[Astral::SceneSerializer] Scene successfully deserialized from: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\authoring_roundtrip.astral (6 entities)
+[Astral::SceneSerializer] Scene successfully serialized to: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\custom_comp.astral (1 entities)
+[Astral::SceneSerializer] Scene successfully deserialized from: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\custom_comp.astral (1 entities)
+[Astral::SceneSerializer] Scene successfully deserialized from: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\unknown_chunk.astral (1 entities)
+[Astral::SceneSerializer] Scene successfully deserialized from: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\level_v2_legacy.astral (2 entities)
+[Astral::SceneSerializer] Scene successfully serialized to: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\migrated_v3.astral (2 entities)
+[Astral::SceneSerializer] Scene successfully deserialized from: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\migrated_v3.astral (2 entities)
+[Astral::SceneSerializer] Scene successfully serialized to: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\atomic_protected_scene.astral (1 entities)
+[Astral::SceneSerializer] Scene successfully deserialized from: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\atomic_protected_scene.astral (1 entities)
+[       OK ] DOD Binary Scene Serialization Suite (v2) (103.324 ms)
+[ RUN      ] Two-Level Spatial BrickGrid Acceleration Suite
+[       OK ] Two-Level Spatial BrickGrid Acceleration Suite (0.5677 ms)
+[ RUN      ] Undo/Redo Command-Stack Architecture Suite
+[       OK ] Undo/Redo Command-Stack Architecture Suite (0.0395 ms)
+[ RUN      ] Type-Safe EventBus Architecture Suite
+[       OK ] Type-Safe EventBus Architecture Suite (0.0213 ms)
+[ RUN      ] Action-Mapping & Enhanced Input Suite
+[       OK ] Action-Mapping & Enhanced Input Suite (0.0447 ms)
+[ RUN      ] Vulkan Memory Allocator (VMA) Architecture Suite
+  [INFO] VMA (Vulkan Memory Allocator) testleri baslatiliyor...
+  [INFO] Canli GPU VMA testleri atlandi (--all veya --gpu ile calistirilabilir).
+[       OK ] Vulkan Memory Allocator (VMA) Architecture Suite (0.0922 ms)
+[ RUN      ] Modern C++20 JobSystem Architecture Suite
+  [INFO] C++20 JobSystem testleri baslatiliyor...
+[Astral::JobSystem] Baslatildi (4 worker thread).
+[Astral::JobSystem] Guvenle kapatildi.
+[Astral::JobSystem] Baslatildi (2 worker thread).
+[Astral::JobSystem] Guvenle kapatildi.
+[Astral::JobSystem] Baslatildi (4 worker thread).
+[Astral::JobSystem] Guvenle kapatildi.
+[Astral::JobSystem] Baslatildi (4 worker thread).
+[Astral::JobSystem] Guvenle kapatildi.
+[Astral::JobSystem] Baslatildi (4 worker thread).
+[Astral::JobSystem] Guvenle kapatildi.
+[Astral::JobSystem] Baslatildi (4 worker thread).
+[Astral::JobSystem] Guvenle kapatildi.
+[Astral::JobSystem] Baslatildi (4 worker thread).
+[Astral::JobSystem] Guvenle kapatildi.
+[Astral::JobSystem] Baslatildi (4 worker thread).
+[Astral::JobSystem] Guvenle kapatildi.
+[Astral::JobSystem] Baslatildi (4 worker thread).
+[Astral::JobSystem] Guvenle kapatildi.
+[Astral::JobSystem] Baslatildi (4 worker thread).
+[Astral::JobSystem] Guvenle kapatildi.
+[Astral::JobSystem] Baslatildi (4 worker thread).
+[Astral::JobSystem] Guvenle kapatildi.
+[Astral::JobSystem] Baslatildi (4 worker thread).
+[Astral::JobSystem] Guvenle kapatildi.
+[       OK ] Modern C++20 JobSystem Architecture Suite (131.88 ms)
+[ RUN      ] DAG TaskGraph Frame Scheduling Suite
+  [INFO] TaskGraph DAG planlayici testleri baslatiliyor...
+[Astral::JobSystem] Baslatildi (4 worker thread).
+[Astral::JobSystem] Guvenle kapatildi.
+[Astral::JobSystem] Baslatildi (4 worker thread).
+[Astral::JobSystem] Guvenle kapatildi.
+[Astral::JobSystem] Baslatildi (1 worker thread).
+[Astral::JobSystem] Guvenle kapatildi.
+[Astral::JobSystem] Baslatildi (4 worker thread).
+[Astral::JobSystem] Guvenle kapatildi.
+[Astral::JobSystem] Baslatildi (4 worker thread).
+[Astral::JobSystem] Guvenle kapatildi.
+[Astral::JobSystem] Baslatildi (4 worker thread).
+[Astral::JobSystem] Guvenle kapatildi.
+[Astral::JobSystem] Baslatildi (2 worker thread).
+[Astral::JobSystem] Guvenle kapatildi.
+[       OK ] DAG TaskGraph Frame Scheduling Suite (262.768 ms)
+[ RUN      ] Project & ProjectSerializer Management Suite
+  [INFO] Project & ProjectSerializer testleri baslatiliyor...
+[Astral::Project] Yeni proje olusturuldu ve kaydedildi: C:\Dev\InkbytefoProjects\deneme\AstralEngine\artifacts\a21\test_sandbox_project\AstroTestProject.astralproj
+[Astral::Project] Proje basariyla yuklendi: AstroTestProject (C:\Dev\InkbytefoProjects\deneme\AstralEngine\artifacts\a21\test_sandbox_project\AstroTestProject.astralproj)
+  [INFO] Project testleri basariyla tamamlandi.
+[       OK ] Project & ProjectSerializer Management Suite (17.2935 ms)
+[ RUN      ] Application Loop & Fixed-Step Pipeline Suite
+[Astral::Window] Pencere basariyla olusturuldu (100x100): Dummy
+[Astral::Window] Pencere basariyla olusturuldu (100x100): Dummy
+[       OK ] Application Loop & Fixed-Step Pipeline Suite (136.522 ms)
+[ RUN      ] Service Boundaries & Headless Simulation Suite
+[Astral::Application] Baslatiliyor...
+[Astral::Application] GPU'suz Headless CPU simulasyon modu aktif (Pencere ve Vulkan olusturulmadi).
+[Astral::Application] Hedef: 10 kare calisip sonlanacak...
+[Astral::Scene] 'HeadlessSimScene' Runtime baslatildi.
+[Astral::SceneManager] Yeni sahne yuklendi: HeadlessSimScene
+[Astral::JobSystem] Baslatildi (7 worker thread).
+[Astral::Scene] 'HeadlessSimScene' Runtime durduruldu.
+[Astral::JobSystem] Guvenle kapatildi.
+[Astral::Application] Ana olay dongusu sonlandi (Toplam 10 kare).
+[Astral::SceneManager] Sahne kaldirildi: HeadlessSimScene
+[Astral::Application] AstralEngine basariyla kapatildi.
+[Astral::Application] Baslatiliyor...
+[Astral::Application] GPU'suz Headless CPU simulasyon modu aktif (Pencere ve Vulkan olusturulmadi).
+[Astral::Application] Hedef: 4 kare calisip sonlanacak...
+[Astral::Scene] 'InitialScene1' Runtime baslatildi.
+[Astral::SceneManager] Yeni sahne yuklendi: InitialScene1
+[Astral::JobSystem] Baslatildi (7 worker thread).
+[Astral::Scene] 'InitialScene1' Runtime durduruldu.
+[Astral::SceneManager] Sahne kaldirildi: InitialScene1
+[Astral::Scene] 'SwitchedScene2' Runtime baslatildi.
+[Astral::SceneManager] Yeni sahne yuklendi: SwitchedScene2
+[Astral::Scene] 'SwitchedScene2' Runtime durduruldu.
+[Astral::JobSystem] Guvenle kapatildi.
+[Astral::Application] Ana olay dongusu sonlandi (Toplam 4 kare).
+[Astral::SceneManager] Sahne kaldirildi: SwitchedScene2
+[Astral::Application] AstralEngine basariyla kapatildi.
+[Astral::Application] AstralEngine basariyla kapatildi.
+[       OK ] Service Boundaries & Headless Simulation Suite (1.9566 ms)
+[ RUN      ] Editor Gameplay Cycle & Reference Playable Suite
+
+--- [A3] Editor Gameplay Cycle & Reference Playable Suite ---
+[PuzzleGame] Kapi CSG ile oyuldu! Gecit acildi.
+[PuzzleGame] Kapi CSG ile oyuldu! Gecit acildi.
+[Astral::SceneSerializer] Scene successfully serialized to: test_puzzle_world.astral (6 entities)
+[Astral::SceneSerializer] Scene successfully deserialized from: test_puzzle_world.astral (6 entities)
+--- [A3] Editor Gameplay Cycle Testleri Basariyla Tamamlandi! ---
+
+[       OK ] Editor Gameplay Cycle & Reference Playable Suite (3.8584 ms)
+
+================================================================================
+[  PASSED  ] 17/17 test suites passed successfully (546 assertions verified).
+================================================================================

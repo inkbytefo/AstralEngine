@@ -6,6 +6,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtx/quaternion.hpp>
+#include <algorithm>
 #include <unordered_set>
 
 namespace Astral {
@@ -68,6 +69,24 @@ void DecomposeTransformMatrix(
     glm::vec4 perspective;
     glm::decompose(matrix, scale, rotation, position, skew, perspective);
     rotation = glm::normalize(rotation);
+}
+
+TransformComponent InterpolateTransform(const PreviousTransformComponent& prev, const TransformComponent& curr, float alpha) noexcept {
+    const float a = std::clamp(alpha, 0.0f, 1.0f);
+    TransformComponent result;
+    result.position = glm::mix(prev.position, curr.position, a);
+    result.rotation = glm::normalize(glm::slerp(prev.rotation, curr.rotation, a));
+    result.scale = glm::mix(prev.scale, curr.scale, a);
+    return result;
+}
+
+TransformComponent InterpolateTransform(const TransformComponent& prev, const TransformComponent& curr, float alpha) noexcept {
+    const float a = std::clamp(alpha, 0.0f, 1.0f);
+    TransformComponent result;
+    result.position = glm::mix(prev.position, curr.position, a);
+    result.rotation = glm::normalize(glm::slerp(prev.rotation, curr.rotation, a));
+    result.scale = glm::mix(prev.scale, curr.scale, a);
+    return result;
 }
 
 } // namespace Astral

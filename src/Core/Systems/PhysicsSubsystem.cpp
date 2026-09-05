@@ -10,8 +10,7 @@ namespace Astral {
 void PhysicsSubsystem::OnInit() {}
 
 void PhysicsSubsystem::OnUpdate(FrameContext& context) {
-    // Physics bilincli olarak fixed timestep kullanir; paylasilan gercek frame delta'sini degistirmez.
-    Integrate(context.registry, FixedTimeStep);
+    Integrate(context.registry, context.deltaTime);
 }
 
 void PhysicsSubsystem::OnShutdown() {}
@@ -22,6 +21,21 @@ void PhysicsSubsystem::Integrate(Registry& registry, float deltaTime) {
     for (auto&& [entity, transform] : transforms) {
         if (registry.HasComponent<VelocityComponent>(entity)) {
             const auto& velocity = registry.GetComponent<VelocityComponent>(entity);
+
+            // Render interpolasyonu ve simulasyon durumu sozlesmesi:
+            // Onceki konumu kaydet (eger bilesen yoksa ekle)
+            if (registry.HasComponent<PreviousTransformComponent>(entity)) {
+                auto& prev = registry.GetComponent<PreviousTransformComponent>(entity);
+                prev.position = transform.position;
+                prev.rotation = transform.rotation;
+                prev.scale = transform.scale;
+            } else {
+                registry.AddComponent<PreviousTransformComponent>(entity, PreviousTransformComponent{
+                    .position = transform.position,
+                    .rotation = transform.rotation,
+                    .scale = transform.scale
+                });
+            }
 
             transform.position += velocity.linear * deltaTime;
 

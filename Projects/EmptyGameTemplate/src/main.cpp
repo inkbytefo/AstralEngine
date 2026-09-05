@@ -20,6 +20,11 @@ public:
         : Astral::Application(ParseCommandLine(Astral::GetCommandLineArgs())) {
         std::cout << "[EmptyGameApp] Minimal Oyun Sablonu basariyla baslatildi.\n";
     }
+protected:
+    // No geometry or camera is inserted by the engine. Add your scene here.
+    std::shared_ptr<Astral::Scene> CreateInitialScene() override {
+        return std::make_shared<Astral::Scene>("Empty Game");
+    }
 };
 
 namespace Astral {

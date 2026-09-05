@@ -69,15 +69,17 @@ layout(std140, binding = 8) uniform CameraUBO {
     mat4 prevViewProj;
 } camera;
 
-// =================== Push Constants (SDFPushConstants — 96 byte) ===================
+// =================== Push Constants (SDFPushConstants — 128 byte) ===================
 
 layout(push_constant) uniform PushConstants {
-    vec4 camPos;      // xyz: position, w: time
+    vec4 camPos;      // xyz: position, w: near clip
     vec4 camDir;      // xyz: forward direction, w: normalMode (0=central, 1=tetrahedron)
     vec4 screenRes;   // x: width, y: height, z: editCount, w: useGrid (0=off, 1=on)
     vec4 gridParams;  // x: dimX (32), y: dimY (16), z: dimZ, w: cellSize (0.75)
     vec4 taaParams;   // x: jitterX, y: jitterY, z: taaEnabled (1=on, 0=off), w: blendAlpha
     vec4 mouseParams; // x: mouseX, y: mouseY, z: pickRequested (0/1), w: selectedHitIndex
+    vec4 cameraRight; // xyz: right, w: focal length
+    vec4 cameraUp; // xyz: up, w: far clip
 };
 
 // =================== Quaternion Vector Rotation ===================
@@ -288,13 +290,13 @@ void main() {
 
     vec3 ro = camPos.xyz;
     vec3 fwd = normalize(camDir.xyz);
-    vec3 right = normalize(cross(fwd, vec3(0.0, 1.0, 0.0)));
-    vec3 up = cross(right, fwd);
-    vec3 rd = normalize(fwd * 1.5 + right * uv.x + up * uv.y);
+    vec3 right = cameraRight.xyz;
+    vec3 up = cameraUp.xyz;
+    vec3 rd = normalize(fwd * cameraRight.w + right * uv.x + up * uv.y);
 
     // 2. Two-Level Hierarchical Raymarching
-    float t = 0.01;
-    float tMax = 50.0;
+    float t = camPos.w;
+    float tMax = cameraUp.w;
     HitInfo hit;
     bool found = false;
 

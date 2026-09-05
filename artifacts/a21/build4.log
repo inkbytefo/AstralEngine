@@ -1,0 +1,19 @@
+ninja: warning: premature end of file; recovering
+[1/18] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Core/Systems/InputSubsystem.cpp.obj
+[2/18] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Core/Systems/TransformSubsystem.cpp.obj
+[3/18] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Core/Systems/PhysicsSubsystem.cpp.obj
+[4/18] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Core/Systems/RenderExtractionSubsystem.cpp.obj
+[5/18] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Core/TransformSystem.cpp.obj
+[6/18] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Core/RenderExtractionSystem.cpp.obj
+[7/18] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Core/Application.cpp.obj
+[8/18] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Scene/Scene.cpp.obj
+[9/18] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Scene/SDFWorldQuery.cpp.obj
+[10/18] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Renderer/ComputePipeline.cpp.obj
+[11/18] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Scene/SceneSerializer.cpp.obj
+[12/18] Building CXX object Projects/Sandbox/CMakeFiles/Sandbox.dir/src/PuzzleGameSubsystem.cpp.obj
+[13/18] Building CXX object Projects/Sandbox/CMakeFiles/Sandbox.dir/src/main.cpp.obj
+[14/18] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Renderer/SDFRenderer.cpp.obj
+[15/18] Linking CXX static library libAstralEngine.a
+[16/18] Linking CXX executable Sandbox.exe
+[17/18] Building CXX object Tests/EngineTests/CMakeFiles/CameraGpuTests.dir/src/CameraGpuTests.cpp.obj
+[18/18] Linking CXX executable CameraGpuTests.exe

@@ -1,6 +1,7 @@
 #include "Astral/Editor/Panels/SceneHierarchy.hpp"
 #include "Astral/Core/Components.hpp"
 #include "Astral/Renderer/SDFEdit.hpp"
+#include "Astral/Scene/SceneCommands.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -175,10 +176,16 @@ void SceneHierarchy::DrawEntityNode(Scene& scene, EntityHandle entityId, Entity&
         if (ImGui::InputText("##InlineRename", m_RenameBuffer, sizeof(m_RenameBuffer),
                             ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
             if (m_RenameBuffer[0] != '\0') {
-                if (currentEntity.HasComponent<TagComponent>()) {
-                    currentEntity.GetComponent<TagComponent>().tag = m_RenameBuffer;
+                std::string newName = m_RenameBuffer;
+                std::string oldName = currentEntity.HasComponent<TagComponent>() ? currentEntity.GetComponent<TagComponent>().tag : "";
+                if (m_CommandStack) {
+                    m_CommandStack->PushAndExecute(std::make_unique<RenameEntityCommand>(currentEntity, oldName, newName));
                 } else {
-                    currentEntity.AddComponent<TagComponent>(m_RenameBuffer);
+                    if (currentEntity.HasComponent<TagComponent>()) {
+                        currentEntity.GetComponent<TagComponent>().tag = newName;
+                    } else {
+                        currentEntity.AddComponent<TagComponent>(newName);
+                    }
                 }
             }
             m_RenamingEntity = NullEntityHandle;
@@ -227,7 +234,11 @@ void SceneHierarchy::DrawEntityNode(Scene& scene, EntityHandle entityId, Entity&
     ImGui::PushStyleColor(ImGuiCol_Text, isSelfVisible ? ImVec4(0.85f, 0.85f, 0.85f, 1.0f) : ImVec4(0.4f, 0.4f, 0.4f, 0.5f));
 
     if (ImGui::SmallButton(isSelfVisible ? "(o)" : "(-)")) {
-        ToggleEntityVisibility(registry, entityId);
+        if (m_CommandStack) {
+            m_CommandStack->PushAndExecute(std::make_unique<SetVisibilityCommand>(currentEntity, isSelfVisible, !isSelfVisible));
+        } else {
+            ToggleEntityVisibility(registry, entityId);
+        }
     }
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip(isSelfVisible ? "Gorunur (Gizlemek icin tiklayin)" : "Gizli (Gostermek icin tiklayin)");
@@ -293,7 +304,8 @@ void SceneHierarchy::DrawEntityNode(Scene& scene, EntityHandle entityId, Entity&
     ImGui::PopID();
 }
 
-void SceneHierarchy::Draw(Scene& scene, Entity& selectedEntity) {
+void SceneHierarchy::Draw(Scene& scene, Entity& selectedEntity, CommandStack* commandStack) {
+    m_CommandStack = commandStack;
     ImGui::Begin("Sahne Hiyerarsisi");
 
     m_PendingDelete = NullEntityHandle;
@@ -408,7 +420,6 @@ void SceneHierarchy::Draw(Scene& scene, Entity& selectedEntity) {
 
     // ── 6. Bekleyen Eylemlerin İşlenmesi ────────────────────────────────────
     if (m_PendingAddPrimitive >= 0) {
-        Entity newObj = scene.CreateEntity();
         glm::vec3 pos = glm::vec3(0.0f, 0.8f, 0.0f);
         glm::vec3 scale = glm::vec3(0.7f);
         glm::vec3 albedo = glm::vec3(0.85f, 0.45f, 0.2f);
@@ -421,22 +432,31 @@ void SceneHierarchy::Draw(Scene& scene, Entity& selectedEntity) {
         else if (m_PendingAddPrimitive == 5) { tag = "Cylinder"; scale = glm::vec3(0.5f, 0.8f, 0.5f); albedo = glm::vec3(0.4f, 0.85f, 0.85f); }
         else if (m_PendingAddPrimitive == 99) { tag = "Empty Node"; }
 
-        newObj.AddComponent<TagComponent>(tag);
-        newObj.AddComponent<TransformComponent>(pos, glm::quat(1.0f, 0.0f, 0.0f, 0.0f), scale);
+        TransformComponent t(pos, glm::quat(1.0f, 0.0f, 0.0f, 0.0f), scale);
+        SDFComponent s(
+            static_cast<uint32_t>(m_PendingAddPrimitive == 99 ? 0 : m_PendingAddPrimitive),
+            static_cast<uint32_t>(CSGOperation::Union),
+            0.2f, 1u, albedo, 0.4f, 0.3f
+        );
 
-        if (m_PendingAddPrimitive != 99) {
-            newObj.AddComponent<SDFComponent>(
-                static_cast<uint32_t>(m_PendingAddPrimitive),
-                static_cast<uint32_t>(CSGOperation::Union),
-                0.2f, 1u, albedo, 0.4f, 0.3f
-            );
+        if (m_CommandStack) {
+            m_CommandStack->PushAndExecute(std::make_unique<CreateEntityCommand>(scene, tag, t, s, &selectedEntity));
+            if (m_PendingAddToParent != NullEntityHandle && selectedEntity.IsValid()) {
+                m_CommandStack->PushAndExecute(std::make_unique<ReparentEntityCommand>(scene, selectedEntity.GetHandle(), NullEntityHandle, m_PendingAddToParent));
+            }
+        } else {
+            Entity newObj = scene.CreateEntity();
+            newObj.AddComponent<TagComponent>(tag);
+            newObj.AddComponent<TransformComponent>(t);
+            if (m_PendingAddPrimitive != 99) {
+                newObj.AddComponent<SDFComponent>(s);
+            }
+            if (m_PendingAddToParent != NullEntityHandle) {
+                (void)scene.SetParent(newObj.GetHandle(), m_PendingAddToParent);
+            }
+            selectedEntity = newObj;
         }
 
-        if (m_PendingAddToParent != NullEntityHandle) {
-            (void)scene.SetParent(newObj.GetHandle(), m_PendingAddToParent);
-        }
-
-        selectedEntity = newObj;
         m_PendingAddPrimitive = -1;
     }
 
@@ -448,13 +468,26 @@ void SceneHierarchy::Draw(Scene& scene, Entity& selectedEntity) {
     }
 
     if (m_HasPendingReparent) {
-        m_ReparentRejected = !scene.SetParent(m_PendingChild, m_PendingParent);
+        Entity childEnt(m_PendingChild, &scene);
+        EntityHandle oldParent = NullEntityHandle;
+        if (childEnt.IsValid() && childEnt.HasComponent<HierarchyComponent>()) {
+            oldParent = childEnt.GetComponent<HierarchyComponent>().parent;
+        }
+        if (m_CommandStack) {
+            m_CommandStack->PushAndExecute(std::make_unique<ReparentEntityCommand>(scene, m_PendingChild, oldParent, m_PendingParent));
+        } else {
+            m_ReparentRejected = !scene.SetParent(m_PendingChild, m_PendingParent);
+        }
     }
 
     if (m_PendingDelete != NullEntityHandle) {
-        scene.DestroyEntity(m_PendingDelete);
-        if (selectedEntity.GetHandle() == m_PendingDelete) {
-            selectedEntity = Entity();
+        if (m_CommandStack) {
+            m_CommandStack->PushAndExecute(std::make_unique<DeleteEntityCommand>(scene, Entity(m_PendingDelete, &scene), &selectedEntity));
+        } else {
+            scene.DestroyEntity(m_PendingDelete);
+            if (selectedEntity.GetHandle() == m_PendingDelete) {
+                selectedEntity = Entity();
+            }
         }
     }
 
@@ -465,8 +498,12 @@ void SceneHierarchy::Draw(Scene& scene, Entity& selectedEntity) {
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.50f, 0.12f, 0.12f, 1.0f));
 
         if (ImGui::Button("Secili Nesneyi Sil (Del)", ImVec2(-1, 26))) {
-            scene.DestroyEntity(selectedEntity);
-            selectedEntity = Entity();
+            if (m_CommandStack) {
+                m_CommandStack->PushAndExecute(std::make_unique<DeleteEntityCommand>(scene, selectedEntity, &selectedEntity));
+            } else {
+                scene.DestroyEntity(selectedEntity);
+                selectedEntity = Entity();
+            }
         }
         ImGui::PopStyleColor(3);
     } else {

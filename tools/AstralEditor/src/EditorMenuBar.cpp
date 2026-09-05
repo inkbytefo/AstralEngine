@@ -431,6 +431,42 @@ void DrawEditorMenuBar(Scene& scene, Entity& selectedEntity,
             ImGui::EndMenu();
         }
 
+        // ── Play / Pause / Stop Toolbar ───────────────────────────
+        float menuBarWidth = ImGui::GetWindowWidth();
+        float buttonWidth = 75.0f;
+        float totalButtonsWidth = buttonWidth * 2.0f + 10.0f;
+        float centerPos = (menuBarWidth - totalButtonsWidth) * 0.5f;
+        if (centerPos > ImGui::GetCursorPosX()) {
+            ImGui::SameLine(centerPos);
+        }
+
+        if (scene.IsRunning()) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.85f, 0.22f, 0.22f, 0.85f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.95f, 0.32f, 0.32f, 1.0f));
+            if (ImGui::Button("Stop [F5]", ImVec2(buttonWidth, 0))) {
+                actions.stopPlay = true;
+            }
+            ImGui::PopStyleColor(2);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Simulasyonu Durdur ve Authoring Sahnesine Don (F5)");
+
+            ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.85f, 0.65f, 0.15f, 0.85f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.95f, 0.75f, 0.25f, 1.0f));
+            if (ImGui::Button("Pause [F6]", ImVec2(buttonWidth, 0))) {
+                actions.pauseToggle = true;
+            }
+            ImGui::PopStyleColor(2);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Duraklat / Devam Et (F6)");
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.65f, 0.28f, 0.85f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.22f, 0.85f, 0.32f, 1.0f));
+            if (ImGui::Button("Play [F5]", ImVec2(buttonWidth, 0))) {
+                actions.playToggle = true;
+            }
+            ImGui::PopStyleColor(2);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Play Moduna Gec (Sahneyi Klonlar ve Baslatir - F5)");
+        }
+
         ImGui::EndMenuBar();
     }
 

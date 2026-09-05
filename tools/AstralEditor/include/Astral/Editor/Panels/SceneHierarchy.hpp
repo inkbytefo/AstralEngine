@@ -19,12 +19,14 @@ namespace Astral {
  * - Surukle-birak ile ebeveyn atama ve bosa birakarak koke donme (Unparent)
  * - O(N) tek gecisli yuksek performansli agac render'i
  */
+class CommandStack;
+
 class SceneHierarchy {
 public:
     SceneHierarchy() = default;
     ~SceneHierarchy() = default;
 
-    void Draw(Scene& scene, Entity& selectedEntity);
+    void Draw(Scene& scene, Entity& selectedEntity, CommandStack* commandStack = nullptr);
 
 private:
     void DrawEntityNode(Scene& scene, EntityHandle entity, Entity& selectedEntity, bool isFiltered);
@@ -52,6 +54,8 @@ private:
     // Satir ici yeniden adlandirma (Rename)
     EntityHandle m_RenamingEntity = NullEntityHandle;
     char m_RenameBuffer[128] = "";
+
+    CommandStack* m_CommandStack = nullptr;
 };
 
 } // namespace Astral

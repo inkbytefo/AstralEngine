@@ -704,7 +704,7 @@ void VulkanContext::CreateAllocator() {
     vmaFunctions.vkGetDeviceProcAddr = VULKAN_HPP_DEFAULT_DISPATCHER.vkGetDeviceProcAddr;
 
     VmaAllocatorCreateInfo allocatorCreateInfo{};
-    allocatorCreateInfo.vulkanApiVersion = VK_API_VERSION_1_4;
+    allocatorCreateInfo.vulkanApiVersion = VK_API_VERSION_1_3;
     allocatorCreateInfo.physicalDevice = m_PhysicalDevice;
     allocatorCreateInfo.device = m_Device.get();
     allocatorCreateInfo.instance = m_Instance.get();

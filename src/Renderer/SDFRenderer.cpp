@@ -1121,17 +1121,34 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
     uint32_t groupX = static_cast<uint32_t>(std::ceil(static_cast<float>(m_Width) / 8.0f));
     uint32_t groupY = static_cast<uint32_t>(std::ceil(static_cast<float>(m_Height) / 8.0f));
 
-    // Kamera matrisleri dışarıdan beslenmediyse varsayılan değerlerle başlat
-    if (!m_CameraMatricesInitialized) {
-        glm::vec3 camPos = glm::vec3(0.0f, 1.5f, 4.0f);
-        glm::vec3 camDir = glm::normalize(glm::vec3(0.0f, -0.25f, -1.0f));
-        glm::mat4 view = glm::lookAt(camPos, camPos + camDir, glm::vec3(0.0f, 1.0f, 0.0f));
-        float fovY = 2.0f * std::atan(0.5f / 1.5f);
-        float aspect = (m_Height > 0) ? (static_cast<float>(m_Width) / static_cast<float>(m_Height)) : (16.0f / 9.0f);
-        glm::mat4 proj = glm::perspective(fovY, aspect, 0.1f, 100.0f);
-        SetCameraMatrices(view, proj, glm::vec2(0.0f));
+    (void)time;
+    if (!m_RenderCamera) {
+        // No implicit camera: discard the previous frame and produce opaque black.
+        vk::ImageMemoryBarrier barrier{};
+        barrier.oldLayout = vk::ImageLayout::eUndefined;
+        barrier.newLayout = vk::ImageLayout::eTransferDstOptimal;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = m_StorageImage.get();
+        barrier.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
+        barrier.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
+        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands,
+            vk::PipelineStageFlagBits::eTransfer, {}, {}, {}, barrier);
+        cmd.clearColorImage(m_StorageImage.get(), vk::ImageLayout::eTransferDstOptimal,
+            vk::ClearColorValue(std::array<float, 4>{0, 0, 0, 1}), barrier.subresourceRange);
+        barrier.oldLayout = vk::ImageLayout::eTransferDstOptimal;
+        barrier.newLayout = vk::ImageLayout::eGeneral;
+        barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+        barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eTransferRead;
+        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+            vk::PipelineStageFlagBits::eAllCommands, {}, {}, {}, barrier);
+        m_HistoryInitialized = false;
+        m_PickingRequested = false;
+        m_PickPendingRead = false;
+        ClearSelectionResult();
+        return;
     }
-
+    const auto& camera = *m_RenderCamera;
     if (m_UseGBuffer) {
         // =========================================================================
         // 1. G-Buffer Compute Pass (SDFGBuffer.glsl)
@@ -1176,8 +1193,10 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
         );
 
         SDFPushConstants pushConstants{};
-        pushConstants.camPos = glm::vec4(0.0f, 1.5f, 4.0f, time);
-        pushConstants.camDir = glm::vec4(0.0f, -0.25f, -1.0f, static_cast<float>(normalMode));
+        pushConstants.camPos = glm::vec4(camera.position, camera.nearClip);
+        pushConstants.camDir = glm::vec4(camera.forward, static_cast<float>(normalMode));
+        pushConstants.cameraRight = glm::vec4(camera.right, camera.projection[1][1] * 0.5f);
+        pushConstants.cameraUp = glm::vec4(camera.up, camera.farClip);
         pushConstants.screenRes = glm::vec4(
             static_cast<float>(m_Width),
             static_cast<float>(m_Height),
@@ -1325,8 +1344,11 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
             );
 
             DeferredLightingPushConstants defPush{};
-            glm::vec3 camPos = glm::vec3(0.0f, 1.5f, 4.0f);
-            glm::vec3 camDir = glm::normalize(glm::vec3(0.0f, -0.25f, -1.0f));
+            defPush.cameraRight = glm::vec4(camera.right, camera.projection[1][1] * 0.5f);
+            defPush.cameraUp = glm::vec4(camera.up, 0.0f);
+            defPush.rayParams = glm::vec4(m_CurrJitter, 0.0f, 0.0f);
+            const glm::vec3 camPos = camera.position;
+            const glm::vec3 camDir = camera.forward;
             defPush.camPos = glm::vec4(camPos, static_cast<float>(m_IBLManager->GetPrefilteredMipLevels()));
             defPush.camDir = glm::vec4(camDir, 1.0f); // xyz: dir, w: exposure = 1.0
             defPush.screenRes = glm::vec4(static_cast<float>(m_Width), static_cast<float>(m_Height), 1.0f, 0.0f); // z: iblIntensity = 1.0
@@ -1379,8 +1401,10 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
         );
 
         SDFPushConstants pushConstants{};
-        pushConstants.camPos = glm::vec4(0.0f, 1.5f, 4.0f, time);
-        pushConstants.camDir = glm::vec4(0.0f, -0.25f, -1.0f, static_cast<float>(normalMode));
+        pushConstants.camPos = glm::vec4(camera.position, camera.nearClip);
+        pushConstants.camDir = glm::vec4(camera.forward, static_cast<float>(normalMode));
+        pushConstants.cameraRight = glm::vec4(camera.right, camera.projection[1][1] * 0.5f);
+        pushConstants.cameraUp = glm::vec4(camera.up, camera.farClip);
         pushConstants.screenRes = glm::vec4(
             static_cast<float>(m_Width),
             static_cast<float>(m_Height),
@@ -1604,6 +1628,16 @@ void SDFRenderer::ClearSelectionResult() {
     }
 }
 
+void SDFRenderer::SetCamera(const std::optional<RenderCamera>& camera, const glm::vec2& jitter) {
+    if (!camera || !m_RenderCamera || camera->entity != m_RenderCamera->entity ||
+        camera->sceneInstance != m_RenderCamera->sceneInstance ||
+        camera->projection != m_RenderCamera->projection) {
+        m_CameraMatricesInitialized = false;
+        m_HistoryInitialized = false;
+    }
+    m_RenderCamera = camera;
+    if (camera) SetCameraMatrices(camera->view, camera->projection, jitter);
+}
 void SDFRenderer::SetCameraMatrices(const glm::mat4& view, const glm::mat4& proj, const glm::vec2& jitter) {
     glm::mat4 vkProj = proj;
     // Vulkan NDC: Y eksenini ekran koordinatlariyla (0 = ust, 1 = alt) eslestir

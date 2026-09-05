@@ -1,0 +1,100 @@
+name: AstralEngine CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================================
+  # 1. CPU Build & Headless Regression Test Suite (GPU gerektirmez)
+  # ============================================================================
+  build-and-test-cpu:
+    name: Windows (MinGW / Ninja) — CPU Build & Tests
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Ninja
+        uses: ashutoshvarma/setup-ninja@v1
+        with:
+          version: 1.11.1
+
+      - name: Set up Vulkan SDK
+        uses: humble/setup-vulkan@v1
+        with:
+          vulkan-version: 1.3.268.0
+
+      - name: Configure CMake (Release)
+        run: |
+          cmake -B build-release -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DASTRAL_BUILD_TESTS=ON `
+            -DASTRAL_BUILD_EDITOR=ON `
+            -DASTRAL_BUILD_PROJECTS=ON
+
+      - name: Build All Targets (Release)
+        run: |
+          cmake --build build-release --config Release
+
+      - name: Run CTest CPU Regression Suite (Release)
+        run: |
+          ctest --test-dir build-release -L CPU --output-on-failure --no-compress-output
+
+      - name: Configure CMake (Debug)
+        run: |
+          cmake -B build-debug -G Ninja `
+            -DCMAKE_BUILD_TYPE=Debug `
+            -DASTRAL_BUILD_TESTS=ON `
+            -DASTRAL_BUILD_EDITOR=OFF `
+            -DASTRAL_BUILD_PROJECTS=OFF
+
+      - name: Build Engine & Tests (Debug)
+        run: |
+          cmake --build build-debug --config Debug
+
+      - name: Run CTest CPU Regression Suite (Debug)
+        run: |
+          ctest --test-dir build-debug -L CPU --output-on-failure --no-compress-output
+
+      - name: Upload Test Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-logs
+          path: |
+            build-release/Testing/Temporary/*.log
+            build-debug/Testing/Temporary/*.log
+          if-no-files-found: ignore
+
+  # ============================================================================
+  # 2. GPU Hardware Smoke Test (Donanım Koşucusu Gerektirir)
+  # ============================================================================
+  gpu-smoke-test:
+    name: Windows (Self-Hosted GPU Runner) — Vulkan 1.4 Compute Smoke
+    # Yalnizca ozel GPU etiketli self-hosted kosucu varsa calisir
+    runs-on: [self-hosted, gpu]
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'gpu-test') }}
+    needs: build-and-test-cpu
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Build Release Targets
+        run: |
+          cmake --build build-release --config Release
+
+      - name: Run CTest GPU Smoke Suite
+        run: |
+          ctest --test-dir build-release -L GPU --output-on-failure

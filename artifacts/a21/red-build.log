@@ -1,0 +1,106 @@
+ninja: warning: premature end of file; recovering
+[0/1] Re-running CMake...
+-- Using Win32 for window creation
+CMake Deprecation Warning at build-release/_deps/glm-src/CMakeLists.txt:1 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+CMake Deprecation Warning at build-release/_deps/glm-src/CMakeLists.txt:2 (cmake_policy):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+-- GLM: Version 1.0.1
+-- GLM: Build with C++ features auto detection
+-- AstralEngine LINK_LIBRARIES=Vulkan::Vulkan;VulkanMemoryAllocator;glfw;glm::glm
+-- AstralEngine INTERFACE_LINK_LIBRARIES=Vulkan::Vulkan;VulkanMemoryAllocator;glfw;glm::glm
+-- AstralEngine INCLUDE_DIRECTORIES=$<BUILD_INTERFACE:C:/Dev/InkbytefoProjects/deneme/AstralEngine/include>;$<INSTALL_INTERFACE:include>
+-- AstralEngine INTERFACE_INCLUDE_DIRECTORIES=$<BUILD_INTERFACE:C:/Dev/InkbytefoProjects/deneme/AstralEngine/include>;$<INSTALL_INTERFACE:include>
+-- Configuring done (0.4s)
+-- Generating done (0.3s)
+-- Build files have been written to: C:/Dev/InkbytefoProjects/deneme/AstralEngine/build-release
+ninja: warning: premature end of file; recovering
+[1/5] Building CXX object Tests/EngineTests/CMakeFiles/EngineTests.dir/src/main.cpp.obj
+[2/5] Building CXX object Tests/EngineTests/CMakeFiles/EngineTests.dir/src/CameraTests.cpp.obj
+FAILED: [code=1] Tests/EngineTests/CMakeFiles/EngineTests.dir/src/CameraTests.cpp.obj 
+C:\mingw64\bin\x86_64-w64-mingw32-g++.exe -DSHADER_BIN_DIR=\"C:/Dev/InkbytefoProjects/deneme/AstralEngine/build-release/shaders\" -DVMA_DYNAMIC_VULKAN_FUNCTIONS=1 -DVMA_STATIC_VULKAN_FUNCTIONS=0 -DVULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1 -IC:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src -IC:/Dev/InkbytefoProjects/deneme/AstralEngine/include -IC:/Dev/InkbytefoProjects/deneme/AstralEngine/build-release/_deps/vma-src/include -IC:/Dev/InkbytefoProjects/deneme/AstralEngine/build-release/_deps/glfw-src/include -IC:/Dev/InkbytefoProjects/deneme/AstralEngine/build-release/_deps/glm-src -isystem C:/VulkanSDK/1.4.335.0/include -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic -MD -MT Tests/EngineTests/CMakeFiles/EngineTests.dir/src/CameraTests.cpp.obj -MF Tests\EngineTests\CMakeFiles\EngineTests.dir\src\CameraTests.cpp.obj.d -o Tests/EngineTests/CMakeFiles/EngineTests.dir/src/CameraTests.cpp.obj -c C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/CameraTests.cpp
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/CameraTests.cpp: In function 'void Astral::Test::RunCameraTests()':
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/CameraTests.cpp:14:28: error: 'CreateInitialScene' has not been declared in 'class Astral::Application'
+   14 |         using Application::CreateInitialScene;
+      |                            ^~~~~~~~~~~~~~~~~~
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/CameraTests.cpp:17:22: error: 'class Astral::Test::RunCameraTests()::EmptyApp' has no member named 'CreateInitialScene'
+   17 |     auto empty = app.CreateInitialScene();
+      |                      ^~~~~~~~~~~~~~~~~~
+In file included from C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/CameraTests.cpp:1:
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/CameraTests.cpp:20:44: error: 'ExtractActiveCamera' was not declared in this scope
+   20 |     TEST_CHECK(suite, "NoImplicitCamera", !ExtractActiveCamera(registry, 16.0f / 9.0f));
+      |                                            ^~~~~~~~~~~~~~~~~~~
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/TestFramework.hpp:118:74: note: in definition of macro 'TEST_CHECK_MSG'
+  118 |     ::Astral::Test::TestRunner::Instance().RecordAssertion(suite, test, (cond), #cond, msg, __FILE__, __LINE__)
+      |                                                                          ^~~~
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/CameraTests.cpp:20:5: note: in expansion of macro 'TEST_CHECK'
+   20 |     TEST_CHECK(suite, "NoImplicitCamera", !ExtractActiveCamera(registry, 16.0f / 9.0f));
+      |     ^~~~~~~~~~
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/CameraTests.cpp:22:43: error: expected primary-expression before '>' token
+   22 |     camera.AddComponent<TransformComponent>(glm::vec3(2, 3, 4));
+      |                                           ^
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/CameraTests.cpp:23:25: error: 'CameraComponent' was not declared in this scope; did you mean 'TagComponent'?
+   23 |     camera.AddComponent<CameraComponent>();
+      |                         ^~~~~~~~~~~~~~~
+      |                         TagComponent
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/CameraTests.cpp:23:42: error: expected primary-expression before ')' token
+   23 |     camera.AddComponent<CameraComponent>();
+      |                                          ^
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/CameraTests.cpp:25:39: error: 'SetActiveCamera' was not declared in this scope
+   25 |     TEST_CHECK(suite, "SelectCamera", SetActiveCamera(registry, camera.GetHandle()));
+      |                                       ^~~~~~~~~~~~~~~
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/TestFramework.hpp:118:74: note: in definition of macro 'TEST_CHECK_MSG'
+  118 |     ::Astral::Test::TestRunner::Instance().RecordAssertion(suite, test, (cond), #cond, msg, __FILE__, __LINE__)
+      |                                                                          ^~~~
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/CameraTests.cpp:25:5: note: in expansion of macro 'TEST_CHECK'
+   25 |     TEST_CHECK(suite, "SelectCamera", SetActiveCamera(registry, camera.GetHandle()));
+      |     ^~~~~~~~~~
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/CameraTests.cpp:35:43: error: expected primary-expression before '>' token
+   35 |     second.AddComponent<TransformComponent>();
+      |                                           ^
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/CameraTests.cpp:35:45: error: expected primary-expression before ')' token
+   35 |     second.AddComponent<TransformComponent>();
+      |                                             ^
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/CameraTests.cpp:36:42: error: expected primary-expression before ')' token
+   36 |     second.AddComponent<CameraComponent>();
+      |                                          ^
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/CameraTests.cpp:38:83: error: expected primary-expression before ')' token
+   38 |     TEST_CHECK(suite, "PreviousDeactivated", camera.GetComponent<CameraComponent>().primary == 0);
+      |                                                                                   ^
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/TestFramework.hpp:118:74: note: in definition of macro 'TEST_CHECK_MSG'
+  118 |     ::Astral::Test::TestRunner::Instance().RecordAssertion(suite, test, (cond), #cond, msg, __FILE__, __LINE__)
+      |                                                                          ^~~~
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/CameraTests.cpp:38:5: note: in expansion of macro 'TEST_CHECK'
+   38 |     TEST_CHECK(suite, "PreviousDeactivated", camera.GetComponent<CameraComponent>().primary == 0);
+      |     ^~~~~~~~~~
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/CameraTests.cpp:40:95: error: expected primary-expression before ')' token
+   40 |     TEST_CHECK(suite, "InvalidSelectionPreservesCamera", second.GetComponent<CameraComponent>().primary == 1);
+      |                                                                                               ^
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/TestFramework.hpp:118:74: note: in definition of macro 'TEST_CHECK_MSG'
+  118 |     ::Astral::Test::TestRunner::Instance().RecordAssertion(suite, test, (cond), #cond, msg, __FILE__, __LINE__)
+      |                                                                          ^~~~
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/CameraTests.cpp:40:5: note: in expansion of macro 'TEST_CHECK'
+   40 |     TEST_CHECK(suite, "InvalidSelectionPreservesCamera", second.GetComponent<CameraComponent>().primary == 1);
+      |     ^~~~~~~~~~
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/CameraTests.cpp:41:42: error: expected primary-expression before ')' token
+   41 |     second.GetComponent<CameraComponent>().verticalFovRadians = std::numeric_limits<float>::quiet_NaN();
+      |                                          ^
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tests/EngineTests/src/CameraTests.cpp:43:42: error: expected primary-expression before ')' token
+   43 |     second.GetComponent<CameraComponent>() = CameraComponent{};
+      |                                          ^
+[3/5] Building CXX object Tests/EngineTests/CMakeFiles/EngineTests.dir/src/SerializationTests.cpp.obj
+ninja: build stopped: subcommand failed.

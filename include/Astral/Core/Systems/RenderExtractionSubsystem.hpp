@@ -14,6 +14,8 @@ public:
     void OnUpdate(FrameContext& context) override;
     void OnShutdown() override;
 
+    [[nodiscard]] SystemStage GetStage() const override { return SystemStage::RenderExtraction; }
+
     [[nodiscard]] const std::vector<SDFEditGPU>& GetLastExtractedEdits() const noexcept {
         return m_SceneEdits;
     }

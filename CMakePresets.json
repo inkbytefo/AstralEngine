@@ -11,7 +11,7 @@
       "displayName": "MinGW Debug",
       "description": "Ninja + MinGW-w64 Derleme (Debug) - Windows",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build",
+      "binaryDir": "${sourceDir}/build-debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_C_COMPILER": "C:/mingw64/bin/x86_64-w64-mingw32-gcc.exe",
@@ -81,8 +81,39 @@
   ],
   "testPresets": [
     {
-      "name": "mingw-debug",
+      "name": "test-release",
+      "configurePreset": "mingw-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "test-debug",
       "configurePreset": "mingw-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "test-cpu",
+      "configurePreset": "mingw-release",
+      "filter": {
+        "include": {
+          "label": "CPU"
+        }
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "test-gpu",
+      "configurePreset": "mingw-release",
+      "filter": {
+        "include": {
+          "label": "GPU"
+        }
+      },
       "output": {
         "outputOnFailure": true
       }

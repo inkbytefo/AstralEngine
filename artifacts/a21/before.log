@@ -1,0 +1,71 @@
+[Astral::Application] AstralEngine v1.0.0 olusturuldu.
+[Astral::Application] Baslatiliyor...
+[Astral::Window] Pencere basariyla olusturuldu (320x180): AstralEngine - Vulkan 1.4 SDF Compute [Central Normal (6-tap)]
+[Astral::VulkanContext] Vulkan Debug Messenger basariyla kuruldu (Validation Layer Aktif).
+[Astral::VulkanContext] Secilen GPU: NVIDIA GeForce RTX 3060
+[Astral::VulkanContext] Vulkan API Versiyonu: 1.4.351
+[Astral::VulkanContext] Timestamp Period: 1 ns/tick
+[Astral::VulkanContext] VMA (Vulkan Memory Allocator) basariyla baslatildi.
+[Astral::VulkanContext] Vulkan 1.4 ve GPU Timestamp altyapisi basariyla hazirlandi.
+[Astral::ComputePipeline] Compute pipeline basariyla olusturuldu: C:/Dev/InkbytefoProjects/deneme/AstralEngine/build-release/shaders/SDFCompute.spv
+[Astral::BrickGrid] Two-Level Spatial Grid baslatildi (32x16x32, Hucre boyutu: 0.75m, Tampon: 64 KB, VMA: Evet).
+[Astral::IBLManager] IBL ortami (BRDF LUT + Cubemaps) baslatiliyor...
+[Astral::IBLManager] 2D BRDF LUT hazirlandi (0.4332 ms, Disk Onbelleginden yuklendi).
+[Astral::IBLManager] Procedural Cubemap'ler hazirlandi (14.4794 ms).
+[Astral::IBLManager] IBL baslatma tamamlandi (Toplam sure: 36.593 ms).
+[Astral::SDFRenderer] SDF Renderer baslatildi (320x180, EditBuffer: 24 KB, Two-Level BrickGrid, Deferred PBR & IBL Lighting Aktif).
+[Astral::Application] Normal Modu: Central Differences (6-tap)
+[Astral::Application] Bellek Esleme Modu: Persistent Mapping (Kalici Pointer)
+[Astral::Application] Izgara Hizlandirmasi (PR-6): AKTIF (Empty Space Skipping)
+[Astral::Application] Golge Optimizasyonu (PR-7): AKTIF (Erken Cikis & Back-Face Culling)
+[Astral::Application] Temporal Anti-Aliasing (PR-8): AKTIF (Halton Jitter + 3x3 Clamp TAA)
+[Astral::Application] Deferred G-Buffer (Faz 1): KAPALI (Monolitik Raymarch)
+[Astral::Application] Sahne Modu: Standart Sahne (4 Nesne)
+[Astral::Application] Hedef: 5 kare calisip sonlanacak...
+[Astral::SceneManager] Yeni sahne yuklendi: Sandbox Editor Level
+[Astral::Scene] 'Sandbox Editor Level' Runtime baslatildi.
+[Astral::JobSystem] Baslatildi (7 worker thread).
+[Astral::Picking] ISABET: hitIndex = 2 -> Entity #2 (gen 1) (Valid: true) | Nokta: (-0.00928896, 0.690289, 0.755483) | Mesafe: 3.34404m
+[Astral::JobSystem] Guvenle kapatildi.
+[Astral::Application] Ana olay dongusu sonlandi (Toplam 5 kare).
+[Astral::Scene] 'Sandbox Editor Level' Runtime durduruldu.
+[Astral::SceneManager] Sahne kaldirildi: Sandbox Editor Level
+[Astral::VulkanContext] VMA allocator serbest birakildi.
+[Astral::VulkanContext] Vulkan kaynaklari guvenle temizlendi.
+[Astral::Application] AstralEngine basariyla kapatildi.
+[Astral::Application] AstralEngine v1.0.0 olusturuldu.
+[Astral::Application] Baslatiliyor...
+[Astral::Window] Pencere basariyla olusturuldu (320x180): AstralEngine - Vulkan 1.4 SDF Compute [Central Normal (6-tap)]
+[Astral::VulkanContext] Vulkan Debug Messenger basariyla kuruldu (Validation Layer Aktif).
+[Astral::VulkanContext] Secilen GPU: NVIDIA GeForce RTX 3060
+[Astral::VulkanContext] Vulkan API Versiyonu: 1.4.351
+[Astral::VulkanContext] Timestamp Period: 1 ns/tick
+[Astral::VulkanContext] VMA (Vulkan Memory Allocator) basariyla baslatildi.
+[Astral::VulkanContext] Vulkan 1.4 ve GPU Timestamp altyapisi basariyla hazirlandi.
+[Astral::ComputePipeline] Compute pipeline basariyla olusturuldu: C:/Dev/InkbytefoProjects/deneme/AstralEngine/build-release/shaders/SDFCompute.spv
+[Astral::BrickGrid] Two-Level Spatial Grid baslatildi (32x16x32, Hucre boyutu: 0.75m, Tampon: 64 KB, VMA: Evet).
+[Astral::IBLManager] IBL ortami (BRDF LUT + Cubemaps) baslatiliyor...
+[Astral::IBLManager] 2D BRDF LUT hazirlandi (0.3405 ms, Disk Onbelleginden yuklendi).
+[Astral::IBLManager] Procedural Cubemap'ler hazirlandi (12.1846 ms).
+[Astral::IBLManager] IBL baslatma tamamlandi (Toplam sure: 36.7069 ms).
+[Astral::SDFRenderer] SDF Renderer baslatildi (320x180, EditBuffer: 24 KB, Two-Level BrickGrid, Deferred PBR & IBL Lighting Aktif).
+[Astral::Application] Normal Modu: Central Differences (6-tap)
+[Astral::Application] Bellek Esleme Modu: Persistent Mapping (Kalici Pointer)
+[Astral::Application] Izgara Hizlandirmasi (PR-6): AKTIF (Empty Space Skipping)
+[Astral::Application] Golge Optimizasyonu (PR-7): AKTIF (Erken Cikis & Back-Face Culling)
+[Astral::Application] Temporal Anti-Aliasing (PR-8): AKTIF (Halton Jitter + 3x3 Clamp TAA)
+[Astral::Application] Deferred G-Buffer (Faz 1): AKTIF (Motion Vectors + G-Buffer)
+[Astral::Application] G-Buffer Debug Modu: 0
+[Astral::Application] Sahne Modu: Standart Sahne (4 Nesne)
+[Astral::Application] Hedef: 5 kare calisip sonlanacak...
+[Astral::SceneManager] Yeni sahne yuklendi: Sandbox Editor Level
+[Astral::Scene] 'Sandbox Editor Level' Runtime baslatildi.
+[Astral::JobSystem] Baslatildi (7 worker thread).
+[Astral::Picking] ISABET: hitIndex = 2 -> Entity #2 (gen 1) (Valid: true) | Nokta: (-0.00928896, 0.690289, 0.755483) | Mesafe: 3.34404m
+[Astral::JobSystem] Guvenle kapatildi.
+[Astral::Application] Ana olay dongusu sonlandi (Toplam 5 kare).
+[Astral::Scene] 'Sandbox Editor Level' Runtime durduruldu.
+[Astral::SceneManager] Sahne kaldirildi: Sandbox Editor Level
+[Astral::VulkanContext] VMA allocator serbest birakildi.
+[Astral::VulkanContext] Vulkan kaynaklari guvenle temizlendi.
+[Astral::Application] AstralEngine basariyla kapatildi.

@@ -1,0 +1,15 @@
+[Astral::SceneSerializer] Warning: Skipping unknown component TypeID: 0xcafebabedead (24 bytes) in: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\unknown_chunk.astral
+[Astral::SceneSerializer] Error: Premature EOF reading file header in: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\truncated.astral
+[Astral::SceneSerializer] Error: Cannot serialize null scene!
+[Astral::SceneSerializer] Error: Cannot deserialize into null scene!
+[Astral::SceneSerializer] Error: Corrupt or invalid magic signature in: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\corrupt_magic.astral (got 'XXXX')
+[Astral::SceneSerializer] Error: Cannot open file for reading: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\non_existent_file.astral
+[Astral::SceneSerializer] Error: Corrupt chunk payload size (100000800 bytes) exceeds remaining file size in: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\oversized_chunk.astral
+[Astral::SceneSerializer] Error: Corrupt chunk payload size (100012 bytes) exceeds remaining file size in: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\oversized_tag.astral
+[Astral::SceneSerializer] Error: Unsupported version 0 (supported range: 2 - 3) in: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\bad_version_0.astral
+[Astral::SceneSerializer] Error: Unsupported version 1 (supported range: 2 - 3) in: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\bad_version_1.astral
+[Astral::SceneSerializer] Error: Unsupported version 4 (supported range: 2 - 3) in: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\bad_version_4.astral
+[Astral::SceneSerializer] Error: Unsupported version 999 (supported range: 2 - 3) in: C:\Users\tpoyr\AppData\Local\Temp\astral_test_serialization\bad_version_999.astral
+[Astral::SceneSerializer] Error: Failed serializing chunk for TypeID 0x7ba608dfda15da62
+[Astral::ProjectSerializer] Proje dosyasi bulunamadi: C:\Users\tpoyr\AppData\Local\Temp\astral_test_project\non_existent_file_9999.astralproj
+[Astral::Project] HATA: Proje yuklenemedi: C:\Users\tpoyr\AppData\Local\Temp\astral_test_project\non_existent_file_9999.astralproj

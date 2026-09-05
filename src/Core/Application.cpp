@@ -4,7 +4,8 @@
 #include "Astral/Renderer/VulkanContext.hpp"
 #include "Astral/Renderer/Swapchain.hpp"
 #include "Astral/Renderer/SDFRenderer.hpp"
-#include "Astral/Core/Components.hpp"
+#include "Astral/Renderer/RenderContext.hpp"
+#include "Astral/Core/RenderExtractionSystem.hpp"
 #include "Astral/Core/Systems/InputSubsystem.hpp"
 #include "Astral/Core/Systems/PhysicsSubsystem.hpp"
 #include "Astral/Core/Systems/TransformSubsystem.hpp"
@@ -16,6 +17,7 @@
 #include <chrono>
 #include <filesystem>
 #include <array>
+#include <algorithm>
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace Astral {
@@ -25,11 +27,20 @@ Application::Application()
 
 Application::Application(const AppConfig& config)
     : m_Config(config) {
-    m_SystemManager.PushSystem<InputSubsystem>();
-    m_PhysicsSubsystem = &m_SystemManager.PushSystem<PhysicsSubsystem>();
-    m_SystemManager.PushSystem<TransformSubsystem>();
-    m_RenderExtractionSubsystem = &m_SystemManager.PushSystem<RenderExtractionSubsystem>();
-    std::cout << "[Astral::Application] " << GetName() << " v" << GetVersion() << " olusturuldu.\n";
+    m_PhysicsSubsystem = &PushSystem<PhysicsSubsystem>();
+    m_RenderExtractionSubsystem = &PushSystem<RenderExtractionSubsystem>();
+    PushSystem<TransformSubsystem>();
+    PushSystem<InputSubsystem>();
+}
+
+std::shared_ptr<Scene> Application::CreateInitialScene() {
+    return std::make_shared<Scene>();
+}
+
+void Application::RequestPick(int screenX, int screenY) {
+    if (m_SDFRenderer) {
+        m_SDFRenderer->SetPickingRequest(screenX, screenY);
+    }
 }
 
 void Application::Cleanup() {
@@ -58,49 +69,59 @@ void Application::Run(int maxFrames) {
     std::cout << "[Astral::Application] Baslatiliyor...\n";
 
     try {
-        // 1. Pencereyi baslat
-        std::string modeTitle = (m_Config.normalMode == 1) ? "[Tetrahedron Normal (4-tap)]" : "[Central Normal (6-tap)]";
-        m_Window = std::make_unique<Window>(
-            m_Config.width,
-            m_Config.height,
-            GetName() + " - Vulkan 1.4 SDF Compute " + modeTitle
-        );
+        if (!m_Config.headless) {
+            // 1. Pencereyi baslat
+            std::string modeTitle = (m_Config.normalMode == 1) ? "[Tetrahedron Normal (4-tap)]" : "[Central Normal (6-tap)]";
+            m_Window = std::make_unique<Window>(
+                m_Config.width,
+                m_Config.height,
+                GetName() + " - Vulkan 1.4 SDF Compute " + modeTitle
+            );
 
-        // 2. Vulkan 1.4 Context ve Validation Layer'i baslat
-        m_VulkanContext = std::make_unique<VulkanContext>(*m_Window, true);
+            // 2. Vulkan 1.4 Context ve Validation Layer'i baslat
+            m_VulkanContext = std::make_unique<VulkanContext>(*m_Window, true);
 
-        // 3. SPIR-V dosyasini bul ve SDFRenderer'i baslat
-        std::string spvPath = m_Config.shaderPath;
-        if (spvPath.empty()) {
-            std::vector<std::string> candidates = {
-                "build/shaders/SDFCompute.spv",
-                "shaders/SDFCompute.spv",
-                "../shaders/SDFCompute.spv"
-            };
+            // 3. SPIR-V dosyasini bul ve SDFRenderer'i baslat
+            std::string spvPath = m_Config.shaderPath;
+            if (spvPath.empty()) {
+                std::vector<std::string> candidates = {
+                    "build/shaders/SDFCompute.spv",
+                    "shaders/SDFCompute.spv",
+                    "../shaders/SDFCompute.spv"
+                };
+                if (g_CommandLineArgs.argv && g_CommandLineArgs.argv[0]) {
+                    std::filesystem::path exeDir = std::filesystem::absolute(g_CommandLineArgs.argv[0]).parent_path();
+                    candidates.push_back((exeDir / "shaders/SDFCompute.spv").string());
+                    candidates.push_back((exeDir / "../shaders/SDFCompute.spv").string());
+                    candidates.push_back((exeDir / "SDFCompute.spv").string());
+                }
 #ifdef SHADER_BIN_DIR
-            candidates.insert(candidates.begin(), SHADER_BIN_DIR "/SDFCompute.spv");
+                candidates.insert(candidates.begin(), SHADER_BIN_DIR "/SDFCompute.spv");
 #endif
-            for (const auto& c : candidates) {
-                if (std::filesystem::exists(c)) {
-                    spvPath = c;
-                    break;
+                for (const auto& c : candidates) {
+                    if (std::filesystem::exists(c)) {
+                        spvPath = c;
+                        break;
+                    }
                 }
             }
-        }
 
-        if (spvPath.empty() || !std::filesystem::exists(spvPath)) {
-            throw std::runtime_error("SDFCompute.spv shader dosyasi bulunamadi! spvPath: " + spvPath);
-        }
+            if (spvPath.empty() || !std::filesystem::exists(spvPath)) {
+                throw std::runtime_error("SDFCompute.spv shader dosyasi bulunamadi! spvPath: " + spvPath);
+            }
 
-        m_SDFRenderer = std::make_unique<SDFRenderer>(
-            *m_VulkanContext,
-            spvPath,
-            m_Config.width,
-            m_Config.height,
-            !m_Config.legacyMap
-        );
-        m_SDFRenderer->SetUseGBuffer(m_Config.useGBuffer);
-        m_SDFRenderer->SetDebugMode(m_Config.debugMode);
+            m_SDFRenderer = std::make_unique<SDFRenderer>(
+                *m_VulkanContext,
+                spvPath,
+                m_Config.width,
+                m_Config.height,
+                !m_Config.legacyMap
+            );
+            m_SDFRenderer->SetUseGBuffer(m_Config.useGBuffer);
+            m_SDFRenderer->SetDebugMode(m_Config.debugMode);
+        } else {
+            std::cout << "[Astral::Application] GPU'suz Headless CPU simulasyon modu aktif (Pencere ve Vulkan olusturulmadi).\n";
+        }
 
         // 4. Benchmark logger kurulumu
         if (m_Config.benchMode) {
@@ -110,290 +131,265 @@ void Application::Run(int maxFrames) {
         int targetFrames = maxFrames > 0 ? maxFrames : (m_Config.maxFrames > 0 ? m_Config.maxFrames : (m_Config.benchMode ? m_Config.benchFrames : -1));
 
         m_Running = true;
-        std::cout << "[Astral::Application] Normal Modu: " << (m_Config.normalMode == 1 ? "Tetrahedron (4-tap optimize)" : "Central Differences (6-tap)") << "\n";
-        std::cout << "[Astral::Application] Bellek Esleme Modu: " << (m_Config.legacyMap ? "Legacy Map/Unmap (Kare basi vkMapMemory)" : "Persistent Mapping (Kalici Pointer)") << "\n";
-        std::cout << "[Astral::Application] Izgara Hizlandirmasi (PR-6): " << (m_Config.useGrid ? "AKTIF (Empty Space Skipping)" : "KAPALI (Brute Force)") << "\n";
-        std::cout << "[Astral::Application] Golge Optimizasyonu (PR-7): " << (m_Config.optShadow ? "AKTIF (Erken Cikis & Back-Face Culling)" : "KAPALI (Kaba Kuvvet 24-Adim)") << "\n";
-        std::cout << "[Astral::Application] Temporal Anti-Aliasing (PR-8): " << (m_Config.enableTAA ? "AKTIF (Halton Jitter + 3x3 Clamp TAA)" : "KAPALI (Ham No-AA)") << "\n";
-        std::cout << "[Astral::Application] Deferred G-Buffer (Faz 1): " << (m_Config.useGBuffer ? "AKTIF (Motion Vectors + G-Buffer)" : "KAPALI (Monolitik Raymarch)") << "\n";
-        if (m_Config.useGBuffer) {
-            std::cout << "[Astral::Application] G-Buffer Debug Modu: " << m_Config.debugMode << "\n";
+        if (!m_Config.headless) {
+            std::cout << "[Astral::Application] Normal Modu: " << (m_Config.normalMode == 1 ? "Tetrahedron (4-tap optimize)" : "Central Differences (6-tap)") << "\n";
+            std::cout << "[Astral::Application] Bellek Esleme Modu: " << (m_Config.legacyMap ? "Legacy Map/Unmap (Kare basi vkMapMemory)" : "Persistent Mapping (Kalici Pointer)") << "\n";
+            std::cout << "[Astral::Application] Izgara Hizlandirmasi (PR-6): " << (m_Config.useGrid ? "AKTIF (Empty Space Skipping)" : "KAPALI (Brute Force)") << "\n";
+            std::cout << "[Astral::Application] Golge Optimizasyonu (PR-7): " << (m_Config.optShadow ? "AKTIF (Erken Cikis & Back-Face Culling)" : "KAPALI (Kaba Kuvvet 24-Adim)") << "\n";
+            std::cout << "[Astral::Application] Temporal Anti-Aliasing (PR-8): " << (m_Config.enableTAA ? "AKTIF (Halton Jitter + 3x3 Clamp TAA)" : "KAPALI (Ham No-AA)") << "\n";
+            std::cout << "[Astral::Application] Deferred G-Buffer (Faz 1): " << (m_Config.useGBuffer ? "AKTIF (Motion Vectors + G-Buffer)" : "KAPALI (Monolitik Raymarch)") << "\n";
+            if (m_Config.useGBuffer) {
+                std::cout << "[Astral::Application] G-Buffer Debug Modu: " << m_Config.debugMode << "\n";
+            }
         }
-        std::cout << "[Astral::Application] Sahne Modu: " << (m_Config.stressTest ? "Karmasik Stress Sahnesi (32 Nesne)" : "Standart Sahne (4 Nesne)") << "\n";
         if (targetFrames > 0) {
             std::cout << "[Astral::Application] Hedef: " << targetFrames << " kare calisip sonlanacak...\n";
         } else {
             std::cout << "[Astral::Application] Ana olay dongusune giriliyor (Cikmak icin pencereyi kapatin)...\n";
         }
 
-        // 1. Authoring (Editor) Sahnesi olustur
-        auto editorScene = std::make_shared<Scene>("Sandbox Editor Level");
+        m_SceneManager.SetRuntimeActive(true);
+        auto initialScene = CreateInitialScene();
+        if (!initialScene) throw std::runtime_error("CreateInitialScene returned null");
+        m_SceneManager.SetActiveScene(initialScene);
+        m_EventBus.Publish(SceneLoadedEvent{ initialScene->GetName(), initialScene.get() });
 
-        // Obje 0: Zemin Entity
-        Entity ground = editorScene->CreateEntity();
-        ground.AddComponent<TransformComponent>(glm::vec3(0.0f, -1.0f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f));
-        ground.AddComponent<SDFComponent>(
-            static_cast<uint32_t>(PrimitiveType::Plane),
-            static_cast<uint32_t>(CSGOperation::Union),
-            0.0f, 0u, glm::vec3(0.3f, 0.32f, 0.35f), 0.8f, 0.05f
-        );
-
-        Entity boxEntity;
-        Entity torusEntity;
-
-        if (m_Config.stressTest) {
-            for (int i = 0; i < 31; ++i) {
-                Entity obj = editorScene->CreateEntity();
-                float angle = static_cast<float>(i) * (2.0f * 3.14159f / 31.0f);
-                float radius = 3.0f + static_cast<float>(i % 3) * 2.5f;
-                float heightY = 0.5f + static_cast<float>(i % 4) * 1.0f;
-                glm::vec3 pos = glm::vec3(std::cos(angle) * radius, heightY, std::sin(angle) * radius);
-
-                uint32_t type = i % 3; // 0=Sphere, 1=Box, 2=Torus
-                glm::vec3 scale{1.0f};
-                glm::vec3 albedo{1.0f};
-                if (type == 0) {
-                    scale = glm::vec3(0.5f + (i % 2) * 0.2f);
-                    albedo = glm::vec3(0.85f, 0.2f + (i % 5) * 0.15f, 0.25f);
-                } else if (type == 1) {
-                    scale = glm::vec3(0.45f + (i % 3) * 0.1f);
-                    albedo = glm::vec3(0.2f, 0.5f + (i % 4) * 0.1f, 0.9f);
-                } else {
-                    scale = glm::vec3(0.6f, 0.2f, 1.0f);
-                    albedo = glm::vec3(0.9f, 0.8f, 0.2f);
-                }
-
-                obj.AddComponent<TransformComponent>(pos, glm::quat(1.0f, 0.0f, 0.0f, 0.0f), scale);
-                obj.AddComponent<VelocityComponent>(glm::vec3(0.0f), glm::vec3(0.0f, 0.2f, 0.0f));
-                obj.AddComponent<SDFComponent>(
-                    type,
-                    static_cast<uint32_t>(CSGOperation::SmoothUnion),
-                    0.2f, 1u, albedo, 0.3f, 0.5f
-                );
-            }
-        } else {
-            // Obje 1: Kutu
-            boxEntity = editorScene->CreateEntity();
-            boxEntity.AddComponent<TransformComponent>(glm::vec3(-1.8f, 0.2f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(0.6f));
-            boxEntity.AddComponent<VelocityComponent>(glm::vec3(0.0f), glm::vec3(0.0f, 0.5f, 0.0f));
-            boxEntity.AddComponent<SDFComponent>(
-                static_cast<uint32_t>(PrimitiveType::Box),
-                static_cast<uint32_t>(CSGOperation::SmoothUnion),
-                0.3f, 1u, glm::vec3(0.2f, 0.5f, 0.9f), 0.4f, 0.3f
-            );
-
-            // Obje 2: Merkez Kure
-            Entity sphereEntity = editorScene->CreateEntity();
-            sphereEntity.AddComponent<TransformComponent>(glm::vec3(0.0f, 0.3f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(0.85f));
-            sphereEntity.AddComponent<SDFComponent>(
-                static_cast<uint32_t>(PrimitiveType::Sphere),
-                static_cast<uint32_t>(CSGOperation::SmoothUnion),
-                0.3f, 1u, glm::vec3(0.9f, 0.25f, 0.2f), 0.2f, 0.8f
-            );
-
-            // Obje 3: Torus
-            torusEntity = editorScene->CreateEntity();
-            torusEntity.AddComponent<TransformComponent>(glm::vec3(1.8f, 0.2f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(0.7f, 0.25f, 1.0f));
-            torusEntity.AddComponent<VelocityComponent>(glm::vec3(0.0f), glm::vec3(0.5f, 0.0f, 0.0f));
-            torusEntity.AddComponent<SDFComponent>(
-                static_cast<uint32_t>(PrimitiveType::Torus),
-                static_cast<uint32_t>(CSGOperation::SmoothUnion),
-                0.25f, 1u, glm::vec3(0.9f, 0.75f, 0.15f), 0.3f, 0.9f
-            );
-        }
-
-        // 2. Editor -> Runtime Gecisi: Orijinal editor seviyesini bozmadan tam derin kopyalama (Deep-Copy)
-        auto runtimeScene = Scene::Copy(editorScene);
-        m_SceneManager.SetActiveScene(runtimeScene);
-        m_EventBus.Publish(SceneLoadedEvent{ runtimeScene->GetName(), runtimeScene.get() });
-        runtimeScene->OnRuntimeStart();
-        m_SelectedEntity = Entity{};
         uint32_t frameIndex = 0;
         double cpuFrameMs = 0.0;
         double gpuTotalMs = 0.0;
         auto previousFrameTime = std::chrono::high_resolution_clock::now();
 
         m_JobSystem.Initialize();
+        OnInitialize();
+        m_PhysicsSubsystem->SetEnabled(m_Config.simulatePhysics);
         m_SystemManager.InitAll();
 
+        InputSystem& activeInput = m_Window ? m_Window->GetInputSystem() : m_HeadlessInput;
+        Window* activeWindow = m_Window.get();
+
         // 6. Ana render, UI ve profil dongusu
-        while (m_Running && !m_Window->ShouldClose()) {
+        while (m_Running && (m_Config.headless || (m_Window && !m_Window->ShouldClose()))) {
             auto cpuStart = std::chrono::high_resolution_clock::now();
 
-            m_Window->PollEvents();
-
-            const float deltaTime = std::chrono::duration<float>(cpuStart - previousFrameTime).count();
-            previousFrameTime = cpuStart;
-            float timeSec = static_cast<float>(frameIndex) * 0.016f;
-
-            // Demo hareketleri yalnizca otomatik test/benchmark kosularinda ilerletilir.
-            // Interaktif editor modunda transformlar inspector ve viewport gizmosuna aittir.
-            const bool runDemoSimulation = m_Config.benchMode || targetFrames > 0;
-            if (runDemoSimulation && m_Config.stressTest) {
-                auto& transforms = runtimeScene->GetRegistry().GetView<TransformComponent>();
-                size_t idx = 0;
-                for (auto&& [entity, transform] : transforms) {
-                    if (idx > 0) { // Zemin haric
-                        float phase = timeSec * 1.2f + static_cast<float>(idx) * 0.5f;
-                        transform.position.y += std::sin(phase) * 0.005f;
-                    }
-                    idx++;
-                }
-            } else if (runDemoSimulation) {
-                Entity rBox(boxEntity.GetHandle(), runtimeScene.get());
-                if (rBox.HasComponent<TransformComponent>()) {
-                    auto& boxTr = rBox.GetComponent<TransformComponent>();
-                    boxTr.position.y = 0.2f + std::sin(timeSec * 1.5f) * 0.2f;
-                    float angleY = timeSec * 0.5f;
-                    boxTr.rotation = glm::angleAxis(angleY, glm::vec3(0.0f, 1.0f, 0.0f));
-                }
-                Entity rTorus(torusEntity.GetHandle(), runtimeScene.get());
-                if (rTorus.HasComponent<TransformComponent>()) {
-                    auto& torusTr = rTorus.GetComponent<TransformComponent>();
-                    torusTr.position.y = 0.2f + std::cos(timeSec * 1.5f) * 0.2f;
-                    float angleX = timeSec * 0.5f;
-                    torusTr.rotation = glm::angleAxis(angleX, glm::vec3(1.0f, 0.0f, 0.0f));
-                }
+            if (m_Window) {
+                m_Window->PollEvents();
             }
 
-            m_PhysicsSubsystem->SetEnabled(runDemoSimulation);
-            FrameContext frameContext{
-                runtimeScene->GetRegistry(),
-                m_Window->GetInputSystem(),
+            // Tek noktadan sahne yonetimi: Her karenin basinda guncel aktif sahneyi al
+            auto activeScene = m_SceneManager.GetActiveScene();
+            if (!activeScene) {
+                if (targetFrames > 0 && static_cast<int>(frameIndex) >= targetFrames) break;
+                frameIndex++;
+                m_TotalFramesRendered = frameIndex;
+                continue;
+            }
+            Registry& sceneRegistry = activeScene->GetRegistry();
+
+            const float rawDeltaTime = (m_Config.fixedDeltaTime > 0.0f)
+                ? m_Config.fixedDeltaTime
+                : std::chrono::duration<float>(cpuStart - previousFrameTime).count();
+            previousFrameTime = cpuStart;
+
+            // Spiral of death onleyici: Uzun takilmalarda (hitch/breakpoint) delta time sinirlandirilir
+            const float clampedDeltaTime = std::min(rawDeltaTime, m_Config.maxFrameDelta);
+            const float effectiveDeltaTime = m_Config.isPaused ? 0.0f : clampedDeltaTime;
+            float timeSec = static_cast<float>(frameIndex) * m_Config.fixedTimeStep;
+
+            // 1. Asama: Input
+            FrameContext inputContext{
+                sceneRegistry,
+                activeInput,
                 m_ActionMap,
                 m_EventBus,
                 m_JobSystem,
-                *m_Window,
-                deltaTime
+                activeWindow,
+                clampedDeltaTime
             };
-            m_SystemManager.UpdateAll(frameContext);
+            m_SystemManager.UpdateStage(SystemStage::Input, inputContext);
+
+            // 2. Asama: Gameplay (Degisken delta time; istemci OnUpdate ve gameplay sistemleri)
+            FrameContext gameplayContext{
+                sceneRegistry,
+                activeInput,
+                m_ActionMap,
+                m_EventBus,
+                m_JobSystem,
+                activeWindow,
+                effectiveDeltaTime
+            };
+            OnUpdate(gameplayContext, frameIndex);
+            m_SystemManager.UpdateStage(SystemStage::Gameplay, gameplayContext);
+
+            // 3. Asama: Fixed Simulation (Fizik ve sabit adimli sistemler - F07)
+            if (!m_Config.isPaused && m_Config.simulatePhysics) {
+                m_Accumulator += clampedDeltaTime;
+                uint32_t stepsTaken = 0;
+                const float fixedDt = m_Config.fixedTimeStep;
+
+                while (m_Accumulator >= fixedDt) {
+                    if (stepsTaken >= m_Config.maxSubSteps) {
+                        // Fazla birikmis zamani temizle; sonsuz catch-up dongusunu (spiral of death) engelle
+                        m_Accumulator = 0.0f;
+                        break;
+                    }
+
+                    FrameContext fixedContext{
+                        sceneRegistry,
+                        activeInput,
+                        m_ActionMap,
+                        m_EventBus,
+                        m_JobSystem,
+                        activeWindow,
+                        fixedDt
+                    };
+                    m_SystemManager.UpdateStage(SystemStage::FixedSimulation, fixedContext);
+
+                    m_Accumulator -= fixedDt;
+                    stepsTaken++;
+                }
+            } else {
+                // Duraklatma veya fizik kapali durumunda akümülatör sifirlanir
+                m_Accumulator = 0.0f;
+            }
+
+            m_InterpolationAlpha = (m_Config.fixedTimeStep > 0.0f)
+                ? std::clamp(m_Accumulator / m_Config.fixedTimeStep, 0.0f, 1.0f)
+                : 1.0f;
+
+            // 4. Asama: Transform (Gameplay ve Physics sonrasi World Matrix guncellemesi)
+            FrameContext transformContext{
+                sceneRegistry,
+                activeInput,
+                m_ActionMap,
+                m_EventBus,
+                m_JobSystem,
+                activeWindow,
+                effectiveDeltaTime
+            };
+            m_SystemManager.UpdateStage(SystemStage::Transform, transformContext);
+
+            // 5. Asama: Render Extraction (World Matrix hesaplandiktan sonra ayni karede GPU extraction - F08)
+            m_SystemManager.UpdateStage(SystemStage::RenderExtraction, transformContext);
+
             const auto& sceneEdits = m_RenderExtractionSubsystem->GetLastExtractedEdits();
             const auto& sceneEntities = m_RenderExtractionSubsystem->GetLastExtractedEntities();
 
-            // PR-9: Test ve benchmark modunda merkezdeki nesneyi dogrulamak icin 3. karede ekran merkezini sec
-            if ((m_Config.benchMode || targetFrames > 0) && frameIndex == 3) {
-                int cx = m_Window->GetWidth() / 2;
-                int cy = m_Window->GetHeight() / 2;
-                m_SDFRenderer->SetPickingRequest(cx, cy);
-            }
+            // Yalnizca GPU ve Renderer aktif ise render islemleri calistirilir
+            if (m_SDFRenderer && m_VulkanContext) {
+                // GPU SSBO'ya yaz ve Two-Level Grid'i guncelle
+                m_SDFRenderer->UpdateEdits(sceneEdits, m_Config.legacyMap);
 
-            // GPU SSBO'ya yaz ve Two-Level Grid'i guncelle
-            m_SDFRenderer->UpdateEdits(sceneEdits, m_Config.legacyMap);
+                // Swapchain resmi edin
+                bool hasSwapchainImage = false;
+                if (!m_Config.benchMode && targetFrames < 0 && m_VulkanContext->GetSwapchain()) {
+                    hasSwapchainImage = m_VulkanContext->AcquireNextImage();
+                }
 
-            // Swapchain resmi edin
-            bool hasSwapchainImage = false;
-            if (!m_Config.benchMode && targetFrames < 0) {
-                hasSwapchainImage = m_VulkanContext->AcquireNextImage();
-            }
-
-            // Seçili varlığın render edit indeksini bul ve shader Fresnel Rim-Light için ayarla
-            int selectedHitIndex = -1;
-            if (m_SelectedEntity.IsValid()) {
-                EntityHandle selHandle = m_SelectedEntity.GetHandle();
-                for (size_t i = 0; i < sceneEntities.size(); ++i) {
-                    if (sceneEntities[i] == selHandle) {
-                        selectedHitIndex = static_cast<int>(i);
-                        break;
+                // Vurgulanacak varligin render edit indeksini bul ve shader Fresnel Rim-Light icin ayarla
+                int selectedHitIndex = -1;
+                if (m_HighlightEntity != NullEntityHandle) {
+                    for (size_t i = 0; i < sceneEntities.size(); ++i) {
+                        if (sceneEntities[i] == m_HighlightEntity) {
+                            selectedHitIndex = static_cast<int>(i);
+                            break;
+                        }
                     }
                 }
-            }
-            m_SDFRenderer->SetSelectedHitIndex(selectedHitIndex);
+                m_SDFRenderer->SetSelectedHitIndex(selectedHitIndex);
 
-            // GPU Komut Tamponu & Timestamp Olcumu
-            auto cmd = m_VulkanContext->BeginFrameCommand();
+                // GPU Komut Tamponu & Timestamp Olcumu
+                auto cmd = m_VulkanContext->BeginFrameCommand();
 
-            // Kamera matrislerini besle (Motion Vectors & Deferred G-Buffer)
-            glm::vec3 camPos = glm::vec3(0.0f, 1.5f, 4.0f);
-            glm::vec3 camDir = glm::normalize(glm::vec3(0.0f, -0.25f, -1.0f));
-            glm::mat4 view = glm::lookAt(camPos, camPos + camDir, glm::vec3(0.0f, 1.0f, 0.0f));
-            float fovY = 2.0f * std::atan(0.5f / 1.5f);
-            float aspect = (m_SDFRenderer->GetHeight() > 0) ? (static_cast<float>(m_SDFRenderer->GetWidth()) / static_cast<float>(m_SDFRenderer->GetHeight())) : (16.0f / 9.0f);
-            glm::mat4 proj = glm::perspective(fovY, aspect, 0.1f, 100.0f);
-            static constexpr std::array<glm::vec2, 8> APP_HALTON_8 = {{
-                { 0.0f,        -0.333333f},
-                {-0.5f,         0.333333f},
-                { 0.5f,        -0.777778f},
-                {-0.75f,       -0.111111f},
-                { 0.25f,        0.555556f},
-                {-0.25f,       -0.555556f},
-                { 0.75f,        0.111111f},
-                {-0.875f,       0.777778f}
-            }};
-            glm::vec2 jitter = m_Config.enableTAA ? APP_HALTON_8[frameIndex % 8] : glm::vec2(0.0f);
-            m_SDFRenderer->SetCameraMatrices(view, proj, jitter);
+                // Kamera matrislerini besle (Motion Vectors & Deferred G-Buffer)
+                const float aspect = static_cast<float>(m_SDFRenderer->GetWidth()) / m_SDFRenderer->GetHeight();
+                auto camera = ExtractActiveCamera(sceneRegistry, aspect);
+                if (camera) camera->sceneInstance = activeScene->GetInstanceId();
+                static constexpr std::array<glm::vec2, 8> APP_HALTON_8 = {{
+                    { 0.0f,        -0.333333f},
+                    {-0.5f,         0.333333f},
+                    { 0.5f,        -0.777778f},
+                    {-0.75f,       -0.111111f},
+                    { 0.25f,        0.555556f},
+                    {-0.25f,       -0.555556f},
+                    { 0.75f,        0.111111f},
+                    {-0.875f,       0.777778f}
+                }};
+                glm::vec2 jitter = m_Config.enableTAA ? APP_HALTON_8[frameIndex % 8] : glm::vec2(0.0f);
+                m_SDFRenderer->SetCamera(camera, jitter);
 
-            // 1. 3D SDF Compute Raymarching
-            m_SDFRenderer->Render(
-                cmd,
-                timeSec,
-                m_Config.normalMode,
-                m_SDFRenderer->GetWidth(),
-                m_SDFRenderer->GetHeight(),
-                m_Config.useGrid,
-                m_Config.optShadow,
-                m_Config.enableTAA,
-                frameIndex
-            );
+                // 1. 3D SDF Compute Raymarching
+                m_SDFRenderer->Render(
+                    cmd,
+                    timeSec,
+                    m_Config.normalMode,
+                    m_SDFRenderer->GetWidth(),
+                    m_SDFRenderer->GetHeight(),
+                    m_Config.useGrid,
+                    m_Config.optShadow,
+                    m_Config.enableTAA,
+                    frameIndex
+                );
 
-            if (hasSwapchainImage) {
-                // 2. Eger calisan bir render/editor alt sistemi varsa swapchain goruntusunu UI render'ina hazirla;
-                // yoksa (saf runtime oyun modu) Compute Shader ciktisini dogrudan swapchain'e blit et.
-                if (m_SystemManager.HasRenderSubsystem()) {
-                    m_VulkanContext->PrepareSwapchainImage();
+                if (hasSwapchainImage) {
+                    if (m_SystemManager.HasRenderSubsystem()) {
+                        m_VulkanContext->PrepareSwapchainImage();
+                    } else {
+                        m_VulkanContext->EndFrameBlit(
+                            m_SDFRenderer->GetStorageImage(),
+                            m_SDFRenderer->GetWidth(),
+                            m_SDFRenderer->GetHeight()
+                        );
+                    }
+
+                    RenderContext renderCtx{
+                        cmd,
+                        m_VulkanContext->GetSwapchain()->GetImageViews()[m_VulkanContext->GetCurrentImageIndex()],
+                        m_VulkanContext->GetSwapchain()->GetExtent(),
+                        activeScene.get(),
+                        static_cast<float>(gpuTotalMs),
+                        static_cast<float>(cpuFrameMs)
+                    };
+                    m_SystemManager.RenderAll(renderCtx);
+
+                    m_VulkanContext->EndFramePresent();
                 } else {
-                    m_VulkanContext->EndFrameBlit(
-                        m_SDFRenderer->GetStorageImage(),
-                        m_SDFRenderer->GetWidth(),
-                        m_SDFRenderer->GetHeight()
-                    );
+                    m_VulkanContext->EndAndSubmitFrameCommand();
                 }
 
-                // 3. Alt sistemlerin render hook'larini calistir (or. AstralEditor ImGui panellerini cizer)
-                RenderContext renderCtx{
-                    cmd,
-                    m_VulkanContext->GetSwapchain()->GetImageViews()[m_VulkanContext->GetCurrentImageIndex()],
-                    m_VulkanContext->GetSwapchain()->GetExtent(),
-                    runtimeScene.get(),
-                    &m_SelectedEntity,
-                    static_cast<float>(gpuTotalMs),
-                    static_cast<float>(cpuFrameMs)
-                };
-                m_SystemManager.RenderAll(renderCtx);
+                // PR-9: Fence sonrasi donanımsal guvenli secim okumasi (tek seferlik tuketim)
+                if (m_SDFRenderer->HasPendingSelection()) {
+                    auto pickResult = m_SDFRenderer->ConsumeSelectionResult();
+                    RuntimePickResult runtimeResult{};
+                    runtimeResult.hasHit = pickResult.hasHit;
+                    runtimeResult.hitIndex = pickResult.hitIndex;
+                    runtimeResult.hitPoint = glm::vec3(pickResult.hitPoint);
+                    runtimeResult.hitDistance = pickResult.hitDistance;
+                    if (pickResult.hasHit && pickResult.hitIndex >= 0 && static_cast<size_t>(pickResult.hitIndex) < sceneEntities.size()) {
+                        runtimeResult.hitEntity = sceneEntities[pickResult.hitIndex];
+                    }
+                    m_LastPickResult = runtimeResult;
+                    m_EventBus.Publish(RuntimePickEvent{ runtimeResult, activeScene.get() });
 
-                // 4. Semaphor'larla submit et ve ekrana sun (Present)
-                m_VulkanContext->EndFramePresent();
-            } else {
-                // Headless veya test modu: Dogrudan komut tamponunu submit et
-                m_VulkanContext->EndAndSubmitFrameCommand();
-            }
-
-            // PR-9: Fence sonrasi donanımsal guvenli secim okumasi (tek seferlik tuketim)
-            if (m_SDFRenderer->HasPendingSelection()) {
-                auto pickResult = m_SDFRenderer->ConsumeSelectionResult();
-                if (pickResult.hasHit) {
-                    if (pickResult.hitIndex >= 0 && static_cast<size_t>(pickResult.hitIndex) < sceneEntities.size()) {
-                        Entity hitEntity(sceneEntities[pickResult.hitIndex], runtimeScene.get());
-                        m_SelectedEntity = hitEntity; // Editörde seçili nesneyi güncelle
-                        m_EventBus.Publish(EntitySelectedEvent{ hitEntity.GetHandle(), runtimeScene.get() });
+                    if (runtimeResult.hasHit) {
                         std::cout << "[Astral::Picking] ISABET: hitIndex = " << pickResult.hitIndex 
-                                  << " -> " << hitEntity.ToDisplayString()
-                                  << " (Valid: " << (hitEntity.IsValid() ? "true" : "false") << ")"
+                                  << " -> Entity (handle: " << GetEntityIndex(runtimeResult.hitEntity) << ")"
                                   << " | Nokta: (" << pickResult.hitPoint.x << ", " << pickResult.hitPoint.y << ", " << pickResult.hitPoint.z << ")"
                                   << " | Mesafe: " << pickResult.hitDistance << "m\n";
                     } else {
                         std::cout << "[Astral::Picking] ISABET YOK (Gokyuzu/Bosluk)\n";
                     }
                 }
+
+                gpuTotalMs = m_VulkanContext->GetLastGpuTimeMs();
             }
 
             auto cpuEnd = std::chrono::high_resolution_clock::now();
             cpuFrameMs = std::chrono::duration<double, std::milli>(cpuEnd - cpuStart).count();
-            gpuTotalMs = m_VulkanContext->GetLastGpuTimeMs();
 
             frameIndex++;
             m_TotalFramesRendered = frameIndex;
 
-            if (m_BenchmarkLogger) {
+            if (m_BenchmarkLogger && m_Window && m_VulkanContext) {
                 FrameMetric metric{};
                 metric.frameIndex = frameIndex;
                 metric.cpuFrameMs = cpuFrameMs;
@@ -413,6 +409,7 @@ void Application::Run(int maxFrames) {
             }
         }
 
+        m_SceneManager.SetRuntimeActive(false);
         m_SystemManager.ShutdownAll();
         m_JobSystem.Shutdown();
         m_Running = false;

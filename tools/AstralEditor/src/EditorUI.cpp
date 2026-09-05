@@ -244,6 +244,15 @@ void EditorUI::SetupDockSpace(Scene& scene, Entity& selectedEntity) {
         selectedEntity = Entity();
         m_CommandStack.Clear();
     }
+    if (actions.playToggle && onPlayToggle) {
+        onPlayToggle();
+    }
+    if (actions.pauseToggle && onPauseToggle) {
+        onPauseToggle();
+    }
+    if (actions.stopPlay && onStopPlay) {
+        onStopPlay();
+    }
 
     ImGui::End();
 }
@@ -253,7 +262,7 @@ void EditorUI::RenderPanels(Scene& scene, Entity& selectedEntity, float gpuTimeM
     SetupDockSpace(scene, selectedEntity);
 
     // 2. Draw all modular panels
-    m_SceneHierarchy.Draw(scene, selectedEntity);
+    m_SceneHierarchy.Draw(scene, selectedEntity, &m_CommandStack);
     m_Inspector.Draw(scene, selectedEntity);
 
     size_t activeCount = scene.GetRegistry().GetView<TransformComponent>().Size();

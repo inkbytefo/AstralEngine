@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Astral/Core/Registry.hpp"
+#include "Astral/Core/Components.hpp"
 #include "Astral/Scene/Entity.hpp"
 #include <string>
 #include <memory>
@@ -37,6 +38,10 @@ public:
         return std::make_shared<Scene>(*other);
     }
 
+    [[nodiscard]] std::shared_ptr<Scene> Clone() const {
+        return std::make_shared<Scene>(*this);
+    }
+
     /// Sahne omru sorgusu (Use-After-Free korumasi)
     [[nodiscard]] static bool IsSceneAlive(const Scene* scene) noexcept;
     [[nodiscard]] static uint64_t GenerateInstanceId() noexcept;
@@ -51,6 +56,8 @@ public:
 
     // ---- Entity Factory Methods ----
     [[nodiscard]] Entity CreateEntity();
+    [[nodiscard]] Entity CreateEntity(std::string_view tag);
+    [[nodiscard]] Entity FindEntityByTag(std::string_view tag);
     [[nodiscard]] Entity DuplicateEntity(EntityHandle source);
     [[nodiscard]] Entity DuplicateEntity(Entity source);
     void DestroyEntity(Entity entity);
@@ -62,6 +69,8 @@ public:
     [[nodiscard]] bool SetParent(Entity child, Entity parent);
     [[nodiscard]] bool ClearParent(EntityHandle child);
     [[nodiscard]] bool ClearParent(Entity child);
+    [[nodiscard]] EntityHandle GetParent(EntityHandle child) const;
+    [[nodiscard]] std::vector<EntityHandle> GetChildren(EntityHandle parent) const;
     [[nodiscard]] glm::mat4 GetWorldTransform(EntityHandle entity) const;
 
     /// Atomic Transaction Commit: swaps internal ECS registry and state
@@ -152,6 +161,22 @@ inline bool Entity::RemoveComponent() {
 
 inline Entity Scene::CreateEntity() {
     return Entity(m_Registry.CreateEntity(), this, m_InstanceId);
+}
+
+inline Entity Scene::CreateEntity(std::string_view tag) {
+    Entity entity = CreateEntity();
+    entity.AddComponent<TagComponent>(std::string(tag));
+    return entity;
+}
+
+inline Entity Scene::FindEntityByTag(std::string_view tag) {
+    auto view = m_Registry.GetView<TagComponent>();
+    for (auto&& [entity, t] : view) {
+        if (t.tag == tag) {
+            return Entity(entity, this, m_InstanceId);
+        }
+    }
+    return Entity();
 }
 
 inline void Scene::Clear() {

@@ -26,6 +26,9 @@ struct MenuBarActions {
     bool newScene      = false;
     bool saveScene     = false;
     bool openScene     = false;
+    bool playToggle    = false;
+    bool pauseToggle   = false;
+    bool stopPlay      = false;
 };
 
 void DrawEditorMenuBar(Scene& scene, Entity& selectedEntity,

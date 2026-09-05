@@ -58,11 +58,11 @@ if(NOT imgui_POPULATED)
     FetchContent_Populate(imgui)
 endif()
 
-# ImGuizmo (3D Transform Manipulator)
+# ImGuizmo (3D Transform Manipulator) - Dogrulanmis sabit commit
 FetchContent_Declare(
     imguizmo
     GIT_REPOSITORY https://github.com/CedricGuillemet/ImGuizmo.git
-    GIT_TAG master
+    GIT_TAG 18cef5e031d8c6973d80284c67f60549fafd78c1
     GIT_SHALLOW TRUE
 )
 FetchContent_GetProperties(imguizmo)
@@ -114,9 +114,24 @@ target_include_directories(ImGuizmo PUBLIC
 )
 target_link_libraries(ImGuizmo PUBLIC ImGui)
 
+# --- Derleme Secenekleri (Hedef Izolasyonu) ---
+option(ASTRAL_BUILD_TESTS "Build AstralEngine regression test suite" ON)
+option(ASTRAL_BUILD_EDITOR "Build AstralEditor visual tool" ON)
+option(ASTRAL_BUILD_PROJECTS "Build reference projects and sandbox games" ON)
+
 # Alt projeler: motor kutuphanesi, oyunlar, editör ve test hedefleri
 add_subdirectory(AstralEngine)
-add_subdirectory(Projects/Sandbox)
-add_subdirectory(Projects/EmptyGameTemplate)
-add_subdirectory(Tools/AstralEditor)
-add_subdirectory(Tests/EngineTests)
+
+if(ASTRAL_BUILD_PROJECTS)
+    add_subdirectory(Projects/Sandbox)
+    add_subdirectory(Projects/EmptyGameTemplate)
+endif()
+
+if(ASTRAL_BUILD_EDITOR)
+    add_subdirectory(Tools/AstralEditor)
+endif()
+
+if(ASTRAL_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(Tests/EngineTests)
+endif()

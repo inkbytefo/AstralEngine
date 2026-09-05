@@ -4,6 +4,7 @@
 #include <vector>
 
 namespace Astral::Test {
+    void RunCameraTests();
     void RunEcsTests();
     void RunPhysicsPipelineTests();
     void RunGenerationalIdentityTests();
@@ -18,6 +19,9 @@ namespace Astral::Test {
     void RunTaskGraphTests();
     void RunProjectTests();
     void RunGpuSmokeTest(int frames);
+    void RunApplicationLoopTests();
+    void RunServiceBoundariesTests();
+    void RunEditorGameplayCycleTests();
 }
 
 int main(int argc, char** argv) {
@@ -38,6 +42,9 @@ int main(int argc, char** argv) {
     bool runJobSystem = false;
     bool runTaskGraph = false;
     bool runProject = false;
+    bool runLoop = false;
+    bool runBoundaries = false;
+    bool runGameplay = false;
     bool runGpu = false;
     int gpuFrames = 5;
 
@@ -65,10 +72,13 @@ int main(int argc, char** argv) {
                       << "  --jobs               Yalnizca C++20 JobSystem testlerini calistirir\n"
                       << "  --taskgraph          Yalnizca TaskGraph DAG planlayici testlerini calistirir\n"
                       << "  --project            Yalnizca Project & ProjectSerializer testlerini calistirir\n"
+                      << "  --loop               Yalnizca Application Loop & Fixed-Step Pipeline testlerini calistirir\n"
+                      << "  --boundaries         Yalnizca Service Boundaries & Headless Simulation testlerini calistirir\n"
+                      << "  --gameplay           Yalnizca Editor Gameplay Cycle & SDF Puzzle testlerini calistirir\n"
                       << "  --help, -h           Bu yardim mesajini gosterir\n";
             return 0;
         } else if (arg == "--all") {
-            runEcs = runPhysics = runIdentity = runScene = runSerialization = runBrickGrid = runCommand = runEventBus = runActionMap = runVma = runJobSystem = runTaskGraph = runProject = runGpu = true;
+            runEcs = runPhysics = runIdentity = runScene = runSerialization = runBrickGrid = runCommand = runEventBus = runActionMap = runVma = runJobSystem = runTaskGraph = runProject = runLoop = runBoundaries = runGameplay = runGpu = true;
             hasSpecificFlag = true;
         } else if (arg == "--gpu") {
             runGpu = true;
@@ -114,15 +124,25 @@ int main(int argc, char** argv) {
         } else if (arg == "--project") {
             runProject = true;
             hasSpecificFlag = true;
+        } else if (arg == "--loop") {
+            runLoop = true;
+            hasSpecificFlag = true;
+        } else if (arg == "--boundaries") {
+            runBoundaries = true;
+            hasSpecificFlag = true;
+        } else if (arg == "--gameplay") {
+            runGameplay = true;
+            hasSpecificFlag = true;
         }
     }
 
     // Varsayilan davranis: Eger ozel bir bayrak verilmediyse tum headless testler calistirilir (CI guvenli)
     if (!hasSpecificFlag) {
-        runEcs = runPhysics = runIdentity = runScene = runSerialization = runBrickGrid = runCommand = runEventBus = runActionMap = runVma = runJobSystem = runTaskGraph = runProject = true;
+        runEcs = runPhysics = runIdentity = runScene = runSerialization = runBrickGrid = runCommand = runEventBus = runActionMap = runVma = runJobSystem = runTaskGraph = runProject = runLoop = runBoundaries = runGameplay = true;
     }
 
     auto& runner = Astral::Test::TestRunner::Instance();
+    if (runScene) runner.RunSuite("Camera & Client Scene Suite", Astral::Test::RunCameraTests);
 
     if (runEcs) {
         runner.RunSuite("ECS Architecture Suite", Astral::Test::RunEcsTests);
@@ -164,6 +184,15 @@ int main(int argc, char** argv) {
     }
     if (runProject) {
         runner.RunSuite("Project & ProjectSerializer Management Suite", Astral::Test::RunProjectTests);
+    }
+    if (runLoop) {
+        runner.RunSuite("Application Loop & Fixed-Step Pipeline Suite", Astral::Test::RunApplicationLoopTests);
+    }
+    if (runBoundaries) {
+        runner.RunSuite("Service Boundaries & Headless Simulation Suite", Astral::Test::RunServiceBoundariesTests);
+    }
+    if (runGameplay) {
+        runner.RunSuite("Editor Gameplay Cycle & Reference Playable Suite", Astral::Test::RunEditorGameplayCycleTests);
     }
     if (runGpu) {
         runner.RunSuite("Vulkan 1.4 GPU & SDF Compute Smoke Suite", [gpuFrames]() {

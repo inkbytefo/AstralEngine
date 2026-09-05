@@ -33,8 +33,7 @@ Astral::AppConfig ParseCommandLine(const Astral::CommandLineArgs& args) {
             config.useGrid = true;
         } else if (arg == "--no-grid") {
             config.useGrid = false;
-        } else if (arg == "--stress") {
-            config.stressTest = true;
+
         } else if (arg == "--opt-shadow") {
             config.optShadow = true;
         } else if (arg == "--no-opt-shadow") {
@@ -53,6 +52,7 @@ Astral::AppConfig ParseCommandLine(const Astral::CommandLineArgs& args) {
     }
 
     config.maxFrames = maxFrames;
+    config.simulatePhysics = false;
     return config;
 }
 
@@ -76,6 +76,28 @@ public:
         }
 
         // AstralEditor'un temel arayuz ve panel sistemini kaydet
+
+    }
+protected:
+    std::shared_ptr<Astral::Scene> CreateInitialScene() override {
+        auto scene = std::make_shared<Astral::Scene>("Untitled Scene");
+        if (auto project = Astral::Project::GetActive()) {
+            const auto path = project->GetProjectDirectory() / project->GetConfig().startScene;
+            if (std::filesystem::exists(path) && !Astral::SceneSerializer::Deserialize(scene, path)) {
+                throw std::runtime_error("Cannot load initial project scene: " + path.string());
+            }
+        }
+        // Editor-owned navigation camera for projects without a runtime camera.
+        if (!Astral::ExtractActiveCamera(scene->GetRegistry(), 1.0f)) {
+            auto camera = scene->CreateEntity();
+            camera.AddComponent<Astral::TransformComponent>(glm::vec3(0.0f, 1.5f, 4.0f),
+                glm::quatLookAt(glm::normalize(glm::vec3(0.0f, -0.25f, -1.0f)), glm::vec3(0, 1, 0)));
+            camera.AddComponent<Astral::CameraComponent>(2.0f * std::atan(0.5f / 1.5f), 0.01f, 50.0f, 1u);
+            camera.AddComponent<Astral::TagComponent>("Editor Camera");
+        }
+        return scene;
+    }
+    void OnInitialize() override {
         PushSystem<Astral::EditorUISubsystem>(*this);
     }
 };

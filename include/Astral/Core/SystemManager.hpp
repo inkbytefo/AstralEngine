@@ -26,13 +26,39 @@ public:
         }
     }
 
-    void UpdateAll(FrameContext& context) {
+    /// Belirli bir asamaya (Input, Gameplay, FixedSimulation, Transform, RenderExtraction)
+    /// ait tum etkin alt sistemleri eklenme sirasina gore calistirir.
+    void UpdateStage(SystemStage stage, FrameContext& context) {
         for (const auto& system : m_Systems) {
-            if (system->IsEnabled()) {
+            if (system->IsEnabled() && system->GetStage() == stage) {
                 system->OnUpdate(context);
             }
         }
     }
+
+    /// Tum asamalari sirasiyla calistirir:
+    /// Input -> Gameplay -> FixedSimulation -> Transform -> RenderExtraction
+    void UpdateAll(FrameContext& context) {
+        UpdateStage(SystemStage::Input, context);
+        UpdateStage(SystemStage::Gameplay, context);
+        UpdateStage(SystemStage::FixedSimulation, context);
+        UpdateStage(SystemStage::Transform, context);
+        UpdateStage(SystemStage::RenderExtraction, context);
+    }
+
+    /// Belirtilen asamada kayitli toplam sistem sayisini dondurur.
+    [[nodiscard]] size_t GetSystemCount(SystemStage stage) const noexcept {
+        size_t count = 0;
+        for (const auto& system : m_Systems) {
+            if (system->GetStage() == stage) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /// Toplam kayitli sistem sayisini dondurur.
+    [[nodiscard]] size_t Size() const noexcept { return m_Systems.size(); }
 
     void RenderAll(const RenderContext& context) {
         for (const auto& system : m_Systems) {

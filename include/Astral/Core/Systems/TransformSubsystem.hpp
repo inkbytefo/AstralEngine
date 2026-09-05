@@ -9,6 +9,8 @@ public:
     void OnInit() override;
     void OnUpdate(FrameContext& context) override;
     void OnShutdown() override;
+
+    [[nodiscard]] SystemStage GetStage() const override { return SystemStage::Transform; }
 };
 
 } // namespace Astral

@@ -1,0 +1,74 @@
+ninja: warning: premature end of file; recovering
+[0/1] Re-running CMake...
+-- Using Win32 for window creation
+CMake Deprecation Warning at build-release/_deps/glm-src/CMakeLists.txt:1 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+CMake Deprecation Warning at build-release/_deps/glm-src/CMakeLists.txt:2 (cmake_policy):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+-- GLM: Version 1.0.1
+-- GLM: Build with C++ features auto detection
+-- AstralEngine LINK_LIBRARIES=Vulkan::Vulkan;VulkanMemoryAllocator;glfw;glm::glm
+-- AstralEngine INTERFACE_LINK_LIBRARIES=Vulkan::Vulkan;VulkanMemoryAllocator;glfw;glm::glm
+-- AstralEngine INCLUDE_DIRECTORIES=$<BUILD_INTERFACE:C:/Dev/InkbytefoProjects/deneme/AstralEngine/include>;$<INSTALL_INTERFACE:include>
+-- AstralEngine INTERFACE_INCLUDE_DIRECTORIES=$<BUILD_INTERFACE:C:/Dev/InkbytefoProjects/deneme/AstralEngine/include>;$<INSTALL_INTERFACE:include>
+-- Configuring done (0.3s)
+-- Generating done (0.2s)
+-- Build files have been written to: C:/Dev/InkbytefoProjects/deneme/AstralEngine/build-release
+ninja: warning: premature end of file; recovering
+[1/41] Compiling C:/Dev/InkbytefoProjects/deneme/AstralEngine/shaders/SDFCompute.glsl -> C:/Dev/InkbytefoProjects/deneme/AstralEngine/build-release/shaders/SDFCompute.spv
+[2/41] Compiling C:/Dev/InkbytefoProjects/deneme/AstralEngine/shaders/SDFGBuffer.glsl -> C:/Dev/InkbytefoProjects/deneme/AstralEngine/build-release/shaders/SDFGBuffer.spv
+[3/41] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Core/Systems/TransformSubsystem.cpp.obj
+[4/41] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Core/Systems/InputSubsystem.cpp.obj
+[5/41] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Core/Systems/PhysicsSubsystem.cpp.obj
+[6/41] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Core/Application.cpp.obj
+[7/41] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Core/TransformSystem.cpp.obj
+[8/41] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Core/RenderExtractionSystem.cpp.obj
+[9/41] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Core/Systems/RenderExtractionSubsystem.cpp.obj
+[10/41] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Renderer/ComputePipeline.cpp.obj
+[11/41] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Scene/SceneSerializer.cpp.obj
+[12/41] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Scene/Scene.cpp.obj
+[13/41] Building CXX object AstralEngine/CMakeFiles/AstralEngine.dir/__/src/Renderer/SDFRenderer.cpp.obj
+[14/41] Linking CXX static library libAstralEngine.a
+[15/41] Building CXX object Projects/EmptyGameTemplate/CMakeFiles/EmptyGameTemplate.dir/src/main.cpp.obj
+[16/41] Building CXX object Tools/AstralEditor/CMakeFiles/AstralEditor.dir/src/main.cpp.obj
+[17/41] Building CXX object Projects/Sandbox/CMakeFiles/Sandbox.dir/src/main.cpp.obj
+[18/41] Building CXX object Tools/AstralEditor/CMakeFiles/AstralEditor.dir/src/Gizmo/TransformGizmo.cpp.obj
+[19/41] Building CXX object Tools/AstralEditor/CMakeFiles/AstralEditor.dir/src/EditorUISubsystem.cpp.obj
+[20/41] Building CXX object Tools/AstralEditor/CMakeFiles/AstralEditor.dir/src/EditorMenuBar.cpp.obj
+[21/41] Building CXX object Tools/AstralEditor/CMakeFiles/AstralEditor.dir/src/Panels/SceneHierarchy.cpp.obj
+[22/41] Building CXX object Tools/AstralEditor/CMakeFiles/AstralEditor.dir/src/Panels/Inspector.cpp.obj
+[23/41] Building CXX object Tests/EngineTests/CMakeFiles/EngineTests.dir/src/main.cpp.obj
+[24/41] Building CXX object Tools/AstralEditor/CMakeFiles/AstralEditor.dir/src/EditorUI.cpp.obj
+[25/41] Building CXX object Tools/AstralEditor/CMakeFiles/AstralEditor.dir/src/Panels/ViewportPanel.cpp.obj
+FAILED: [code=1] Tools/AstralEditor/CMakeFiles/AstralEditor.dir/src/Panels/ViewportPanel.cpp.obj 
+C:\mingw64\bin\x86_64-w64-mingw32-g++.exe -DIMGUI_IMPL_VULKAN_NO_PROTOTYPES -DSHADER_BIN_DIR=\"C:/Dev/InkbytefoProjects/deneme/AstralEngine/build-release/shaders\" -DVMA_DYNAMIC_VULKAN_FUNCTIONS=1 -DVMA_STATIC_VULKAN_FUNCTIONS=0 -DVULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1 -IC:/Dev/InkbytefoProjects/deneme/AstralEngine/Tools/AstralEditor/include -IC:/Dev/InkbytefoProjects/deneme/AstralEngine/Tools/AstralEditor/src -IC:/Dev/InkbytefoProjects/deneme/AstralEngine/include -IC:/Dev/InkbytefoProjects/deneme/AstralEngine/build-release/_deps/vma-src/include -IC:/Dev/InkbytefoProjects/deneme/AstralEngine/build-release/_deps/glfw-src/include -IC:/Dev/InkbytefoProjects/deneme/AstralEngine/build-release/_deps/glm-src -IC:/Dev/InkbytefoProjects/deneme/AstralEngine/build-release/_deps/imgui-src -IC:/Dev/InkbytefoProjects/deneme/AstralEngine/build-release/_deps/imgui-src/backends -IC:/Dev/InkbytefoProjects/deneme/AstralEngine/build-release/_deps/imguizmo-src/src -isystem C:/VulkanSDK/1.4.335.0/include -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic -MD -MT Tools/AstralEditor/CMakeFiles/AstralEditor.dir/src/Panels/ViewportPanel.cpp.obj -MF Tools\AstralEditor\CMakeFiles\AstralEditor.dir\src\Panels\ViewportPanel.cpp.obj.d -o Tools/AstralEditor/CMakeFiles/AstralEditor.dir/src/Panels/ViewportPanel.cpp.obj -c C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tools/AstralEditor/src/Panels/ViewportPanel.cpp
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tools/AstralEditor/src/Panels/ViewportPanel.cpp: In member function 'void Astral::ViewportPanel::OnImGuiRender(Astral::Scene&, Astral::Entity&)':
+C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tools/AstralEditor/src/Panels/ViewportPanel.cpp:146:69: error: 'view' was not declared in this scope; did you mean 'std::ranges::view'?
+  146 |         {viewportBoundsMin.x, viewportBoundsMin.y}, m_ViewportSize, view);
+      |                                                                     ^~~~
+      |                                                                     std::ranges::view
+In file included from C:/mingw64/include/c++/15.2.0/bits/stl_vector.h:69,
+                 from C:/mingw64/include/c++/15.2.0/vector:68,
+                 from C:/Dev/InkbytefoProjects/deneme/AstralEngine/include/Astral/Core/RenderExtractionSystem.hpp:3,
+                 from C:/Dev/InkbytefoProjects/deneme/AstralEngine/Tools/AstralEditor/src/Panels/ViewportPanel.cpp:1:
+C:/mingw64/include/c++/15.2.0/bits/ranges_base.h:597:13: note: 'std::ranges::view' declared here
+  597 |     concept view
+      |             ^~~~
+[26/41] Building CXX object Tests/EngineTests/CMakeFiles/EngineTests.dir/src/EcsTests.cpp.obj
+[27/41] Building CXX object Tests/EngineTests/CMakeFiles/EngineTests.dir/src/PhysicsTests.cpp.obj
+[28/41] Building CXX object Tests/EngineTests/CMakeFiles/EngineTests.dir/src/IdentityTests.cpp.obj
+ninja: build stopped: subcommand failed.

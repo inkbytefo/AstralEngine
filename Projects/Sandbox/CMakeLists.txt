@@ -1,6 +1,7 @@
 # Sandbox exe — saf runtime referans oyun uygulamasi.
 add_executable(Sandbox
     src/main.cpp
+    src/PuzzleGameSubsystem.cpp
 )
 
 target_link_libraries(Sandbox PRIVATE AstralEngine)

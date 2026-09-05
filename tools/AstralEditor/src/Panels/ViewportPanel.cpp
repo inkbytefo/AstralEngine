@@ -1,3 +1,4 @@
+#include "Astral/Core/RenderExtractionSystem.hpp"
 #include "Astral/Editor/Panels/ViewportPanel.hpp"
 #include "Astral/Renderer/SDFRenderer.hpp"
 #include "Astral/Scene/Scene.hpp"
@@ -104,18 +105,13 @@ void ViewportPanel::OnImGuiRender(Scene& scene, Entity& selectedEntity) {
         m_TransformGizmo.UpdateShortcuts(*m_Input, m_IsFocused || m_IsHovered, ImGui::GetIO().WantTextInput);
     }
 
-    // Camera matrices matching SDFCompute.glsl
-    glm::vec3 camPos = glm::vec3(0.0f, 1.5f, 4.0f);
-    glm::vec3 camDir = glm::normalize(glm::vec3(0.0f, -0.25f, -1.0f));
-    glm::mat4 view = glm::lookAt(camPos, camPos + camDir, glm::vec3(0.0f, 1.0f, 0.0f));
-
-    float fovY = 2.0f * std::atan(0.5f / 1.5f); // ~36.87 deg
-    float aspect = (m_ViewportSize.y > 0.0f) ? (m_ViewportSize.x / m_ViewportSize.y) : (16.0f / 9.0f);
-    glm::mat4 proj = glm::perspective(fovY, aspect, 0.1f, 100.0f);
-
-    m_TransformGizmo.Manipulate(scene, selectedEntity, view, proj,
-        {viewportBoundsMin.x, viewportBoundsMin.y, m_ViewportSize.x, m_ViewportSize.y}, m_Input);
-
+    const float aspect = m_ViewportSize.y > 0 ? m_ViewportSize.x / m_ViewportSize.y : 1.0f;
+    const auto camera = ExtractActiveCamera(scene.GetRegistry(), aspect);
+    const glm::mat4 view = camera ? camera->view : glm::mat4(1.0f);
+    if (camera) {
+        m_TransformGizmo.Manipulate(scene, selectedEntity, camera->view, camera->projection,
+            {viewportBoundsMin.x, viewportBoundsMin.y, m_ViewportSize.x, m_ViewportSize.y}, m_Input);
+    }
     // 6. Send picking request to GPU compute if user clicked inside hovered viewport (and not interacting with Gizmo)
     const bool isGizmoInteracting = m_TransformGizmo.State().IsInteracting();
     if (m_Input && m_Input->IsMouseButtonJustPressed(GLFW_MOUSE_BUTTON_LEFT) && m_IsHovered && !isGizmoInteracting) {

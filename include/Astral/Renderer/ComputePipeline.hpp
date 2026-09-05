@@ -24,14 +24,16 @@ struct alignas(16) SelectionDataGPU {
 static_assert(sizeof(SelectionDataGPU) == 32, "SelectionDataGPU boyutu 32 bayt olmalidir!");
 
 struct SDFPushConstants {
-    glm::vec4 camPos;      // xyz: pos, w: time
+    glm::vec4 camPos;      // xyz: pos, w: near clip
     glm::vec4 camDir;      // xyz: dir, w: normalMode (0=central, 1=tetrahedron)
     glm::vec4 screenRes;   // x: width, y: height, z: editCount, w: useGrid (0=off, 1=on)
     glm::vec4 gridParams;  // x: dimX, y: dimY, z: optShadow, w: cellSize
     glm::vec4 taaParams;   // x: jitterX, y: jitterY, z: taaEnabled, w: blendAlpha
     glm::vec4 mouseParams; // x: mouseX, y: mouseY, z: pickRequested (0/1), w: selectedHitIndex (-1 = none)
+    glm::vec4 cameraRight; // xyz: world right, w: focal length in viewport-height units
+    glm::vec4 cameraUp;    // xyz: world up, w: far clip; camPos.w carries near clip
 };
-static_assert(sizeof(SDFPushConstants) == 96, "SDFPushConstants boyutu 96 bayt olmalidir!");
+static_assert(sizeof(SDFPushConstants) == 128, "Push constants must fit Vulkan's guaranteed 128-byte budget");
 
 struct TAAPushConstants {
     glm::vec4 screenRes; // x: width, y: height, z: frameIndex, w: blendAlpha
@@ -70,8 +72,11 @@ struct DeferredLightingPushConstants {
     glm::vec4 camPos;    // xyz: camPos, w: maxMipLevel (orn. 5.0)
     glm::vec4 camDir;    // xyz: camDir, w: exposure (orn. 1.0)
     glm::vec4 screenRes; // xy: resolution, z: iblIntensity (orn. 1.0), w: unused
+    glm::vec4 cameraRight; // xyz: right, w: focal length
+    glm::vec4 cameraUp;    // xyz: up
+    glm::vec4 rayParams;   // xy: same pixel jitter as the geometry pass
 };
-static_assert(sizeof(DeferredLightingPushConstants) == 48, "DeferredLightingPushConstants boyutu 48 bayt olmalidir!");
+static_assert(sizeof(DeferredLightingPushConstants) == 96);
 
 class ComputePipeline {
 public:

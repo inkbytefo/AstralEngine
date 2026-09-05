@@ -6,13 +6,13 @@
 #include "Astral/Core/Registry.hpp"
 #include "Astral/Core/Window.hpp"
 
-#include <vulkan/vulkan.hpp>
-
 namespace Astral {
 
 class Scene;
 class Entity;
 class JobSystem;
+class Window;
+struct RenderContext;
 
 struct FrameContext {
     Registry& registry;
@@ -20,20 +20,17 @@ struct FrameContext {
     ActionMap& actions;
     EventBus& events;
     JobSystem& jobSystem;
-    Window& window;
-    float deltaTime;
+    Window* window{nullptr};
+    float deltaTime{0.0f};
 };
 
-/// Render asamasi baglami — Alt sistemlerin swapchain uzerine ek cizimler (or. ImGui editor panelleri,
-/// oyun ici HUD vb.) yapabilmesini saglar.
-struct RenderContext {
-    vk::CommandBuffer commandBuffer;
-    vk::ImageView swapchainImageView;
-    vk::Extent2D swapchainExtent;
-    Scene* activeScene = nullptr;
-    Entity* selectedEntity = nullptr;
-    float gpuTimeMs = 0.0f;
-    float cpuTimeMs = 0.0f;
+/// Alt sistem guncelleme asamalari (deterministik calisma sirasi sozlesmesi)
+enum class SystemStage : uint8_t {
+    Input = 0,            // 1. Olaylar, fare, klavye ve ham girdi okuma
+    Gameplay = 1,         // 2. Oyun/istemci mantigi, hareket, kamera kontrolleri (degisken delta)
+    FixedSimulation = 2,  // 3. Fizik, carpişma ve sabit adimli simulasyon (sabit timestep)
+    Transform = 3,        // 4. World transform ve hiyerarsi hesaplama (son konumlar kesinlesir)
+    RenderExtraction = 4  // 5. GPU tamponlarina ayni karede veri cikarimi (sifir kare gecikmesi)
 };
 
 class ISubsystem {
@@ -44,6 +41,10 @@ public:
     virtual void OnUpdate(FrameContext& context) = 0;
     virtual void OnShutdown() = 0;
 
+    /// Bu sistemin hangi asamada calisacagini belirler (Varsayilan: Gameplay)
+    [[nodiscard]] virtual SystemStage GetStage() const { return m_Stage; }
+    void SetStage(SystemStage stage) noexcept { m_Stage = stage; }
+
     /// Swapchain render asamasi hook'u. Gerek duymayan sistemler (or. Physics, Input) implemente etmek zorunda degildir.
     virtual void OnRender(const RenderContext& /*context*/) {}
 
@@ -51,9 +52,14 @@ public:
     virtual bool HasRenderPass() const { return false; }
 
     void SetEnabled(bool enabled) { m_Enabled = enabled; }
-    bool IsEnabled() const { return m_Enabled; }
+    [[nodiscard]] bool IsEnabled() const { return m_Enabled; }
+
+protected:
+    explicit ISubsystem(SystemStage defaultStage = SystemStage::Gameplay)
+        : m_Stage(defaultStage) {}
 
 private:
+    SystemStage m_Stage = SystemStage::Gameplay;
     bool m_Enabled = true;
 };
 

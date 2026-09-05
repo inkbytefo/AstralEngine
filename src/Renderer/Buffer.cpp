@@ -139,10 +139,7 @@ Buffer::Buffer(
 
 Buffer::~Buffer() {
     if (m_Allocator != VK_NULL_HANDLE && m_Buffer) {
-        if (m_IsPersistentMapped && m_MappedData) {
-            vmaUnmapMemory(m_Allocator, m_Allocation);
-            m_MappedData = nullptr;
-        }
+        m_MappedData = nullptr;
         vmaDestroyBuffer(m_Allocator, m_Buffer, m_Allocation);
         m_Buffer = nullptr;
         m_Allocation = VK_NULL_HANDLE;

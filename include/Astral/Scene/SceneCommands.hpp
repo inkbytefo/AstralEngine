@@ -163,4 +163,110 @@ private:
     TransformComponent m_NewTransform;
 };
 
+/// Varlik yeniden adlandirma (Tag) komutu
+class RenameEntityCommand : public ICommand {
+public:
+    RenameEntityCommand(Entity entity, std::string oldName, std::string newName)
+        : m_Entity(entity), m_OldName(std::move(oldName)), m_NewName(std::move(newName)) {}
+
+    void Execute() override {
+        if (m_Entity.IsValid()) {
+            if (m_Entity.HasComponent<TagComponent>()) {
+                m_Entity.GetComponent<TagComponent>().tag = m_NewName;
+            } else {
+                m_Entity.AddComponent<TagComponent>(m_NewName);
+            }
+        }
+    }
+
+    void Undo() override {
+        if (m_Entity.IsValid()) {
+            if (m_Entity.HasComponent<TagComponent>()) {
+                m_Entity.GetComponent<TagComponent>().tag = m_OldName;
+            } else {
+                m_Entity.AddComponent<TagComponent>(m_OldName);
+            }
+        }
+    }
+
+    [[nodiscard]] std::string GetName() const override {
+        return "Yeniden Adlandir (" + m_NewName + ")";
+    }
+
+private:
+    Entity m_Entity;
+    std::string m_OldName;
+    std::string m_NewName;
+};
+
+/// Varlik gorunurluk komutu (VisibilityComponent ve SDFComponent)
+class SetVisibilityCommand : public ICommand {
+public:
+    SetVisibilityCommand(Entity entity, bool oldVisible, bool newVisible)
+        : m_Entity(entity), m_OldVisible(oldVisible), m_NewVisible(newVisible) {}
+
+    void Execute() override {
+        Apply(m_NewVisible);
+    }
+
+    void Undo() override {
+        Apply(m_OldVisible);
+    }
+
+    [[nodiscard]] std::string GetName() const override {
+        return m_NewVisible ? "Gorunur Yap" : "Gizle";
+    }
+
+private:
+    void Apply(bool visible) {
+        if (!m_Entity.IsValid()) return;
+        if (m_Entity.HasComponent<VisibilityComponent>()) {
+            m_Entity.GetComponent<VisibilityComponent>().isVisible = visible;
+        } else {
+            m_Entity.AddComponent<VisibilityComponent>(VisibilityComponent{ visible });
+        }
+        if (m_Entity.HasComponent<SDFComponent>()) {
+            m_Entity.GetComponent<SDFComponent>().isVisible = visible ? 1 : 0;
+        }
+    }
+
+    Entity m_Entity;
+    bool m_OldVisible;
+    bool m_NewVisible;
+};
+
+/// Hiyerarsi parent-child baglama/koparma komutu
+class ReparentEntityCommand : public ICommand {
+public:
+    ReparentEntityCommand(Scene& scene, EntityHandle child, EntityHandle oldParent, EntityHandle newParent)
+        : m_Scene(scene), m_Child(child), m_OldParent(oldParent), m_NewParent(newParent) {}
+
+    void Execute() override {
+        if (m_NewParent == NullEntityHandle) {
+            (void)m_Scene.ClearParent(m_Child);
+        } else {
+            (void)m_Scene.SetParent(m_Child, m_NewParent);
+        }
+    }
+
+    void Undo() override {
+        if (m_OldParent == NullEntityHandle) {
+            (void)m_Scene.ClearParent(m_Child);
+        } else {
+            (void)m_Scene.SetParent(m_Child, m_OldParent);
+        }
+    }
+
+    [[nodiscard]] std::string GetName() const override {
+        return "Hiyerarsi Degistir";
+    }
+
+private:
+    Scene& m_Scene;
+    EntityHandle m_Child;
+    EntityHandle m_OldParent;
+    EntityHandle m_NewParent;
+};
+
 } // namespace Astral
+

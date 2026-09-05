@@ -13,6 +13,18 @@ public:
         : Astral::Application(BuildConfig(maxFrames, shaderPath)) {}
 
 private:
+    std::shared_ptr<Scene> CreateInitialScene() override {
+        // Exercise the compute path explicitly; the base application is now empty.
+        auto scene = std::make_shared<Scene>("GPU Smoke");
+        auto sphere = scene->CreateEntity();
+        sphere.AddComponent<TransformComponent>();
+        sphere.AddComponent<SDFComponent>();
+        auto camera = scene->CreateEntity();
+        camera.AddComponent<TransformComponent>(glm::vec3(0, 0, 4));
+        camera.AddComponent<CameraComponent>(glm::radians(60.0f), 0.01f, 50.0f, 1u);
+        return scene;
+    }
+
     static Astral::AppConfig BuildConfig(int maxFrames, const std::string& shaderPath) {
         Astral::AppConfig config;
         config.maxFrames = maxFrames;

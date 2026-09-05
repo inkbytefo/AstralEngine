@@ -422,6 +422,14 @@ public:
         return GetOrCreatePool<T>().set;
     }
 
+    template <typename T>
+    const SparseSet<T>& GetView() const {
+        static const SparseSet<T> s_Empty;
+        const auto it = pools.find(std::type_index(typeid(T)));
+        if (it == pools.end()) return s_Empty;
+        return static_cast<const Pool<T>*>(it->second.get())->set;
+    }
+
     // O(1) swap-and-pop silme. Basariliysa true.
     template <typename T>
     bool RemoveComponent(EntityHandle entity) {

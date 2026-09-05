@@ -11,7 +11,7 @@ void RunProjectTests() {
     const std::string suite = "ProjectSuite";
     std::cout << "  [INFO] Project & ProjectSerializer testleri baslatiliyor...\n";
 
-    std::filesystem::path testDir = std::filesystem::current_path() / "test_sandbox_project";
+    std::filesystem::path testDir = std::filesystem::temp_directory_path() / "astral_test_project";
     std::error_code ec;
     std::filesystem::remove_all(testDir, ec);
 

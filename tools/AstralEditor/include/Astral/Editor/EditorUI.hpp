@@ -48,6 +48,10 @@ public:
     [[nodiscard]] ViewportPanel& GetViewportPanel() noexcept { return m_ViewportPanel; }
     [[nodiscard]] CommandStack& GetCommandStack() noexcept { return m_CommandStack; }
 
+    std::function<void()> onPlayToggle;
+    std::function<void()> onPauseToggle;
+    std::function<void()> onStopPlay;
+
 private:
     VulkanContext& m_Context;
     const InputSystem& m_Input;

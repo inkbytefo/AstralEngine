@@ -90,6 +90,7 @@ add_library(AstralEngine STATIC
     ${CMAKE_SOURCE_DIR}/src/Core/Threading/TaskGraph.cpp
     ${CMAKE_SOURCE_DIR}/src/Scene/Scene.cpp
     ${CMAKE_SOURCE_DIR}/src/Scene/SceneSerializer.cpp
+    ${CMAKE_SOURCE_DIR}/src/Scene/SDFWorldQuery.cpp
     ${CMAKE_SOURCE_DIR}/src/Project/Project.cpp
     ${CMAKE_SOURCE_DIR}/src/Project/ProjectSerializer.cpp
 )

@@ -17,6 +17,11 @@ struct CustomGameComponent {
 };
 ASTRAL_REGISTER_COMPONENT_TRAIT(CustomGameComponent);
 
+struct FailingTestComponent {
+    int value = 0;
+};
+ASTRAL_REGISTER_COMPONENT_TRAIT(FailingTestComponent);
+
 } // namespace Astral
 
 namespace Astral::Test {
@@ -459,6 +464,233 @@ void RunSerializationTests() {
     bool oversizedTagRejected = !SceneSerializer::Deserialize(safeScene, oversizedTagFile);
     TEST_CHECK_MSG(suite, "OversizedTagRejected", oversizedTagRejected,
                    "Guvenlik sinirini asan dize uzunlugu tahsis yapilmadan reddedilmeli!");
+
+    // =========================================================================
+    // 7. v2'den v3'e Otomatik Migration ve Eşdeğerlik Testi (Backwards Compatibility)
+    // =========================================================================
+    {
+        const std::filesystem::path v2File = testDir / "level_v2_legacy.astral";
+        {
+            std::ofstream stream(v2File, std::ios::binary | std::ios::trunc);
+            // v2 File Header
+            SceneFileHeader v2Header{
+                .magic = { 'A', 'S', 'T', 'R' },
+                .version = 2,
+                .activeEntityCount = 2
+            };
+            stream.write(reinterpret_cast<const char*>(&v2Header), sizeof(v2Header));
+
+            // SceneMetadata Chunk: "Legacy V2 Scene"
+            std::string metaName = "Legacy V2 Scene";
+            uint32_t nameLen = static_cast<uint32_t>(metaName.size());
+            ComponentChunkHeader metaChunk{
+                .typeId = SceneSerializer::SCENE_METADATA_TYPE_ID,
+                .version = 1,
+                .flags = 0,
+                .elementCount = 1,
+                .entityDataSize = 0,
+                .componentDataSize = static_cast<uint32_t>(sizeof(uint32_t) + nameLen)
+            };
+            stream.write(reinterpret_cast<const char*>(&metaChunk), sizeof(metaChunk));
+            stream.write(reinterpret_cast<const char*>(&nameLen), sizeof(uint32_t));
+            stream.write(metaName.data(), nameLen);
+
+            // EntityTable Chunk
+            EntityHandle h0 = MakeEntityHandle(0, 1);
+            EntityHandle h1 = MakeEntityHandle(1, 1);
+            ComponentChunkHeader entityChunk{
+                .typeId = SceneSerializer::ENTITY_TABLE_TYPE_ID,
+                .version = 1,
+                .flags = 0,
+                .elementCount = 2,
+                .entityDataSize = 2 * sizeof(EntityHandle),
+                .componentDataSize = 0
+            };
+            stream.write(reinterpret_cast<const char*>(&entityChunk), sizeof(entityChunk));
+            stream.write(reinterpret_cast<const char*>(&h0), sizeof(EntityHandle));
+            stream.write(reinterpret_cast<const char*>(&h1), sizeof(EntityHandle));
+
+            // TransformComponent Chunk for h0, h1
+            ComponentChunkHeader trChunk{
+                .typeId = ComponentTraits<TransformComponent>::TypeHash,
+                .version = 1,
+                .flags = 0,
+                .elementCount = 2,
+                .entityDataSize = 2 * sizeof(EntityHandle),
+                .componentDataSize = 2 * 40
+            };
+            stream.write(reinterpret_cast<const char*>(&trChunk), sizeof(trChunk));
+            stream.write(reinterpret_cast<const char*>(&h0), sizeof(EntityHandle));
+            stream.write(reinterpret_cast<const char*>(&h1), sizeof(EntityHandle));
+
+            TransformComponent t0{ .position = { 10.0f, 20.0f, 30.0f }, .rotation = { 1.0f, 0.0f, 0.0f, 0.0f }, .scale = { 2.0f, 2.0f, 2.0f } };
+            TransformComponent t1{ .position = { -5.0f, 0.0f, 5.0f }, .rotation = { 1.0f, 0.0f, 0.0f, 0.0f }, .scale = { 1.0f, 1.0f, 1.0f } };
+            float f0[10] = { t0.position.x, t0.position.y, t0.position.z, t0.rotation.x, t0.rotation.y, t0.rotation.z, t0.rotation.w, t0.scale.x, t0.scale.y, t0.scale.z };
+            float f1[10] = { t1.position.x, t1.position.y, t1.position.z, t1.rotation.x, t1.rotation.y, t1.rotation.z, t1.rotation.w, t1.scale.x, t1.scale.y, t1.scale.z };
+            stream.write(reinterpret_cast<const char*>(f0), sizeof(f0));
+            stream.write(reinterpret_cast<const char*>(f1), sizeof(f1));
+
+            // HealthComponent Chunk for h0
+            ComponentChunkHeader hpChunk{
+                .typeId = ComponentTraits<HealthComponent>::TypeHash,
+                .version = 1,
+                .flags = 0,
+                .elementCount = 1,
+                .entityDataSize = sizeof(EntityHandle),
+                .componentDataSize = 4
+            };
+            stream.write(reinterpret_cast<const char*>(&hpChunk), sizeof(hpChunk));
+            stream.write(reinterpret_cast<const char*>(&h0), sizeof(EntityHandle));
+            int32_t hpVal = 555;
+            stream.write(reinterpret_cast<const char*>(&hpVal), sizeof(int32_t));
+
+            // VisibilityComponent Chunk for h1 (isVisible = false)
+            ComponentChunkHeader visChunk{
+                .typeId = ComponentTraits<VisibilityComponent>::TypeHash,
+                .version = 1,
+                .flags = 0,
+                .elementCount = 1,
+                .entityDataSize = sizeof(EntityHandle),
+                .componentDataSize = 1
+            };
+            stream.write(reinterpret_cast<const char*>(&visChunk), sizeof(visChunk));
+            stream.write(reinterpret_cast<const char*>(&h1), sizeof(EntityHandle));
+            uint8_t visVal = 0;
+            stream.write(reinterpret_cast<const char*>(&visVal), sizeof(uint8_t));
+        }
+
+        // 1. v2 dosyasını deserialize et
+        auto v2Scene = std::make_shared<Scene>("Temp");
+        bool v2LoadOk = SceneSerializer::Deserialize(v2Scene, v2File);
+        TEST_CHECK_MSG(suite, "V2LegacyLoadSuccess", v2LoadOk, "v2 fixture dosyasi basariyla yuklenmeli!");
+        TEST_CHECK(suite, "V2SceneNameMatches", v2Scene->GetName() == "Legacy V2 Scene");
+        TEST_CHECK(suite, "V2EntityCountMatches", v2Scene->GetRegistry().GetAliveEntityCount() == 2);
+
+        Entity loadedH0(MakeEntityHandle(0, 1), v2Scene.get());
+        Entity loadedH1(MakeEntityHandle(1, 1), v2Scene.get());
+        TEST_CHECK(suite, "V2H0Valid", loadedH0.IsValid());
+        TEST_CHECK(suite, "V2H1Valid", loadedH1.IsValid());
+        TEST_CHECK(suite, "V2H0HasTransform", loadedH0.HasComponent<TransformComponent>());
+        TEST_CHECK(suite, "V2H0PositionX", loadedH0.GetComponent<TransformComponent>().position.x == 10.0f);
+        TEST_CHECK(suite, "V2H0HasHealth", loadedH0.HasComponent<HealthComponent>());
+        TEST_CHECK(suite, "V2H0Hp", loadedH0.GetComponent<HealthComponent>().hp == 555);
+        TEST_CHECK(suite, "V2H1HasVisibility", loadedH1.HasComponent<VisibilityComponent>());
+        TEST_CHECK(suite, "V2H1VisibleFalse", loadedH1.GetComponent<VisibilityComponent>().isVisible == false);
+
+        // 2. v2'den yuklenen sahneyi v3 formatinda kaydet (otomatik migration)
+        const std::filesystem::path v3MigratedFile = testDir / "migrated_v3.astral";
+        bool v3SaveOk = SceneSerializer::Serialize(v2Scene, v3MigratedFile);
+        TEST_CHECK_MSG(suite, "V3MigrationSaveSuccess", v3SaveOk, "Yuklenen v2 sahnesi v3 olarak kaydedilebilmeli!");
+
+        // 3. Kaydedilen dosyanin header surumunu kontrol et: CURRENT_VERSION (3) olmali
+        {
+            std::ifstream inHeader(v3MigratedFile, std::ios::binary);
+            SceneFileHeader savedHdr{};
+            inHeader.read(reinterpret_cast<char*>(&savedHdr), sizeof(savedHdr));
+            TEST_CHECK_MSG(suite, "V3HeaderVersionIs3", savedHdr.version == 3, "Migrate edilen dosyanin header version'i 3 olmali!");
+        }
+
+        // 4. v3 dosyasini yeni bir sahneye yukle ve tam veri esdegerligini dogrula
+        auto v3Scene = std::make_shared<Scene>("V3Fresh");
+        bool v3LoadOk = SceneSerializer::Deserialize(v3Scene, v3MigratedFile);
+        TEST_CHECK_MSG(suite, "V3LoadSuccess", v3LoadOk, "Migrate edilen v3 dosyasi basariyla yuklenebilmeli!");
+        TEST_CHECK(suite, "V3SceneNameMatches", v3Scene->GetName() == "Legacy V2 Scene");
+        TEST_CHECK(suite, "V3EntityCountMatches", v3Scene->GetRegistry().GetAliveEntityCount() == 2);
+
+        Entity v3H0(MakeEntityHandle(0, 1), v3Scene.get());
+        Entity v3H1(MakeEntityHandle(1, 1), v3Scene.get());
+        TEST_CHECK(suite, "V3H0Valid", v3H0.IsValid());
+        TEST_CHECK(suite, "V3H1Valid", v3H1.IsValid());
+        TEST_CHECK(suite, "V3H0PositionX", v3H0.GetComponent<TransformComponent>().position.x == 10.0f);
+        TEST_CHECK(suite, "V3H0PositionY", v3H0.GetComponent<TransformComponent>().position.y == 20.0f);
+        TEST_CHECK(suite, "V3H0PositionZ", v3H0.GetComponent<TransformComponent>().position.z == 30.0f);
+        TEST_CHECK(suite, "V3H0ScaleX", v3H0.GetComponent<TransformComponent>().scale.x == 2.0f);
+        TEST_CHECK(suite, "V3H0Hp", v3H0.GetComponent<HealthComponent>().hp == 555);
+        TEST_CHECK(suite, "V3H1VisibleFalse", v3H1.GetComponent<VisibilityComponent>().isVisible == false);
+    }
+
+    // =========================================================================
+    // 8. Destek Dışı Sürüm Sınırları Testi (version < 2 veya version > 3 Reddi)
+    // =========================================================================
+    {
+        auto testVersionRejection = [&](uint32_t badVer, const std::string& testName) {
+            const std::filesystem::path badVerFile = testDir / ("bad_version_" + std::to_string(badVer) + ".astral");
+            {
+                std::ofstream stream(badVerFile, std::ios::binary | std::ios::trunc);
+                SceneFileHeader fh{
+                    .magic = { 'A', 'S', 'T', 'R' },
+                    .version = badVer,
+                    .activeEntityCount = 1
+                };
+                stream.write(reinterpret_cast<const char*>(&fh), sizeof(fh));
+            }
+            auto targetScene = std::make_shared<Scene>("PristineTarget");
+            bool loadResult = SceneSerializer::Deserialize(targetScene, badVerFile);
+            TEST_CHECK_MSG(suite, testName, !loadResult, "Destek disi surum (" + std::to_string(badVer) + ") reddedilmeli!");
+            TEST_CHECK(suite, testName + "_Preserved", targetScene->GetName() == "PristineTarget");
+        };
+
+        testVersionRejection(0, "RejectVersion0");
+        testVersionRejection(1, "RejectVersion1");
+        testVersionRejection(4, "RejectVersion4");
+        testVersionRejection(999, "RejectVersion999");
+    }
+
+    // =========================================================================
+    // 9. Atomik Kayıt ve Yazma Hatasında Dosya Korunumu Testi (Atomic Save)
+    // =========================================================================
+    {
+        const std::filesystem::path protectedFile = testDir / "atomic_protected_scene.astral";
+
+        // Adım 1: Ilk saglam dosyayi olustur ve kaydet
+        {
+            auto initialScene = std::make_shared<Scene>("OriginalPristineScene");
+            Entity initE = initialScene->CreateEntity();
+            initE.AddComponent<TagComponent>("ImportantData");
+            initE.AddComponent<HealthComponent>(7777);
+            bool initialSaveOk = SceneSerializer::Serialize(initialScene, protectedFile);
+            TEST_CHECK_MSG(suite, "AtomicInitialSaveOk", initialSaveOk, "Ilk dosya basariyla olusturulmali!");
+        }
+
+        // Adım 2: Hata ureten bilesen serializer'i kaydet
+        SceneSerializer::RegisterChunkSerializer(ComponentTraits<FailingTestComponent>::TypeHash,
+            [](const IPool&, std::ostream&) -> bool {
+                // Yazma sirasinda hata simule et
+                return false;
+            }
+        );
+
+        // Adım 3: Hatali bileseni iceren yeni bir sahne olustur
+        auto corruptedAttemptScene = std::make_shared<Scene>("CorruptedNewScene");
+        Entity badE = corruptedAttemptScene->CreateEntity();
+        badE.AddComponent<TagComponent>("CorruptedData");
+        badE.AddComponent<FailingTestComponent>(FailingTestComponent{ .value = -1 });
+
+        // Ayni dosyaya kaydetmeye calis - basarisiz olmali!
+        bool failedSaveResult = SceneSerializer::Serialize(corruptedAttemptScene, protectedFile);
+        TEST_CHECK_MSG(suite, "FailedSaveReturnsFalse", !failedSaveResult, "Serializer hatasinda Serialize false donmeli!");
+
+        // Adım 4: Asil dosyanin zarar gormedigini, son saglam durumunu korudugunu dogrula
+        auto verifyScene = std::make_shared<Scene>("Verification");
+        bool verifyLoadOk = SceneSerializer::Deserialize(verifyScene, protectedFile);
+        TEST_CHECK_MSG(suite, "ProtectedFileStillLoadable", verifyLoadOk, "Basarisiz kayit sonrasi asil dosya saglam yuklenebilmeli!");
+        TEST_CHECK(suite, "ProtectedSceneNamePreserved", verifyScene->GetName() == "OriginalPristineScene");
+
+        Entity loadedInitE(MakeEntityHandle(0, 1), verifyScene.get());
+        TEST_CHECK(suite, "ProtectedEntityValid", loadedInitE.IsValid());
+        TEST_CHECK(suite, "ProtectedTagPreserved", loadedInitE.GetComponent<TagComponent>().tag == "ImportantData");
+        TEST_CHECK(suite, "ProtectedHpPreserved", loadedInitE.GetComponent<HealthComponent>().hp == 7777);
+
+        // Gecici (.tmp.*) dosyalarinin temizlendigini dogrula
+        bool anyTempLeft = false;
+        for (const auto& entry : std::filesystem::directory_iterator(testDir)) {
+            if (entry.path().filename().string().find(".tmp.") != std::string::npos) {
+                anyTempLeft = true;
+                break;
+            }
+        }
+        TEST_CHECK_MSG(suite, "NoTempFilesLeftBehind", !anyTempLeft, "Basarisiz kayit sonrasi .tmp dosyasi kalmamali!");
+    }
 
     // Test geçici dizinini temizle
     std::filesystem::remove_all(testDir, ec);
