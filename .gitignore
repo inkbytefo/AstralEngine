@@ -4,6 +4,7 @@ build-*/
 out/
 cmake-build-*/
 renderingexample/
+artifacts/
 
 # IDE dosyaları
 .vs/
