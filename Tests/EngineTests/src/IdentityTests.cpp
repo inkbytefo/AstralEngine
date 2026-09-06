@@ -65,7 +65,7 @@ void RunGenerationalIdentityTests() {
     TEST_CHECK(suite, "EntityCIndex1Gen3", eC.GetIndex() == 1 && eC.GetGeneration() == 3);
     eC.AddComponent<TransformComponent>(glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f));
     eC.AddComponent<SDFComponent>();
-    std::vector<SDFEditGPU> extractedEdits;
+    std::vector<LegacySDFEdit> extractedEdits;
     std::vector<EntityHandle> extractedHandles;
     UpdateWorldTransforms(scene->GetRegistry());
     TEST_CHECK(suite, "EntityCHasWorldTransform", eC.HasComponent<WorldTransformComponent>());

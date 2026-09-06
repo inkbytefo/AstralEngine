@@ -11,7 +11,7 @@ void RunEcsTests() {
     Registry registry;
 
     RenderExtractionSubsystem extractionSubsystem;
-    TEST_CHECK(suite, "InitialExtractionEmptyEdits", extractionSubsystem.GetLastExtractedEdits().empty());
+    TEST_CHECK(suite, "InitialExtractionEmptyEdits", extractionSubsystem.GetLastExtractedRecords().empty());
     TEST_CHECK(suite, "InitialExtractionEmptyEntities", extractionSubsystem.GetLastExtractedEntities().empty());
 
     // 1. Oyuncu gemisi (Transform + Velocity + Health)

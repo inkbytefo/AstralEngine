@@ -93,115 +93,68 @@ bool IsEntityVisibleInHierarchy(const Registry& registry, EntityHandle entity) {
 
 } // namespace
 
-void ExtractRenderData(Registry& registry, std::vector<SDFEditGPU>& outEdits, std::vector<EntityHandle>& outEntities) {
+void ExtractRenderData(Registry& registry, std::vector<SDFPrimitiveRecord>& outEdits, std::vector<EntityHandle>& outEntities) {
+    auto snapshot = SDFSceneSnapshot::Extract(registry, 1);
+    outEdits = snapshot.GetRecords();
+    outEntities = snapshot.GetEntities();
+}
+
+void ExtractRenderData(Registry& registry, std::vector<SDFPrimitiveRecord>& outEdits) {
+    std::vector<EntityHandle> unusedEntities;
+    ExtractRenderData(registry, outEdits, unusedEntities);
+}
+
+void ExtractRenderData(Registry& registry, std::vector<LegacySDFEdit>& outEdits, std::vector<EntityHandle>& outEntities) {
+    std::vector<SDFPrimitiveRecord> records;
+    ExtractRenderData(registry, records, outEntities);
     outEdits.clear();
-    outEntities.clear();
-    outEdits.reserve(MAX_SDF_EDITS);
-    outEntities.reserve(MAX_SDF_EDITS);
+    outEdits.reserve(records.size());
 
-    auto& transforms = registry.GetView<TransformComponent>();
+    for (size_t i = 0; i < records.size(); ++i) {
+        const auto& rec = records[i];
+        LegacySDFEdit e{};
+        glm::mat4 m = glm::inverse(rec.invTransform);
+        e.position = glm::vec3(m[3]);
+        glm::quat q = glm::quat_cast(m);
+        e.rotation = glm::vec4(q.x, q.y, q.z, q.w);
+        glm::vec3 worldScale(glm::length(glm::vec3(m[0])), glm::length(glm::vec3(m[1])), glm::length(glm::vec3(m[2])));
+        if (rec.primitiveType == 1) {
+            e.scale = glm::vec3(rec.dimensions);
+        } else if (worldScale.x > 1e-5f || worldScale.y > 1e-5f || worldScale.z > 1e-5f) {
+            e.scale = worldScale;
+        } else {
+            e.scale = glm::vec3(rec.dimensions);
+        }
+        e.primitiveType = rec.primitiveType;
+        e.operation = rec.operation;
+        e.blendFactor = rec.metallicParams.y;
+        e.isDynamic = static_cast<uint32_t>(rec.metallicParams.w);
+        e.albedo = glm::vec3(rec.albedoRoughness);
+        e.roughness = rec.albedoRoughness.w;
+        e.metallic = rec.metallicParams.x;
 
-    for (auto&& [entity, transform] : transforms) {
-        (void)transform;
-        if (registry.HasComponent<SDFComponent>(entity)) {
-            // Görünürlük kontrolü: Nesne veya ebeveyni gizlendiyse çizilmez ve seçilmez
-            if (!IsEntityVisibleInHierarchy(registry, entity)) {
-                continue;
-            }
+        if (i < outEntities.size() && registry.IsAlive(outEntities[i]) &&
+            registry.HasComponent<WorldTransformComponent>(outEntities[i])) {
+            auto& history = registry.GetComponent<WorldTransformComponent>(outEntities[i]);
+            e.SetPrevPosition(history.hasRenderHistory ? history.renderedPosition : e.position);
+            e.prevRotation = history.hasRenderHistory ? history.renderedRotation : e.rotation;
+            e.prevScale = glm::vec4(history.hasRenderHistory ? history.renderedScale : e.scale, 0.0f);
 
-            const auto& sdf = registry.GetComponent<SDFComponent>(entity);
-
-            if (!registry.HasComponent<WorldTransformComponent>(entity)) {
-                continue;
-            }
-
-            const glm::mat4& worldMatrix = registry.GetComponent<WorldTransformComponent>(entity).matrix;
-            glm::vec3 worldPosition;
-            glm::quat worldRotation;
-            glm::vec3 worldScale;
-            DecomposeTransformMatrix(worldMatrix, worldPosition, worldRotation, worldScale);
-
-            SDFEditGPU gpuData{};
-            gpuData.position = worldPosition;
-            gpuData.rotation = glm::vec4(
-                worldRotation.x,
-                worldRotation.y,
-                worldRotation.z,
-                worldRotation.w
-            );
-            glm::vec3 effectiveScale = worldScale;
-            if (sdf.encoding == SDFShapeEncoding::ExplicitShape) {
-                switch (sdf.primitiveType) {
-                    case 0: // Sphere: radius in x
-                        effectiveScale = glm::vec3(sdf.shape.dimensions.x) * worldScale;
-                        break;
-                    case 1: // Box: half-extents in xyz
-                        effectiveScale = glm::vec3(sdf.shape.dimensions.x, sdf.shape.dimensions.y, sdf.shape.dimensions.z) * worldScale;
-                        break;
-                    case 2: // Torus: major in x, minor in y
-                        effectiveScale = glm::vec3(sdf.shape.dimensions.x, sdf.shape.dimensions.y, worldScale.z);
-                        break;
-                    case 3: // Plane: offset in x
-                        effectiveScale = worldScale;
-                        break;
-                    case 4: // Capsule: radius in x, length in y
-                    case 5: // Cylinder: radius in x, height in y
-                        effectiveScale = glm::vec3(sdf.shape.dimensions.x, sdf.shape.dimensions.y, sdf.shape.dimensions.x) * worldScale;
-                        break;
-                    default:
-                        effectiveScale = glm::vec3(sdf.shape.dimensions) * worldScale;
-                        break;
-                }
-            }
-            gpuData.scale = effectiveScale;
-            gpuData.primitiveType = sdf.primitiveType;
-            gpuData.operation = sdf.operation;
-            gpuData.blendFactor = sdf.blendFactor;
-            gpuData.isDynamic = sdf.isDynamic;
-            gpuData.albedo = sdf.albedo;
-            gpuData.roughness = sdf.roughness;
-            gpuData.metallic = sdf.metallic;
-
-            auto& history = registry.GetComponent<WorldTransformComponent>(entity);
-            gpuData.SetPrevPosition(history.hasRenderHistory ? history.renderedPosition : worldPosition);
-            gpuData.prevRotation = history.hasRenderHistory ? history.renderedRotation : gpuData.rotation;
-            gpuData.prevScale = glm::vec4(history.hasRenderHistory ? history.renderedScale : effectiveScale, 0.0f);
-            history.renderedPosition = worldPosition;
-            history.renderedRotation = gpuData.rotation;
-            history.renderedScale = effectiveScale;
+            history.renderedPosition = e.position;
+            history.renderedRotation = e.rotation;
+            history.renderedScale = e.scale;
             history.hasRenderHistory = true;
-            outEdits.push_back(gpuData);
-            outEntities.push_back(entity);
+        } else {
+            e.SetPrevPosition(e.position);
+            e.prevRotation = e.rotation;
+            e.prevScale = glm::vec4(e.scale, 0.0f);
         }
-    }
 
-    // Deterministic ordering: sort edits by csgOrder, tie-break with entity handle
-    if (outEdits.size() > 1) {
-        struct EditEntityPair {
-            SDFEditGPU edit;
-            EntityHandle entity;
-            uint64_t csgOrder;
-        };
-        std::vector<EditEntityPair> pairs;
-        pairs.reserve(outEdits.size());
-        for (size_t i = 0; i < outEdits.size(); ++i) {
-            uint64_t csg = registry.HasComponent<SDFComponent>(outEntities[i])
-                ? registry.GetComponent<SDFComponent>(outEntities[i]).csgOrder
-                : 0;
-            pairs.push_back({outEdits[i], outEntities[i], csg});
-        }
-        std::sort(pairs.begin(), pairs.end(), [](const EditEntityPair& a, const EditEntityPair& b) {
-            if (a.csgOrder != b.csgOrder) return a.csgOrder < b.csgOrder;
-            return a.entity < b.entity;
-        });
-        for (size_t i = 0; i < pairs.size(); ++i) {
-            outEdits[i] = pairs[i].edit;
-            outEntities[i] = pairs[i].entity;
-        }
+        outEdits.push_back(e);
     }
 }
 
-void ExtractRenderData(Registry& registry, std::vector<SDFEditGPU>& outEdits) {
+void ExtractRenderData(Registry& registry, std::vector<LegacySDFEdit>& outEdits) {
     std::vector<EntityHandle> unusedEntities;
     ExtractRenderData(registry, outEdits, unusedEntities);
 }

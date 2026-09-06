@@ -190,7 +190,7 @@ void main() {
     if (pixel.x >= res.x || pixel.y >= res.y) return;
 
     vec2 jitterOffset = (taaParams.z > 0.5) ? taaParams.xy : vec2(0.0);
-    vec2 uv = (vec2(pixel) + jitterOffset - 0.5 * vec2(res)) / float(res.y);
+    vec2 uv = (vec2(pixel) + vec2(0.5) + jitterOffset - 0.5 * vec2(res)) / float(res.y);
     uv.y = -uv.y;
 
     vec3 ro = camPos.xyz;

@@ -218,12 +218,90 @@ static void RunSnapshotRobustnessTests(const std::string& suite) {
     }
 }
 
+// Test 5: Hierarchy transform inheritance and persistent identity
+static void RunSnapshotHierarchyAndIdentityTests(const std::string& suite) {
+    auto scene = std::make_shared<Scene>("HierarchyScene");
+
+    // 1. Parent entity at (10, 0, 0)
+    Entity parent = scene->CreateEntity("Parent");
+    parent.AddComponent<TransformComponent>(glm::vec3(10.0f, 0.0f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f));
+
+    // 2. Child entity at local (0, 5, 0) with parent
+    Entity child = scene->CreateEntity("ChildSphere");
+    child.AddComponent<TransformComponent>(glm::vec3(0.0f, 5.0f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f));
+    auto& hier = child.AddComponent<HierarchyComponent>();
+    hier.parent = parent.GetHandle();
+
+    auto& sdf = child.AddComponent<SDFComponent>();
+    sdf.primitiveType = 0; // Sphere
+    sdf.shape.dimensions = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f); // radius = 1.0
+    sdf.encoding = SDFShapeEncoding::ExplicitShape;
+    sdf.csgOrder = 1;
+
+    const auto snap1 = SDFSceneSnapshot::Extract(scene->GetRegistry());
+    TEST_CHECK_MSG(suite, "HierarchyRecordExtracted", snap1.GetRecordCount() == 1,
+                   "Child entity must be extracted!");
+
+    if (snap1.GetRecordCount() == 1) {
+        // Center of sphere should be at world (10, 5, 0)
+        float dCenter = snap1.EvaluateDistance(glm::vec3(10.0f, 5.0f, 0.0f));
+        TEST_CHECK_MSG(suite, "HierarchyWorldCenterDistance", std::abs(dCenter - (-1.0f)) < 1e-4f,
+                       "Child sphere center must be at world (10, 5, 0), distance must be -1.0!");
+
+        float dSurface = snap1.EvaluateDistance(glm::vec3(10.0f, 6.0f, 0.0f));
+        TEST_CHECK_MSG(suite, "HierarchyWorldSurfaceDistance", std::abs(dSurface) < 1e-4f,
+                       "Child sphere surface at (10, 6, 0) must have distance 0.0!");
+
+        // Entities mapping must match
+        TEST_CHECK(suite, "HierarchyEntitiesMatched", snap1.GetEntities().size() == 1 && snap1.GetEntities()[0] == child.GetHandle());
+
+        uint32_t originalSurfaceId = snap1.GetRecords()[0].surfaceId;
+
+        // 3. Add an unrelated entity with lower csgOrder (will sort before child)
+        Entity other = scene->CreateEntity("OtherBox");
+        other.AddComponent<TransformComponent>(glm::vec3(-5.0f, 0.0f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f));
+        auto& otherSdf = other.AddComponent<SDFComponent>();
+        otherSdf.csgOrder = 0; // Will be first record
+
+        const auto snap2 = SDFSceneSnapshot::Extract(scene->GetRegistry());
+        TEST_CHECK(suite, "TwoRecordsExtracted", snap2.GetRecordCount() == 2);
+
+        // Find child record in snap2
+        bool foundChild = false;
+        for (size_t i = 0; i < snap2.GetRecordCount(); ++i) {
+            if (snap2.GetEntities()[i] == child.GetHandle()) {
+                foundChild = true;
+                TEST_CHECK_MSG(suite, "PersistentSurfaceIdMaintained",
+                               snap2.GetRecords()[i].surfaceId == originalSurfaceId,
+                               "Child surfaceId must remain identical even when other entities are added or reordered!");
+            }
+        }
+        // 4. Test LegacyPackedScale hierarchy inheritance
+        Entity legacyChild = scene->CreateEntity("LegacyChildSphere");
+        legacyChild.AddComponent<TransformComponent>(glm::vec3(0.0f, -3.0f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(2.0f));
+        auto& legacyHier = legacyChild.AddComponent<HierarchyComponent>();
+        legacyHier.parent = parent.GetHandle();
+
+        auto& legacySdf = legacyChild.AddComponent<SDFComponent>();
+        legacySdf.primitiveType = 0; // Sphere
+        legacySdf.encoding = SDFShapeEncoding::LegacyPackedScale;
+        legacySdf.csgOrder = 3;
+
+        const auto snap3 = SDFSceneSnapshot::Extract(scene->GetRegistry());
+        // Parent is at (10, 0, 0), legacyChild is at local (0, -3, 0) -> world (10, -3, 0)
+        float dLegacyCenter = snap3.EvaluateDistance(glm::vec3(10.0f, -3.0f, 0.0f));
+        TEST_CHECK_MSG(suite, "LegacyHierarchyWorldCenter", std::abs(dLegacyCenter - (-2.0f)) < 1e-4f,
+                       "LegacyPackedScale child sphere center must be at world (10, -3, 0), distance must be -2.0!");
+    }
+}
+
 void RunSDFContractTests() {
     const std::string suite = "SDF Contract Suite";
     RunAnalyticalPrimitivesTests(suite);
     RunCsgOperationsTests(suite);
     RunLipschitzContinuity10kTests(suite);
     RunSnapshotRobustnessTests(suite);
+    RunSnapshotHierarchyAndIdentityTests(suite);
 }
 
 } // namespace Astral::Test

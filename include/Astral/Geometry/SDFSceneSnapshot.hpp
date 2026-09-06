@@ -3,6 +3,8 @@
 #include <glm/glm.hpp>
 #include <vector>
 #include <cstdint>
+#include <cstddef>
+#include <type_traits>
 #include <algorithm>
 #include "Astral/Geometry/SDFKernel.inl"
 #include "Astral/Core/Registry.hpp"
@@ -50,6 +52,16 @@ struct alignas(16) SDFPrimitiveRecord {
     uint32_t surfaceId = 0;                // 4 bytes
 };
 static_assert(sizeof(SDFPrimitiveRecord) == 128, "SDFPrimitiveRecord must be exactly 128 bytes!");
+static_assert(std::is_standard_layout_v<SDFPrimitiveRecord>);
+static_assert(alignof(SDFPrimitiveRecord) == 16);
+static_assert(offsetof(SDFPrimitiveRecord, invTransform) == 0);
+static_assert(offsetof(SDFPrimitiveRecord, dimensions) == 64);
+static_assert(offsetof(SDFPrimitiveRecord, albedoRoughness) == 80);
+static_assert(offsetof(SDFPrimitiveRecord, metallicParams) == 96);
+static_assert(offsetof(SDFPrimitiveRecord, primitiveType) == 112);
+static_assert(offsetof(SDFPrimitiveRecord, operation) == 116);
+static_assert(offsetof(SDFPrimitiveRecord, csgOrder) == 120);
+static_assert(offsetof(SDFPrimitiveRecord, surfaceId) == 124);
 
 class SDFSceneSnapshot {
 public:

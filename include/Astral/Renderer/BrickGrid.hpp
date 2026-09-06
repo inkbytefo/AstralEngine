@@ -36,7 +36,7 @@ public:
     BrickGrid& operator=(const BrickGrid&) = delete;
 
     /// Sahnedeki primitiflerin AABB / yaricaplarina gore 3D izgarayi gunceller
-    void Build(std::span<const SDFEditGPU> edits);
+    void Build(std::span<const LegacySDFEdit> edits);
     void Build(std::span<const SDFPrimitiveRecord> records);
     void Build(const SDFSceneSnapshot& snapshot);
 
@@ -53,8 +53,6 @@ public:
     }
 
 private:
-    float EvaluateCell(uint32_t x, uint32_t y, uint32_t z, std::span<const SDFEditGPU> edits) const;
-    void FullRebuild(std::span<const SDFEditGPU> edits);
     float EvaluateCell(uint32_t x, uint32_t y, uint32_t z, std::span<const SDFPrimitiveRecord> records) const;
     void FullRebuild(std::span<const SDFPrimitiveRecord> records);
 
@@ -67,9 +65,7 @@ private:
 
     std::unique_ptr<Buffer> m_GridBuffer;
     std::vector<float> m_CellDistances;
-    std::vector<SDFEditGPU> m_CachedEdits;
     std::vector<SDFPrimitiveRecord> m_CachedRecords;
-    bool m_IsInitialized = false;
     bool m_IsRecordsInitialized = false;
     size_t m_LastUpdatedCellCount = 0;
 };

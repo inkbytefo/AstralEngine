@@ -33,7 +33,7 @@ void RunPhysicsPipelineTests() {
                std::abs(glm::length(registry.GetComponent<TransformComponent>(entity).rotation) - 1.0f) < 0.0001f);
 
     UpdateWorldTransforms(registry);
-    std::vector<SDFEditGPU> edits;
+    std::vector<LegacySDFEdit> edits;
     std::vector<EntityHandle> entities;
     ExtractRenderData(registry, edits, entities);
 

@@ -3,6 +3,7 @@
 #include "Astral/Renderer/Buffer.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <glm/gtc/packing.hpp>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -55,6 +56,41 @@ void Save(const std::filesystem::path& path, const Pixels& pixels, int width, in
     if (!file) throw std::runtime_error("Cannot write capture");
 }
 
+void CheckStationaryMotion(VulkanContext& context, const SDFRenderer& renderer) {
+    const size_t count = size_t(renderer.GetWidth()) * renderer.GetHeight();
+    Buffer buffer(context.GetDevice(), context.GetPhysicalDevice(), count * 4,
+                  vk::BufferUsageFlagBits::eTransferDst,
+                  vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+    context.ExecuteImmediate([&](vk::CommandBuffer cmd) {
+        vk::ImageMemoryBarrier barrier{};
+        barrier.oldLayout = vk::ImageLayout::eGeneral;
+        barrier.newLayout = vk::ImageLayout::eTransferSrcOptimal;
+        barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = renderer.GetGBufferMotion();
+        barrier.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
+        barrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
+        barrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
+        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eTransfer,
+                            {}, {}, {}, barrier);
+        vk::BufferImageCopy region{};
+        region.imageSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1};
+        region.imageExtent = vk::Extent3D(renderer.GetWidth(), renderer.GetHeight(), 1);
+        cmd.copyImageToBuffer(barrier.image, barrier.newLayout, buffer.GetBuffer(), region);
+        std::swap(barrier.oldLayout, barrier.newLayout);
+        barrier.srcAccessMask = vk::AccessFlagBits::eTransferRead;
+        barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite;
+        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eAllCommands,
+                            {}, {}, {}, barrier);
+    });
+    const auto* packed = static_cast<const uint32_t*>(buffer.GetMappedData());
+    for (size_t i = 0; i < count; ++i) {
+        const glm::vec2 motion = glm::unpackHalf2x16(packed[i]) *
+            glm::vec2(renderer.GetWidth(), renderer.GetHeight());
+        if (!std::isfinite(motion.x) || !std::isfinite(motion.y) || glm::length(motion) > 0.01f)
+            throw std::runtime_error("Stationary camera has jitter-induced motion: " + std::to_string(glm::length(motion)) + " pixels");
+    }
+}
+
 void Compare(const Pixels& actual, const Pixels& reference, const std::string& label, double tolerance) {
     if (actual.size() != reference.size()) throw std::runtime_error("Image extent mismatch");
     double error = 0;
@@ -70,8 +106,8 @@ void Compare(const Pixels& actual, const Pixels& reference, const std::string& l
     if (error > tolerance || fraction > 0.01) throw std::runtime_error(label + " exceeds tolerance");
 }
 
-std::vector<SDFEditGPU> Fixture() {
-    std::vector<SDFEditGPU> edits(4);
+std::vector<LegacySDFEdit> Fixture() {
+    std::vector<LegacySDFEdit> edits(4);
     edits[0].primitiveType = 3;
     edits[0].position = {0, -1, 0};
     edits[0].scale = {1, 0, 1};
@@ -163,6 +199,11 @@ int main(int argc, char** argv) {
             const std::string prefix = deferred ? "deferred" : "forward";
             auto edits = Fixture();
             renderer.UpdateEdits(edits);
+            renderer.ResetTemporalHistory();
+            for (uint32_t frame = 0; frame < 6; ++frame) {
+                draw(frame, true, true);
+                CheckStationaryMotion(context, renderer);
+            }
             const auto plain = draw(0, false, false);
             const auto grid = draw(0, true, false);
             Compare(grid, plain, prefix + " grid", 0.5);

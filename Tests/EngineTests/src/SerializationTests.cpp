@@ -159,7 +159,7 @@ void RunSerializationTests() {
     UpdateWorldTransforms(loadedScene->GetRegistry());
     TEST_CHECK(suite, "LoadedE0WorldTransformAfterUpdate", loadedE0.HasComponent<WorldTransformComponent>());
     TEST_CHECK(suite, "LoadedE2WorldTransformAfterUpdate", loadedE2.HasComponent<WorldTransformComponent>());
-    std::vector<SDFEditGPU> hierarchyEdits;
+    std::vector<LegacySDFEdit> hierarchyEdits;
     std::vector<EntityHandle> hierarchyEntities;
     ExtractRenderData(loadedScene->GetRegistry(), hierarchyEdits, hierarchyEntities);
     TEST_CHECK(suite, "HierarchyExtractionCount1", hierarchyEdits.size() == 1 && hierarchyEntities[0] == loadedE2.GetHandle());

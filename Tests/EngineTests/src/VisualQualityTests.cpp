@@ -15,7 +15,7 @@ void RunVisualQualityTests() {
     entity.AddComponent<TransformComponent>();
     entity.AddComponent<SDFComponent>();
     auto& registry = scene.GetRegistry();
-    std::vector<SDFEditGPU> edits;
+    std::vector<LegacySDFEdit> edits;
     UpdateWorldTransforms(registry);
     ExtractRenderData(registry, edits);
     TEST_CHECK(suite, "FirstFramePreviousEqualsCurrent", edits[0].GetPrevPosition() == edits[0].position);

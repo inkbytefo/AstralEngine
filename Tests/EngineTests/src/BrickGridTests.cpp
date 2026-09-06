@@ -13,7 +13,7 @@ void RunBrickGridTests() {
     BrickGrid grid;
 
     // 1. Ilk sahne: 2 primitif (Kure ve Kutu)
-    std::vector<SDFEditGPU> edits(2);
+    std::vector<LegacySDFEdit> edits(2);
     // Kure
     edits[0].position = glm::vec3(0.0f, 1.0f, 0.0f);
     edits[0].scale = glm::vec3(0.5f);
@@ -77,7 +77,7 @@ void RunBrickGridTests() {
 
     // Test 6: Sonsuz Duzlem (Plane - primitiveType 3) Degisimi
     // Sonsuz etki alani nedeniyle duzlem hareketi Full Rebuild tetiklemelidir.
-    SDFEditGPU planeEdit{};
+    LegacySDFEdit planeEdit{};
     planeEdit.position = glm::vec3(0.0f, -1.0f, 0.0f);
     planeEdit.scale = glm::vec3(1.0f);
     planeEdit.primitiveType = 3; // Plane
@@ -95,6 +95,60 @@ void RunBrickGridTests() {
     TEST_CHECK_MSG(suite, "InfinitePlaneChangeTriggersFullRebuild",
                    grid.GetLastUpdatedCellCount() == BrickGrid::TOTAL_CELLS,
                    "Sonsuz duzlem degisimi tum 16,384 hucrenin yeniden hesaplanmasini tetiklemelidir!");
+
+    // =========================================================================
+    // Part B: SDFPrimitiveRecord overload and incremental tracking tests
+    // =========================================================================
+    BrickGrid recordGrid;
+    std::vector<SDFPrimitiveRecord> records(2);
+    // Sphere at (0, 1, 0), radius 0.5
+    records[0].invTransform = glm::inverse(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 1.0f, 0.0f)));
+    records[0].dimensions = glm::vec4(0.5f, 0.0f, 0.0f, 0.0f);
+    records[0].albedoRoughness = glm::vec4(1.0f, 0.0f, 0.0f, 0.5f);
+    records[0].metallicParams = glm::vec4(0.0f, 0.25f, 1.0f, 0.0f);
+    records[0].primitiveType = 0;
+    records[0].operation = 0;
+    records[0].csgOrder = 0;
+    records[0].surfaceId = 101;
+
+    // Box at (3, 1, 0), half-extents 0.5
+    records[1].invTransform = glm::inverse(glm::translate(glm::mat4(1.0f), glm::vec3(3.0f, 1.0f, 0.0f)));
+    records[1].dimensions = glm::vec4(0.5f, 0.5f, 0.5f, 0.0f);
+    records[1].albedoRoughness = glm::vec4(0.0f, 1.0f, 0.0f, 0.5f);
+    records[1].metallicParams = glm::vec4(0.0f, 0.25f, 1.0f, 0.0f);
+    records[1].primitiveType = 1;
+    records[1].operation = 0;
+    records[1].csgOrder = 1;
+    records[1].surfaceId = 102;
+
+    // Test B1: Initial build updates all cells
+    recordGrid.Build(records);
+    TEST_CHECK_MSG(suite, "RecordInitialBuildUpdatesAllCells",
+                   recordGrid.GetLastUpdatedCellCount() == BrickGrid::TOTAL_CELLS,
+                   "Ilk calismada records grid'in tum hucreleri (16,384) hesaplanmalidir!");
+
+    // Test B2: Static scene updates 0 cells
+    recordGrid.Build(records);
+    TEST_CHECK_MSG(suite, "RecordStaticSceneZeroUpdatedCells",
+                   recordGrid.GetLastUpdatedCellCount() == 0,
+                   "Hicbir primitif degismediginde records guncellenen hucre sayisi kesinlikle 0 olmalidir!");
+
+    // Test B3: Single object move triggers partial AABB update
+    records[0].invTransform = glm::inverse(glm::translate(glm::mat4(1.0f), glm::vec3(0.5f, 1.0f, 0.0f)));
+    recordGrid.Build(records);
+    size_t recordMovedCount = recordGrid.GetLastUpdatedCellCount();
+    TEST_CHECK_MSG(suite, "RecordSingleObjectMovedExpectedRange",
+                   recordMovedCount >= 100 && recordMovedCount <= 3000,
+                   "Records tek nesne hareketinde AABB marjini dahilinde 100-3000 hucre guncellenmelidir!");
+
+    // Test B4: Static after move updates 0 cells
+    recordGrid.Build(records);
+    TEST_CHECK(suite, "RecordPostMoveStaticZeroCells", recordGrid.GetLastUpdatedCellCount() == 0);
+
+    // Test B5: Material change (albedo) updates 0 cells
+    records[0].albedoRoughness.x = 0.2f;
+    recordGrid.Build(records);
+    TEST_CHECK(suite, "RecordMaterialOnlyZeroCells", recordGrid.GetLastUpdatedCellCount() == 0);
 }
 
 } // namespace Astral::Test

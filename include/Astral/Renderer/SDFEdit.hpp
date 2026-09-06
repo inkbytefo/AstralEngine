@@ -2,6 +2,7 @@
 
 #include <glm/glm.hpp>
 #include <cstdint>
+#include "Astral/Geometry/SDFSceneSnapshot.hpp"
 
 namespace Astral {
 
@@ -22,9 +23,9 @@ enum class CSGOperation : uint32_t {
     SmoothSubtract = 4
 };
 
-/// GLSL std430 hizalama kurallarina tam uyumlu 128-bayt GPU primitif yapisi.
-/// RENDERER_ARCHITECTURE.md Bolum c.2.a semasi.
-struct alignas(16) SDFEditGPU {
+/// Geriye donuk test uyumlulugu icin eski ara yapı (SDFEditGPU).
+/// Calisma zamaninda dogrudan SDFPrimitiveRecord kullanilir.
+struct alignas(16) LegacySDFEdit {
     glm::vec3 position{0.0f};
     float pad1 = 0.0f;
 
@@ -58,9 +59,24 @@ struct alignas(16) SDFEditGPU {
     glm::vec3 GetPrevPosition() const {
         return glm::vec3(prevPosX, prevPosY, prevPosZ);
     }
+
+    [[nodiscard]] SDFPrimitiveRecord ToPrimitiveRecord(uint32_t order = 0, uint32_t surfId = 0) const {
+        SDFPrimitiveRecord rec{};
+        glm::mat4 m = glm::translate(glm::mat4(1.0f), position) *
+                      glm::mat4_cast(glm::quat(rotation.w, rotation.x, rotation.y, rotation.z));
+        rec.invTransform = glm::inverse(m);
+        rec.dimensions = glm::vec4(scale, 0.0f);
+        rec.albedoRoughness = glm::vec4(albedo, roughness);
+        rec.metallicParams = glm::vec4(metallic, blendFactor, 1.0f, static_cast<float>(isDynamic));
+        rec.primitiveType = primitiveType;
+        rec.operation = operation;
+        rec.csgOrder = order;
+        rec.surfaceId = surfId;
+        return rec;
+    }
 };
 
-static_assert(sizeof(SDFEditGPU) == 128, "SDFEditGPU struct boyutu tam olarak 128 bayt olmalidir!");
+static_assert(sizeof(LegacySDFEdit) == 128, "LegacySDFEdit struct boyutu tam olarak 128 bayt olmalidir!");
 
 /// Raymarching analitik primitif degerlendirme butcesi ve SSBO sabit tahsis limiti.
 /// Vulkan 1.4 SSBO donanim kisitlamasi degil, 60+ FPS hedeflenen isin adimi basina (128 max adim)

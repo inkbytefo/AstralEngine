@@ -147,7 +147,7 @@ SDFRenderer::SDFRenderer(VulkanContext& context, const std::string& spvPath, int
     CreateDescriptorPoolAndSets();
 
     std::cout << "[Astral::SDFRenderer] SDF Renderer baslatildi (" << m_Width << "x" << m_Height 
-              << ", EditBuffer: " << (MAX_EDITS * sizeof(SDFEditGPU)) / 1024 << " KB"
+              << ", EditBuffer: " << (MAX_EDITS * sizeof(SDFPrimitiveRecord)) / 1024 << " KB"
               << ", Two-Level BrickGrid, Deferred PBR & IBL Lighting Aktif).\n";
 }
 
@@ -284,12 +284,12 @@ void SDFRenderer::CreateImages() {
                          vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled);
     CreateGBufferTexture(m_GBufNormal, m_GBufNormalView, vk::Format::eR16G16B16A16Sfloat,
                          vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled);
-    CreateGBufferTexture(m_GBufMaterial, m_GBufMaterialView, vk::Format::eR8G8B8A8Unorm,
-                         vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled);
+    CreateGBufferTexture(m_GBufMaterial, m_GBufMaterialView, vk::Format::eR32G32B32A32Uint,
+                         vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferSrc);
     CreateGBufferTexture(m_GBufDepth, m_GBufDepthView, vk::Format::eR32Sfloat,
                          vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferSrc);
     CreateGBufferTexture(m_GBufMotion, m_GBufMotionView, vk::Format::eR16G16Sfloat,
-                         vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst);
+                         vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc);
 
     // Tum goruntuleri baslangicta guvenli eGeneral duzenine gecir (Monolitik / G-Buffer modu tam uyumluluk)
     m_Context.ExecuteImmediate([&](vk::CommandBuffer cmd) {
@@ -440,12 +440,23 @@ void SDFRenderer::CreateCameraUBO() {
 }
 
 void SDFRenderer::CreateEditBuffer(bool persistentMap) {
-    vk::DeviceSize bufferSize = MAX_EDITS * sizeof(SDFEditGPU);
+    vk::DeviceSize bufferSize = MAX_EDITS * sizeof(SDFPrimitiveRecord);
     m_EditBuffer = std::make_unique<Buffer>(
         m_Context.GetAllocator(),
         m_Device,
         m_PhysicalDevice,
         bufferSize,
+        vk::BufferUsageFlagBits::eStorageBuffer,
+        vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
+        persistentMap
+    );
+
+    vk::DeviceSize prevBufferSize = MAX_EDITS * sizeof(glm::mat4);
+    m_PrevTransformBuffer = std::make_unique<Buffer>(
+        m_Context.GetAllocator(),
+        m_Device,
+        m_PhysicalDevice,
+        prevBufferSize,
         vk::BufferUsageFlagBits::eStorageBuffer,
         vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
         persistentMap
@@ -529,7 +540,7 @@ void SDFRenderer::CreateTAAPipeline() {
 }
 
 void SDFRenderer::CreateGBufferPipeline() {
-    std::array<vk::DescriptorSetLayoutBinding, 9> bindings{};
+    std::array<vk::DescriptorSetLayoutBinding, 10> bindings{};
     for (uint32_t i = 0; i < 5; ++i) {
         bindings[i].binding = i;
         bindings[i].descriptorType = vk::DescriptorType::eStorageImage;
@@ -546,6 +557,11 @@ void SDFRenderer::CreateGBufferPipeline() {
     bindings[8].descriptorType = vk::DescriptorType::eUniformBuffer;
     bindings[8].descriptorCount = 1;
     bindings[8].stageFlags = vk::ShaderStageFlagBits::eCompute;
+
+    bindings[9].binding = 9;
+    bindings[9].descriptorType = vk::DescriptorType::eStorageBuffer;
+    bindings[9].descriptorCount = 1;
+    bindings[9].stageFlags = vk::ShaderStageFlagBits::eCompute;
 
     vk::DescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
@@ -741,7 +757,7 @@ void SDFRenderer::CreateDescriptorPoolAndSets() {
     poolSizes[0].type = vk::DescriptorType::eStorageImage;
     poolSizes[0].descriptorCount = 48;
     poolSizes[1].type = vk::DescriptorType::eStorageBuffer;
-    poolSizes[1].descriptorCount = 32;
+    poolSizes[1].descriptorCount = 48;
     poolSizes[2].type = vk::DescriptorType::eUniformBuffer;
     poolSizes[2].descriptorCount = 8;
     poolSizes[3].type = vk::DescriptorType::eCombinedImageSampler;
@@ -903,8 +919,9 @@ void SDFRenderer::UpdateGBufferDescriptorSets() {
     auto gridBufInfo = m_BrickGrid->GetBuffer()->GetDescriptorInfo();
     auto selBufInfo = m_SelectionBuffer->GetDescriptorInfo();
     auto camBufInfo = m_CameraUBO->GetDescriptorInfo();
+    auto histBufInfo = m_PrevTransformBuffer->GetDescriptorInfo();
 
-    std::array<vk::WriteDescriptorSet, 9> writeSets{};
+    std::array<vk::WriteDescriptorSet, 10> writeSets{};
     writeSets[0].dstSet = m_GBufferDescriptorSet;
     writeSets[0].dstBinding = 0;
     writeSets[0].descriptorCount = 1;
@@ -958,6 +975,12 @@ void SDFRenderer::UpdateGBufferDescriptorSets() {
     writeSets[8].descriptorCount = 1;
     writeSets[8].descriptorType = vk::DescriptorType::eUniformBuffer;
     writeSets[8].pBufferInfo = &camBufInfo;
+
+    writeSets[9].dstSet = m_GBufferDescriptorSet;
+    writeSets[9].dstBinding = 9;
+    writeSets[9].descriptorCount = 1;
+    writeSets[9].descriptorType = vk::DescriptorType::eStorageBuffer;
+    writeSets[9].pBufferInfo = &histBufInfo;
 
     m_Device.updateDescriptorSets(static_cast<uint32_t>(writeSets.size()), writeSets.data(), 0, nullptr);
 }
@@ -1110,25 +1133,13 @@ void SDFRenderer::UpdateDeferredLightingDescriptorSets() {
     m_Device.updateDescriptorSets(static_cast<uint32_t>(writeSets.size()), writeSets.data(), 0, nullptr);
 }
 
-void SDFRenderer::UpdateEdits(const std::vector<SDFEditGPU>& edits, bool useLegacyMapUnmap) {
+void SDFRenderer::UpdateEdits(const std::vector<LegacySDFEdit>& edits, bool useLegacyMapUnmap) {
     m_ActiveEditCount = std::min(edits.size(), MAX_EDITS);
     if (m_ActiveEditCount > 0) {
         std::vector<SDFPrimitiveRecord> records;
         records.reserve(m_ActiveEditCount);
         for (size_t i = 0; i < m_ActiveEditCount; ++i) {
-            const auto& e = edits[i];
-            SDFPrimitiveRecord rec{};
-            glm::mat4 m = glm::translate(glm::mat4(1.0f), e.position) *
-                          glm::mat4_cast(glm::quat(e.rotation.w, e.rotation.x, e.rotation.y, e.rotation.z));
-            rec.invTransform = glm::inverse(m);
-            rec.dimensions = glm::vec4(e.scale, 0.0f);
-            rec.albedoRoughness = glm::vec4(e.albedo, e.roughness);
-            rec.metallicParams = glm::vec4(e.metallic, e.blendFactor, 1.0f, static_cast<float>(e.isDynamic));
-            rec.primitiveType = e.primitiveType;
-            rec.operation = e.operation;
-            rec.csgOrder = static_cast<uint32_t>(i);
-            rec.surfaceId = static_cast<uint32_t>(i + 1);
-            records.push_back(rec);
+            records.push_back(edits[i].ToPrimitiveRecord(static_cast<uint32_t>(i), static_cast<uint32_t>(i + 1)));
         }
         UpdateEdits(std::span<const SDFPrimitiveRecord>(records.data(), records.size()), useLegacyMapUnmap);
     } else {
@@ -1148,6 +1159,34 @@ void SDFRenderer::UpdateEdits(std::span<const SDFPrimitiveRecord> records, bool 
         } else {
             m_EditBuffer->UpdateData(records.data(), uploadBytes);
         }
+
+        if (m_PrevTransformBuffer) {
+            std::vector<glm::mat4> prevMatrices(m_ActiveEditCount);
+            std::unordered_map<uint32_t, glm::mat4> nextWorldTransforms;
+            nextWorldTransforms.reserve(m_ActiveEditCount);
+
+            for (size_t i = 0; i < m_ActiveEditCount; ++i) {
+                const auto& rec = records[i];
+                glm::mat4 currWorldTransform = glm::inverse(rec.invTransform);
+                auto it = m_PrevWorldTransforms.find(rec.surfaceId);
+                if (it != m_PrevWorldTransforms.end()) {
+                    prevMatrices[i] = it->second;
+                } else {
+                    prevMatrices[i] = currWorldTransform;
+                }
+                nextWorldTransforms[rec.surfaceId] = currWorldTransform;
+            }
+
+            size_t prevUploadBytes = m_ActiveEditCount * sizeof(glm::mat4);
+            if (useLegacyMapUnmap) {
+                m_PrevTransformBuffer->UpdateDataLegacy(prevMatrices.data(), prevUploadBytes);
+            } else {
+                m_PrevTransformBuffer->UpdateData(prevMatrices.data(), prevUploadBytes);
+            }
+            m_PrevWorldTransforms = std::move(nextWorldTransforms);
+        }
+    } else {
+        m_PrevWorldTransforms.clear();
     }
 
     if (m_BrickGrid) {
@@ -1426,7 +1465,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
                 static_cast<float>(m_ActiveEditCount) // w: editCount
             );
             const auto& qs = (qualitySettings.shadowMaxSteps > 0) ? qualitySettings : m_QualitySettings;
-            defPush.rayParams = glm::vec4(m_CurrJitter.x, m_CurrJitter.y, qs.shadowMaxDistance, 0.015f); // z: shadowMaxDistance, w: surfaceBias
+            defPush.rayParams = glm::vec4(jitter.x, jitter.y, qs.shadowMaxDistance, 0.015f); // Match GBuffer jitter, including TAA disabled.
             defPush.shadowAOParams = glm::vec4(
                 static_cast<float>(qs.shadowMaxSteps),
                 qs.shadowK,

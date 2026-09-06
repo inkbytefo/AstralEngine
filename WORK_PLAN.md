@@ -22,6 +22,19 @@ Kullanıcının son ana isteği: Mimari incelemede doğrulanan eksikleri tamamla
 
 ## Aktif iş: SDF veri yolu ve renderer doğruluğu
 
+### Öncelikli hata: görüntü titremesi (kullanıcının son bildirimi)
+
+- [x] TAA/GBuffer/forward ışın üretimi incelendi: forward renk yarım piksel geriden örnekleniyor; GBuffer hareket vektörüne jitter farkı giriyor.
+- [x] Sabit kamerada gerçek GPU motion buffer'ını okuyan regresyon testi eklendi (VisualQualityGpuTests). Temiz baseline, Vulkan doğrulama hatası olmadan 0.416519 piksel sahte hareket yakaladı (39.04 sn, beklenen başarısızlık).
+- [x] Jitter hareketten ayrıldı; forward renk/GBuffer derinlik örnek merkezleri eşleştirildi. Halton ofseti yarım piksel aralığına indirildi. Deferred ışıklandırma TAA kapalıyken de GBuffer ile aynı ofseti kullanıyor.
+- [x] Düzeltme sonrası GPU testi geçti (49.41 sn): forward/deferred sabit kamerada altı jitter fazında bütün motion değerleri 0.01 piksel toleransında; mevcut grid, hareket, resize ve camera-cut senaryoları da geçti. Vulkan doğrulama hatası yok.
+- [x] Debug ve Release AstralEditor derlendi. `git diff --check` geçti.
+- [x] Beş kare Debug editör smoke testi 1280x720 Sandbox ile geçti (exit 0, Vulkan doğrulama hatası yok). Bu sahne boş olduğundan görsel titreme kanıtı GPU fixture testidir. Kullanıcının kendi sahnesinde görsel tekrar kontrolü henüz yapılmadı.
+
+Jitter düzeltmesi dosyaları: `shaders/SDFGBuffer.glsl`, `shaders/SDFCompute.glsl`, `src/Core/Application.cpp`, `src/Renderer/SDFRenderer.cpp`, `Tests/EngineTests/src/VisualQualityGpuTests.cpp`. Genel mimari planı halen açık. Eski "transforms bildirimi eksik" kaydı tarihsel: güncel dosyada bildirim var ve iki derleme de başarılı; bu eksikliği yeniden düzeltmeye çalışma.
+
+Teknik referans: AMD GPUOpen temporal reconstruction dokümanı da hareket vektörlerinden jitter'ın çıkarılmasını tanımlar: https://gpuopen.com/manuals/fidelityfx_sdk/techniques/super-resolution-temporal/ . Burada FSR entegrasyonu yapılmadı; mevcut TAA'nın hareket sözleşmesi düzeltildi.
+
 ### 1. Tek ve güvenilir sahne verisi
 
 - [x] Aktif yol incelendi: Application -> RenderExtractionSubsystem -> eski SDFEditGPU -> renderer içi SDFPrimitiveRecord dönüşümü.
@@ -106,3 +119,4 @@ Sonraki okumalar:
 | 2026-09-06 | Mimari iddiaları kaynak kodla karşılaştırma | Aktif eski veri yolu, kimlik/geçmiş kaybı, grid ve kalite bağlantısı sorunları doğrulandı. |
 | 2026-09-06 | Snapshot yolu inceleme | LegacyPackedScale ebeveyn dönüşümü sorunu bulundu; renderer göçünden önce düzeltilecek. |
 | 2026-09-06 | Kalıcı görev planı | Bu dosya yazıldı; kısmi snapshot düzenlemesindeki eksik transforms bildirimi kaydedildi. |
+| 2026-09-06 | Kritik görüntü titremesi | GPU regresyon testi önce 0.416519 piksel sahte hareketle başarısız, düzeltmeden sonra başarılı. Debug/Release derlemeleri geçti; kullanıcı sahnesindeki görsel sonuç henüz teyit edilmedi. |

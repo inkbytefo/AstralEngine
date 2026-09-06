@@ -81,19 +81,26 @@ SDFSceneSnapshot SDFSceneSnapshot::Extract(const Registry& registry, uint32_t sc
         const float minScale = std::min({sx, sy, sz});
         if (!std::isfinite(minScale) || minScale < 1e-6f) continue;
 
+        glm::vec3 worldPos;
+        glm::quat worldRot;
+        glm::vec3 worldScale;
+        DecomposeTransformMatrix(worldM, worldPos, worldRot, worldScale);
+
+        const glm::mat4 rigidWorldM = glm::translate(glm::mat4(1.0f), worldPos) * glm::mat4_cast(worldRot);
+        const glm::mat4 rigidInvM = glm::inverse(rigidWorldM);
+
         glm::vec4 dims = sdf.shape.dimensions;
-        float conservativeScale = minScale;
-        glm::mat4 finalInvM = invM;
+        float conservativeScale = 1.0f;
+        glm::mat4 finalInvM = rigidInvM;
 
         if (sdf.encoding == SDFShapeEncoding::LegacyPackedScale) {
-            // Backward compatibility: legacy entities packed shape extents into transform scale
-            const glm::vec3 trScale = tr.scale;
+            // Backward compatibility: legacy entities packed shape extents into transform scale.
+            // In a hierarchy, worldScale correctly inherits parent scale factors.
             switch (sdf.primitiveType) {
                 case 0: { // Sphere / Non-uniform Ellipsoid
-                    if (std::abs(trScale.x - trScale.y) < 1e-5f && std::abs(trScale.y - trScale.z) < 1e-5f) {
-                        dims = glm::vec4(std::abs(trScale.x), 0.0f, 0.0f, 0.0f);
-                        const glm::mat4 rigidM = glm::translate(glm::mat4(1.0f), tr.position) * glm::mat4_cast(tr.rotation);
-                        finalInvM = glm::inverse(rigidM);
+                    if (std::abs(worldScale.x - worldScale.y) < 1e-5f && std::abs(worldScale.y - worldScale.z) < 1e-5f) {
+                        dims = glm::vec4(std::abs(worldScale.x), 0.0f, 0.0f, 0.0f);
+                        finalInvM = rigidInvM;
                         conservativeScale = 1.0f;
                     } else {
                         // Non-uniform legacy ellipsoid: evaluated via affine invM and unit sphere
@@ -103,45 +110,91 @@ SDFSceneSnapshot SDFSceneSnapshot::Extract(const Registry& registry, uint32_t sc
                     }
                     break;
                 }
-                case 1: { // Box: half extents is abs(scale)
-                    dims = glm::vec4(glm::abs(trScale), 0.0f);
-                    const glm::mat4 rigidM = glm::translate(glm::mat4(1.0f), tr.position) * glm::mat4_cast(tr.rotation);
-                    finalInvM = glm::inverse(rigidM);
+                case 1: { // Box: half extents is abs(worldScale)
+                    dims = glm::vec4(glm::abs(worldScale), 0.0f);
+                    finalInvM = rigidInvM;
                     conservativeScale = 1.0f;
                     break;
                 }
-                case 2: { // Torus: scale.x = major, scale.y = minor
-                    dims = glm::vec4(std::abs(trScale.x), std::abs(trScale.y), 0.0f, 0.0f);
-                    const glm::mat4 rigidM = glm::translate(glm::mat4(1.0f), tr.position) * glm::mat4_cast(tr.rotation);
-                    finalInvM = glm::inverse(rigidM);
+                case 2: { // Torus: worldScale.x = major, worldScale.y = minor
+                    dims = glm::vec4(std::abs(worldScale.x), std::abs(worldScale.y), 0.0f, 0.0f);
+                    finalInvM = rigidInvM;
                     conservativeScale = 1.0f;
                     break;
                 }
-                case 3: { // Plane: scale.y is offset
-                    dims = glm::vec4(trScale.y, 0.0f, 0.0f, 0.0f);
-                    const glm::mat4 rigidM = glm::translate(glm::mat4(1.0f), tr.position) * glm::mat4_cast(tr.rotation);
-                    finalInvM = glm::inverse(rigidM);
+                case 3: { // Plane: worldScale.y is offset
+                    dims = glm::vec4(worldScale.y, 0.0f, 0.0f, 0.0f);
+                    finalInvM = rigidInvM;
                     conservativeScale = 1.0f;
                     break;
                 }
-                case 4: { // Capsule: scale.x = radius, scale.y = height
-                    dims = glm::vec4(std::abs(trScale.x), std::abs(trScale.y), 0.0f, 0.0f);
-                    const glm::mat4 rigidM = glm::translate(glm::mat4(1.0f), tr.position) * glm::mat4_cast(tr.rotation);
-                    finalInvM = glm::inverse(rigidM);
+                case 4: { // Capsule: worldScale.x = radius, worldScale.y = height
+                    dims = glm::vec4(std::abs(worldScale.x), std::abs(worldScale.y), 0.0f, 0.0f);
+                    finalInvM = rigidInvM;
                     conservativeScale = 1.0f;
                     break;
                 }
-                case 5: { // Cylinder: scale.x = radius, scale.y = half height
-                    dims = glm::vec4(std::abs(trScale.x), std::abs(trScale.y), 0.0f, 0.0f);
-                    const glm::mat4 rigidM = glm::translate(glm::mat4(1.0f), tr.position) * glm::mat4_cast(tr.rotation);
-                    finalInvM = glm::inverse(rigidM);
+                case 5: { // Cylinder: worldScale.x = radius, worldScale.y = half height
+                    dims = glm::vec4(std::abs(worldScale.x), std::abs(worldScale.y), 0.0f, 0.0f);
+                    finalInvM = rigidInvM;
                     conservativeScale = 1.0f;
                     break;
                 }
                 default: {
-                    dims = glm::vec4(std::abs(trScale.x), 0.0f, 0.0f, 0.0f);
-                    const glm::mat4 rigidM = glm::translate(glm::mat4(1.0f), tr.position) * glm::mat4_cast(tr.rotation);
-                    finalInvM = glm::inverse(rigidM);
+                    dims = glm::vec4(std::abs(worldScale.x), 0.0f, 0.0f, 0.0f);
+                    finalInvM = rigidInvM;
+                    conservativeScale = 1.0f;
+                    break;
+                }
+            }
+        } else {
+            // ExplicitShape: canonical dimensions scaled by worldScale
+            switch (sdf.primitiveType) {
+                case 0: { // Sphere
+                    if (std::abs(worldScale.x - worldScale.y) < 1e-5f && std::abs(worldScale.y - worldScale.z) < 1e-5f) {
+                        dims = glm::vec4(std::abs(sdf.shape.dimensions.x * worldScale.x), 0.0f, 0.0f, 0.0f);
+                        finalInvM = rigidInvM;
+                        conservativeScale = 1.0f;
+                    } else {
+                        dims = glm::vec4(sdf.shape.dimensions.x, 0.0f, 0.0f, 0.0f);
+                        finalInvM = invM;
+                        conservativeScale = minScale;
+                    }
+                    break;
+                }
+                case 1: { // Box
+                    dims = glm::vec4(glm::abs(glm::vec3(sdf.shape.dimensions) * worldScale), 0.0f);
+                    finalInvM = rigidInvM;
+                    conservativeScale = 1.0f;
+                    break;
+                }
+                case 2: { // Torus
+                    dims = glm::vec4(std::abs(sdf.shape.dimensions.x * worldScale.x), std::abs(sdf.shape.dimensions.y * worldScale.y), 0.0f, 0.0f);
+                    finalInvM = rigidInvM;
+                    conservativeScale = 1.0f;
+                    break;
+                }
+                case 3: { // Plane: offset along normal
+                    dims = glm::vec4(sdf.shape.dimensions.x, 0.0f, 0.0f, 0.0f);
+                    finalInvM = rigidInvM;
+                    conservativeScale = 1.0f;
+                    break;
+                }
+                case 4: { // Capsule
+                    dims = glm::vec4(std::abs(sdf.shape.dimensions.x * worldScale.x), std::abs(sdf.shape.dimensions.y * worldScale.y), 0.0f, 0.0f);
+                    finalInvM = rigidInvM;
+                    conservativeScale = 1.0f;
+                    break;
+                }
+                case 5: { // Cylinder
+                    dims = glm::vec4(std::abs(sdf.shape.dimensions.x * worldScale.x), std::abs(sdf.shape.dimensions.y * worldScale.y), 0.0f, 0.0f);
+                    finalInvM = rigidInvM;
+                    conservativeScale = 1.0f;
+                    break;
+                }
+                default: {
+                    dims = sdf.shape.dimensions;
+                    finalInvM = rigidInvM;
                     conservativeScale = 1.0f;
                     break;
                 }

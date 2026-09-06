@@ -123,14 +123,15 @@ void RunApplicationLoopTests() {
 
         // Gameplay sistemi transform'u ayni karede degistirmistir.
         // Transform ve Extraction daha sonra calistigi icin GPU verisi 42.0f'yi aninda yansitmalidir!
-        const auto& edits = extraction.GetLastExtractedEdits();
-        TEST_CHECK_MSG(suite, "SameFrameExtractionCount", edits.size() == 1, "Edits boyutu 1 olmali!");
-        if (!edits.empty()) {
+        const auto& records = extraction.GetLastExtractedRecords();
+        TEST_CHECK_MSG(suite, "SameFrameExtractionCount", records.size() == 1, "Records boyutu 1 olmali!");
+        if (!records.empty()) {
+            glm::vec3 pos = glm::vec3(glm::inverse(records[0].invTransform)[3]);
             TEST_CHECK_MSG(suite, "SameFramePositionXMatches",
-                           std::abs(edits[0].position.x - 42.0f) < 0.0001f,
+                           std::abs(pos.x - 42.0f) < 0.0001f,
                            "Gameplay transform degisimi ayni karede render extraction'a yansimali (sifir gecikme)!");
-            TEST_CHECK(suite, "SameFramePositionYMatches", std::abs(edits[0].position.y - 10.0f) < 0.0001f);
-            TEST_CHECK(suite, "SameFramePositionZMatches", std::abs(edits[0].position.z - (-5.0f)) < 0.0001f);
+            TEST_CHECK(suite, "SameFramePositionYMatches", std::abs(pos.y - 10.0f) < 0.0001f);
+            TEST_CHECK(suite, "SameFramePositionZMatches", std::abs(pos.z - (-5.0f)) < 0.0001f);
         }
     }
 

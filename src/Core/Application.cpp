@@ -314,7 +314,9 @@ void Application::Run(int maxFrames) {
                     { 0.75f,        0.111111f},
                     {-0.875f,       0.777778f}
                 }};
-                glm::vec2 jitter = m_Config.enableTAA ? APP_HALTON_8[frameIndex % 8] : glm::vec2(0.0f);
+                // The table is in [-1, 1]; ray offsets are measured in pixels.
+                // Keep the subpixel sequence within [-0.5, 0.5].
+                glm::vec2 jitter = m_Config.enableTAA ? APP_HALTON_8[frameIndex % 8] * 0.5f : glm::vec2(0.0f);
                 m_SDFRenderer->SetCamera(camera, jitter);
 
                 // 1. 3D SDF Compute Raymarching

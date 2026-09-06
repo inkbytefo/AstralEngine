@@ -17,7 +17,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(binding = 0, rgba8)   uniform readonly image2D g_Albedo;
 layout(binding = 1, rgba16f) uniform readonly image2D g_Normal;
-layout(binding = 2, rgba8)   uniform readonly image2D g_Material;
+layout(binding = 2, rgba32ui) uniform readonly uimage2D g_Material;
 layout(binding = 3, r32f)    uniform readonly image2D g_Depth;
 layout(binding = 4, rg16f)   uniform readonly image2D g_Motion;
 layout(binding = 5, rgba16f) uniform writeonly image2D outImage;
@@ -43,7 +43,7 @@ void main() {
 
     vec4 albedoData = imageLoad(g_Albedo, pixel);
     vec4 normalData = imageLoad(g_Normal, pixel);
-    vec4 matData    = imageLoad(g_Material, pixel);
+    uvec4 matData = imageLoad(g_Material, pixel);
     float depth     = imageLoad(g_Depth, pixel).r;
     vec2 motion     = imageLoad(g_Motion, pixel).rg;
 
@@ -53,8 +53,12 @@ void main() {
     switch (debugMode) {
         case 1: // Surface Identity (Nesne / Yuzey Kimligi)
             if (isSurface) {
-                float id = matData.b * 255.0 + 1.0;
-                finalColor = hashColor(id);
+                // Hash all identity bits before converting to display RGB.
+                uint id = matData.w;
+                id ^= id >> 16; id *= 0x7feb352du;
+                id ^= id >> 15; id *= 0x846ca68bu;
+                id ^= id >> 16;
+                finalColor = vec3(id & 255u, (id >> 8) & 255u, (id >> 16) & 255u) / 255.0;
             } else {
                 finalColor = vec3(0.05, 0.08, 0.12);
             }
@@ -62,8 +66,8 @@ void main() {
 
         case 2: // Geometry Revision
             if (isSurface) {
-                float rev = matData.a;
-                finalColor = vec3(fract(rev * 3.0), fract(rev * 7.0), 0.75);
+                // Revision is not stored in this attachment; do not fabricate it from identity.
+                finalColor = vec3(0.25);
             } else {
                 finalColor = vec3(0.0);
             }

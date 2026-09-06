@@ -122,7 +122,7 @@ void RunVmaTests(bool runGpu) {
         TEST_CHECK_MSG(suite, "HeadlessBufferNotVma", !headlessBuf.IsVma(), "IsVma() false donmeli");
 
         BrickGrid headlessGrid(vk::Device{}, vk::PhysicalDevice{});
-        std::vector<SDFEditGPU> edits;
+        std::vector<LegacySDFEdit> edits;
         headlessGrid.Build(edits);
         TEST_CHECK_MSG(suite, "HeadlessBrickGridInitialBuild", headlessGrid.GetLastUpdatedCellCount() == BrickGrid::TOTAL_CELLS,
                        "Headless BrickGrid ilk insada tum hucreleri hesaplamali");

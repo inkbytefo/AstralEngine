@@ -43,7 +43,7 @@ public:
     SDFRenderer& operator=(const SDFRenderer&) = delete;
 
     /// Dinamik primitifleri GPU SSBO'ya aktarir ve Two-Level BrickGrid'i gunceller
-    void UpdateEdits(const std::vector<SDFEditGPU>& edits, bool useLegacyMapUnmap = false);
+    void UpdateEdits(const std::vector<LegacySDFEdit>& edits, bool useLegacyMapUnmap = false);
     void UpdateEdits(std::span<const SDFPrimitiveRecord> records, bool useLegacyMapUnmap = false);
     void UpdateEdits(const SDFSceneSnapshot& snapshot, bool useLegacyMapUnmap = false);
 
@@ -221,6 +221,8 @@ private:
 
     std::unique_ptr<IBLManager> m_IBLManager;
     std::unique_ptr<Buffer> m_LightBuffer;
+    std::unique_ptr<Buffer> m_PrevTransformBuffer;
+    std::unordered_map<uint32_t, glm::mat4> m_PrevWorldTransforms;
     std::vector<LightGPU> m_Lights;
     std::unique_ptr<SDFTemporalHistory> m_TemporalHistory;
     SDFChangeSet m_CurrentChangeSet;

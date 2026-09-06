@@ -9,7 +9,7 @@
 namespace Astral {
 
 class Registry;
-struct SDFEditGPU;
+struct LegacySDFEdit;
 
 /// Null clears the selection. Invalid selections leave the previous camera intact.
 [[nodiscard]] bool SetActiveCamera(Registry& registry, EntityHandle camera);
@@ -17,13 +17,18 @@ struct SDFEditGPU;
 /// Multiple primary flags (e.g. imported data) resolve to the lowest live handle.
 [[nodiscard]] std::optional<RenderCamera> ExtractActiveCamera(Registry& registry, float aspect);
 
+struct SDFPrimitiveRecord;
+
 /// ECS Registry icindeki TransformComponent ve SDFComponent bilesenlerini
-/// filtreleyip GPU tarafinda dogrudan okunabilir std430 SDFEditGPU dizisine ve Entity ID haritasina donusturur.
-void ExtractRenderData(Registry& registry, std::vector<SDFEditGPU>& outEdits, std::vector<EntityHandle>& outEntities);
+/// filtreleyip GPU tarafinda dogrudan okunabilir std430 SDFPrimitiveRecord dizisine ve Entity ID haritasina donusturur.
+void ExtractRenderData(Registry& registry, std::vector<SDFPrimitiveRecord>& outEdits, std::vector<EntityHandle>& outEntities);
+void ExtractRenderData(Registry& registry, std::vector<SDFPrimitiveRecord>& outEdits);
 
-void ExtractRenderData(Registry& registry, std::vector<SDFEditGPU>& outEdits);
+/// Geriye donuk uyumluluk arayuzleri
+void ExtractRenderData(Registry& registry, std::vector<LegacySDFEdit>& outEdits, std::vector<EntityHandle>& outEntities);
+void ExtractRenderData(Registry& registry, std::vector<LegacySDFEdit>& outEdits);
 
-/// Dogrudan Persistent Mapped Buffer bellegine (memcpy ile) aktarim saglar.
+/// Dogrudan Persistent Mapped Buffer bellegine (memcpy ile) SDFPrimitiveRecord aktarimi saglar.
 void ExtractAndUploadRenderData(Registry& registry, void* mappedGpuBuffer, uint32_t& outEditCount);
 
 } // namespace Astral

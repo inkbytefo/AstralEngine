@@ -19,7 +19,8 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(binding = 0, rgba8)   uniform writeonly image2D g_Albedo;
 layout(binding = 1, rgba16f) uniform writeonly image2D g_Normal;
-layout(binding = 2, rgba8)   uniform writeonly image2D g_Material;
+// x/y: float bit patterns (roughness/metallic), z: hit index, w: full surface ID.
+layout(binding = 2, rgba32ui) uniform writeonly uimage2D g_Material;
 layout(binding = 3, r32f)    uniform writeonly image2D g_Depth;
 layout(binding = 4, rg16f)   uniform writeonly image2D g_Motion;
 
@@ -58,6 +59,12 @@ layout(std140, binding = 8) uniform CameraUBO {
     vec4 prevCameraPosition;
     vec4 jitter;
 } camera;
+
+// =================== Object Motion History Buffer (Binding 9) ===================
+
+layout(std430, binding = 9) readonly buffer HistoryBuffer {
+    mat4 prevTransforms[];
+};
 
 // =================== Push Constants (SDFPushConstants — 128 byte) ===================
 
@@ -205,17 +212,23 @@ void main() {
         vec3 n = (camDir.w > 0.5) ? calcNormalTetrahedron(hitPos) : calcNormalCentral(hitPos);
 
         // --- Motion Vector Hesabi ---
-        vec2 currUV = (vec2(pixel) + 0.5) / vec2(res);
+        // History is accumulated on the unjittered output grid. Sampling jitter
+        // must not look like camera motion (a static surface has zero velocity).
+        vec2 currUV = (vec2(pixel) + 0.5 + jitterOffset) / vec2(res);
         vec3 prevHitPos = hitPos;
+        if (hit.hitIndex >= 0 && hit.hitIndex < int(screenRes.z)) {
+            vec3 localP = (edits[hit.hitIndex].invTransform * vec4(hitPos, 1.0)).xyz;
+            prevHitPos = (prevTransforms[hit.hitIndex] * vec4(localP, 1.0)).xyz;
+        }
 
         vec4 clipPrev = camera.prevViewProj * vec4(prevHitPos, 1.0);
-        vec2 uvPrev = (clipPrev.xy / max(clipPrev.w, 1e-6)) * 0.5 + 0.5 - camera.jitter.zw / vec2(res);
+        vec2 uvPrev = (clipPrev.xy / max(clipPrev.w, 1e-6)) * 0.5 + 0.5;
         vec2 motionVec = currUV - uvPrev;
 
         // --- G-Buffer Yazimi ---
         imageStore(g_Albedo,   pixel, vec4(hit.albedo, hit.confidence));
         imageStore(g_Normal,   pixel, vec4(n, clipPrev.w > 0.0 ? distance(prevHitPos, camera.prevCameraPosition.xyz) : -1.0));
-        imageStore(g_Material, pixel, vec4(hit.roughness, hit.metallic, float(hit.hitIndex) / 255.0, float(hit.surfaceId & 0xFFFFu) / 65535.0));
+        imageStore(g_Material, pixel, uvec4(floatBitsToUint(hit.roughness), floatBitsToUint(hit.metallic), uint(hit.hitIndex), hit.surfaceId));
         imageStore(g_Depth,    pixel, vec4(t, 0.0, 0.0, 0.0));
         imageStore(g_Motion,   pixel, vec4(motionVec, 0.0, 0.0));
     } else {
@@ -224,7 +237,7 @@ void main() {
         vec3 skyColor = mix(vec3(0.15, 0.2, 0.3), vec3(0.02, 0.03, 0.06), skyT);
         imageStore(g_Albedo,   pixel, vec4(skyColor, 0.0));     // A=0: gokyuzu maskesi
         imageStore(g_Normal,   pixel, vec4(0.0));
-        imageStore(g_Material, pixel, vec4(0.0));
+        imageStore(g_Material, pixel, uvec4(0u));
         imageStore(g_Depth,    pixel, vec4(0.0));
         imageStore(g_Motion,   pixel, vec4(0.0));
     }

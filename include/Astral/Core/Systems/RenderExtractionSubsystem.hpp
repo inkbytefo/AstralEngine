@@ -21,18 +21,16 @@ public:
         return m_Snapshot;
     }
 
-    [[nodiscard]] const std::vector<SDFEditGPU>& GetLastExtractedEdits() const noexcept {
-        return m_SceneEdits;
+    [[nodiscard]] const std::vector<SDFPrimitiveRecord>& GetLastExtractedRecords() const noexcept {
+        return m_Snapshot.GetRecords();
     }
 
     [[nodiscard]] const std::vector<EntityHandle>& GetLastExtractedEntities() const noexcept {
-        return m_Snapshot.GetEntities().empty() ? m_SceneEntities : m_Snapshot.GetEntities();
+        return m_Snapshot.GetEntities();
     }
 
 private:
     SDFSceneSnapshot m_Snapshot;
-    std::vector<SDFEditGPU> m_SceneEdits;
-    std::vector<EntityHandle> m_SceneEntities;
 };
 
 } // namespace Astral
