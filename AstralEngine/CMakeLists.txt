@@ -9,17 +9,6 @@ set(SDF_KERNEL_HEADERS
     "${CMAKE_SOURCE_DIR}/shaders/SDFVisibility.glsl"
 )
 
-set(SHADER_SRC "${CMAKE_SOURCE_DIR}/shaders/SDFCompute.glsl")
-set(SHADER_SPV "${CMAKE_BINARY_DIR}/shaders/SDFCompute.spv")
-
-add_custom_command(
-    OUTPUT ${SHADER_SPV}
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/shaders"
-    COMMAND ${GLSLC_EXECUTABLE} -fshader-stage=compute ${GLSLC_INCLUDES} ${SHADER_SRC} -o ${SHADER_SPV}
-    DEPENDS ${SHADER_SRC} ${SDF_KERNEL_HEADERS}
-    COMMENT "Compiling ${SHADER_SRC} -> ${SHADER_SPV}"
-)
-
 set(TAA_SHADER_SRC "${CMAKE_SOURCE_DIR}/shaders/TAAResolve.glsl")
 set(TAA_SHADER_SPV "${CMAKE_BINARY_DIR}/shaders/TAAResolve.spv")
 
@@ -76,7 +65,6 @@ add_custom_command(
 )
 
 add_custom_target(CompileShaders ALL DEPENDS 
-    ${SHADER_SPV} 
     ${TAA_SHADER_SPV} 
     ${GBUFFER_SHADER_SPV} 
     ${DEBUG_COMPOSITE_SHADER_SPV}

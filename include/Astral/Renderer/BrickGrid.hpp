@@ -18,6 +18,14 @@
 namespace Astral {
 
 class Buffer;
+class SDFChangeSet;
+
+struct alignas(16) GridGPUHeader {
+    glm::vec4 gridMinBounds{-12.0f, -1.0f, -12.0f, 0.0f};
+    glm::vec4 gridMaxBounds{ 12.0f, 11.0f,  12.0f, 0.0f};
+    glm::vec4 gridParams{32.0f, 16.0f, 32.0f, 0.75f}; // x: dimX, y: dimY, z: dimZ, w: cellSize
+};
+static_assert(sizeof(GridGPUHeader) == 48, "GridGPUHeader boyutu 48 bayt olmalidir!");
 
 /// Two-Level Acceleration Structure: Coarse 3D Spatial Grid (Empty Space Skipping).
 /// RENDERER_ARCHITECTURE.md Bolum c.1 ve Bolum g.3.
@@ -37,8 +45,13 @@ public:
 
     /// Sahnedeki primitiflerin AABB / yaricaplarina gore 3D izgarayi gunceller
     void Build(std::span<const LegacySDFEdit> edits);
-    void Build(std::span<const SDFPrimitiveRecord> records);
-    void Build(const SDFSceneSnapshot& snapshot);
+    void Build(std::span<const SDFPrimitiveRecord> records, const SDFChangeSet* changeSet = nullptr);
+    void Build(const SDFSceneSnapshot& snapshot, const SDFChangeSet* changeSet = nullptr);
+
+    /// Sahne primitiflerine gore dinamik AABB ve hucre boyutunu hesaplar.
+    /// Eger sinirlar degistiyse true doner.
+    bool ComputeDynamicBounds(std::span<const SDFPrimitiveRecord> records, float margin = 2.0f);
+    void SetBounds(const glm::vec3& minBounds, const glm::vec3& maxBounds);
 
     /// Son Build cagrisinda kac hucrenin yeniden degerlendirildigini dondurur (test ve profil icin)
     size_t GetLastUpdatedCellCount() const { return m_LastUpdatedCellCount; }
@@ -55,6 +68,7 @@ public:
 private:
     float EvaluateCell(uint32_t x, uint32_t y, uint32_t z, std::span<const SDFPrimitiveRecord> records) const;
     void FullRebuild(std::span<const SDFPrimitiveRecord> records);
+    void UploadGridBuffer();
 
     vk::Device m_Device;
     vk::PhysicalDevice m_PhysicalDevice;

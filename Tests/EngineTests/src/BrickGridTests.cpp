@@ -1,6 +1,10 @@
 #include "TestFramework.hpp"
 #include "Astral/Renderer/BrickGrid.hpp"
 #include "Astral/Renderer/SDFEdit.hpp"
+#include "Astral/Geometry/SDFChangeSet.hpp"
+#include "Astral/Core/Registry.hpp"
+#include "Astral/Core/Components.hpp"
+#include <glm/gtc/matrix_transform.hpp>
 #include <vector>
 #include <iostream>
 
@@ -149,6 +153,56 @@ void RunBrickGridTests() {
     records[0].albedoRoughness.x = 0.2f;
     recordGrid.Build(records);
     TEST_CHECK(suite, "RecordMaterialOnlyZeroCells", recordGrid.GetLastUpdatedCellCount() == 0);
+
+    // Test B6: Dynamic Bounds Expansion (far object expands grid bounds and triggers Full Rebuild)
+    records[0].invTransform = glm::inverse(glm::translate(glm::mat4(1.0f), glm::vec3(25.0f, 1.0f, 0.0f)));
+    recordGrid.Build(records);
+    TEST_CHECK_MSG(suite, "DynamicBoundsExpandsMaxX", recordGrid.GetMaxBounds().x >= 25.0f,
+                   "Dinamik grid sinirlari nesneyi kapsayacak sekilde genislemelidir!");
+    TEST_CHECK_MSG(suite, "DynamicBoundsTriggersFullRebuild", recordGrid.GetLastUpdatedCellCount() == BrickGrid::TOTAL_CELLS,
+                   "Sinir genislemesi Full Rebuild tetiklemelidir!");
+
+    // Test B7: Cauchy-Schwarz World Scale AABB
+    BrickGrid scaledGrid;
+    std::vector<SDFPrimitiveRecord> scaledRecords(1);
+    glm::mat4 worldMat = glm::scale(glm::mat4(1.0f), glm::vec3(8.0f, 1.0f, 1.0f));
+    scaledRecords[0].invTransform = glm::inverse(worldMat);
+    scaledRecords[0].dimensions = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);
+    scaledRecords[0].primitiveType = 1;
+    scaledRecords[0].operation = 0;
+    scaledRecords[0].surfaceId = 201;
+    scaledGrid.Build(scaledRecords);
+
+    // Move slightly along X
+    scaledRecords[0].invTransform = glm::inverse(glm::translate(glm::mat4(1.0f), glm::vec3(0.5f, 0.0f, 0.0f)) * worldMat);
+    scaledGrid.Build(scaledRecords);
+    size_t scaledCount = scaledGrid.GetLastUpdatedCellCount();
+    TEST_CHECK_MSG(suite, "CauchySchwarzNonUniformScaleWideExtents",
+                   scaledCount >= 400,
+                   "Cauchy-Schwarz ile dunya uzayinda 8x olcekli kutu genis AABB hucrelerini dirty isaretlemelidir!");
+
+    // Test B8: ChangeSet Integration with Snapshot Build
+    Registry reg;
+    auto entity = reg.CreateEntity();
+    reg.AddComponent<TransformComponent>(entity, TransformComponent{ glm::vec3(0.0f, 1.0f, 0.0f), glm::quat(1, 0, 0, 0), glm::vec3(1.0f) });
+    SDFComponent sdf{};
+    sdf.shape.dimensions = glm::vec4(0.5f);
+    sdf.primitiveType = 0; // Sphere
+    sdf.encoding = SDFShapeEncoding::ExplicitShape;
+    reg.AddComponent<SDFComponent>(entity, sdf);
+
+    auto snap1 = SDFSceneSnapshot::Extract(reg, 1);
+    BrickGrid snapGrid;
+    snapGrid.Build(snap1);
+    TEST_CHECK(suite, "SnapshotInitialBuildAllCells", snapGrid.GetLastUpdatedCellCount() == BrickGrid::TOTAL_CELLS);
+
+    // Static scene with identical changeSet
+    auto snap2 = SDFSceneSnapshot::Extract(reg, 1);
+    glm::mat4 dummyVP(1.0f);
+    auto staticChangeSet = SDFChangeSet::Compare(snap1, snap2, dummyVP, dummyVP);
+    snapGrid.Build(snap2, &staticChangeSet);
+    TEST_CHECK_MSG(suite, "SnapshotStaticSceneZeroCells", snapGrid.GetLastUpdatedCellCount() == 0,
+                   "ChangeSet statik sahne icin 0 hucre guncellemelidir!");
 }
 
 } // namespace Astral::Test

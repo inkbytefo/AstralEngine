@@ -3,6 +3,7 @@
 #include "Astral/Geometry/SDFSceneSnapshot.hpp"
 #include "Astral/Scene/Scene.hpp"
 #include "Astral/Core/Components.hpp"
+#include "Astral/Renderer/BrickGrid.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <cmath>
 #include <iostream>
@@ -260,6 +261,18 @@ void RunDeferredLightingTests() {
                        "Point in 90-degree corner must have lower AO (< 0.65) reflecting contact darkening!");
         TEST_CHECK_MSG(suite, "AORelativeCornerDarker", cornerAO < openAO,
                        "Corner AO must be strictly darker than open floor AO!");
+
+        // AO Radius Normalization Test: Farkli yaricaplarda (0.5m, 1.0m, 2.0m) tutarlilik
+        float cornerAO_r05 = EvaluateSDFAO(snapshot, cornerPos, floorNormal, qualityProfile.aoSamples, 0.5f, qualityProfile.surfaceBias);
+        float cornerAO_r10 = EvaluateSDFAO(snapshot, cornerPos, floorNormal, qualityProfile.aoSamples, 1.0f, qualityProfile.surfaceBias);
+        float cornerAO_r20 = EvaluateSDFAO(snapshot, cornerPos, floorNormal, qualityProfile.aoSamples, 2.0f, qualityProfile.surfaceBias);
+
+        TEST_CHECK_MSG(suite, "AORadiusNormalizationConsistency",
+                       cornerAO_r05 < openAO && cornerAO_r10 < openAO && cornerAO_r20 < openAO,
+                       "Corner AO must remain darker than open floor across all radii!");
+        TEST_CHECK_MSG(suite, "AORadiusMonotonicScale",
+                       cornerAO_r20 <= cornerAO_r10 + 0.15f && cornerAO_r05 >= 0.0f,
+                       "Normalized weight decay must keep AO bounded and consistent as radius changes!");
     }
 
     // =========================================================================
@@ -402,6 +415,73 @@ void RunDeferredLightingTests() {
 
         TEST_CHECK_MSG(suite, "UnoccludedPointReceivesDirectSun", colorUnoccluded.x > colorShadowed.x + 3.0f,
                        "Unoccluded point must receive full direct sunlight contribution!");
+    }
+
+    // =========================================================================
+    // 9. Grid-Accelerated Soft Shadow: Empty Space Skipping vs Fine Steps
+    // =========================================================================
+    {
+        auto scene = std::make_shared<Scene>("GridShadowScene");
+
+        // Sphere blocker at (0, 3, 0) with radius 1.0
+        Entity sphere = scene->CreateEntity("SphereBlocker");
+        sphere.AddComponent<TransformComponent>(glm::vec3(0.0f, 3.0f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f));
+        auto& sSphere = sphere.AddComponent<SDFComponent>();
+        sSphere.primitiveType = 0; // Sphere
+        sSphere.operation = 0;     // Union
+        sSphere.shape.dimensions = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+        sSphere.encoding = SDFShapeEncoding::ExplicitShape;
+        sSphere.csgOrder = 1;
+
+        auto snapshot = SDFSceneSnapshot::Extract(scene->GetRegistry());
+
+        // Build BrickGrid
+        BrickGrid grid;
+        grid.Build(snapshot);
+        auto cellD = grid.GetCellDistances();
+        glm::vec3 minB = grid.GetMinBounds();
+        glm::vec3 maxB = grid.GetMaxBounds();
+        glm::vec3 gridDim(static_cast<float>(BrickGrid::DIM_X), static_cast<float>(BrickGrid::DIM_Y), static_cast<float>(BrickGrid::DIM_Z));
+        float cellSize = grid.GetCellSize().x;
+
+        glm::vec3 lightDir(0.0f, 1.0f, 0.0f); // Light pointing up towards blocker
+
+        // Verify that empty space skipping doesn't break penumbra monotonicity
+        // Test positions along X from 0.0 (fully blocked) to 2.5 (unoccluded)
+        float prevShadowNoGrid = -1.0f;
+        float prevShadowWithGrid = -1.0f;
+        bool monotonicNoGrid = true;
+        bool monotonicWithGrid = true;
+        bool closeMatch = true;
+
+        for (int step = 0; step <= 25; ++step) {
+            float x = step * 0.1f;
+            glm::vec3 rayOrigin(x, 0.0f, 0.0f);
+
+            float sNoGrid = EvaluateSDFSoftShadow(
+                snapshot, rayOrigin, lightDir, 0.015f, 50.0f, 24.0f, 96,
+                false, false
+            );
+
+            float sWithGrid = EvaluateSDFSoftShadow(
+                snapshot, rayOrigin, lightDir, 0.015f, 50.0f, 24.0f, 96,
+                true, true, minB, maxB, gridDim, cellSize, cellD
+            );
+
+            if (sNoGrid < prevShadowNoGrid - 1e-4f) monotonicNoGrid = false;
+            if (sWithGrid < prevShadowWithGrid - 1e-4f) monotonicWithGrid = false;
+            if (std::abs(sNoGrid - sWithGrid) > 0.05f) closeMatch = false;
+
+            prevShadowNoGrid = sNoGrid;
+            prevShadowWithGrid = sWithGrid;
+        }
+
+        TEST_CHECK_MSG(suite, "ReferenceNoGridPenumbraMonotonic", monotonicNoGrid,
+                       "Reference soft shadow without grid must be monotonic!");
+        TEST_CHECK_MSG(suite, "GridSkipPenumbraMonotonic", monotonicWithGrid,
+                       "Grid-accelerated soft shadow penumbra must be monotonically non-decreasing!");
+        TEST_CHECK_MSG(suite, "GridSkipMatchesFineEvaluation", closeMatch,
+                       "Grid-accelerated soft shadow must closely match fine-step reference shadow (diff <= 0.05)!");
     }
 
     std::cout << "--- [A4-P3] Deferred SDF Shadows & AO Suite Basariyla Tamamlandi! ---\n";

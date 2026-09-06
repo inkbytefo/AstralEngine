@@ -194,9 +194,9 @@ int main(int argc, char** argv) {
         auto draw = [&](uint32_t frame, bool grid, bool taa) {
             return captureHelper.Capture(camera, frame, grid, taa);
         };
-        for (bool deferred : {false, true}) {
+        for (bool deferred : {true}) {
             renderer.SetUseGBuffer(deferred);
-            const std::string prefix = deferred ? "deferred" : "forward";
+            const std::string prefix = "deferred";
             auto edits = Fixture();
             renderer.UpdateEdits(edits);
             renderer.ResetTemporalHistory();

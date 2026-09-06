@@ -85,18 +85,18 @@ void Application::Run(int maxFrames) {
             std::string spvPath = m_Config.shaderPath;
             if (spvPath.empty()) {
                 std::vector<std::string> candidates = {
-                    "build/shaders/SDFCompute.spv",
-                    "shaders/SDFCompute.spv",
-                    "../shaders/SDFCompute.spv"
+                    "build/shaders/SDFGBuffer.spv",
+                    "shaders/SDFGBuffer.spv",
+                    "../shaders/SDFGBuffer.spv"
                 };
                 if (g_CommandLineArgs.argv && g_CommandLineArgs.argv[0]) {
                     std::filesystem::path exeDir = std::filesystem::absolute(g_CommandLineArgs.argv[0]).parent_path();
-                    candidates.push_back((exeDir / "shaders/SDFCompute.spv").string());
-                    candidates.push_back((exeDir / "../shaders/SDFCompute.spv").string());
-                    candidates.push_back((exeDir / "SDFCompute.spv").string());
+                    candidates.push_back((exeDir / "shaders/SDFGBuffer.spv").string());
+                    candidates.push_back((exeDir / "../shaders/SDFGBuffer.spv").string());
+                    candidates.push_back((exeDir / "SDFGBuffer.spv").string());
                 }
 #ifdef SHADER_BIN_DIR
-                candidates.insert(candidates.begin(), SHADER_BIN_DIR "/SDFCompute.spv");
+                candidates.insert(candidates.begin(), SHADER_BIN_DIR "/SDFGBuffer.spv");
 #endif
                 for (const auto& c : candidates) {
                     if (std::filesystem::exists(c)) {
@@ -107,7 +107,7 @@ void Application::Run(int maxFrames) {
             }
 
             if (spvPath.empty() || !std::filesystem::exists(spvPath)) {
-                throw std::runtime_error("SDFCompute.spv shader dosyasi bulunamadi! spvPath: " + spvPath);
+                throw std::runtime_error("SDFGBuffer.spv shader dosyasi bulunamadi! spvPath: " + spvPath);
             }
 
             m_SDFRenderer = std::make_unique<SDFRenderer>(
@@ -117,7 +117,7 @@ void Application::Run(int maxFrames) {
                 m_Config.height,
                 !m_Config.legacyMap
             );
-            m_SDFRenderer->SetUseGBuffer(m_Config.useGBuffer);
+            m_SDFRenderer->SetUseGBuffer(true);
             m_SDFRenderer->SetDebugMode(m_Config.debugMode);
         } else {
             std::cout << "[Astral::Application] GPU'suz Headless CPU simulasyon modu aktif (Pencere ve Vulkan olusturulmadi).\n";
@@ -131,14 +131,15 @@ void Application::Run(int maxFrames) {
         int targetFrames = maxFrames > 0 ? maxFrames : (m_Config.maxFrames > 0 ? m_Config.maxFrames : (m_Config.benchMode ? m_Config.benchFrames : -1));
 
         m_Running = true;
-        if (!m_Config.headless) {
+        // 5. Baslatma bilgisi
+        if (m_Window) {
             std::cout << "[Astral::Application] Normal Modu: " << (m_Config.normalMode == 1 ? "Tetrahedron (4-tap optimize)" : "Central Differences (6-tap)") << "\n";
             std::cout << "[Astral::Application] Bellek Esleme Modu: " << (m_Config.legacyMap ? "Legacy Map/Unmap (Kare basi vkMapMemory)" : "Persistent Mapping (Kalici Pointer)") << "\n";
             std::cout << "[Astral::Application] Izgara Hizlandirmasi (PR-6): " << (m_Config.useGrid ? "AKTIF (Empty Space Skipping)" : "KAPALI (Brute Force)") << "\n";
             std::cout << "[Astral::Application] Golge Optimizasyonu (PR-7): " << (m_Config.optShadow ? "AKTIF (Erken Cikis & Back-Face Culling)" : "KAPALI (Kaba Kuvvet 24-Adim)") << "\n";
             std::cout << "[Astral::Application] Temporal Anti-Aliasing (PR-8): " << (m_Config.enableTAA ? "AKTIF (Halton Jitter + 3x3 Clamp TAA)" : "KAPALI (Ham No-AA)") << "\n";
-            std::cout << "[Astral::Application] Deferred G-Buffer (Faz 1): " << (m_Config.useGBuffer ? "AKTIF (Motion Vectors + G-Buffer)" : "KAPALI (Monolitik Raymarch)") << "\n";
-            if (m_Config.useGBuffer) {
+            std::cout << "[Astral::Application] Pure Deferred Architecture: AKTIF (G-Buffer + PBR Deferred Lighting + Motion Vectors + TAA)\n";
+            if (m_Config.debugMode != 0) {
                 std::cout << "[Astral::Application] G-Buffer Debug Modu: " << m_Config.debugMode << "\n";
             }
         }

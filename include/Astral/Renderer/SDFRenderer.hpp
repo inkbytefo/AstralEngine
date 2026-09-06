@@ -84,13 +84,17 @@ public:
     void ResetTemporalHistory() noexcept {
         m_HistoryInitialized = false;
         m_CameraMatricesInitialized = false;
+        m_HasPrevCameraViewProj = false;
+        m_CurrentChangeSet = SDFChangeSet{};
+        m_PreviousSnapshot = SDFSceneSnapshot{};
         if (m_TemporalHistory) m_TemporalHistory->Reset();
     }
     /// Main/render thread only. Import and filtering complete before replacing live resources.
     void LoadEnvironment(const std::filesystem::path& path);
     void SetExposure(float multiplier);
-    void SetUseGBuffer(bool enabled) noexcept { if (enabled != m_UseGBuffer) ResetTemporalHistory(); m_UseGBuffer = enabled; }
-    [[nodiscard]] bool IsUsingGBuffer() const noexcept { return m_UseGBuffer; }
+    /// Pure Deferred Architecture: Deferred path is the single canonical rendering path.
+    void SetUseGBuffer([[maybe_unused]] bool enabled = true) noexcept {}
+    [[nodiscard]] bool IsUsingGBuffer() const noexcept { return true; }
 
     /// G-Buffer onizleme modunu ayarlar (0: Shaded, 1: Albedo, 2: Normal, 3: Depth, 4: Motion, 5: Material)
     void SetDebugMode(int mode) noexcept { if (mode != m_DebugMode) ResetTemporalHistory(); m_DebugMode = mode; }
@@ -149,7 +153,6 @@ private:
     int m_Height = 720;
     size_t m_ActiveEditCount = 0;
 
-    std::unique_ptr<ComputePipeline> m_ComputePipeline;
     std::unique_ptr<Buffer> m_EditBuffer;
     std::unique_ptr<Buffer> m_SelectionBuffer;
     std::unique_ptr<BrickGrid> m_BrickGrid;
@@ -166,7 +169,6 @@ private:
     QualitySettings m_QualitySettings{};
 
     // G-Buffer Pipeline & Degiskenleri (Faz 1)
-    bool m_UseGBuffer = false;
     int m_DebugMode = 0;
 
     // G-Buffer Render Hedefleri (VMA)
@@ -226,6 +228,9 @@ private:
     std::vector<LightGPU> m_Lights;
     std::unique_ptr<SDFTemporalHistory> m_TemporalHistory;
     SDFChangeSet m_CurrentChangeSet;
+    SDFSceneSnapshot m_PreviousSnapshot;
+    glm::mat4 m_PrevCameraViewProj{1.0f};
+    bool m_HasPrevCameraViewProj = false;
 
     // TAA Pipeline (PR-8)
     std::string m_TaaSpvPath;
@@ -244,10 +249,11 @@ private:
 
     std::array<VmaImage, 2> m_HistoryImage;         // Ping-pong tarihce tamponlari (Linear HDR, RGBA16F)
     std::array<vk::UniqueImageView, 2> m_HistoryImageView;
+    std::array<VmaImage, 2> m_HistoryExtraImage;    // Ping-pong tarihce ekstra tamponlari (RGBA32UI: X=surfaceId, Y=lighting, ZW=normal)
+    std::array<vk::UniqueImageView, 2> m_HistoryExtraImageView;
     uint32_t m_HistoryPingPong = 0;
 
     vk::UniqueDescriptorPool m_DescriptorPool;
-    vk::DescriptorSet m_DescriptorSet;      // Raymarching (rawColor, edits, grid, selection)
 
     void CreateImages();
     void CleanupImages();
@@ -256,7 +262,7 @@ private:
     void CreateLightBuffer();
     void UpdateLights();
     void CreateDescriptorPoolAndSets();
-    void UpdateDescriptorSets();
+    void UpdateTAADescriptorSets();
     void UpdateGBufferDescriptorSets();
     void UpdateDebugCompositeDescriptorSets();
     void UpdateDeferredLightingDescriptorSets();

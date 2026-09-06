@@ -45,7 +45,8 @@ Astral::AppConfig ParseCommandLine(const Astral::CommandLineArgs& args) {
         } else if (arg == "--gbuffer") {
             config.useGBuffer = true;
         } else if (arg == "--no-gbuffer") {
-            config.useGBuffer = false;
+            std::cout << "[Astral::Editor] Bilgi: Monolitik ileri yol kaldirilmistir. Pure Deferred mimarisi devrededir.\n";
+            config.useGBuffer = true;
         } else if (arg == "--debug-mode" && i + 1 < args.argc) {
             config.debugMode = std::stoi(args.argv[++i]);
         }

@@ -95,7 +95,7 @@ SDFRenderer::SDFRenderer(VulkanContext& context, const std::string& spvPath, int
         }
     }
 
-    m_ComputePipeline = std::make_unique<ComputePipeline>(m_Device, spvPath);
+    (void)spvPath;
     CreateImages();
     CreateEditBuffer(persistentMap);
     CreateCameraUBO();
@@ -184,7 +184,6 @@ SDFRenderer::~SDFRenderer() {
     m_CameraUBO.reset();
     m_EditBuffer.reset();
     CleanupImages();
-    m_ComputePipeline.reset();
 }
 void SDFRenderer::CreateTexture(VmaImage& img, vk::UniqueImageView& view, vk::ImageUsageFlags usage) {
     VkImageCreateInfo imageInfo{};
@@ -273,9 +272,11 @@ void SDFRenderer::CreateImages() {
     CreateGBufferTexture(m_RawColorImage, m_RawColorImageView, vk::Format::eR16G16B16A16Sfloat,
                          vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst);
 
-    // Ping-pong TAA Tarihce Tamponlari: Dogrusal HDR (VK_FORMAT_R16G16B16A16_SFLOAT)
+    // Ping-pong TAA Tarihce Tamponlari: Dogrusal HDR (VK_FORMAT_R16G16B16A16_SFLOAT) ve Ekstra Tarihce (VK_FORMAT_R32G32B32A32_UINT)
     for (int i = 0; i < 2; ++i) {
         CreateGBufferTexture(m_HistoryImage[i], m_HistoryImageView[i], vk::Format::eR16G16B16A16Sfloat,
+                             vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst);
+        CreateGBufferTexture(m_HistoryExtraImage[i], m_HistoryExtraImageView[i], vk::Format::eR32G32B32A32Uint,
                              vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst);
     }
 
@@ -306,11 +307,13 @@ void SDFRenderer::CreateImages() {
             return b;
         };
 
-        std::array<vk::ImageMemoryBarrier, 9> initBarriers = {
+        std::array<vk::ImageMemoryBarrier, 11> initBarriers = {
             makeInitBarrier(m_StorageImage.get()),
             makeInitBarrier(m_RawColorImage.get()),
             makeInitBarrier(m_HistoryImage[0].get()),
             makeInitBarrier(m_HistoryImage[1].get()),
+            makeInitBarrier(m_HistoryExtraImage[0].get()),
+            makeInitBarrier(m_HistoryExtraImage[1].get()),
             makeInitBarrier(m_GBufAlbedo.get()),
             makeInitBarrier(m_GBufNormal.get()),
             makeInitBarrier(m_GBufMaterial.get()),
@@ -326,12 +329,15 @@ void SDFRenderer::CreateImages() {
             static_cast<uint32_t>(initBarriers.size()), initBarriers.data()
         );
 
-        // Tarihce, motion vector ve raw color hedeflerini 0.0 ile temizle (NaN/çöp veri önleme)
+        // Tarihce, motion vector ve raw color hedeflerini 0 ile temizle (NaN/çöp veri önleme)
         vk::ClearColorValue zeroColor(std::array<float, 4>{0.0f, 0.0f, 0.0f, 0.0f});
+        vk::ClearColorValue zeroUint(std::array<uint32_t, 4>{0u, 0u, 0u, 0u});
         vk::ImageSubresourceRange clearRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1);
         cmd.clearColorImage(m_GBufMotion.get(), vk::ImageLayout::eGeneral, zeroColor, clearRange);
         cmd.clearColorImage(m_HistoryImage[0].get(), vk::ImageLayout::eGeneral, zeroColor, clearRange);
         cmd.clearColorImage(m_HistoryImage[1].get(), vk::ImageLayout::eGeneral, zeroColor, clearRange);
+        cmd.clearColorImage(m_HistoryExtraImage[0].get(), vk::ImageLayout::eGeneral, zeroUint, clearRange);
+        cmd.clearColorImage(m_HistoryExtraImage[1].get(), vk::ImageLayout::eGeneral, zeroUint, clearRange);
         cmd.clearColorImage(m_RawColorImage.get(), vk::ImageLayout::eGeneral, zeroColor, clearRange);
 
         vk::MemoryBarrier clearDoneBarrier{};
@@ -367,6 +373,7 @@ void SDFRenderer::CleanupImages() {
 
     for (int i = 0; i < 2; ++i) {
         destroyImg(m_HistoryImage[i], m_HistoryImageView[i]);
+        destroyImg(m_HistoryExtraImage[i], m_HistoryExtraImageView[i]);
     }
     destroyImg(m_RawColorImage, m_RawColorImageView);
     destroyImg(m_StorageImage, m_StorageImageView);
@@ -465,7 +472,7 @@ void SDFRenderer::CreateEditBuffer(bool persistentMap) {
 
 void SDFRenderer::CreateTAAPipeline() {
     // 1. Descriptor Set Layout (5 bindings: 4 storage image + 1 combined image sampler)
-    std::array<vk::DescriptorSetLayoutBinding, 7> bindings{};
+    std::array<vk::DescriptorSetLayoutBinding, 11> bindings{};
     // Binding 0: currImage (Raw HDR, rgba16f)
     bindings[0].binding = 0;
     bindings[0].descriptorType = vk::DescriptorType::eStorageImage;
@@ -490,14 +497,19 @@ void SDFRenderer::CreateTAAPipeline() {
     bindings[3].descriptorCount = 1;
     bindings[3].stageFlags = vk::ShaderStageFlagBits::eCompute;
 
-    // Binding 4: motionVectors (read velocity, rg16f)
-    bindings[4].binding = 4;
-    bindings[4].descriptorType = vk::DescriptorType::eStorageImage;
-    bindings[4].descriptorCount = 1;
-    bindings[4].stageFlags = vk::ShaderStageFlagBits::eCompute;
-    for (uint32_t i = 5; i < 7; ++i) {
-        bindings[i] = bindings[4];
+    // Bindings 4..10: Storage Images
+    // 4: motionVectors (read velocity, rg16f)
+    // 5: currentDepth (read depth, r32f)
+    // 6: normalDepth (read normal & expected depth, rgba16f)
+    // 7: g_Material (read roughness, metallic, hitIndex, surfaceId, rgba32ui)
+    // 8: g_Albedo (read albedo & attribution confidence, rgba8)
+    // 9: historyExtra (read previous surfaceId, lighting, normal, rgba32ui)
+    // 10: outHistoryExtra (write current surfaceId, lighting, normal, rgba32ui)
+    for (uint32_t i = 4; i < 11; ++i) {
         bindings[i].binding = i;
+        bindings[i].descriptorType = vk::DescriptorType::eStorageImage;
+        bindings[i].descriptorCount = 1;
+        bindings[i].stageFlags = vk::ShaderStageFlagBits::eCompute;
     }
 
     vk::DescriptorSetLayoutCreateInfo layoutInfo{};
@@ -661,7 +673,7 @@ void SDFRenderer::CreateDeferredLightingPipeline() {
     bindings[1].descriptorCount = 1;
     bindings[1].stageFlags = vk::ShaderStageFlagBits::eCompute;
 
-    // 2: g_Material (rgba8)
+    // 2: g_Material (rgba32ui)
     bindings[2].binding = 2;
     bindings[2].descriptorType = vk::DescriptorType::eStorageImage;
     bindings[2].descriptorCount = 1;
@@ -755,7 +767,7 @@ void SDFRenderer::CreateDeferredLightingPipeline() {
 void SDFRenderer::CreateDescriptorPoolAndSets() {
     std::array<vk::DescriptorPoolSize, 4> poolSizes{};
     poolSizes[0].type = vk::DescriptorType::eStorageImage;
-    poolSizes[0].descriptorCount = 48;
+    poolSizes[0].descriptorCount = 64;
     poolSizes[1].type = vk::DescriptorType::eStorageBuffer;
     poolSizes[1].descriptorCount = 48;
     poolSizes[2].type = vk::DescriptorType::eUniformBuffer;
@@ -771,13 +783,7 @@ void SDFRenderer::CreateDescriptorPoolAndSets() {
     );
     m_DescriptorPool = m_Device.createDescriptorPoolUnique(poolInfo);
 
-    // 1. Raymarch Descriptor Set
-    auto rawLayout = m_ComputePipeline->GetDescriptorSetLayout();
-    vk::DescriptorSetAllocateInfo setAllocInfo(m_DescriptorPool.get(), 1, &rawLayout);
-    auto sets = m_Device.allocateDescriptorSets(setAllocInfo);
-    m_DescriptorSet = sets[0];
-
-    // 2. TAA Descriptor Sets (Ping-Pong 0 & 1)
+    // 1. TAA Descriptor Sets (Ping-Pong 0 & 1)
     auto taaLayout = m_TaaDescriptorSetLayout.get();
     for (uint32_t i = 0; i < 2; ++i) {
         vk::DescriptorSetAllocateInfo taaAllocInfo(m_DescriptorPool.get(), 1, &taaLayout);
@@ -785,69 +791,32 @@ void SDFRenderer::CreateDescriptorPoolAndSets() {
         m_TaaDescriptorSet[i] = taaSets[0];
     }
 
-    // 3. G-Buffer Descriptor Set
+    // 2. G-Buffer Descriptor Set
     auto gbufLayout = m_GBufferDescriptorSetLayout.get();
     vk::DescriptorSetAllocateInfo gbufAllocInfo(m_DescriptorPool.get(), 1, &gbufLayout);
     auto gbufSets = m_Device.allocateDescriptorSets(gbufAllocInfo);
     m_GBufferDescriptorSet = gbufSets[0];
 
-    // 4. DebugComposite Descriptor Set
+    // 3. DebugComposite Descriptor Set
     auto debugLayout = m_DebugCompositeDescriptorSetLayout.get();
     vk::DescriptorSetAllocateInfo debugAllocInfo(m_DescriptorPool.get(), 1, &debugLayout);
     auto debugSets = m_Device.allocateDescriptorSets(debugAllocInfo);
     m_DebugCompositeDescriptorSet = debugSets[0];
 
-    // 5. DeferredLighting Descriptor Set
+    // 4. DeferredLighting Descriptor Set
     auto defLayout = m_DeferredLightingDescriptorSetLayout.get();
     vk::DescriptorSetAllocateInfo defAllocInfo(m_DescriptorPool.get(), 1, &defLayout);
     auto defSets = m_Device.allocateDescriptorSets(defAllocInfo);
     m_DeferredLightingDescriptorSet = defSets[0];
 
-    UpdateDescriptorSets();
+    UpdateTAADescriptorSets();
     UpdateGBufferDescriptorSets();
     UpdateDebugCompositeDescriptorSets();
     UpdateDeferredLightingDescriptorSets();
 }
 
-void SDFRenderer::UpdateDescriptorSets() {
-    // 1. Raymarch Set Guncelleme
-    vk::DescriptorImageInfo rawImgInfo(nullptr, m_RawColorImageView.get(), vk::ImageLayout::eGeneral);
-    auto editBufInfo = m_EditBuffer->GetDescriptorInfo();
-    auto gridBufInfo = m_BrickGrid->GetBuffer()->GetDescriptorInfo();
-    auto selBufInfo = m_SelectionBuffer->GetDescriptorInfo();
-
-    std::array<vk::WriteDescriptorSet, 4> writeSets{};
-    writeSets[0].dstSet = m_DescriptorSet;
-    writeSets[0].dstBinding = 0;
-    writeSets[0].dstArrayElement = 0;
-    writeSets[0].descriptorCount = 1;
-    writeSets[0].descriptorType = vk::DescriptorType::eStorageImage;
-    writeSets[0].pImageInfo = &rawImgInfo;
-
-    writeSets[1].dstSet = m_DescriptorSet;
-    writeSets[1].dstBinding = 1;
-    writeSets[1].dstArrayElement = 0;
-    writeSets[1].descriptorCount = 1;
-    writeSets[1].descriptorType = vk::DescriptorType::eStorageBuffer;
-    writeSets[1].pBufferInfo = &editBufInfo;
-
-    writeSets[2].dstSet = m_DescriptorSet;
-    writeSets[2].dstBinding = 2;
-    writeSets[2].dstArrayElement = 0;
-    writeSets[2].descriptorCount = 1;
-    writeSets[2].descriptorType = vk::DescriptorType::eStorageBuffer;
-    writeSets[2].pBufferInfo = &gridBufInfo;
-
-    writeSets[3].dstSet = m_DescriptorSet;
-    writeSets[3].dstBinding = 3;
-    writeSets[3].dstArrayElement = 0;
-    writeSets[3].descriptorCount = 1;
-    writeSets[3].descriptorType = vk::DescriptorType::eStorageBuffer;
-    writeSets[3].pBufferInfo = &selBufInfo;
-
-    m_Device.updateDescriptorSets(static_cast<uint32_t>(writeSets.size()), writeSets.data(), 0, nullptr);
-
-    // 2. TAA Setleri Guncelleme (Ping-Pong 0 ve 1)
+void SDFRenderer::UpdateTAADescriptorSets() {
+    // TAA Setleri Guncelleme (Ping-Pong 0 ve 1)
     // TAA Set 0: curr=RawColor, hist=History[0] (Sampler), out=Storage, outHist=History[1], motion=GBufMotion
     // TAA Set 1: curr=RawColor, hist=History[1] (Sampler), out=Storage, outHist=History[0], motion=GBufMotion
     for (uint32_t i = 0; i < 2; ++i) {
@@ -862,7 +831,12 @@ void SDFRenderer::UpdateDescriptorSets() {
 
         vk::DescriptorImageInfo depthInfo(nullptr, m_GBufDepthView.get(), vk::ImageLayout::eGeneral);
         vk::DescriptorImageInfo normalInfo(nullptr, m_GBufNormalView.get(), vk::ImageLayout::eGeneral);
-        std::array<vk::WriteDescriptorSet, 7> taaWriteSets{};
+        vk::DescriptorImageInfo materialInfo(nullptr, m_GBufMaterialView.get(), vk::ImageLayout::eGeneral);
+        vk::DescriptorImageInfo albedoInfo(nullptr, m_GBufAlbedoView.get(), vk::ImageLayout::eGeneral);
+        vk::DescriptorImageInfo histExtraReadInfo(nullptr, m_HistoryExtraImageView[readIdx].get(), vk::ImageLayout::eGeneral);
+        vk::DescriptorImageInfo histExtraWriteInfo(nullptr, m_HistoryExtraImageView[writeIdx].get(), vk::ImageLayout::eGeneral);
+
+        std::array<vk::WriteDescriptorSet, 11> taaWriteSets{};
         taaWriteSets[0].dstSet = m_TaaDescriptorSet[i];
         taaWriteSets[0].dstBinding = 0;
         taaWriteSets[0].dstArrayElement = 0;
@@ -897,12 +871,30 @@ void SDFRenderer::UpdateDescriptorSets() {
         taaWriteSets[4].descriptorCount = 1;
         taaWriteSets[4].descriptorType = vk::DescriptorType::eStorageImage;
         taaWriteSets[4].pImageInfo = &taaMotionInfo;
+
         taaWriteSets[5] = taaWriteSets[4];
         taaWriteSets[5].dstBinding = 5;
         taaWriteSets[5].pImageInfo = &depthInfo;
+
         taaWriteSets[6] = taaWriteSets[4];
         taaWriteSets[6].dstBinding = 6;
         taaWriteSets[6].pImageInfo = &normalInfo;
+
+        taaWriteSets[7] = taaWriteSets[4];
+        taaWriteSets[7].dstBinding = 7;
+        taaWriteSets[7].pImageInfo = &materialInfo;
+
+        taaWriteSets[8] = taaWriteSets[4];
+        taaWriteSets[8].dstBinding = 8;
+        taaWriteSets[8].pImageInfo = &albedoInfo;
+
+        taaWriteSets[9] = taaWriteSets[4];
+        taaWriteSets[9].dstBinding = 9;
+        taaWriteSets[9].pImageInfo = &histExtraReadInfo;
+
+        taaWriteSets[10] = taaWriteSets[4];
+        taaWriteSets[10].dstBinding = 10;
+        taaWriteSets[10].pImageInfo = &histExtraWriteInfo;
 
         m_Device.updateDescriptorSets(static_cast<uint32_t>(taaWriteSets.size()), taaWriteSets.data(), 0, nullptr);
     }
@@ -1145,7 +1137,7 @@ void SDFRenderer::UpdateEdits(const std::vector<LegacySDFEdit>& edits, bool useL
     } else {
         m_ActiveEditCount = 0;
         if (m_BrickGrid) {
-            m_BrickGrid->Build(std::span<const SDFPrimitiveRecord>());
+            m_BrickGrid->Build(std::span<const SDFPrimitiveRecord>(), &m_CurrentChangeSet);
         }
     }
 }
@@ -1190,11 +1182,20 @@ void SDFRenderer::UpdateEdits(std::span<const SDFPrimitiveRecord> records, bool 
     }
 
     if (m_BrickGrid) {
-        m_BrickGrid->Build(records.subspan(0, m_ActiveEditCount));
+        m_BrickGrid->Build(records.subspan(0, m_ActiveEditCount), &m_CurrentChangeSet);
     }
 }
 
 void SDFRenderer::UpdateEdits(const SDFSceneSnapshot& snapshot, bool useLegacyMapUnmap) {
+    if (m_RenderCamera && m_PreviousSnapshot.GetRecordCount() > 0 && m_HasPrevCameraViewProj) {
+        glm::mat4 currViewProj = m_RenderCamera->projection * m_RenderCamera->view;
+        m_CurrentChangeSet = SDFChangeSet::Compare(m_PreviousSnapshot, snapshot, m_PrevCameraViewProj, currViewProj);
+    }
+    m_PreviousSnapshot = snapshot;
+    if (m_RenderCamera) {
+        m_PrevCameraViewProj = m_RenderCamera->projection * m_RenderCamera->view;
+        m_HasPrevCameraViewProj = true;
+    }
     UpdateEdits(std::span<const SDFPrimitiveRecord>(snapshot.GetRecords().data(), snapshot.GetRecordCount()), useLegacyMapUnmap);
 }
 
@@ -1208,11 +1209,13 @@ void SDFRenderer::Resize(int width, int height) {
 
     CleanupImages();
     CreateImages();
-    UpdateDescriptorSets();
+    UpdateTAADescriptorSets();
     UpdateGBufferDescriptorSets();
     UpdateDebugCompositeDescriptorSets();
     UpdateDeferredLightingDescriptorSets();
     m_HistoryInitialized = false;
+    m_HasPrevCameraViewProj = false;
+    m_PreviousSnapshot = SDFSceneSnapshot{};
     if (m_TemporalHistory) m_TemporalHistory->Reset();
     m_CurrentChangeSet = SDFChangeSet{};
 }
@@ -1257,340 +1260,239 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
     if (m_PreviousTAAEnabled != enableTAA) m_HistoryInitialized = false;
     m_PreviousTAAEnabled = enableTAA;
     const auto& camera = *m_RenderCamera;
-    if (m_UseGBuffer || enableTAA) {
-        // =========================================================================
-        // 1. G-Buffer Compute Pass (SDFGBuffer.glsl)
-        // =========================================================================
-        auto makeGBufBarrier = [](VkImage img) {
-            vk::ImageMemoryBarrier b{};
-            b.oldLayout = vk::ImageLayout::eUndefined;
-            b.newLayout = vk::ImageLayout::eGeneral;
-            b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            b.image = img;
-            b.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
-            b.srcAccessMask = {};
-            b.dstAccessMask = vk::AccessFlagBits::eShaderWrite;
-            return b;
-        };
+    
+    // =========================================================================
+    // 1. G-Buffer Compute Pass (SDFGBuffer.glsl)
+    // =========================================================================
+    auto makeGBufBarrier = [](VkImage img) {
+        vk::ImageMemoryBarrier b{};
+        b.oldLayout = vk::ImageLayout::eUndefined;
+        b.newLayout = vk::ImageLayout::eGeneral;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = img;
+        b.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
+        b.srcAccessMask = {};
+        b.dstAccessMask = vk::AccessFlagBits::eShaderWrite;
+        return b;
+    };
 
-        std::array<vk::ImageMemoryBarrier, 5> gbufBarriers = {
-            makeGBufBarrier(m_GBufAlbedo.get()),
-            makeGBufBarrier(m_GBufNormal.get()),
-            makeGBufBarrier(m_GBufMaterial.get()),
-            makeGBufBarrier(m_GBufDepth.get()),
-            makeGBufBarrier(m_GBufMotion.get())
-        };
+    std::array<vk::ImageMemoryBarrier, 5> gbufBarriers = {
+        makeGBufBarrier(m_GBufAlbedo.get()),
+        makeGBufBarrier(m_GBufNormal.get()),
+        makeGBufBarrier(m_GBufMaterial.get()),
+        makeGBufBarrier(m_GBufDepth.get()),
+        makeGBufBarrier(m_GBufMotion.get())
+    };
+
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTopOfPipe,
+        vk::PipelineStageFlagBits::eComputeShader,
+        {},
+        0, nullptr,
+        0, nullptr,
+        static_cast<uint32_t>(gbufBarriers.size()), gbufBarriers.data()
+    );
+
+    cmd.bindPipeline(vk::PipelineBindPoint::eCompute, m_GBufferPipeline.get());
+    cmd.bindDescriptorSets(
+        vk::PipelineBindPoint::eCompute,
+        m_GBufferPipelineLayout.get(),
+        0,
+        1, &m_GBufferDescriptorSet,
+        0, nullptr
+    );
+
+    SDFPushConstants pushConstants{};
+    pushConstants.camPos = glm::vec4(camera.position, camera.nearClip);
+    pushConstants.camDir = glm::vec4(camera.forward, static_cast<float>(normalMode));
+    pushConstants.cameraRight = glm::vec4(camera.right, camera.projection[1][1] * 0.5f);
+    pushConstants.cameraUp = glm::vec4(camera.up, camera.farClip);
+    pushConstants.screenRes = glm::vec4(
+        static_cast<float>(m_Width),
+        static_cast<float>(m_Height),
+        static_cast<float>(m_ActiveEditCount),
+        useGrid ? 1.0f : 0.0f
+    );
+    pushConstants.gridParams = m_BrickGrid->GetGridParams();
+    pushConstants.gridParams.z = optShadow ? 1.0f : 0.0f;
+
+    glm::vec2 jitter = enableTAA ? m_CurrJitter : glm::vec2(0.0f);
+    pushConstants.taaParams = glm::vec4(jitter.x, jitter.y, enableTAA ? 1.0f : 0.0f, 0.12f);
+
+    pushConstants.mouseParams = glm::vec4(
+        static_cast<float>(m_PickingMouseX),
+        static_cast<float>(m_PickingMouseY),
+        m_PickingRequested ? 1.0f : 0.0f,
+        static_cast<float>(m_SelectedHitIndex)
+    );
+
+    if (m_PickingRequested && m_SelectionBuffer && m_SelectionBuffer->GetMappedData()) {
+        auto* data = static_cast<SelectionDataGPU*>(m_SelectionBuffer->GetMappedData());
+        data->hitIndex = -1;
+    }
+
+    cmd.pushConstants(
+        m_GBufferPipelineLayout.get(),
+        vk::ShaderStageFlagBits::eCompute,
+        0,
+        sizeof(SDFPushConstants),
+        &pushConstants
+    );
+
+    cmd.dispatch(groupX, groupY, 1);
+
+    if (m_PickingRequested) {
+        vk::BufferMemoryBarrier barrier{};
+        barrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
+        barrier.dstAccessMask = vk::AccessFlagBits::eHostRead;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.buffer = m_SelectionBuffer->GetBuffer();
+        barrier.offset = 0;
+        barrier.size = sizeof(SelectionDataGPU);
 
         cmd.pipelineBarrier(
-            vk::PipelineStageFlagBits::eTopOfPipe,
             vk::PipelineStageFlagBits::eComputeShader,
+            vk::PipelineStageFlagBits::eHost,
             {},
             0, nullptr,
-            0, nullptr,
-            static_cast<uint32_t>(gbufBarriers.size()), gbufBarriers.data()
-        );
-
-        cmd.bindPipeline(vk::PipelineBindPoint::eCompute, m_GBufferPipeline.get());
-        cmd.bindDescriptorSets(
-            vk::PipelineBindPoint::eCompute,
-            m_GBufferPipelineLayout.get(),
-            0,
-            1, &m_GBufferDescriptorSet,
+            1, &barrier,
             0, nullptr
         );
 
-        SDFPushConstants pushConstants{};
-        pushConstants.camPos = glm::vec4(camera.position, camera.nearClip);
-        pushConstants.camDir = glm::vec4(camera.forward, static_cast<float>(normalMode));
-        pushConstants.cameraRight = glm::vec4(camera.right, camera.projection[1][1] * 0.5f);
-        pushConstants.cameraUp = glm::vec4(camera.up, camera.farClip);
-        pushConstants.screenRes = glm::vec4(
-            static_cast<float>(m_Width),
-            static_cast<float>(m_Height),
-            static_cast<float>(m_ActiveEditCount),
-            useGrid ? 1.0f : 0.0f
-        );
-        pushConstants.gridParams = m_BrickGrid->GetGridParams();
-        pushConstants.gridParams.z = optShadow ? 1.0f : 0.0f;
-
-        glm::vec2 jitter = enableTAA ? m_CurrJitter : glm::vec2(0.0f);
-        pushConstants.taaParams = glm::vec4(jitter.x, jitter.y, enableTAA ? 1.0f : 0.0f, 0.12f);
-
-        pushConstants.mouseParams = glm::vec4(
-            static_cast<float>(m_PickingMouseX),
-            static_cast<float>(m_PickingMouseY),
-            m_PickingRequested ? 1.0f : 0.0f,
-            static_cast<float>(m_SelectedHitIndex)
-        );
-
-        if (m_PickingRequested && m_SelectionBuffer && m_SelectionBuffer->GetMappedData()) {
-            auto* data = static_cast<SelectionDataGPU*>(m_SelectionBuffer->GetMappedData());
-            data->hitIndex = -1;
-        }
-
-        cmd.pushConstants(
-            m_GBufferPipelineLayout.get(),
-            vk::ShaderStageFlagBits::eCompute,
-            0,
-            sizeof(SDFPushConstants),
-            &pushConstants
-        );
-
-        cmd.dispatch(groupX, groupY, 1);
-
-        if (m_PickingRequested) {
-            vk::BufferMemoryBarrier barrier{};
-            barrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
-            barrier.dstAccessMask = vk::AccessFlagBits::eHostRead;
-            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.buffer = m_SelectionBuffer->GetBuffer();
-            barrier.offset = 0;
-            barrier.size = sizeof(SelectionDataGPU);
-
-            cmd.pipelineBarrier(
-                vk::PipelineStageFlagBits::eComputeShader,
-                vk::PipelineStageFlagBits::eHost,
-                {},
-                0, nullptr,
-                1, &barrier,
-                0, nullptr
-            );
-
-            m_PickingRequested = false;
-            m_PickPendingRead = true;
-        }
-
-        // =========================================================================
-        // 2. Barrier: G-Buffer ShaderWrite -> ShaderRead & m_RawColorImage ShaderWrite
-        // =========================================================================
-        auto makeGBufReadBarrier = [](VkImage img) {
-            vk::ImageMemoryBarrier b{};
-            b.oldLayout = vk::ImageLayout::eGeneral;
-            b.newLayout = vk::ImageLayout::eGeneral;
-            b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            b.image = img;
-            b.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
-            b.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
-            b.dstAccessMask = vk::AccessFlagBits::eShaderRead;
-            return b;
-        };
-
-        vk::ImageMemoryBarrier rawColorWriteBarrier{};
-        rawColorWriteBarrier.oldLayout = vk::ImageLayout::eUndefined;
-        rawColorWriteBarrier.newLayout = vk::ImageLayout::eGeneral;
-        rawColorWriteBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        rawColorWriteBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        rawColorWriteBarrier.image = m_RawColorImage.get();
-        rawColorWriteBarrier.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
-        rawColorWriteBarrier.srcAccessMask = {};
-        rawColorWriteBarrier.dstAccessMask = vk::AccessFlagBits::eShaderWrite;
-
-        std::array<vk::ImageMemoryBarrier, 6> toCompositeBarriers = {
-            makeGBufReadBarrier(m_GBufAlbedo.get()),
-            makeGBufReadBarrier(m_GBufNormal.get()),
-            makeGBufReadBarrier(m_GBufMaterial.get()),
-            makeGBufReadBarrier(m_GBufDepth.get()),
-            makeGBufReadBarrier(m_GBufMotion.get()),
-            rawColorWriteBarrier
-        };
-
-        cmd.pipelineBarrier(
-            vk::PipelineStageFlagBits::eComputeShader,
-            vk::PipelineStageFlagBits::eComputeShader,
-            {},
-            0, nullptr,
-            0, nullptr,
-            static_cast<uint32_t>(toCompositeBarriers.size()), toCompositeBarriers.data()
-        );
-
-        bool isDebugActive = (m_DebugMode != 0);
-
-        if (m_UseGBuffer && isDebugActive) {
-            // =========================================================================
-            // 3a. Debug Composite Pass (SDFDebugComposite.glsl -> m_RawColorImage)
-            // =========================================================================
-            cmd.bindPipeline(vk::PipelineBindPoint::eCompute, m_DebugCompositePipeline.get());
-            cmd.bindDescriptorSets(
-                vk::PipelineBindPoint::eCompute,
-                m_DebugCompositePipelineLayout.get(),
-                0,
-                1, &m_DebugCompositeDescriptorSet,
-                0, nullptr
-            );
-
-            DebugCompositePushConstants debugPush{};
-            debugPush.screenRes = glm::vec4(
-                static_cast<float>(m_Width),
-                static_cast<float>(m_Height),
-                static_cast<float>(m_DebugMode),
-                0.0f
-            );
-
-            cmd.pushConstants(
-                m_DebugCompositePipelineLayout.get(),
-                vk::ShaderStageFlagBits::eCompute,
-                0,
-                sizeof(DebugCompositePushConstants),
-                &debugPush
-            );
-
-            cmd.dispatch(groupX, groupY, 1);
-        } else if (m_UseGBuffer) {
-            // =========================================================================
-            // 3b. Deferred PBR & IBL Pass (DeferredLighting.glsl -> m_RawColorImage Linear HDR)
-            // =========================================================================
-            cmd.bindPipeline(vk::PipelineBindPoint::eCompute, m_DeferredLightingPipeline.get());
-            cmd.bindDescriptorSets(
-                vk::PipelineBindPoint::eCompute,
-                m_DeferredLightingPipelineLayout.get(),
-                0,
-                1, &m_DeferredLightingDescriptorSet,
-                0, nullptr
-            );
-
-            DeferredLightingPushConstants defPush{};
-            defPush.cameraRight = glm::vec4(camera.right, camera.projection[1][1] * 0.5f);
-            defPush.cameraUp = glm::vec4(camera.up, useGrid ? 1.0f : 0.0f);
-            const glm::vec3 camPos = camera.position;
-            const glm::vec3 camDir = camera.forward;
-            defPush.camPos = glm::vec4(camPos, static_cast<float>(m_IBLManager->GetPrefilteredMipLevels()));
-            defPush.camDir = glm::vec4(camDir, 1.0f); // xyz: dir, w: exposure = 1.0
-            defPush.screenRes = glm::vec4(
-                static_cast<float>(m_Width),
-                static_cast<float>(m_Height),
-                1.0f, // z: iblIntensity = 1.0
-                static_cast<float>(m_ActiveEditCount) // w: editCount
-            );
-            const auto& qs = (qualitySettings.shadowMaxSteps > 0) ? qualitySettings : m_QualitySettings;
-            defPush.rayParams = glm::vec4(jitter.x, jitter.y, qs.shadowMaxDistance, 0.015f); // Match GBuffer jitter, including TAA disabled.
-            defPush.shadowAOParams = glm::vec4(
-                static_cast<float>(qs.shadowMaxSteps),
-                qs.shadowK,
-                static_cast<float>(qs.aoSamples),
-                qs.aoRadius
-            ); // x: shadowMaxSteps, y: shadowK, z: aoSamples, w: aoRadius
-            auto gridParams = m_BrickGrid->GetGridParams();
-            float shadowFlag = (optShadow && qs.enableShadows) ? 1.0f : 0.0f;
-            defPush.qualityParams = glm::vec4(shadowFlag, gridParams.x, gridParams.y, gridParams.w);
-
-            cmd.pushConstants(
-                m_DeferredLightingPipelineLayout.get(),
-                vk::ShaderStageFlagBits::eCompute,
-                0,
-                sizeof(DeferredLightingPushConstants),
-                &defPush
-            );
-
-            cmd.dispatch(groupX, groupY, 1);
-        }
-
+        m_PickingRequested = false;
+        m_PickPendingRead = true;
     }
-    if (!m_UseGBuffer) {
-        // =========================================================================
-        // Legacy Monolithic Mode (SDFCompute.glsl -> m_RawColorImage)
-        // =========================================================================
-        vk::ImageMemoryBarrier rawBarrier{};
-        rawBarrier.oldLayout = vk::ImageLayout::eUndefined;
-        rawBarrier.newLayout = vk::ImageLayout::eGeneral;
-        rawBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        rawBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        rawBarrier.image = m_RawColorImage.get();
-        rawBarrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
-        rawBarrier.subresourceRange.baseMipLevel = 0;
-        rawBarrier.subresourceRange.levelCount = 1;
-        rawBarrier.subresourceRange.baseArrayLayer = 0;
-        rawBarrier.subresourceRange.layerCount = 1;
-        rawBarrier.srcAccessMask = {};
-        rawBarrier.dstAccessMask = vk::AccessFlagBits::eShaderWrite;
 
-        cmd.pipelineBarrier(
-            vk::PipelineStageFlagBits::eTopOfPipe,
-            vk::PipelineStageFlagBits::eComputeShader,
-            {},
-            0, nullptr,
-            0, nullptr,
-            1, &rawBarrier
-        );
+    // =========================================================================
+    // 2. G-Buffer -> Composite/Lighting Barriers
+    // =========================================================================
+    auto makeGBufReadBarrier = [](VkImage img) {
+        vk::ImageMemoryBarrier b{};
+        b.oldLayout = vk::ImageLayout::eGeneral;
+        b.newLayout = vk::ImageLayout::eGeneral;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = img;
+        b.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
+        b.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
+        b.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+        return b;
+    };
 
-        cmd.bindPipeline(vk::PipelineBindPoint::eCompute, m_ComputePipeline->GetPipeline());
+    vk::ImageMemoryBarrier rawColorWriteBarrier{};
+    rawColorWriteBarrier.oldLayout = vk::ImageLayout::eUndefined;
+    rawColorWriteBarrier.newLayout = vk::ImageLayout::eGeneral;
+    rawColorWriteBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    rawColorWriteBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    rawColorWriteBarrier.image = m_RawColorImage.get();
+    rawColorWriteBarrier.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
+    rawColorWriteBarrier.srcAccessMask = {};
+    rawColorWriteBarrier.dstAccessMask = vk::AccessFlagBits::eShaderWrite;
+
+    std::array<vk::ImageMemoryBarrier, 6> toCompositeBarriers = {
+        makeGBufReadBarrier(m_GBufAlbedo.get()),
+        makeGBufReadBarrier(m_GBufNormal.get()),
+        makeGBufReadBarrier(m_GBufMaterial.get()),
+        makeGBufReadBarrier(m_GBufDepth.get()),
+        makeGBufReadBarrier(m_GBufMotion.get()),
+        rawColorWriteBarrier
+    };
+
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eComputeShader,
+        vk::PipelineStageFlagBits::eComputeShader,
+        {},
+        0, nullptr,
+        0, nullptr,
+        static_cast<uint32_t>(toCompositeBarriers.size()), toCompositeBarriers.data()
+    );
+
+    bool isDebugActive = (m_DebugMode != 0);
+
+    if (isDebugActive) {
+        // =========================================================================
+        // 3a. Debug Composite Pass (SDFDebugComposite.glsl -> m_RawColorImage)
+        // =========================================================================
+        cmd.bindPipeline(vk::PipelineBindPoint::eCompute, m_DebugCompositePipeline.get());
         cmd.bindDescriptorSets(
             vk::PipelineBindPoint::eCompute,
-            m_ComputePipeline->GetPipelineLayout(),
+            m_DebugCompositePipelineLayout.get(),
             0,
-            1, &m_DescriptorSet,
+            1, &m_DebugCompositeDescriptorSet,
             0, nullptr
         );
 
-        SDFPushConstants pushConstants{};
-        pushConstants.camPos = glm::vec4(camera.position, camera.nearClip);
-        pushConstants.camDir = glm::vec4(camera.forward, static_cast<float>(normalMode));
-        pushConstants.cameraRight = glm::vec4(camera.right, camera.projection[1][1] * 0.5f);
-        pushConstants.cameraUp = glm::vec4(camera.up, camera.farClip);
-        pushConstants.screenRes = glm::vec4(
+        DebugCompositePushConstants debugPush{};
+        debugPush.screenRes = glm::vec4(
             static_cast<float>(m_Width),
             static_cast<float>(m_Height),
-            static_cast<float>(m_ActiveEditCount),
-            useGrid ? 1.0f : 0.0f
+            static_cast<float>(m_DebugMode),
+            0.0f
         );
-        pushConstants.gridParams = m_BrickGrid->GetGridParams();
-        pushConstants.gridParams.z = optShadow ? 1.0f : 0.0f;
-
-        glm::vec2 jitter = enableTAA ? m_CurrJitter : glm::vec2(0.0f);
-        pushConstants.taaParams = glm::vec4(jitter.x, jitter.y, enableTAA ? 1.0f : 0.0f, 0.12f);
-
-        pushConstants.mouseParams = glm::vec4(
-            static_cast<float>(m_PickingMouseX),
-            static_cast<float>(m_PickingMouseY),
-            m_PickingRequested ? 1.0f : 0.0f,
-            static_cast<float>(m_SelectedHitIndex)
-        );
-
-        if (m_PickingRequested && m_SelectionBuffer && m_SelectionBuffer->GetMappedData()) {
-            auto* data = static_cast<SelectionDataGPU*>(m_SelectionBuffer->GetMappedData());
-            data->hitIndex = -1;
-        }
 
         cmd.pushConstants(
-            m_ComputePipeline->GetPipelineLayout(),
+            m_DebugCompositePipelineLayout.get(),
             vk::ShaderStageFlagBits::eCompute,
             0,
-            sizeof(SDFPushConstants),
-            &pushConstants
+            sizeof(DebugCompositePushConstants),
+            &debugPush
         );
 
         cmd.dispatch(groupX, groupY, 1);
+    } else {
+        // =========================================================================
+        // 3b. Deferred PBR & IBL Pass (DeferredLighting.glsl -> m_RawColorImage Linear HDR)
+        // =========================================================================
+        cmd.bindPipeline(vk::PipelineBindPoint::eCompute, m_DeferredLightingPipeline.get());
+        cmd.bindDescriptorSets(
+            vk::PipelineBindPoint::eCompute,
+            m_DeferredLightingPipelineLayout.get(),
+            0,
+            1, &m_DeferredLightingDescriptorSet,
+            0, nullptr
+        );
 
-        if (m_PickingRequested) {
-            vk::BufferMemoryBarrier barrier{};
-            barrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
-            barrier.dstAccessMask = vk::AccessFlagBits::eHostRead;
-            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.buffer = m_SelectionBuffer->GetBuffer();
-            barrier.offset = 0;
-            barrier.size = sizeof(SelectionDataGPU);
+        DeferredLightingPushConstants defPush{};
+        defPush.cameraRight = glm::vec4(camera.right, camera.projection[1][1] * 0.5f);
+        defPush.cameraUp = glm::vec4(camera.up, useGrid ? 1.0f : 0.0f);
+        const glm::vec3 camPos = camera.position;
+        const glm::vec3 camDir = camera.forward;
+        defPush.camPos = glm::vec4(camPos, static_cast<float>(m_IBLManager->GetPrefilteredMipLevels()));
+        defPush.camDir = glm::vec4(camDir, 1.0f); // xyz: dir, w: exposure = 1.0
+        defPush.screenRes = glm::vec4(
+            static_cast<float>(m_Width),
+            static_cast<float>(m_Height),
+            1.0f, // z: iblIntensity = 1.0
+            static_cast<float>(m_ActiveEditCount) // w: editCount
+        );
+        const auto& qs = (qualitySettings.shadowMaxSteps > 0) ? qualitySettings : m_QualitySettings;
+        defPush.rayParams = glm::vec4(jitter.x, jitter.y, qs.shadowMaxDistance, 0.015f); // Match GBuffer jitter, including TAA disabled.
+        defPush.shadowAOParams = glm::vec4(
+            static_cast<float>(qs.shadowMaxSteps),
+            qs.shadowK,
+            static_cast<float>(qs.aoSamples),
+            qs.aoRadius
+        ); // x: shadowMaxSteps, y: shadowK, z: aoSamples, w: aoRadius
+        auto gridParams = m_BrickGrid->GetGridParams();
+        float shadowFlag = (optShadow && qs.enableShadows) ? 1.0f : 0.0f;
+        defPush.qualityParams = glm::vec4(shadowFlag, gridParams.x, gridParams.y, gridParams.w);
 
-            cmd.pipelineBarrier(
-                vk::PipelineStageFlagBits::eComputeShader,
-                vk::PipelineStageFlagBits::eHost,
-                {},
-                0, nullptr,
-                1, &barrier,
-                0, nullptr
-            );
+        cmd.pushConstants(
+            m_DeferredLightingPipelineLayout.get(),
+            vk::ShaderStageFlagBits::eCompute,
+            0,
+            sizeof(DeferredLightingPushConstants),
+            &defPush
+        );
 
-            m_PickingRequested = false;
-            m_PickPendingRead = true;
-        }
+        cmd.dispatch(groupX, groupY, 1);
     }
 
     // =========================================================================
-    // 5. TAA Resolve & ACES Tonemapping Pass (Dogrusal HDR -> sRGB)
+    // 4. TAA Resolve & ACES Tonemapping Pass (Dogrusal HDR -> sRGB)
     // =========================================================================
-    bool isDebugActive = (m_UseGBuffer && m_DebugMode != 0);
     uint32_t readIdx = m_HistoryPingPong;
     uint32_t writeIdx = 1 - m_HistoryPingPong;
 
@@ -1629,9 +1531,28 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
     histWriteBarrier.newLayout = vk::ImageLayout::eGeneral;
     histWriteBarrier.srcAccessMask = vk::AccessFlagBits::eShaderRead;
     histWriteBarrier.dstAccessMask = vk::AccessFlagBits::eShaderWrite;
+
+    // Tarihce ekstra okuma (readIdx)
+    vk::ImageMemoryBarrier histExtraReadBarrier = toTaaBarrier;
+    histExtraReadBarrier.image = m_HistoryExtraImage[readIdx].get();
+    histExtraReadBarrier.oldLayout = vk::ImageLayout::eGeneral;
+    histExtraReadBarrier.newLayout = vk::ImageLayout::eGeneral;
+    histExtraReadBarrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
+    histExtraReadBarrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+
+    // Tarihce ekstra yazma (writeIdx)
+    vk::ImageMemoryBarrier histExtraWriteBarrier = toTaaBarrier;
+    histExtraWriteBarrier.image = m_HistoryExtraImage[writeIdx].get();
+    histExtraWriteBarrier.oldLayout = vk::ImageLayout::eGeneral;
+    histExtraWriteBarrier.newLayout = vk::ImageLayout::eGeneral;
+    histExtraWriteBarrier.srcAccessMask = vk::AccessFlagBits::eShaderRead;
+    histExtraWriteBarrier.dstAccessMask = vk::AccessFlagBits::eShaderWrite;
     m_HistoryInitialized = true;
 
-    std::array<vk::ImageMemoryBarrier, 4> taaBarriers = { toTaaBarrier, storageBarrier, histReadBarrier, histWriteBarrier };
+    std::array<vk::ImageMemoryBarrier, 6> taaBarriers = {
+        toTaaBarrier, storageBarrier, histReadBarrier, histWriteBarrier,
+        histExtraReadBarrier, histExtraWriteBarrier
+    };
     cmd.pipelineBarrier(
         vk::PipelineStageFlagBits::eComputeShader,
         vk::PipelineStageFlagBits::eComputeShader,

@@ -6,11 +6,11 @@
 // depolama goruntulerune yazar. Shading, golge ve AO YAPILMAZ.
 //
 // G-Buffer Ciktilari:
-//   binding 0: g_Albedo     (rgba8)   — RGB: albedo, A: surface validity
-//   binding 1: g_Normal     (rgba16f) — RGB: world normal, A: expected previous ray distance
-//   binding 2: g_Material   (rgba8)   — R: roughness, G: metallic, B: hitIndex/255, A: 0
-//   binding 3: g_Depth      (r32f)    — R: linear ray distance (t)
-//   binding 4: g_Motion     (rg16f)   — RG: 2D screen-space motion vector (UV delta)
+//   binding 0: g_Albedo     (rgba8)    — RGB: albedo, A: surface validity
+//   binding 1: g_Normal     (rgba16f)  — RGB: world normal, A: expected previous ray distance
+//   binding 2: g_Material   (rgba32ui) — X: roughness (floatBits), Y: metallic (floatBits), Z: hitIndex (uint32), W: surfaceId (uint32)
+//   binding 3: g_Depth      (r32f)     — R: linear ray distance (t)
+//   binding 4: g_Motion     (rg16f)    — RG: 2D screen-space motion vector (UV delta)
 //
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
@@ -34,6 +34,9 @@ layout(std430, binding = 5) readonly buffer EditBuffer {
 // =================== Two-Level Grid Buffer (PR-6) ===================
 
 layout(std430, binding = 6) readonly buffer GridBuffer {
+    vec4 gridMinBounds;
+    vec4 gridMaxBounds;
+    vec4 gridHeaderData; // x: dimX, y: dimY, z: dimZ, w: cellSize
     float cellDistances[];
 };
 
@@ -119,14 +122,14 @@ SDFHitResult mapScene(vec3 p) {
 // =================== Coarse Grid Sampling (PR-6) ===================
 
 float sampleCoarseGrid(vec3 p) {
-    const vec3 minB = vec3(-12.0, -1.0, -12.0);
-    const vec3 maxB = vec3( 12.0, 11.0,  12.0);
+    vec3 minB = gridMinBounds.xyz;
+    vec3 maxB = gridMaxBounds.xyz;
 
     if (any(lessThan(p, minB)) || any(greaterThan(p, maxB))) {
         return 0.0; // Outside the grid, evaluate the actual SDF.
     }
 
-    vec3 dim = vec3(gridParams.x, gridParams.y, 32.0);
+    vec3 dim = gridHeaderData.xyz;
     vec3 norm = (p - minB) / (maxB - minB);
     ivec3 cell = clamp(ivec3(norm * dim), ivec3(0), ivec3(dim) - 1);
     int idx = cell.x + int(dim.x) * (cell.y + int(dim.y) * cell.z);

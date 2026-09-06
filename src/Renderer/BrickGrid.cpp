@@ -2,11 +2,13 @@
 #include "Astral/Renderer/BrickGrid.hpp"
 #include "Astral/Renderer/Buffer.hpp"
 #include "Astral/Geometry/SDFSceneSnapshot.hpp"
+#include "Astral/Geometry/SDFChangeSet.hpp"
 
 #include <span>
 #include <cmath>
 #include <algorithm>
 #include <iostream>
+#include <cstring>
 #include <glm/gtc/quaternion.hpp>
 
 namespace Astral {
@@ -27,7 +29,7 @@ BrickGrid::BrickGrid(VmaAllocator allocator, vk::Device device, vk::PhysicalDevi
     m_CellDistances.resize(TOTAL_CELLS, 10.0f);
 
     if (allocator != VK_NULL_HANDLE || m_Device) {
-        vk::DeviceSize bufferSize = TOTAL_CELLS * sizeof(float); // 64 KB
+        vk::DeviceSize bufferSize = sizeof(GridGPUHeader) + TOTAL_CELLS * sizeof(float);
         m_GridBuffer = std::make_unique<Buffer>(
             allocator,
             m_Device,
@@ -37,6 +39,8 @@ BrickGrid::BrickGrid(VmaAllocator allocator, vk::Device device, vk::PhysicalDevi
             vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
             true // Persistent Mapping aktif
         );
+
+        UploadGridBuffer();
 
         std::cout << "[Astral::BrickGrid] Two-Level Spatial Grid baslatildi (" 
                   << DIM_X << "x" << DIM_Y << "x" << DIM_Z 
@@ -56,6 +60,76 @@ void BrickGrid::Build(std::span<const LegacySDFEdit> edits) {
         records.push_back(edits[i].ToPrimitiveRecord(static_cast<uint32_t>(i), static_cast<uint32_t>(i + 1)));
     }
     Build(std::span<const SDFPrimitiveRecord>(records));
+}
+
+void BrickGrid::UploadGridBuffer() {
+    if (!m_GridBuffer) return;
+
+    GridGPUHeader header{};
+    header.gridMinBounds = glm::vec4(m_MinBounds, 0.0f);
+    header.gridMaxBounds = glm::vec4(m_MaxBounds, 0.0f);
+    header.gridParams = glm::vec4(
+        static_cast<float>(DIM_X),
+        static_cast<float>(DIM_Y),
+        static_cast<float>(DIM_Z),
+        m_CellSize.x
+    );
+
+    std::vector<uint8_t> uploadBytes(sizeof(GridGPUHeader) + m_CellDistances.size() * sizeof(float));
+    std::memcpy(uploadBytes.data(), &header, sizeof(GridGPUHeader));
+    std::memcpy(uploadBytes.data() + sizeof(GridGPUHeader), m_CellDistances.data(), m_CellDistances.size() * sizeof(float));
+    m_GridBuffer->UpdateData(uploadBytes.data(), uploadBytes.size());
+}
+
+void BrickGrid::SetBounds(const glm::vec3& minBounds, const glm::vec3& maxBounds) {
+    m_MinBounds = minBounds;
+    m_MaxBounds = maxBounds;
+    m_CellSize = (m_MaxBounds - m_MinBounds) / glm::vec3(
+        static_cast<float>(DIM_X),
+        static_cast<float>(DIM_Y),
+        static_cast<float>(DIM_Z)
+    );
+}
+
+bool BrickGrid::ComputeDynamicBounds(std::span<const SDFPrimitiveRecord> records, float margin) {
+    glm::vec3 defaultMin{-12.0f, -1.0f, -12.0f};
+    glm::vec3 defaultMax{ 12.0f, 11.0f,  12.0f};
+
+    glm::vec3 sceneMin( 1e9f);
+    glm::vec3 sceneMax(-1e9f);
+    bool hasFinitePrimitives = false;
+
+    for (const auto& rec : records) {
+        if (rec.primitiveType == 3) continue; // Skip infinite planes
+
+        glm::mat4 worldFromLocal = glm::inverse(rec.invTransform);
+        glm::vec3 center = glm::vec3(worldFromLocal[3]);
+        glm::vec3 localExtents = glm::abs(glm::vec3(rec.dimensions));
+        glm::vec3 col0 = glm::vec3(worldFromLocal[0]);
+        glm::vec3 col1 = glm::vec3(worldFromLocal[1]);
+        glm::vec3 col2 = glm::vec3(worldFromLocal[2]);
+        glm::vec3 worldExtents = glm::abs(col0) * localExtents.x +
+                                 glm::abs(col1) * localExtents.y +
+                                 glm::abs(col2) * localExtents.z;
+
+        sceneMin = glm::min(sceneMin, center - worldExtents);
+        sceneMax = glm::max(sceneMax, center + worldExtents);
+        hasFinitePrimitives = true;
+    }
+
+    glm::vec3 targetMin = defaultMin;
+    glm::vec3 targetMax = defaultMax;
+
+    if (hasFinitePrimitives) {
+        targetMin = glm::min(defaultMin, sceneMin - glm::vec3(margin));
+        targetMax = glm::max(defaultMax, sceneMax + glm::vec3(margin));
+    }
+
+    if (glm::distance(targetMin, m_MinBounds) > 0.05f || glm::distance(targetMax, m_MaxBounds) > 0.05f) {
+        SetBounds(targetMin, targetMax);
+        return true;
+    }
+    return false;
 }
 
 namespace {
@@ -81,7 +155,14 @@ std::vector<RecordWorldBound> PrecomputeRecordBounds(std::span<const SDFPrimitiv
         if (rec.primitiveType != 3) {
             glm::mat4 worldFromLocal = glm::inverse(rec.invTransform);
             b.center = glm::vec3(worldFromLocal[3]);
-            b.boundRadius = glm::dot(glm::abs(glm::vec3(rec.dimensions)), glm::vec3(1.0f));
+            glm::vec3 localExtents = glm::abs(glm::vec3(rec.dimensions));
+            glm::vec3 col0 = glm::vec3(worldFromLocal[0]);
+            glm::vec3 col1 = glm::vec3(worldFromLocal[1]);
+            glm::vec3 col2 = glm::vec3(worldFromLocal[2]);
+            glm::vec3 worldExtents = glm::abs(col0) * localExtents.x +
+                                     glm::abs(col1) * localExtents.y +
+                                     glm::abs(col2) * localExtents.z;
+            b.boundRadius = glm::length(worldExtents);
         } else {
             b.center = glm::vec3(0.0f);
             b.boundRadius = 1e6f;
@@ -100,7 +181,7 @@ float BrickGrid::EvaluateCell(uint32_t x, uint32_t y, uint32_t z, std::span<cons
     float minDist = 1.0f + halfDiag;
     float smoothExpansion = 0.0f;
     for (const auto& rec : records) {
-        if (rec.operation == 3) smoothExpansion += std::max(rec.metallicParams.y, 0.001f) * 0.25f;
+        if (rec.operation == 3 || rec.operation == 4) smoothExpansion += std::max(rec.metallicParams.y, 0.001f) * 0.25f;
     }
 
     for (const auto& rec : records) {
@@ -114,7 +195,14 @@ float BrickGrid::EvaluateCell(uint32_t x, uint32_t y, uint32_t z, std::span<cons
 
         glm::mat4 worldFromLocal = glm::inverse(rec.invTransform);
         glm::vec3 center = glm::vec3(worldFromLocal[3]);
-        float boundRadius = glm::dot(glm::abs(glm::vec3(rec.dimensions)), glm::vec3(1.0f));
+        glm::vec3 localExtents = glm::abs(glm::vec3(rec.dimensions));
+        glm::vec3 col0 = glm::vec3(worldFromLocal[0]);
+        glm::vec3 col1 = glm::vec3(worldFromLocal[1]);
+        glm::vec3 col2 = glm::vec3(worldFromLocal[2]);
+        glm::vec3 worldExtents = glm::abs(col0) * localExtents.x +
+                                 glm::abs(col1) * localExtents.y +
+                                 glm::abs(col2) * localExtents.z;
+        float boundRadius = glm::length(worldExtents);
         float distToCenter = glm::distance(cellCenter, center);
         float dShape = distToCenter - boundRadius;
         minDist = std::min(minDist, dShape);
@@ -128,7 +216,7 @@ void BrickGrid::FullRebuild(std::span<const SDFPrimitiveRecord> records) {
     float halfDiag = glm::length(m_CellSize) * 0.5f;
     float smoothExpansion = 0.0f;
     for (const auto& rec : records) {
-        if (rec.operation == 3) smoothExpansion += std::max(rec.metallicParams.y, 0.001f) * 0.25f;
+        if (rec.operation == 3 || rec.operation == 4) smoothExpansion += std::max(rec.metallicParams.y, 0.001f) * 0.25f;
     }
 
     for (uint32_t z = 0; z < DIM_Z; ++z) {
@@ -153,45 +241,80 @@ void BrickGrid::FullRebuild(std::span<const SDFPrimitiveRecord> records) {
         }
     }
 
-    if (m_GridBuffer) {
-        m_GridBuffer->UpdateData(m_CellDistances.data(), m_CellDistances.size() * sizeof(float));
-    }
+    UploadGridBuffer();
     m_LastUpdatedCellCount = TOTAL_CELLS;
     m_CachedRecords.assign(records.begin(), records.end());
     m_IsRecordsInitialized = true;
 }
 
-void BrickGrid::Build(std::span<const SDFPrimitiveRecord> records) {
-    // 1. Ilk calisma veya primitif sayisi degisikligi (ekleme / silme)
-    if (!m_IsRecordsInitialized || records.size() != m_CachedRecords.size()) {
+void BrickGrid::Build(std::span<const SDFPrimitiveRecord> records, const SDFChangeSet* changeSet) {
+    // 0. Dinamik sinirlari guncelle (eger sinirlar degistiyse mecburen FullRebuild)
+    bool boundsChanged = ComputeDynamicBounds(records);
+    if (boundsChanged || !m_IsRecordsInitialized || records.size() != m_CachedRecords.size()) {
         FullRebuild(records);
         return;
     }
 
+    // 1. ChangeSet kontrolu (varsa)
+    if (changeSet) {
+        if (changeSet->IsGlobalChange()) {
+            FullRebuild(records);
+            return;
+        }
+        if (!changeSet->HasChanges()) {
+            m_LastUpdatedCellCount = 0;
+            return;
+        }
+    }
+
     // 2. Hangi primitiflerin degistigini tespit et (Dirty Tracking)
     std::vector<size_t> dirtyIndices;
-    dirtyIndices.reserve(records.size());
+    if (changeSet) {
+        bool hasGeometricChange = false;
+        for (const auto& ch : changeSet->GetChanges()) {
+            if (HasFlag(ch.changeType, SDFChangeType::TransformMotion) ||
+                HasFlag(ch.changeType, SDFChangeType::ShapeOrCSGChange) ||
+                HasFlag(ch.changeType, SDFChangeType::VisibilityOrRemoval) ||
+                HasFlag(ch.changeType, SDFChangeType::VisibilityOrAddition)) {
+                hasGeometricChange = true;
+                for (size_t i = 0; i < records.size(); ++i) {
+                    if (records[i].surfaceId == ch.surfaceId) {
+                        dirtyIndices.push_back(i);
+                        break;
+                    }
+                }
+            }
+        }
+        if (!hasGeometricChange) {
+            // Yalnizca materyal degisikligi (albedo, roughness, metallic) — mesafe alani etkilenmez!
+            m_LastUpdatedCellCount = 0;
+            m_CachedRecords.assign(records.begin(), records.end());
+            return;
+        }
+    } else {
+        dirtyIndices.reserve(records.size());
+        for (size_t i = 0; i < records.size(); ++i) {
+            const auto& cur = records[i];
+            const auto& prev = m_CachedRecords[i];
 
-    for (size_t i = 0; i < records.size(); ++i) {
-        const auto& cur = records[i];
-        const auto& prev = m_CachedRecords[i];
-
-        if (cur.invTransform != prev.invTransform ||
-            cur.dimensions != prev.dimensions ||
-            cur.primitiveType != prev.primitiveType ||
-            cur.operation != prev.operation ||
-            cur.metallicParams.y != prev.metallicParams.y) {
-            dirtyIndices.push_back(i);
+            if (cur.invTransform != prev.invTransform ||
+                cur.dimensions != prev.dimensions ||
+                cur.primitiveType != prev.primitiveType ||
+                cur.operation != prev.operation ||
+                cur.metallicParams.y != prev.metallicParams.y) {
+                dirtyIndices.push_back(i);
+            }
         }
     }
 
     // 3. Hicbir primitif degismediyse: EARLY-OUT (0 hucre islenir, GPU memcpy yapilmaz!)
     if (dirtyIndices.empty()) {
         m_LastUpdatedCellCount = 0;
+        m_CachedRecords.assign(records.begin(), records.end());
         return;
     }
 
-    // 4. Yalniz sonsuz etki alanli bir duzlem degistiyse veya CSG degisimi olduysa tam rebuild gerekir
+    // 4. Sonsuz etki alanli bir duzlem degistiyse veya CSG degisimi olduysa tam rebuild gerekir
     bool requiresFullRebuild = false;
     for (size_t idx : dirtyIndices) {
         if (records[idx].primitiveType == 3 || m_CachedRecords[idx].primitiveType == 3 ||
@@ -215,7 +338,7 @@ void BrickGrid::Build(std::span<const SDFPrimitiveRecord> records) {
     float halfDiag = cellDiag * 0.5f;
     float smoothExpansion = 0.0f;
     for (const auto& rec : records) {
-        if (rec.operation == 3) smoothExpansion += std::max(rec.metallicParams.y, 0.001f) * 0.25f;
+        if (rec.operation == 3 || rec.operation == 4) smoothExpansion += std::max(rec.metallicParams.y, 0.001f) * 0.25f;
     }
 
     for (size_t idx : dirtyIndices) {
@@ -227,8 +350,17 @@ void BrickGrid::Build(std::span<const SDFPrimitiveRecord> records) {
         glm::vec3 curCenter = glm::vec3(curWorld[3]);
         glm::vec3 prevCenter = glm::vec3(prevWorld[3]);
 
-        float curRadius = glm::dot(glm::abs(glm::vec3(cur.dimensions)), glm::vec3(1.0f)) + smoothExpansion;
-        float prevRadius = glm::dot(glm::abs(glm::vec3(prev.dimensions)), glm::vec3(1.0f)) + smoothExpansion;
+        glm::vec3 curLocal = glm::abs(glm::vec3(cur.dimensions));
+        glm::vec3 curExtents = glm::abs(glm::vec3(curWorld[0])) * curLocal.x +
+                               glm::abs(glm::vec3(curWorld[1])) * curLocal.y +
+                               glm::abs(glm::vec3(curWorld[2])) * curLocal.z;
+        float curRadius = glm::length(curExtents) + smoothExpansion;
+
+        glm::vec3 prevLocal = glm::abs(glm::vec3(prev.dimensions));
+        glm::vec3 prevExtents = glm::abs(glm::vec3(prevWorld[0])) * prevLocal.x +
+                                glm::abs(glm::vec3(prevWorld[1])) * prevLocal.y +
+                                glm::abs(glm::vec3(prevWorld[2])) * prevLocal.z;
+        float prevRadius = glm::length(prevExtents) + smoothExpansion;
 
         float margin = cellDiag * 1.5f + std::max(cur.metallicParams.y, prev.metallicParams.y);
 
@@ -281,16 +413,13 @@ void BrickGrid::Build(std::span<const SDFPrimitiveRecord> records) {
         m_CellDistances[cIdx] = std::clamp(minDist - halfDiag - smoothExpansion, 0.0f, 1.0f);
     }
 
-    if (m_GridBuffer) {
-        m_GridBuffer->UpdateData(m_CellDistances.data(), m_CellDistances.size() * sizeof(float));
-    }
-
+    UploadGridBuffer();
     m_LastUpdatedCellCount = dirtyCellIndices.size();
     m_CachedRecords.assign(records.begin(), records.end());
 }
 
-void BrickGrid::Build(const SDFSceneSnapshot& snapshot) {
-    Build(::std::span<const SDFPrimitiveRecord>(snapshot.GetRecords().data(), snapshot.GetRecordCount()));
+void BrickGrid::Build(const SDFSceneSnapshot& snapshot, const SDFChangeSet* changeSet) {
+    Build(std::span<const SDFPrimitiveRecord>(snapshot.GetRecords().data(), snapshot.GetRecordCount()), changeSet);
 }
 
 } // namespace Astral

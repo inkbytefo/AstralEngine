@@ -20,6 +20,10 @@ layout(binding = 4, rg16f)   uniform readonly image2D motionVectors;
 
 layout(binding = 5, r32f) uniform readonly image2D currentDepth;
 layout(binding = 6, rgba16f) uniform readonly image2D normalDepth;
+layout(binding = 7, rgba32ui) uniform readonly uimage2D g_Material;
+layout(binding = 8, rgba8)   uniform readonly image2D  g_Albedo;
+layout(binding = 9, rgba32ui) uniform readonly uimage2D historyExtra;
+layout(binding = 10, rgba32ui) uniform writeonly uimage2D outHistoryExtra;
 
 layout(push_constant) uniform TAAPushConstants {
     vec4 screenRes; // xy: extent, z: reset/frame, w: blend
@@ -109,10 +113,23 @@ void main() {
 
     vec3 curr = imageLoad(currImage, pixel).rgb;
 
+    // G-Buffer ve Aydinlatma sinyallerini oku
+    uint currSurfaceId = imageLoad(g_Material, pixel).w;
+    vec3 currNormal = imageLoad(normalDepth, pixel).rgb;
+    float currAttributionConfidence = clamp(imageLoad(g_Albedo, pixel).a, 0.0, 1.0);
+    float currLighting = clamp(imageLoad(currImage, pixel).a, 0.0, 1.0);
+    uvec4 currExtra = uvec4(
+        currSurfaceId,
+        floatBitsToUint(currLighting),
+        packSnorm2x16(currNormal.xy),
+        floatBitsToUint(currNormal.z)
+    );
+
     // Debug Pass-through modu: Eger w < 0 ise dogrudan tonemap'siz aktar
     if (screenRes.w < 0.0) {
         imageStore(outImage, pixel, vec4(curr, 1.0));
         imageStore(outHistory, pixel, vec4(curr, 1.0));
+        imageStore(outHistoryExtra, pixel, currExtra);
         return;
     }
 
@@ -138,7 +155,6 @@ void main() {
 
     float depth = imageLoad(currentDepth, pixel).r;
     float expectedDepth = imageLoad(normalDepth, pixel).a;
-    float lightingSignal = clamp(imageLoad(currImage, pixel).a, 0.0, 1.0);
 
     // A4-P5: Yerel degisim ve gecmis reddi (Local Invalidation)
     if (colorParams.z > 0.5) {
@@ -158,19 +174,44 @@ void main() {
     if (alpha < 0.999) {
         ivec2 previousPixel = clamp(ivec2(prevUV * vec2(res)), ivec2(0), res - 1);
         float historyDepth = texelFetch(historyTexture, previousPixel, 0).a;
+        uvec4 prevExtra = imageLoad(historyExtra, previousPixel);
 
+        uint prevSurfaceId = prevExtra.x;
+        float prevLighting = uintBitsToFloat(prevExtra.y);
+        vec2 prevNxy = unpackSnorm2x16(prevExtra.z);
+        float prevNz = uintBitsToFloat(prevExtra.w);
+        vec3 prevNormal = vec3(prevNxy, prevNz);
+
+        // 1. HARD REJECTION: Kimlik (Surface ID / Generational Slot) Uyumsuzlugu
+        // Farkli nesneler birbirinin tarihcesini asla kullanamaz (ghosting engelleme)
+        if (currSurfaceId != prevSurfaceId) {
+            alpha = 1.0;
+        }
+
+        // 2. HARD REJECTION: Derinlik Uyumsuzlugu (Depth Discontinuity)
         bool depthValid = (depth > 0.0 && expectedDepth > 0.0 &&
                            abs(historyDepth - expectedDepth) <= max(0.03, 0.02 * expectedDepth));
-
         if (!depthValid) {
-            alpha = 1.0; // Hard rejection
-        } else {
-            // A4-P4: Guven faktoru ile tarihce agirligini ayarla (normal & aydinlatma guveni)
-            vec3 currNormal = imageLoad(normalDepth, pixel).rgb;
-            float normalConfidence = (length(currNormal) > 0.1) ? clamp(abs(currNormal.z) + 0.3, 0.3, 1.0) : 1.0;
-            float lightingConfidence = clamp(lightingSignal, 0.25, 1.0);
-            float confidence = lightingConfidence * normalConfidence;
-            float baseHistoryWeight = 0.88 * clamp(confidence, 0.0, 1.0);
+            alpha = 1.0;
+        }
+
+        if (alpha < 0.999) {
+            // YUMUSAK GUVEN HESABI (SDFTemporalHistory::EvaluateConfidence ile tam senkronize):
+            // a) Normal Uyumu (Aci farkina bagli dot product)
+            float normalDot = (length(currNormal) > 0.1 && length(prevNormal) > 0.1)
+                ? dot(normalize(currNormal), normalize(prevNormal)) : 1.0;
+            float normalConfidence = clamp(normalDot, 0.0, 1.0);
+
+            // b) Smooth CSG / Yuzey Sahipligi Belirsizlik Guveni (g_Albedo.a)
+            float attributionConfidence = currAttributionConfidence;
+
+            // c) Aydinlatma & Golge/AO Degisim Guveni (Zamana bagli delta, ham siddet degil)
+            float lightingDelta = abs(currLighting - prevLighting);
+            float lightingConfidence = clamp(1.0 - lightingDelta, 0.0, 1.0);
+
+            // Toplam Guven ve Tarihce Agirligi (Tavan: 0.88)
+            float totalConfidence = normalConfidence * attributionConfidence * lightingConfidence;
+            float baseHistoryWeight = 0.88 * clamp(totalConfidence, 0.0, 1.0);
             alpha = 1.0 - baseHistoryWeight;
         }
     }
@@ -230,8 +271,9 @@ void main() {
         }
     }
 
-    // Bir sonraki kare icin saf Dogrusal HDR tarihceye yazilir
+    // Bir sonraki kare icin saf Dogrusal HDR, derinlik ve ekstra tarihce tamponuna yazilir
     imageStore(outHistory, pixel, vec4(blendedHDR, depth));
+    imageStore(outHistoryExtra, pixel, currExtra);
 
     // Nihai goruntu icin ACES Tonemapping ve Gamma (sRGB) uygulanir
     vec3 tonemapped = acesTonemap(blendedHDR * colorParams.x);

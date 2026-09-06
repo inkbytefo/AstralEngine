@@ -2,6 +2,7 @@
 
 #include "Astral/Geometry/SDFSceneSnapshot.hpp"
 #include <glm/glm.hpp>
+#include <span>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -42,6 +43,27 @@ struct DeferredSurface {
     float metallic = 0.0f;
 };
 
+/// Coarse grid ornekleme yardimcisi
+inline float SampleCoarseGrid(
+    const glm::vec3& p,
+    const glm::vec3& minB,
+    const glm::vec3& maxB,
+    const glm::vec3& dim,
+    std::span<const float> cellDistances
+) {
+    if (cellDistances.empty()) return 0.0f;
+    if (glm::any(glm::lessThan(p, minB)) || glm::any(glm::greaterThan(p, maxB))) {
+        return 0.0f;
+    }
+    glm::vec3 norm = (p - minB) / (maxB - minB);
+    glm::ivec3 cell = glm::clamp(glm::ivec3(norm * dim), glm::ivec3(0), glm::ivec3(dim) - 1);
+    int idx = cell.x + static_cast<int>(dim.x) * (cell.y + static_cast<int>(dim.y) * cell.z);
+    if (idx >= 0 && static_cast<size_t>(idx) < cellDistances.size()) {
+        return cellDistances[idx];
+    }
+    return 0.0f;
+}
+
 /// Analitik SDF koni takipli yumusak golge (Cone-traced Soft Shadow)
 /// ro: Dunya koordinatlarinda isin baslangici (yuzey + normal * bias)
 /// rd: Isik yonune dogru birim vektor
@@ -56,7 +78,14 @@ inline float EvaluateSDFSoftShadow(
     float mint,
     float maxt,
     float k,
-    uint32_t maxSteps = 96
+    uint32_t maxSteps = 96,
+    bool opt = false,
+    bool useGrid = false,
+    const glm::vec3& minBounds = {-12.0f, -1.0f, -12.0f},
+    const glm::vec3& maxBounds = {12.0f, 11.0f, 12.0f},
+    const glm::vec3& gridDim = {32.0f, 16.0f, 32.0f},
+    float cellSize = 0.75f,
+    std::span<const float> cellDistances = {}
 ) {
     if (snapshot.GetRecordCount() == 0) {
         return 1.0f;
@@ -78,6 +107,30 @@ inline float EvaluateSDFSoftShadow(
 
     for (uint32_t i = 0; i < maxSteps && t < maxt; ++i) {
         glm::vec3 p = ro + rd * t;
+
+        if (opt) {
+            // AABB erken cikis: Sahne sinirlarini astiysa ve disari dogru gidiyorsa gokyuzundedir
+            if ((p.y > maxBounds.y && rd.y >= 0.0f) ||
+                (p.x > maxBounds.x && rd.x >= 0.0f) || (p.x < minBounds.x && rd.x <= 0.0f) ||
+                (p.z > maxBounds.z && rd.z >= 0.0f) || (p.z < minBounds.z && rd.z <= 0.0f)) {
+                break;
+            }
+
+            // Seyrek Izgara Bos Uzay Atlama:
+            // Sadece gercekten bos uzayda (cellD > emptyThreshold) agresif atlama yapilir.
+            // Yuzeye veya penumbra konisine yaklasinca (cellD <= emptyThreshold) ince adimlamaya (fine step) gecilir.
+            if (useGrid && !cellDistances.empty()) {
+                float cellD = SampleCoarseGrid(p, minBounds, maxBounds, gridDim, cellDistances);
+                float coneRadius = t / std::max(k, 0.001f);
+                float emptyThreshold = std::max(cellSize * 2.0f, coneRadius + cellSize);
+                if (cellD > emptyThreshold) {
+                    float skipDist = std::max(cellD - emptyThreshold, cellSize);
+                    t += skipDist;
+                    continue;
+                }
+            }
+        }
+
         float h = snapshot.EvaluateDistance(p);
 
         if (!std::isfinite(h)) {
@@ -92,7 +145,7 @@ inline float EvaluateSDFSoftShadow(
         // Penumbra yumusaklik hesabi
         res = std::min(res, k * h / t);
 
-        // Guvenli konservatif adim
+        // Guvenli konservatif adim (ince adimlama)
         t += std::clamp(h, 0.015f, 0.5f);
     }
 
@@ -122,12 +175,18 @@ inline float EvaluateSDFAO(
         return 1.0f;
     }
 
+    float safeRadius = std::max(radius, 0.001f);
+    float decay = std::clamp(
+        std::pow(0.75f, (safeRadius * 8.0f) / std::max(static_cast<float>(samples), 1.0f)),
+        0.05f, 0.98f
+    );
+
     float occ = 0.0f;
     float weight = 1.0f;
     float totalWeight = 0.0f;
 
     for (uint32_t i = 0; i < samples; ++i) {
-        float h = radius * (static_cast<float>(i + 1) / static_cast<float>(samples));
+        float h = safeRadius * (static_cast<float>(i + 1) / static_cast<float>(samples));
         glm::vec3 samplePos = pos + normal * (surfaceBias + h);
 
         float d = snapshot.EvaluateDistance(samplePos);
@@ -136,7 +195,7 @@ inline float EvaluateSDFAO(
         // Eger d < h ise bu hacimde geometri vardir ve oklüzyon olusur
         occ += std::max(0.0f, h - d) * weight;
         totalWeight += h * weight;
-        weight *= 0.75f;
+        weight *= decay;
     }
 
     float ao = 1.0f - (occ / std::max(totalWeight, 1e-4f));

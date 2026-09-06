@@ -55,6 +55,9 @@ layout(std430, binding = 9) readonly buffer EditBuffer {
 
 // 6. Seyrek Hucre Izgara Tamponu (GridBuffer SSBO)
 layout(std430, binding = 10) readonly buffer GridBuffer {
+    vec4 gridMinBounds;
+    vec4 gridMaxBounds;
+    vec4 gridHeaderData; // x: dimX, y: dimY, z: dimZ, w: cellSize
     float cellDistances[];
 };
 

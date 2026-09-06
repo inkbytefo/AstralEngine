@@ -134,7 +134,7 @@ int main(int argc, char** argv) {
         if (argc < 2 || argc > 3) throw std::runtime_error("Usage: CameraGpuTests <output-directory> [baseline-directory]");
         const std::filesystem::path output(argv[1]);
         std::filesystem::create_directories(output);
-        for (const bool deferred : {false, true}) {
+        for (const bool deferred : {true}) {
             const std::string name = deferred ? "deferred" : "forward";
             const auto demo = Capture(deferred, output / (name + ".rgba"));
             if (argc == 3) Compare(demo, std::filesystem::path(argv[2]) / (name + ".rgba"));

@@ -28,8 +28,8 @@ float evaluateSceneDistance(vec3 p, int editCount) {
 }
 
 float sampleCoarseGrid(vec3 p, vec3 dim, float cellSize) {
-    const vec3 minB = vec3(-12.0, -1.0, -12.0);
-    const vec3 maxB = vec3( 12.0, 11.0,  12.0);
+    vec3 minB = gridMinBounds.xyz;
+    vec3 maxB = gridMaxBounds.xyz;
 
     if (any(lessThan(p, minB)) || any(greaterThan(p, maxB))) {
         return 0.0;
@@ -56,24 +56,35 @@ float evaluateSDFSoftShadow(
     if (editCount <= 0) return 1.0;
     if (isnan(ro.x) || isnan(ro.y) || isnan(ro.z) || isnan(rd.x) || isnan(rd.y) || isnan(rd.z)) return 1.0;
 
+    float rdLenSq = dot(rd, rd);
+    if (rdLenSq < 1e-6) return 1.0;
+
     float res = 1.0;
     float t = max(mint, 0.001);
-    const vec3 maxB = vec3(12.0, 11.0, 12.0);
 
     for (int i = 0; i < maxSteps && t < maxt; ++i) {
         vec3 p = ro + rd * t;
 
         if (opt) {
-            // AABB erken cikis: Sahne tavanini astiysa gokyuzundedir
-            if (p.y > 11.0 || any(greaterThan(p.xz, maxB.xz)) || any(lessThan(p.xz, -maxB.xz))) {
+            vec3 minB = gridMinBounds.xyz;
+            vec3 maxB = gridMaxBounds.xyz;
+            // AABB erken cikis: Sahne sinirlarini astiysa ve sahneden uzaklasiyorsa gokyuzundedir
+            if ((p.y > maxB.y && rd.y >= 0.0) ||
+                (p.x > maxB.x && rd.x >= 0.0) || (p.x < minB.x && rd.x <= 0.0) ||
+                (p.z > maxB.z && rd.z >= 0.0) || (p.z < minB.z && rd.z <= 0.0)) {
                 break;
             }
 
-            // Seyrek Izgara Bos Uzay Atlama
+            // Seyrek Izgara Bos Uzay Atlama:
+            // Sadece gercekten bos uzayda (cellD > emptyThreshold) agresif atlama yapilir.
+            // Yuzeye veya penumbra konisine yaklasinca (cellD <= emptyThreshold) ince adimlamaya (fine step) gecilir.
             if (useGrid) {
                 float cellD = sampleCoarseGrid(p, gridDim, cellSize);
-                if (cellD > cellSize * 1.2) {
-                    t += max(cellD * 0.85, cellSize);
+                float coneRadius = t / max(k, 0.001);
+                float emptyThreshold = max(cellSize * 2.0, coneRadius + cellSize);
+                if (cellD > emptyThreshold) {
+                    float skipDist = max(cellD - emptyThreshold, cellSize);
+                    t += skipDist;
                     continue;
                 }
             }
@@ -108,15 +119,20 @@ float evaluateSDFAO(
     float weight = 1.0;
     float totalWeight = 0.0;
 
+    // Radius ve ornek sayisi ile normalize edilmis agirlik azalma faktoru (weight decay)
+    // Referans: radius = 1.0m, samples = 8 iken decay = 0.75
+    float safeRadius = max(radius, 0.001);
+    float decay = clamp(pow(0.75, (safeRadius * 8.0) / max(float(samples), 1.0)), 0.05, 0.98);
+
     for (int i = 0; i < samples; ++i) {
-        float h = radius * (float(i + 1) / float(samples));
+        float h = safeRadius * (float(i + 1) / float(samples));
         vec3 samplePos = pos + N * (surfaceBias + h);
         float d = evaluateSceneDistance(samplePos, editCount);
         if (isnan(d) || isinf(d)) continue;
 
         occ += max(0.0, h - d) * weight;
         totalWeight += h * weight;
-        weight *= 0.75;
+        weight *= decay;
     }
 
     float ao = 1.0 - (occ / max(totalWeight, 1e-4));
