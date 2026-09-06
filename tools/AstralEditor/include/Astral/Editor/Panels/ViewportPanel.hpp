@@ -1,4 +1,5 @@
 #pragma once
+#include "Astral/Editor/SelectionContext.hpp"
 
 #include "Astral/Editor/Gizmo/TransformGizmo.hpp"
 #include "Astral/Editor/Gizmo/ViewportGizmoToolbar.hpp"
@@ -36,12 +37,12 @@ public:
     [[nodiscard]] SDFRenderer* GetRenderer() const noexcept { return m_Renderer; }
 
     /// Primary interface called during ImGui editor rendering with ECS Scene & Entity
-    void OnImGuiRender(Scene& scene, Entity& selectedEntity);
+    void OnImGuiRender(Scene& scene, SelectionContext& selection, bool isPlaying = false);
 
     /// Overloads for standalone or legacy calls
-    void OnImGuiRender();
-    void Draw(Scene& scene, Entity& selectedEntity) { OnImGuiRender(scene, selectedEntity); }
-    void Draw() { OnImGuiRender(); }
+    void OnImGuiRender(bool isPlaying = false);
+    void Draw(Scene& scene, SelectionContext& selection, bool isPlaying = false) { OnImGuiRender(scene, selection, isPlaying); }
+    void Draw(bool isPlaying = false) { OnImGuiRender(isPlaying); }
 
     [[nodiscard]] glm::vec2 GetViewportSize() const noexcept { return m_ViewportSize; }
     [[nodiscard]] glm::vec2 GetMousePosInViewport() const noexcept { return m_MousePosInViewport; }
@@ -59,6 +60,9 @@ public:
     void SetGizmoMode(int mode) noexcept { m_TransformGizmo.State().space = static_cast<GizmoSpace>(mode); }
 
     [[nodiscard]] bool IsUsingGizmo() const noexcept { return m_TransformGizmo.State().usingGizmo; }
+    [[nodiscard]] ViewportTransportAction GetTransportAction() const noexcept { return m_TransportAction; }
+    bool ConsumePick(bool& additive) { if (!m_PickPending) return false; additive = m_PickAdditive; m_PickPending = false; return true; }
+    void CancelPick() { m_PickPending = false; }
 
 private:
     SDFRenderer* m_Renderer = nullptr;
@@ -69,10 +73,14 @@ private:
     bool m_PendingResize = false;
     bool m_IsHovered = false;
     bool m_IsFocused = false;
+    bool m_PickPending = false;
+    bool m_PickAdditive = false;
     TransformGizmo m_TransformGizmo;
     ViewportGizmoToolbar m_GizmoToolbar;
+    ViewportTransportAction m_TransportAction = ViewportTransportAction::None;
     VkDescriptorSet m_ViewportDescriptorSet = VK_NULL_HANDLE;
     VkImageView m_RegisteredImageView = VK_NULL_HANDLE;
 };
 
 } // namespace Astral
+

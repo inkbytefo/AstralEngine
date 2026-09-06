@@ -1,9 +1,11 @@
+#include "Astral/Editor/SelectionOperations.hpp"
 #include "Astral/Editor/Panels/SceneHierarchy.hpp"
 #include "Astral/Core/Components.hpp"
 #include "Astral/Renderer/SDFEdit.hpp"
 #include "Astral/Scene/SceneCommands.hpp"
 
 #include <imgui.h>
+#include "Astral/Editor/EditorTheme.hpp"
 #include <imgui_internal.h>
 #include <algorithm>
 #include <cstdint>
@@ -112,7 +114,7 @@ bool SceneHierarchy::NodeOrDescendantMatchesFilter(Scene& scene, EntityHandle en
     return false;
 }
 
-void SceneHierarchy::DrawEntityNode(Scene& scene, EntityHandle entityId, Entity& selectedEntity, bool isFiltered) {
+void SceneHierarchy::DrawEntityNode(Scene& scene, EntityHandle entityId, SelectionContext& selection, bool isFiltered) {
     auto& registry = scene.GetRegistry();
     if (!registry.IsAlive(entityId) || !m_Visited.insert(entityId).second) return;
 
@@ -121,7 +123,7 @@ void SceneHierarchy::DrawEntityNode(Scene& scene, EntityHandle entityId, Entity&
     }
 
     Entity currentEntity(entityId, &scene);
-    const bool isSelected = (selectedEntity == currentEntity);
+    const bool isSelected = selection.IsEntitySelected(currentEntity);
     const HierarchyComponent* hierarchy = registry.HasComponent<HierarchyComponent>(entityId)
         ? &registry.GetComponent<HierarchyComponent>(entityId)
         : nullptr;
@@ -146,12 +148,6 @@ void SceneHierarchy::DrawEntityNode(Scene& scene, EntityHandle entityId, Entity&
     ImVec2 cursorScreenPos = ImGui::GetCursorScreenPos();
     ImDrawList* drawList = ImGui::GetWindowDrawList();
 
-    if (isSelected) {
-        ImVec2 rectMin = cursorScreenPos;
-        ImVec2 rectMax = ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x, rectMin.y + rowHeight);
-        drawList->AddRectFilled(rectMin, rectMax, IM_COL32(40, 68, 98, 220), 4.0f);
-    }
-
     // ── Görsel 2: Hiyerarşi Rehber Kılavuz Çizgisi ────────────────────────────
     const bool hasParent = hierarchy && registry.IsAlive(hierarchy->parent);
     if (hasParent) {
@@ -165,9 +161,6 @@ void SceneHierarchy::DrawEntityNode(Scene& scene, EntityHandle entityId, Entity&
 
     // ── Görsel 2: Minimalist Renkli İkon (O / []) ─────────────────────────────
     NodeIconInfo iconInfo = GetNodeIcon(currentEntity);
-    ImGui::TextColored(iconInfo.color, "%s", iconInfo.symbol);
-    ImGui::SameLine(0, 5.0f);
-
     // ── Düğüm İsmi ve TreeNode ───────────────────────────────────────────────
     std::string displayName = GetEntityDisplayName(currentEntity);
 
@@ -195,9 +188,20 @@ void SceneHierarchy::DrawEntityNode(Scene& scene, EntityHandle entityId, Entity&
         }
     }
 
-    const bool open = ImGui::TreeNodeEx("##NodeText", flags, "%s", displayName.c_str());
+    const bool open = ImGui::TreeNodeEx("##NodeText", flags, "    %s", displayName.c_str());
+    const ImVec2 rowMin = ImGui::GetItemRectMin();
+    const ImVec2 rowMax = ImGui::GetItemRectMax();
+    const ImVec2 iconCenter(rowMin.x + ImGui::GetTreeNodeToLabelSpacing() + 5.0f, (rowMin.y + rowMax.y) * 0.5f);
+    const ImU32 iconColor = ImGui::GetColorU32(iconInfo.color);
+    if (currentEntity.HasComponent<SDFComponent>() && currentEntity.GetComponent<SDFComponent>().primitiveType == 1) {
+        drawList->AddRect({iconCenter.x - 4, iconCenter.y - 4}, {iconCenter.x + 4, iconCenter.y + 4}, iconColor, 1, 0, 1.5f);
+    } else {
+        drawList->AddCircle(iconCenter, 4.0f, iconColor, 16, 1.5f);
+    }
+    if (isSelected) drawList->AddLine({rowMin.x, rowMin.y + 2}, {rowMin.x, rowMax.y - 2}, ImGui::GetColorU32(EditorPalette::AccentHover), 2.0f);
     if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
-        selectedEntity = currentEntity;
+        if (ImGui::GetIO().KeyCtrl) selection.Toggle(currentEntity);
+        else selection.SelectEntity(currentEntity);
     }
 
     // ── Drag & Drop: Doğrudan TreeNodeEx satırına bağlanmalıdır! ─────────────
@@ -267,7 +271,7 @@ void SceneHierarchy::DrawEntityNode(Scene& scene, EntityHandle entityId, Entity&
     // 1. Görünürlük (Eye / Target Icon)
     const bool isSelfVisible = IsEntitySelfVisible(registry, entityId);
 
-    ImGui::SameLine(currentIconX);
+    ImGui::SameLine(currentIconX - ImGui::GetWindowPos().x);
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.3f, 0.3f, 0.35f, 0.6f));
     ImGui::PushStyleColor(ImGuiCol_Text, isSelfVisible ? ImVec4(0.85f, 0.85f, 0.85f, 1.0f) : ImVec4(0.4f, 0.4f, 0.4f, 0.5f));
@@ -286,7 +290,7 @@ void SceneHierarchy::DrawEntityNode(Scene& scene, EntityHandle entityId, Entity&
 
     // 2. SDF / Bileşen Rozeti
     if (currentEntity.HasComponent<SDFComponent>()) {
-        ImGui::SameLine(contentRight - 22.0f);
+        ImGui::SameLine(contentRight - ImGui::GetWindowPos().x - 22.0f);
         ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.9f, 0.8f), "[S]");
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("SDF Geometri Bileseni");
@@ -296,7 +300,7 @@ void SceneHierarchy::DrawEntityNode(Scene& scene, EntityHandle entityId, Entity&
     // ── Çocuk Düğümleri Çiz ──────────────────────────────────────────────────
     if (hasChildren && open) {
         for (EntityHandle child : hierarchy->children) {
-            DrawEntityNode(scene, child, selectedEntity, isFiltered);
+            DrawEntityNode(scene, child, selection, isFiltered);
         }
         ImGui::TreePop();
     }
@@ -304,7 +308,9 @@ void SceneHierarchy::DrawEntityNode(Scene& scene, EntityHandle entityId, Entity&
     ImGui::PopID();
 }
 
-void SceneHierarchy::Draw(Scene& scene, Entity& selectedEntity, CommandStack* commandStack) {
+void SceneHierarchy::Draw(Scene& scene, SelectionContext& selection, CommandStack* commandStack) {
+    selection.Reconcile();
+    Entity& selectedEntity = selection.PrimaryStorage();
     m_CommandStack = commandStack;
     ImGui::Begin("Sahne Hiyerarsisi");
 
@@ -317,9 +323,9 @@ void SceneHierarchy::Draw(Scene& scene, Entity& selectedEntity, CommandStack* co
     m_PendingAddToParent = NullEntityHandle;
 
     // ── 1. Üst Aksiyon Çubuğu: + Yeni Nesne Ekle Butonu ──────────────────────
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.35f, 0.60f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.22f, 0.42f, 0.72f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.14f, 0.30f, 0.52f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Button, EditorPalette::Raised);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorPalette::Hover);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, EditorPalette::Accent);
 
     if (ImGui::Button("+ Yeni Nesne Ekle", ImVec2(-1, 28))) {
         ImGui::OpenPopup("AddPrimitivePopup");
@@ -374,7 +380,7 @@ void SceneHierarchy::Draw(Scene& scene, Entity& selectedEntity, CommandStack* co
 
     // ── 5. Varlık Ağacı Görünümü (Tree View) ────────────────────────────────
     ImVec2 listSize = ImVec2(-1, ImGui::GetContentRegionAvail().y - 36.0f);
-    ImGui::BeginChild("EntityTreeChild", listSize, true);
+    ImGui::BeginChild("EntityTreeChild", listSize, ImGuiChildFlags_None);
 
     m_Roots.clear();
     m_Visited.clear();
@@ -395,7 +401,7 @@ void SceneHierarchy::Draw(Scene& scene, Entity& selectedEntity, CommandStack* co
 
     // Kök düğümlerden özyinelemeli ağacı çiz
     for (EntityHandle root : m_Roots) {
-        DrawEntityNode(scene, root, selectedEntity, isFiltered);
+        DrawEntityNode(scene, root, selection, isFiltered);
     }
 
     // Boş alana tıklayınca seçimi temizle
@@ -404,7 +410,7 @@ void SceneHierarchy::Draw(Scene& scene, Entity& selectedEntity, CommandStack* co
     if (remainingY > 0.0f) {
         ImGui::Dummy(ImVec2(-1.0f, remainingY));
         if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
-            selectedEntity = Entity();
+            selection.ClearSelection();
         }
         if (ImGui::BeginDragDropTarget()) {
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASTRAL_ENTITY_HANDLE")) {
@@ -460,13 +466,12 @@ void SceneHierarchy::Draw(Scene& scene, Entity& selectedEntity, CommandStack* co
         m_PendingAddPrimitive = -1;
     }
 
+    selection.Reconcile();
     if (m_PendingDuplicate != NullEntityHandle) {
-        Entity copy = scene.DuplicateEntity(m_PendingDuplicate);
-        if (copy.IsValid()) {
-            selectedEntity = copy;
-        }
+        Entity target(m_PendingDuplicate, &scene);
+        if (!selection.IsEntitySelected(target)) selection.SelectEntity(target);
+        EditSelection(scene, selection, m_CommandStack, true);
     }
-
     if (m_HasPendingReparent) {
         Entity childEnt(m_PendingChild, &scene);
         EntityHandle oldParent = NullEntityHandle;
@@ -481,16 +486,10 @@ void SceneHierarchy::Draw(Scene& scene, Entity& selectedEntity, CommandStack* co
     }
 
     if (m_PendingDelete != NullEntityHandle) {
-        if (m_CommandStack) {
-            m_CommandStack->PushAndExecute(std::make_unique<DeleteEntityCommand>(scene, Entity(m_PendingDelete, &scene), &selectedEntity));
-        } else {
-            scene.DestroyEntity(m_PendingDelete);
-            if (selectedEntity.GetHandle() == m_PendingDelete) {
-                selectedEntity = Entity();
-            }
-        }
+        Entity target(m_PendingDelete, &scene);
+        if (!selection.IsEntitySelected(target)) selection.SelectEntity(target);
+        EditSelection(scene, selection, m_CommandStack, false);
     }
-
     // ── 7. Alt Bilgi / Sil Butonu ───────────────────────────────────────────
     if (selectedEntity.IsValid()) {
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.65f, 0.18f, 0.18f, 1.0f));
@@ -498,12 +497,7 @@ void SceneHierarchy::Draw(Scene& scene, Entity& selectedEntity, CommandStack* co
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.50f, 0.12f, 0.12f, 1.0f));
 
         if (ImGui::Button("Secili Nesneyi Sil (Del)", ImVec2(-1, 26))) {
-            if (m_CommandStack) {
-                m_CommandStack->PushAndExecute(std::make_unique<DeleteEntityCommand>(scene, selectedEntity, &selectedEntity));
-            } else {
-                scene.DestroyEntity(selectedEntity);
-                selectedEntity = Entity();
-            }
+            EditSelection(scene, selection, m_CommandStack, false);
         }
         ImGui::PopStyleColor(3);
     } else {
@@ -518,3 +512,5 @@ void SceneHierarchy::Draw(Scene& scene, Entity& selectedEntity, CommandStack* co
 }
 
 } // namespace Astral
+
+

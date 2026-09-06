@@ -1,8 +1,10 @@
+#include "Astral/Editor/EditorTheme.hpp"
 #include "Astral/Editor/Gizmo/ViewportGizmoToolbar.hpp"
 
 #include <imgui.h>
 #include <algorithm>
 #include <array>
+#include <cstdio>
 
 namespace Astral {
 
@@ -17,45 +19,95 @@ constexpr std::array<ToolButton, 5> kTools{{
 }};
 }
 
-void ViewportGizmoToolbar::Draw(GizmoState& state, const glm::vec2& origin,
-                                const glm::vec2& size, const glm::mat4& view) {
-    constexpr float indicatorRadius = 25.0f;
-    const glm::vec2 indicatorCenter(origin.x + size.x - indicatorRadius - 14.0f,
-                                    origin.y + indicatorRadius + 11.0f);
-    DrawOrientationIndicator(ImGui::GetWindowDrawList(), indicatorCenter, indicatorRadius, view);
-
-    constexpr float toolbarWidth = 264.0f;
-    const glm::vec2 toolbarPos(indicatorCenter.x - indicatorRadius - toolbarWidth - 12.0f, origin.y + 10.0f);
-    ImGui::SetCursorScreenPos(ImVec2(toolbarPos.x, toolbarPos.y));
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.075f, 0.085f, 0.105f, 0.92f));
-    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 7.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4.0f, 3.0f));
-    if (ImGui::BeginChild("ViewportGizmoToolbar", ImVec2(toolbarWidth, 30.0f), true,
-                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+ViewportTransportAction ViewportGizmoToolbar::Draw(GizmoState& state, const glm::vec2& origin,
+                                const glm::vec2& size, const glm::mat4& view, bool isPlaying) {
+    ViewportTransportAction action = ViewportTransportAction::None;
+    // A full-width reserved row, never an overlay over the rendered scene.
+    ImGui::SetCursorScreenPos({origin.x, origin.y});
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, EditorPalette::Canvas);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 6));
+    if (ImGui::BeginChild("ViewportGizmoToolbar", ImVec2(size.x, 44), ImGuiChildFlags_AlwaysUseWindowPadding,
+                          ImGuiWindowFlags_HorizontalScrollbar)) {
+        ImGui::BeginDisabled(isPlaying);
         for (const auto& tool : kTools) {
-            const bool active = state.operation == tool.operation;
-            ImGui::PushStyleColor(ImGuiCol_Button, active ? ImVec4(0.16f, 0.42f, 0.82f, 1.0f)
-                                                         : ImVec4(0.13f, 0.15f, 0.18f, 0.55f));
-            if (ImGui::Button(tool.label, ImVec2(28.0f, 22.0f))) state.operation = tool.operation;
+            ImGui::PushStyleColor(ImGuiCol_Button, state.operation == tool.operation ? EditorPalette::Accent : EditorPalette::Raised);
+            if (ImGui::Button(tool.label, ImVec2(28, 28))) state.operation = tool.operation;
             ImGui::PopStyleColor();
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tool.tooltip);
-            ImGui::SameLine(0.0f, 3.0f);
+            ImGui::SameLine(0, 4);
         }
-        ImGui::Dummy(ImVec2(2.0f, 0.0f));
-        ImGui::SameLine(0.0f, 3.0f);
-        if (ImGui::Button(GizmoSpaceName(state.space), ImVec2(58.0f, 22.0f))) state.ToggleSpace();
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Koordinat alani: %s", GizmoSpaceName(state.space));
+        if (ImGui::Button(GizmoSpaceName(state.space), ImVec2(58, 28))) state.ToggleSpace();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("World / Local koordinat alani");
+        ImGui::EndDisabled();
+        // Keep all transport actions accessible when the viewport is narrow.
+        ImGui::SameLine(0, 12);
+        if (size.x > 680) ImGui::SetCursorPosX((size.x - 192.0f) * 0.5f);
+        ImGui::BeginDisabled(isPlaying);
+        ImGui::PushStyleColor(ImGuiCol_Button, EditorPalette::Accent);
+        if (ImGui::Button(">##Play", ImVec2(42, 28))) action = ViewportTransportAction::Play;
+        ImGui::PopStyleColor();
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Play (F5)");
+        ImGui::SameLine(0, 4);
+        ImGui::BeginDisabled(!isPlaying);
+        if (ImGui::Button("||##Pause", ImVec2(42, 28))) action = ViewportTransportAction::Pause;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Pause / Devam et (F6)");
+        ImGui::SameLine(0, 4);
+        if (ImGui::Button("[]##Stop", ImVec2(42, 28))) action = ViewportTransportAction::Stop;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stop (F5)");
+        ImGui::EndDisabled();        if (size.x > 490) {
+            DrawOrientationIndicator(ImGui::GetWindowDrawList(), {origin.x + size.x - 24, origin.y + 22}, 18, view);
+        }
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor();
+    return action;
+}
+
+void ViewportGizmoToolbar::DrawContext(GizmoState& state, const glm::vec2& origin, const glm::vec2& size) {
+    if (!state.IsEnabled() || size.x < 160 || size.y < 220) return;
+    ImGui::SetCursorScreenPos({origin.x + 8, origin.y + 8});
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, EditorPalette::Canvas);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6, 8));
+    if (ImGui::BeginChild("ToolContext", ImVec2(66, 190), ImGuiChildFlags_Borders,
+                          ImGuiWindowFlags_HorizontalScrollbar)) {
+        ImGui::TextDisabled("SNAP");
+        ImGui::Separator();
+        float* value = &state.translationSnap;
+        std::array<float, 3> steps{0.1f, 0.5f, 1.0f};
+        const char* unit = "metre";
+        if (state.operation == GizmoOperation::Rotate) {
+            value = &state.rotationSnapDegrees;
+            steps = {15, 45, 90};
+            unit = "derece";
+        } else if (state.operation == GizmoOperation::Scale) {
+            value = &state.scaleSnap;
+            steps = {0.1f, 0.25f, 0.5f};
+            unit = "olcek";
+        }
+        for (float step : steps) {
+            char label[16];
+            std::snprintf(label, sizeof(label), "%g", step);
+            ImGui::PushStyleColor(ImGuiCol_Button, *value == step ? EditorPalette::Accent : EditorPalette::Raised);
+            if (ImGui::Button(label, ImVec2(-1, 26))) *value = step;
+            ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Snap: %g %s. Uygulamak icin Ctrl basili tutun.", step, unit);
+        }
+        ImGui::TextDisabled("%s", unit);
+        ImGui::TextDisabled("Ctrl");
     }
     ImGui::EndChild();
     ImGui::PopStyleVar(2);
     ImGui::PopStyleColor();
 }
-
 void ViewportGizmoToolbar::DrawOrientationIndicator(ImDrawList* drawList, const glm::vec2& center,
                                                      float radius, const glm::mat4& view) const {
     if (!drawList) return;
     const ImVec2 c(center.x, center.y);
-    drawList->AddCircleFilled(c, radius, IM_COL32(18, 21, 27, 220), 32);
+    drawList->AddCircleFilled(c, radius, IM_COL32(23, 25, 28, 255), 32);
     drawList->AddCircle(c, radius, IM_COL32(75, 84, 100, 180), 32, 1.0f);
 
     struct Axis { const char* label; glm::vec3 direction; ImU32 color; float depth; glm::vec2 point; bool positive; };
@@ -89,3 +141,6 @@ void ViewportGizmoToolbar::DrawOrientationIndicator(ImDrawList* drawList, const 
 }
 
 } // namespace Astral
+
+
+

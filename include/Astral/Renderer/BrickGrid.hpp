@@ -13,13 +13,11 @@
 #include <span>
 #include <memory>
 #include "Astral/Renderer/SDFEdit.hpp"
+#include "Astral/Geometry/SDFSceneSnapshot.hpp"
 
 namespace Astral {
 
 class Buffer;
-
-struct SDFPrimitiveRecord;
-class SDFSceneSnapshot;
 
 /// Two-Level Acceleration Structure: Coarse 3D Spatial Grid (Empty Space Skipping).
 /// RENDERER_ARCHITECTURE.md Bolum c.1 ve Bolum g.3.
@@ -70,7 +68,9 @@ private:
     std::unique_ptr<Buffer> m_GridBuffer;
     std::vector<float> m_CellDistances;
     std::vector<SDFEditGPU> m_CachedEdits;
+    std::vector<SDFPrimitiveRecord> m_CachedRecords;
     bool m_IsInitialized = false;
+    bool m_IsRecordsInitialized = false;
     size_t m_LastUpdatedCellCount = 0;
 };
 

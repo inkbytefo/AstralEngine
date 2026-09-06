@@ -1,4 +1,5 @@
 #include "EditorUISubsystem.hpp"
+#include "Astral/Editor/EditorReflection.hpp"
 #include "Astral/Renderer/VulkanContext.hpp"
 #include "Astral/Renderer/SDFRenderer.hpp"
 #include "Astral/Core/Window.hpp"
@@ -12,11 +13,12 @@ EditorUISubsystem::EditorUISubsystem(Application& app)
     : m_App(app) {}
 
 void EditorUISubsystem::SetSelectedEntity(const Entity& entity) {
-    m_SelectedEntity = entity;
+    m_Selection.SelectEntity(entity);
     m_App.SetHighlightEntity(entity.GetHandle());
 }
 
 void EditorUISubsystem::OnInit() {
+    EditorReflectionInit::RegisterAll();
     auto* context = m_App.GetVulkanContext();
     auto* window = m_App.GetWindow();
     if (!context || !window) {
@@ -43,17 +45,25 @@ void EditorUISubsystem::OnInit() {
 
     // Genel Runtime Picking olayini dinle ve editor secim durumunu guncelle
     m_PickSub = m_App.GetEventBus().Subscribe<RuntimePickEvent>([this](const RuntimePickEvent& e) {
-        if (e.result.hasHit && e.scene && e.result.hitEntity != NullEntityHandle) {
-            m_SelectedEntity = Entity(e.result.hitEntity, e.scene);
-        } else {
-            m_SelectedEntity = Entity();
+        bool additive = false;
+        if (!m_EditorUI || !m_EditorUI->GetViewportPanel().ConsumePick(additive) || IsPlaying()) return;
+        if (e.result.hasHit && e.scene) {
+            Entity picked(e.result.hitEntity, e.scene);
+            if (additive) m_Selection.Toggle(picked);
+            else m_Selection.SelectEntity(picked);
+        } else if (!additive) {
+            m_Selection.ClearSelection();
         }
-        m_App.SetHighlightEntity(m_SelectedEntity.GetHandle());
+        m_App.SetHighlightEntity(m_Selection.Primary().GetHandle());
     });
 
     // Sahne yuklendiginde eski sahne secimini guvenle sifirla
     m_SceneSub = m_App.GetEventBus().Subscribe<SceneLoadedEvent>([this](const SceneLoadedEvent&) {
-        m_SelectedEntity = Entity();
+        m_Selection.ClearSelection();
+        if (m_EditorUI) {
+            m_EditorUI->GetCommandStack().Clear();
+            m_EditorUI->GetViewportPanel().CancelPick();
+        }
         m_App.SetHighlightEntity(NullEntityHandle);
     });
 }
@@ -64,6 +74,7 @@ void EditorUISubsystem::StartPlayMode() {
     auto activeScene = m_App.GetActiveScene();
     if (!activeScene) return;
 
+    if (m_EditorUI) { m_EditorUI->GetCommandStack().Clear(); m_EditorUI->GetViewportPanel().CancelPick(); }
     m_AuthoringSceneBackup = activeScene;
     auto runtimeScene = activeScene->Clone();
 
@@ -72,7 +83,7 @@ void EditorUISubsystem::StartPlayMode() {
     m_App.SetPaused(false);
     m_EditorMode = EditorMode::Play;
 
-    m_SelectedEntity = Entity();
+    m_Selection.ClearSelection();
     m_App.SetHighlightEntity(NullEntityHandle);
 
     m_App.GetEventBus().Publish(PlayModeChangedEvent{ .isPlaying = true });
@@ -82,6 +93,7 @@ void EditorUISubsystem::StartPlayMode() {
 void EditorUISubsystem::StopPlayMode() {
     if (m_EditorMode == EditorMode::Edit) return;
 
+    if (m_EditorUI) { m_EditorUI->GetCommandStack().Clear(); m_EditorUI->GetViewportPanel().CancelPick(); }
     if (m_AuthoringSceneBackup) {
         m_App.SetActiveScene(m_AuthoringSceneBackup);
         m_AuthoringSceneBackup.reset();
@@ -91,7 +103,7 @@ void EditorUISubsystem::StopPlayMode() {
     m_App.SetPaused(false);
     m_EditorMode = EditorMode::Edit;
 
-    m_SelectedEntity = Entity();
+    m_Selection.ClearSelection();
     m_App.SetHighlightEntity(NullEntityHandle);
 
     m_App.GetEventBus().Publish(PlayModeChangedEvent{ .isPlaying = false });
@@ -155,11 +167,12 @@ void EditorUISubsystem::OnRender(const RenderContext& context) {
         m_EditorUI->BeginFrame();
         m_EditorUI->RenderPanels(
             *context.activeScene,
-            m_SelectedEntity,
+            m_Selection,
             context.gpuTimeMs,
-            context.cpuTimeMs
+            context.cpuTimeMs,
+            IsPlaying()
         );
-        m_App.SetHighlightEntity(m_SelectedEntity.GetHandle());
+        m_App.SetHighlightEntity(m_Selection.Primary().GetHandle());
         m_EditorUI->EndFrame(
             context.commandBuffer,
             context.swapchainImageView,

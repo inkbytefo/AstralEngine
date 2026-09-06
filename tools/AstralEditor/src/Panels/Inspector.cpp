@@ -1,9 +1,11 @@
 #include "Astral/Editor/Panels/Inspector.hpp"
+#include "Astral/Editor/EditorReflection.hpp"
 #include "Astral/Core/Components.hpp"
 #include "Astral/Core/TransformSystem.hpp"
 #include "Astral/Renderer/SDFEdit.hpp"
 
 #include <imgui.h>
+#include "Astral/Editor/EditorTheme.hpp"
 #include <imgui_internal.h>
 #include <glm/gtc/type_ptr.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
@@ -23,26 +25,24 @@ constexpr const char* OperationNames[] = {
     "Birlestir (Union)", "Cikar (Subtract)", "Kesisim (Intersect)", "Yumusak Birlestir (Smooth Union)", "Yumusak Cikar (Smooth Sub)"
 };
 
-// ── Yardımcı: Görsel 1'deki gibi modern 3 parçalı XYZ Kontrolü ────────────────
+// Labels share a consistent column; narrow panels stack controls below labels.
+void PropertyLabel(const char* label, float minimumControlWidth = 120.0f) {
+    const float start = ImGui::GetCursorPosX();
+    const float available = ImGui::GetContentRegionAvail().x;
+    const float labelWidth = std::max(100.0f, ImGui::CalcTextSize(label).x + 12.0f);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(label);
+    if (available >= labelWidth + minimumControlWidth) ImGui::SameLine(start + labelWidth);
+}
 bool DrawModernVector3Field(const char* label, const char* strId, glm::vec3& values, float speed,
                            const glm::vec3& resetValue = glm::vec3(0.0f), float minVal = 0.0f, float maxVal = 0.0f) {
     bool changed = false;
     ImGui::PushID(strId);
 
-    // Sol sütun: Küçük radio/hedef ikonu + Özellik Adı
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(o)");
-    ImGui::SameLine(0, 5.0f);
-    ImGui::TextUnformatted(label);
-
-    // Sağ sütun hesaplama (genişliğin yaklaşık %62'si)
-    const float labelWidth = 105.0f;
-    ImGui::SameLine(labelWidth);
-
+    PropertyLabel(label, 240.0f);
     const float availWidth = ImGui::GetContentRegionAvail().x;
     const float spacing = 4.0f;
-    const float itemWidth = (availWidth - spacing * 2.0f) / 3.0f;
-
+    const float itemWidth = std::max(1.0f, (availWidth - spacing * 2.0f) / 3.0f);
     struct AxisConfig {
         const char* id;
         const char* name;
@@ -64,9 +64,9 @@ bool DrawModernVector3Field(const char* label, const char* strId, glm::vec3& val
         ImGui::BeginGroup();
 
         // Arka plan koyu kutu için frame style
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.13f, 0.13f, 0.14f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.18f, 0.18f, 0.20f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.22f, 0.22f, 0.25f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, EditorPalette::Input);
+        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, EditorPalette::Hover);
+        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, EditorPalette::Selection);
 
         // Özel kutu: Sol tarafta soluk harf, yanında DragFloat
         ImGui::SetNextItemWidth(itemWidth);
@@ -79,7 +79,12 @@ bool DrawModernVector3Field(const char* label, const char* strId, glm::vec3& val
             changed = true;
         }
 
-        // Çift tıklamayla sıfırlama (Reset)
+        const ImVec2 min = ImGui::GetItemRectMin();
+        const ImVec2 max = ImGui::GetItemRectMax();
+        ImGui::GetWindowDrawList()->AddLine({min.x + 4, max.y - 1}, {max.x - 4, max.y - 1},
+                                           ImGui::GetColorU32(axes[i].col), 2.0f);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s: surukle / Ctrl+tik: yaz / sag cift tik: sifirla", axes[i].name);
+        // Preserve the existing reset gesture.
         if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Right)) {
             *axes[i].val = axes[i].reset;
             changed = true;
@@ -99,21 +104,15 @@ bool DrawModernSliderProperty(const char* label, const char* strId, float* value
     bool changed = false;
     ImGui::PushID(strId);
 
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(o)");
-    ImGui::SameLine(0, 5.0f);
-    ImGui::TextUnformatted(label);
-
-    const float labelWidth = 110.0f;
-    ImGui::SameLine(labelWidth);
+    PropertyLabel(label);
 
     const float availWidth = ImGui::GetContentRegionAvail().x;
     const float inputWidth = 52.0f;
     const float spacing = 6.0f;
-    const float sliderWidth = availWidth - inputWidth - spacing;
+    const float sliderWidth = std::max(1.0f, availWidth - inputWidth - spacing);
 
     // 1. Sayısal Input Kutusu
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.14f, 0.14f, 0.15f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, EditorPalette::Input);
     ImGui::SetNextItemWidth(inputWidth);
     if (ImGui::DragFloat("##Num", value, 0.01f, minVal, maxVal, format)) {
         changed = true;
@@ -136,13 +135,7 @@ bool DrawModernColorProperty(const char* label, const char* strId, glm::vec3& co
     bool changed = false;
     ImGui::PushID(strId);
 
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(o)");
-    ImGui::SameLine(0, 5.0f);
-    ImGui::TextUnformatted(label);
-
-    const float labelWidth = 110.0f;
-    ImGui::SameLine(labelWidth);
+    PropertyLabel(label);
 
     // Renk kutusu
     ImVec4 colVec4(color.r, color.g, color.b, 1.0f);
@@ -159,7 +152,7 @@ bool DrawModernColorProperty(const char* label, const char* strId, glm::vec3& co
     int b = static_cast<int>(std::clamp(color.b * 255.0f, 0.0f, 255.0f));
     std::snprintf(hexBuf, sizeof(hexBuf), "#%02X%02X%02X", r, g, b);
 
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.14f, 0.14f, 0.15f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, EditorPalette::Input);
     ImGui::SetNextItemWidth(75.0f);
     ImGui::InputText("##Hex", hexBuf, sizeof(hexBuf), ImGuiInputTextFlags_ReadOnly);
     ImGui::PopStyleColor();
@@ -173,14 +166,14 @@ bool BeginModernComponentCard(const char* title, const char* strId, bool* isExpa
     ImGui::Spacing();
 
     // Kart başlığı arka planı
-    ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.16f, 0.16f, 0.17f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.20f, 0.20f, 0.22f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.24f, 0.24f, 0.26f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Header, EditorPalette::Raised);
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, EditorPalette::Hover);
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, EditorPalette::Selection);
 
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen |
                                ImGuiTreeNodeFlags_Framed |
                                ImGuiTreeNodeFlags_SpanAvailWidth |
-                               ImGuiTreeNodeFlags_AllowOverlap;
+                               ImGuiTreeNodeFlags_AllowOverlap | ImGuiTreeNodeFlags_NoTreePushOnOpen;
 
     bool open = ImGui::TreeNodeEx(strId, flags, "%s", title);
     *isExpanded = open;
@@ -217,7 +210,7 @@ bool BeginModernComponentCard(const char* title, const char* strId, bool* isExpa
 
 void EndModernComponentCard(bool isExpanded) {
     if (isExpanded) {
-        ImGui::TreePop();
+
         ImGui::Dummy(ImVec2(0, 4.0f));
     }
 }
@@ -258,12 +251,66 @@ void ToggleEntityVisibility(Entity entity) {
     }
 }
 
+template<typename T>
+void DrawComponentAuto(Entity& entity) {
+    if (!entity.HasComponent<T>()) return;
+    const auto* meta = EditorReflection::GetComponentMeta(typeid(T));
+    if (!meta) return;
+
+    bool expanded = false;
+    bool shouldRemove = false;
+    if (BeginModernComponentCard(meta->Name.c_str(), meta->Name.c_str(), &expanded, &shouldRemove)) {
+        auto* bytes = reinterpret_cast<unsigned char*>(&entity.GetComponent<T>());
+        for (const auto& prop : meta->Properties) {
+            void* field = bytes + prop.Offset;
+            const char* name = prop.Name.c_str();
+            switch (prop.Type) {
+                case PropType::Float:
+                    if (prop.MinVal < prop.MaxVal)
+                        DrawModernSliderProperty(name, name, static_cast<float*>(field), prop.MinVal, prop.MaxVal);
+                    else
+                        ImGui::DragFloat(name, static_cast<float*>(field), 0.1f);
+                    break;
+                case PropType::Vector3:
+                    DrawModernVector3Field(name, name, *static_cast<glm::vec3*>(field), 0.1f,
+                                           glm::vec3(0.0f), prop.MinVal, prop.MaxVal);
+                    break;
+                case PropType::Color3:
+                    DrawModernColorProperty(name, name, *static_cast<glm::vec3*>(field));
+                    break;
+                case PropType::Int:
+                    ImGui::DragInt(name, static_cast<int*>(field), 1.0f,
+                                   static_cast<int>(prop.MinVal), static_cast<int>(prop.MaxVal),
+                                   "%d", ImGuiSliderFlags_AlwaysClamp);
+                    break;
+                case PropType::Bool:
+                    ImGui::Checkbox(name, static_cast<bool*>(field));
+                    break;
+                case PropType::AssetHandle:
+                    ImGui::TextDisabled("%s: Asset editor bekleniyor", name);
+                    break;
+            }
+        }
+        EndModernComponentCard(expanded);
+    }
+    if (shouldRemove) entity.RemoveComponent<T>();
+}
+
 } // namespace
 
-void Inspector::Draw(Scene& scene, Entity& selectedEntity) {
+void Inspector::Draw(Scene& scene, SelectionContext& selection) {
+    Entity selectedEntity = selection.Primary();
     (void)scene;
     ImGui::Begin("Bilesen Denetcisi");
 
+    if (selection.Entities().size() > 1) {
+        ImGui::Text("%zu Nesne Secildi", selection.Entities().size());
+        ImGui::Separator();
+        ImGui::TextWrapped("Coklu Duzenleme Yakinda...");
+        ImGui::TextWrapped("Secili nesneleri viewport gizmosuyla birlikte donusturebilirsiniz.");
+        ImGui::End();
+        return;
+    }
     if (!selectedEntity.IsValid()) {
         m_NameEntity = NullEntityHandle;
         DrawEmptyState();
@@ -285,7 +332,7 @@ void Inspector::Draw(Scene& scene, Entity& selectedEntity) {
     // Büyük Varlık Adı Kutusu + Sağında Görünürlük Toggle (o)
     const float toggleBtnWidth = 28.0f;
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - toggleBtnWidth - 6.0f);
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.14f, 0.14f, 0.16f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, EditorPalette::Input);
     ImGui::InputText("##EntityNameInput", m_NameBuffer.data(), m_NameBuffer.size());
     if (ImGui::IsItemDeactivatedAfterEdit()) {
         if (!selectedEntity.HasComponent<TagComponent>()) {
@@ -338,11 +385,7 @@ void Inspector::Draw(Scene& scene, Entity& selectedEntity) {
             auto& sdf = selectedEntity.GetComponent<SDFComponent>();
 
             // Primitif Tipi (Combo)
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(o)");
-            ImGui::SameLine(0, 5.0f);
-            ImGui::TextUnformatted("Primitive");
-            ImGui::SameLine(110.0f);
+            PropertyLabel("Primitive");
             int primitive = static_cast<int>(std::min<uint32_t>(sdf.primitiveType, IM_ARRAYSIZE(PrimitiveNames) - 1));
             ImGui::SetNextItemWidth(-1.0f);
             if (ImGui::Combo("##PrimCombo", &primitive, PrimitiveNames, IM_ARRAYSIZE(PrimitiveNames))) {
@@ -350,11 +393,7 @@ void Inspector::Draw(Scene& scene, Entity& selectedEntity) {
             }
 
             // Encoding Bilgisi
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(o)");
-            ImGui::SameLine(0, 5.0f);
-            ImGui::TextUnformatted("Encoding");
-            ImGui::SameLine(110.0f);
+            PropertyLabel("Encoding");
             if (sdf.encoding == SDFShapeEncoding::LegacyPackedScale) {
                 ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Legacy Packed Scale");
                 if (ImGui::Button("ExplicitShape'e Donustur")) {
@@ -373,11 +412,7 @@ void Inspector::Draw(Scene& scene, Entity& selectedEntity) {
             }
 
             // CSG Sırası
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(o)");
-            ImGui::SameLine(0, 5.0f);
-            ImGui::TextUnformatted("CSG Sira");
-            ImGui::SameLine(110.0f);
+            PropertyLabel("CSG Sira");
             int orderVal = static_cast<int>(sdf.csgOrder);
             ImGui::SetNextItemWidth(-1.0f);
             if (ImGui::DragInt("##CsgOrder", &orderVal, 1.0f, 0, 100000)) {
@@ -422,11 +457,7 @@ void Inspector::Draw(Scene& scene, Entity& selectedEntity) {
             ImGui::Spacing();
 
             // CSG İşlemi (Combo)
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(o)");
-            ImGui::SameLine(0, 5.0f);
-            ImGui::TextUnformatted("Operation");
-            ImGui::SameLine(110.0f);
+            PropertyLabel("Operation");
             int operation = static_cast<int>(std::min<uint32_t>(sdf.operation, IM_ARRAYSIZE(OperationNames) - 1));
             ImGui::SetNextItemWidth(-1.0f);
             if (ImGui::Combo("##OpCombo", &operation, OperationNames, IM_ARRAYSIZE(OperationNames))) {
@@ -463,28 +494,15 @@ void Inspector::Draw(Scene& scene, Entity& selectedEntity) {
     }
 
     // ── 5. FİZİK VE HIZ Bileşen Kartı (Görsel 1) ─────────────────────────────
-    if (selectedEntity.HasComponent<VelocityComponent>()) {
-        bool expanded = false;
-        bool removeVel = false;
-        if (BeginModernComponentCard("Fizik & Hiz", "VelocityCard", &expanded, &removeVel)) {
-            auto& vel = selectedEntity.GetComponent<VelocityComponent>();
-
-            DrawModernVector3Field("Lineer Hiz", "LinVel", vel.linear, 0.1f, glm::vec3(0.0f));
-            DrawModernVector3Field("Acisal Hiz", "AngVel", vel.angular, 0.1f, glm::vec3(0.0f));
-
-            EndModernComponentCard(expanded);
-        }
-        if (removeVel) {
-            selectedEntity.RemoveComponent<VelocityComponent>();
-        }
-    }
+    DrawComponentAuto<VelocityComponent>(selectedEntity);
+    DrawComponentAuto<HealthComponent>(selectedEntity);
 
     // ── 6. Alt Eylem Butonu: + Add Component (Görsel 1) ───────────────────────
     ImGui::Dummy(ImVec2(0, 10.0f));
     ImGui::Separator();
     ImGui::Dummy(ImVec2(0, 6.0f));
 
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.18f, 0.20f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Button, EditorPalette::Hover);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.24f, 0.24f, 0.28f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.15f, 0.15f, 0.17f, 1.0f));
 
@@ -520,3 +538,5 @@ void Inspector::Draw(Scene& scene, Entity& selectedEntity) {
 }
 
 } // namespace Astral
+
+

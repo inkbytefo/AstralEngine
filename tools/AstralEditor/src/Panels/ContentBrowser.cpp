@@ -1,7 +1,9 @@
 #include "Astral/Editor/Panels/ContentBrowser.hpp"
 #include "Astral/Project/Project.hpp"
+#include "Astral/Asset/AssetManager.hpp"
 
 #include <imgui.h>
+#include "Astral/Editor/EditorTheme.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
@@ -116,23 +118,23 @@ void ContentBrowser::Draw() {
         }
     }
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
 
-    ImGui::Begin("Varlik Tarayicisi (Content Browser)");
+
+    ImGui::BeginChild("ContentBrowserBody", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
     DrawToolbar();
     ImGui::Separator();
 
     // İki bölmeli yerleşim: Sol Klasör Ağacı / Sağ Varlık Grid Görünümü
     if (ImGui::BeginTable("ContentBrowserLayoutTable", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV)) {
-        ImGui::TableSetupColumn("TreeColumn", ImGuiTableColumnFlags_WidthFixed, 190.0f);
+        ImGui::TableSetupColumn("TreeColumn", ImGuiTableColumnFlags_WidthFixed, std::clamp(ImGui::GetContentRegionAvail().x * 0.24f, 110.0f, 180.0f));
         ImGui::TableSetupColumn("GridColumn", ImGuiTableColumnFlags_WidthStretch);
 
         ImGui::TableNextRow();
 
         // ── Sol Sütun: Klasör Ağacı ve Hızlı Erişim ─────────────────
         ImGui::TableSetColumnIndex(0);
-        ImGui::BeginChild("DirectoryTreeChild", ImVec2(0, -28), false);
+        ImGui::BeginChild("DirectoryTreeChild", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()), false);
 
         ImGui::TextColored(ImVec4(0.55f, 0.55f, 0.55f, 1.0f), "HIZLI ERISIM");
         ImGui::Spacing();
@@ -171,7 +173,7 @@ void ContentBrowser::Draw() {
 
         // ── Sağ Sütun: Dosya Grid Kart Görünümü ─────────────────────
         ImGui::TableSetColumnIndex(1);
-        ImGui::BeginChild("ContentGridChild", ImVec2(0, -28), false);
+        ImGui::BeginChild("ContentGridChild", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()), false);
         DrawContentGrid();
         ImGui::EndChild();
 
@@ -181,8 +183,7 @@ void ContentBrowser::Draw() {
     ImGui::Separator();
     DrawFooter();
 
-    ImGui::End();
-    ImGui::PopStyleVar();
+    ImGui::EndChild();
 }
 
 void ContentBrowser::DrawToolbar() {
@@ -207,8 +208,13 @@ void ContentBrowser::DrawToolbar() {
     if (!canGoUp) ImGui::EndDisabled();
 
     ImGui::SameLine();
-    ImGui::Spacing();
+    if (ImGui::Button("+ Klasor")) m_CreatingNewFolder = true;
     ImGui::SameLine();
+    ImGui::SetNextItemWidth(std::max(72.0f, ImGui::GetContentRegionAvail().x));
+    ImGui::InputTextWithHint("##SearchFilter", "Varlik ara...", m_SearchFilter, sizeof(m_SearchFilter));
+
+    ImGui::BeginChild("Breadcrumbs", ImVec2(0, ImGui::GetFrameHeightWithSpacing() + 4.0f),
+                      ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
 
     // Ekmek kırıntısı (Breadcrumbs)
     std::filesystem::path relPath;
@@ -236,26 +242,7 @@ void ContentBrowser::DrawToolbar() {
         }
     }
 
-    // Sağ tarafa Arama ve Zoom kaydırıcı
-    float rightSideWidth = 320.0f;
-    float availWidth = ImGui::GetContentRegionAvail().x;
-    if (availWidth > rightSideWidth) {
-        ImGui::SameLine(ImGui::GetWindowWidth() - rightSideWidth - 16.0f);
-    } else {
-        ImGui::SameLine();
-    }
-
-    ImGui::SetNextItemWidth(140.0f);
-    ImGui::InputTextWithHint("##SearchFilter", "Ara...", m_SearchFilter, sizeof(m_SearchFilter));
-
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(80.0f);
-    ImGui::SliderFloat("##Zoom", &m_ThumbnailSize, 56.0f, 110.0f, "%.0fpx");
-
-    ImGui::SameLine();
-    if (ImGui::Button("+ Klasor")) {
-        m_CreatingNewFolder = true;
-    }
+    ImGui::EndChild();
 }
 
 void ContentBrowser::DrawDirectoryTree(const std::filesystem::path& path) {
@@ -363,107 +350,92 @@ void ContentBrowser::DrawContentGrid() {
         return a.path().filename().string() < b.path().filename().string();
     });
 
-    // Grid düzeni hesaplamaları
-    float cellSize = m_ThumbnailSize + m_Padding;
-    float panelWidth = ImGui::GetContentRegionAvail().x;
-    int columnCount = static_cast<int>(panelWidth / cellSize);
-    if (columnCount < 1) columnCount = 1;
-
-    ImGui::Columns(columnCount, nullptr, false);
-
-    auto renderItem = [this](const std::filesystem::directory_entry& entry, bool isDir) {
-        const auto& path = entry.path();
-        std::string filename = path.filename().string();
-        FileTypeInfo typeInfo = GetFileTypeInfo(path, isDir);
-
-        ImGui::PushID(filename.c_str());
-
-        bool isSelected = (m_SelectedItem == path);
-        if (isSelected) {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.36f, 0.67f, 0.60f));
-        } else {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.16f, 0.16f, 0.16f, 0.40f));
-        }
-
-        // Kart/Kutu düğmesi
-        ImVec2 buttonSize = ImVec2(m_ThumbnailSize, m_ThumbnailSize * 0.70f);
-        if (ImGui::Button("##ItemCard", buttonSize)) {
-            m_SelectedItem = path;
-        }
-
-        // Çift tıklama algılama
-        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+    const float width = ImGui::GetContentRegionAvail().x;
+    const int columns = std::clamp(static_cast<int>(width / (m_ThumbnailSize + m_Padding)), 1, 32);
+    std::filesystem::path navigateAfterGrid;
+    if (directories.empty() && files.empty()) {
+        ImGui::Spacing();
+        ImGui::TextUnformatted(m_SearchFilter[0] ? "Eslesen varlik bulunamadi" : "Bu klasor bos");
+        ImGui::TextDisabled("Yeni bir klasor olusturabilir veya baska bir konum secebilirsiniz.");
+    }
+    if (ImGui::BeginTable("AssetCards", columns, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_PadOuterX)) {
+        auto renderItem = [this, &navigateAfterGrid](const std::filesystem::directory_entry& entry, bool isDir) {
+            ImGui::TableNextColumn();
+            const auto& path = entry.path();
+            const std::string filename = path.filename().string();
+            const FileTypeInfo type = GetFileTypeInfo(path, isDir);
+            ImGui::PushID(filename.c_str());
+            const bool selected = m_SelectedItem == path;
+            const ImVec2 size(std::max(20.0f, ImGui::GetContentRegionAvail().x), m_ThumbnailSize * 0.72f + 42.0f);
+            ImGui::PushStyleColor(ImGuiCol_Button, selected ? EditorPalette::Selection : EditorPalette::Raised);
+            if (ImGui::Button("##AssetCard", size)) m_SelectedItem = path;
+            ImGui::PopStyleColor();
+            const bool hovered = ImGui::IsItemHovered();
+            if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && isDir) navigateAfterGrid = path;
+            const ImVec2 min = ImGui::GetItemRectMin();
+            const ImVec2 max = ImGui::GetItemRectMax();
+            ImDrawList* draw = ImGui::GetWindowDrawList();
+            const ImU32 tint = ImGui::ColorConvertFloat4ToU32(type.color);
+            const float cx = (min.x + max.x) * 0.5f;
+            const float cy = min.y + m_ThumbnailSize * 0.34f;
+            draw->PushClipRect(min, max, true);
             if (isDir) {
-                NavigateTo(path);
-                ImGui::PopStyleColor();
-                ImGui::PopID();
-                return;
+                draw->AddRectFilled({cx - 17, cy - 12}, {cx - 2, cy - 5}, tint, 3);
+                draw->AddRectFilled({cx - 17, cy - 7}, {cx + 17, cy + 13}, tint, 3);
+                draw->AddLine({cx - 12, cy - 3}, {cx + 12, cy - 3}, IM_COL32(255,255,255,75));
+            } else {
+                draw->AddRect({cx - 13, cy - 17}, {cx + 13, cy + 17}, tint, 3, 0, 1.5f);
+                draw->AddLine({cx - 7, cy - 5}, {cx + 7, cy - 5}, tint, 1.5f);
+                draw->AddLine({cx - 7, cy + 2}, {cx + 7, cy + 2}, tint, 1.5f);
+                draw->AddLine({cx - 7, cy + 9}, {cx + 3, cy + 9}, tint, 1.5f);
             }
-        }
-
-        // Kart üstüne özel çizim (Tür rozeti ve renk)
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-        ImVec2 btnMin = ImGui::GetItemRectMin();
-
-        ImU32 badgeColor = IM_COL32(
-            static_cast<int>(typeInfo.color.x * 255),
-            static_cast<int>(typeInfo.color.y * 255),
-            static_cast<int>(typeInfo.color.z * 255),
-            220
-        );
-
-        // Ortalanmış rozet metni
-        ImVec2 textSize = ImGui::CalcTextSize(typeInfo.label);
-        ImVec2 textPos = ImVec2(
-            btnMin.x + (buttonSize.x - textSize.x) * 0.5f,
-            btnMin.y + (buttonSize.y - textSize.y) * 0.5f - 4.0f
-        );
-        drawList->AddText(textPos, badgeColor, typeInfo.label);
-
-        // Kart altı dosya adı (Kırpılmış)
-        std::string displayName = filename;
-        if (displayName.length() > 14) {
-            displayName = displayName.substr(0, 11) + "...";
-        }
-        ImVec2 nameSize = ImGui::CalcTextSize(displayName.c_str());
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (buttonSize.x - nameSize.x) * 0.5f);
-        ImGui::TextUnformatted(displayName.c_str());
-
-        // Sağ tık bağlam menüsü (Context Menu)
-        if (ImGui::BeginPopupContextItem("ItemContextMenu")) {
-            m_SelectedItem = path;
-            ImGui::TextDisabled("%s", filename.c_str());
-            ImGui::Separator();
-
-            if (ImGui::MenuItem("Explorer'da Goster")) {
-                std::string cmd = "explorer.exe /select,\"" + path.string() + "\"";
-                system(cmd.c_str());
+            // Clip by measured pixels, retaining UTF-8 code point boundaries.
+            std::string name = filename;
+            bool shortened = false;
+            while (!name.empty() && ImGui::CalcTextSize((name + (shortened ? "..." : "")).c_str()).x > size.x - 16) {
+                size_t pos = name.size() - 1;
+                while (pos > 0 && (static_cast<unsigned char>(name[pos]) & 0xC0) == 0x80) --pos;
+                name.resize(pos);
+                shortened = true;
             }
+            if (shortened) name += "...";
+            draw->AddText({min.x + 8, max.y - 38}, ImGui::GetColorU32(ImGuiCol_Text), name.c_str());
+            std::string label = type.label;
+            if (label.size() > 2) label = label.substr(1, label.size() - 2);
+            draw->AddText({min.x + 8, max.y - 19}, ImGui::GetColorU32(ImGuiCol_TextDisabled), label.c_str());
+            draw->AddRect(min, max, ImGui::GetColorU32(selected ? EditorPalette::AccentHover : EditorPalette::Border), 4);
+            draw->PopClipRect();
+            if (hovered) ImGui::SetTooltip("%s\n%s", filename.c_str(), path.string().c_str());
 
-            if (ImGui::MenuItem("Sil")) {
-                try {
-                    std::filesystem::remove_all(path);
-                } catch (...) {}
+            // Keep payload and context actions attached to the whole card.
+            if (!isDir && ImGui::BeginDragDropSource()) {
+                UUID assetHandle = AssetManager::GetHandleFromFilePath(path);
+                if (assetHandle.IsValid()) {
+                    ImGui::SetDragDropPayload("ASTRAL_ASSET", &assetHandle, sizeof(UUID));
+                    ImGui::TextUnformatted(filename.c_str());
+                } else ImGui::TextDisabled("Kayitsiz Asset");
+                ImGui::EndDragDropSource();
             }
-
-            ImGui::EndPopup();
-        }
-
-        ImGui::PopStyleColor();
-        ImGui::PopID();
-        ImGui::NextColumn();
-    };
-
-    // Önce klasörleri, sonra dosyaları çiz
-    for (const auto& dir : directories) {
-        renderItem(dir, true);
+            if (ImGui::BeginPopupContextItem("ItemContextMenu")) {
+                m_SelectedItem = path;
+                ImGui::TextDisabled("%s", filename.c_str());
+                ImGui::Separator();
+                if (ImGui::MenuItem("Explorer'da Goster")) {
+                    std::string cmd = "explorer.exe /select,\"" + path.string() + "\"";
+                    system(cmd.c_str());
+                }
+                if (ImGui::MenuItem("Sil")) {
+                    try { std::filesystem::remove_all(path); } catch (...) {}
+                }
+                ImGui::EndPopup();
+            }
+            ImGui::PopID();
+        };
+        for (const auto& entry : directories) renderItem(entry, true);
+        for (const auto& entry : files) renderItem(entry, false);
+        ImGui::EndTable();
     }
-    for (const auto& file : files) {
-        renderItem(file, false);
-    }
-
-    ImGui::Columns(1);
-
+    if (!navigateAfterGrid.empty()) NavigateTo(navigateAfterGrid);
     // Boş alana sağ tık bağlam menüsü
     if (ImGui::BeginPopupContextWindow("ContentGridBgContext", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
         if (ImGui::MenuItem("Yeni Klasor")) {
@@ -481,6 +453,9 @@ void ContentBrowser::DrawContentGrid() {
 }
 
 void ContentBrowser::DrawFooter() {
+    ImGui::SetNextItemWidth(90.0f);
+    ImGui::SliderFloat("##Zoom", &m_ThumbnailSize, 72.0f, 140.0f, "%.0f px");
+    ImGui::SameLine();
     size_t count = 0;
     try {
         for (const auto& entry : std::filesystem::directory_iterator(m_CurrentDirectory)) {
@@ -498,3 +473,5 @@ void ContentBrowser::DrawFooter() {
 }
 
 } // namespace Astral
+
+

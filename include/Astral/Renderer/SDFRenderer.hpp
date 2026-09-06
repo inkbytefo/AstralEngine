@@ -20,6 +20,7 @@
 #include "Astral/Renderer/SDFTemporalHistory.hpp"
 #include "Astral/Geometry/SDFChangeSet.hpp"
 #include "Astral/Geometry/SDFSceneSnapshot.hpp"
+#include "Astral/Renderer/QualitySettings.hpp"
 #include <span>
 #include <optional>
 
@@ -47,8 +48,12 @@ public:
     void UpdateEdits(const SDFSceneSnapshot& snapshot, bool useLegacyMapUnmap = false);
 
     void Render(vk::CommandBuffer cmd, float time, uint32_t normalMode, int width, int height,
-                bool useGrid = true, bool optShadow = true, bool enableTAA = true, uint32_t frameIndex = 0);
+                bool useGrid = true, bool optShadow = true, bool enableTAA = true, uint32_t frameIndex = 0,
+                const QualitySettings& qualitySettings = QualitySettings{});
     void Resize(int width, int height);
+
+    void SetQualitySettings(const QualitySettings& qs) noexcept { m_QualitySettings = qs; }
+    [[nodiscard]] const QualitySettings& GetQualitySettings() const noexcept { return m_QualitySettings; }
 
     struct SelectionResult {
         int32_t hitIndex = -1;
@@ -158,6 +163,7 @@ private:
     bool m_PreviousTAAEnabled = false;
     float m_Exposure = 1.0f;
     glm::vec3 m_PreviousCameraPosition{0.0f};
+    QualitySettings m_QualitySettings{};
 
     // G-Buffer Pipeline & Degiskenleri (Faz 1)
     bool m_UseGBuffer = false;

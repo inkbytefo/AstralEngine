@@ -27,9 +27,14 @@ public:
 
     [[nodiscard]] EditorUI* GetEditorUI() const noexcept { return m_EditorUI.get(); }
 
-    [[nodiscard]] Entity& GetSelectedEntity() noexcept { return m_SelectedEntity; }
-    [[nodiscard]] const Entity& GetSelectedEntity() const noexcept { return m_SelectedEntity; }
+    [[nodiscard]] Entity& GetSelectedEntity() noexcept { return m_Selection.PrimaryStorage(); }
+    [[nodiscard]] Entity GetSelectedEntity() const noexcept { return m_Selection.Primary(); }
     void SetSelectedEntity(const Entity& entity);
+    void SelectEntity(Entity entity, bool additive = false) { m_Selection.SelectEntity(entity, additive); }
+    void DeselectEntity(Entity entity) { m_Selection.DeselectEntity(entity); }
+    void ClearSelection() { m_Selection.ClearSelection(); }
+    bool IsEntitySelected(Entity entity) const { return m_Selection.IsEntitySelected(entity); }
+    const SelectionContext& GetSelection() const { return m_Selection; }
 
     enum class EditorMode {
         Edit,
@@ -47,7 +52,7 @@ public:
 private:
     Application& m_App;
     std::unique_ptr<EditorUI> m_EditorUI;
-    Entity m_SelectedEntity;
+    SelectionContext m_Selection;
     SubscriptionToken m_PickSub;
     SubscriptionToken m_SceneSub;
 
@@ -56,3 +61,4 @@ private:
 };
 
 } // namespace Astral
+

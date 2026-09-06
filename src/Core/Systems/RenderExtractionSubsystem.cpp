@@ -7,6 +7,7 @@ namespace Astral {
 void RenderExtractionSubsystem::OnInit() {}
 
 void RenderExtractionSubsystem::OnUpdate(FrameContext& context) {
+    m_Snapshot = SDFSceneSnapshot::Extract(context.registry, 1);
     ExtractRenderData(context.registry, m_SceneEdits, m_SceneEntities);
 }
 

@@ -60,6 +60,7 @@ public:
     [[nodiscard]] static SDFSceneSnapshot Extract(const Registry& registry, uint32_t sceneInstanceId = 1);
 
     [[nodiscard]] const std::vector<SDFPrimitiveRecord>& GetRecords() const noexcept { return m_Records; }
+    [[nodiscard]] const std::vector<EntityHandle>& GetEntities() const noexcept { return m_Entities; }
     [[nodiscard]] uint32_t GetRecordCount() const noexcept { return static_cast<uint32_t>(m_Records.size()); }
     [[nodiscard]] uint64_t GetRevision() const noexcept { return m_Revision; }
 
@@ -71,6 +72,7 @@ public:
 
 private:
     std::vector<SDFPrimitiveRecord> m_Records;
+    std::vector<EntityHandle> m_Entities;
     uint64_t m_Revision = 0;
 };
 

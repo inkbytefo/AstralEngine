@@ -1,4 +1,5 @@
 #pragma once
+#include "Astral/Editor/SelectionContext.hpp"
 
 #include "Astral/Scene/Scene.hpp"
 #include "Astral/Scene/Entity.hpp"
@@ -26,10 +27,10 @@ public:
     SceneHierarchy() = default;
     ~SceneHierarchy() = default;
 
-    void Draw(Scene& scene, Entity& selectedEntity, CommandStack* commandStack = nullptr);
+    void Draw(Scene& scene, SelectionContext& selection, CommandStack* commandStack = nullptr);
 
 private:
-    void DrawEntityNode(Scene& scene, EntityHandle entity, Entity& selectedEntity, bool isFiltered);
+    void DrawEntityNode(Scene& scene, EntityHandle entity, SelectionContext& selection, bool isFiltered);
     bool EntityMatchesFilter(Scene& scene, EntityHandle entity) const;
     bool NodeOrDescendantMatchesFilter(Scene& scene, EntityHandle entity) const;
 
@@ -59,3 +60,4 @@ private:
 };
 
 } // namespace Astral
+

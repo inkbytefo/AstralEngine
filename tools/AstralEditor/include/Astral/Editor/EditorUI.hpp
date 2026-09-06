@@ -1,4 +1,5 @@
 #pragma once
+#include "Astral/Editor/SelectionContext.hpp"
 
 #include "Astral/Renderer/VulkanContext.hpp"
 #include "Astral/Scene/Scene.hpp"
@@ -36,7 +37,7 @@ public:
     void BeginFrame();
 
     /// Tum editor panellerini ciz (DockSpace + MenuBar + Panels + StatusBar)
-    void RenderPanels(Scene& scene, Entity& selectedEntity, float gpuTimeMs, float cpuTimeMs);
+    void RenderPanels(Scene& scene, SelectionContext& selection, float gpuTimeMs, float cpuTimeMs, bool isPlaying);
 
     /// Dynamic Rendering ile ImGui cizim verilerini Swapchain uzerine basma
     void EndFrame(vk::CommandBuffer cmd, vk::ImageView swapchainImageView, vk::Extent2D extent);
@@ -74,10 +75,12 @@ private:
     // Editor state
     bool m_ResetLayout = false;
     bool m_ShowDemoWindow = false;
+    unsigned int m_ToolsTabRevision = 0;
 
     void InitImGui(GLFWwindow* window);
     void ShutdownImGui();
-    void SetupDockSpace(Scene& scene, Entity& selectedEntity);
+    void SetupDockSpace(Scene& scene, SelectionContext& selection);
 };
 
 } // namespace Astral
+

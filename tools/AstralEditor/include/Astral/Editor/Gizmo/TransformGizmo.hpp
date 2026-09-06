@@ -1,4 +1,5 @@
 #pragma once
+#include "Astral/Editor/SelectionContext.hpp"
 
 #include "Astral/Editor/Gizmo/GizmoState.hpp"
 #include <glm/glm.hpp>
@@ -19,7 +20,7 @@ struct GizmoViewportRect {
 class TransformGizmo {
 public:
     void UpdateShortcuts(const InputSystem& input, bool viewportActive, bool textInputActive);
-    bool Manipulate(Scene& scene, Entity& entity, const glm::mat4& view,
+    bool Manipulate(Scene& scene, SelectionContext& selection, const glm::mat4& view,
                     const glm::mat4& projection, const GizmoViewportRect& viewport,
                     const InputSystem* input);
 
@@ -33,3 +34,4 @@ private:
 };
 
 } // namespace Astral
+

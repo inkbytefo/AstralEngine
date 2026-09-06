@@ -1,3 +1,4 @@
+#include "Astral/Editor/SelectionOperations.hpp"
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 #include "Astral/Editor/EditorUI.hpp"
 #include "Astral/Core/Components.hpp"
@@ -155,7 +156,9 @@ void EditorUI::BeginFrame() {
     ImGuizmo::BeginFrame();
 }
 
-void EditorUI::SetupDockSpace(Scene& scene, Entity& selectedEntity) {
+void EditorUI::SetupDockSpace(Scene& scene, SelectionContext& selection) {
+    selection.Reconcile();
+    Entity& selectedEntity = selection.PrimaryStorage();
     // Sanitize selected entity across scene reload/clear/destruction
     if (selectedEntity.GetHandle() != NullEntityHandle && !selectedEntity.IsValid()) {
         selectedEntity = Entity();
@@ -163,7 +166,7 @@ void EditorUI::SetupDockSpace(Scene& scene, Entity& selectedEntity) {
 
     ImGuiViewport* viewport = ImGui::GetMainViewport();
 
-    float statusBarHeight = 24.0f;
+    float statusBarHeight = EditorStatusBarHeight();
     ImVec2 workPos = viewport->WorkPos;
     ImVec2 workSize = viewport->WorkSize;
     workSize.y -= statusBarHeight;
@@ -184,24 +187,21 @@ void EditorUI::SetupDockSpace(Scene& scene, Entity& selectedEntity) {
     ImGui::Begin("AstralEditorWorkspace", nullptr, window_flags);
     ImGui::PopStyleVar(3);
 
-    // Create DockSpace
-    ImGuiID dockspace_id = ImGui::GetID("AstralEngineDockSpace");
-    ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
-
-    // Setup default layout (only runs on first frame or when reset is requested)
-    SetupDefaultEditorLayout(dockspace_id, m_ResetLayout);
-    if (m_ResetLayout) {
-        m_ResetLayout = false;
-    }
-
     // Draw Menu Bar
     MenuBarActions actions{};
     DrawEditorMenuBar(scene, selectedEntity, actions, m_ShowDemoWindow, m_Input, m_CommandStack);
+    selection.Reconcile();
 
     // Process menu bar actions
     if (actions.resetLayout) {
         m_ResetLayout = true;
     }
+    // One-time migration from legacy separately docked tools; then preserve saved layouts.
+    ImGuiID dockspace_id = ImGui::GetID("AstralEngineDockSpace_v2");
+    SetupDefaultEditorLayout(dockspace_id, m_ResetLayout);
+    if (m_ResetLayout) ++m_ToolsTabRevision;
+    m_ResetLayout = false;
+    ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
     if (actions.setDebugMode >= 0 && m_ViewportPanel.GetRenderer()) {
         m_ViewportPanel.GetRenderer()->SetDebugMode(actions.setDebugMode);
     }
@@ -213,7 +213,7 @@ void EditorUI::SetupDockSpace(Scene& scene, Entity& selectedEntity) {
         // Signal exit via GLFW (Application polls ShouldClose)
     }
     if (actions.deleteSelected && selectedEntity.IsValid()) {
-        m_CommandStack.PushAndExecute(std::make_unique<DeleteEntityCommand>(scene, selectedEntity, &selectedEntity));
+        EditSelection(scene, selection, &m_CommandStack, false);
     }
     if (actions.addSphere || actions.addBox || actions.addTorus || actions.addCylinder || actions.addPlane) {
         uint32_t primType = 0;
@@ -261,18 +261,52 @@ void EditorUI::SetupDockSpace(Scene& scene, Entity& selectedEntity) {
     ImGui::End();
 }
 
-void EditorUI::RenderPanels(Scene& scene, Entity& selectedEntity, float gpuTimeMs, float cpuTimeMs) {
+void EditorUI::RenderPanels(Scene& scene, SelectionContext& selection, float gpuTimeMs, float cpuTimeMs, bool isPlaying) {
     // 1. Setup DockSpace + Menu Bar
-    SetupDockSpace(scene, selectedEntity);
+    ApplyAstralTheme(isPlaying);
+    SetupDockSpace(scene, selection);
+    selection.Reconcile();
 
     // 2. Draw all modular panels
-    m_SceneHierarchy.Draw(scene, selectedEntity, &m_CommandStack);
-    m_Inspector.Draw(scene, selectedEntity);
+    m_SceneHierarchy.Draw(scene, selection, &m_CommandStack);
+    m_Inspector.Draw(scene, selection);
 
     size_t activeCount = scene.GetRegistry().GetView<TransformComponent>().Size();
-    m_Statistics.Draw(gpuTimeMs, cpuTimeMs, activeCount);
-    m_ViewportPanel.Draw(scene, selectedEntity);
-    m_ContentBrowser.Draw();
+    m_ViewportPanel.Draw(scene, selection, isPlaying);
+    if (!isPlaying && m_ViewportPanel.IsFocused() && !ImGui::GetIO().WantTextInput) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Delete, false)) EditSelection(scene, selection, &m_CommandStack, false);
+        else if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D, false)) EditSelection(scene, selection, &m_CommandStack, true);
+    }
+    m_Statistics.Update(gpuTimeMs, cpuTimeMs);
+    if (ImGui::Begin(EditorToolsWindow, nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+        // A fresh ID restores tab ordering and selection on Layout Reset.
+        ImGui::PushID(static_cast<int>(m_ToolsTabRevision));
+        if (ImGui::BeginTabBar("EditorToolsTabs", ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_FittingPolicyScroll)) {
+            if (ImGui::BeginTabItem("Content Browser")) {
+                m_ContentBrowser.Draw();
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Console")) {
+                ImGui::BeginChild("ConsoleBody");
+                ImGui::TextDisabled("CIKTI GUNLUGU");
+                ImGui::Separator();
+                ImGui::Spacing();
+                ImGui::TextUnformatted("Console henuz bagli degil");
+                ImGui::TextWrapped("Motor mesajlari su anda uygulama terminaline yaziliyor.");
+                ImGui::EndChild();
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Statistics")) {
+                ImGui::BeginChild("StatisticsBody");
+                m_Statistics.Draw(gpuTimeMs, cpuTimeMs, activeCount);
+                ImGui::EndChild();
+                ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+        }
+        ImGui::PopID();
+    }
+    ImGui::End();
 
     // 3. Draw Status Bar (fixed at bottom)
     StatusBarInfo statusInfo;
@@ -286,6 +320,13 @@ void EditorUI::RenderPanels(Scene& scene, Entity& selectedEntity, float gpuTimeM
     // 4. ImGui Demo Window
     if (m_ShowDemoWindow) {
         ImGui::ShowDemoWindow(&m_ShowDemoWindow);
+    }
+    // Switch scenes only after all panels have finished reading the current scene.
+    switch (m_ViewportPanel.GetTransportAction()) {
+        case ViewportTransportAction::Play: if (onPlayToggle) onPlayToggle(); break;
+        case ViewportTransportAction::Pause: if (onPauseToggle) onPauseToggle(); break;
+        case ViewportTransportAction::Stop: if (onStopPlay) onStopPlay(); break;
+        default: break;
     }
 }
 

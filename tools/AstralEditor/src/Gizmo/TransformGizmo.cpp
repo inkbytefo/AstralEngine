@@ -1,3 +1,4 @@
+#include "Astral/Editor/SelectionOperations.hpp"
 #include "Astral/Editor/Gizmo/TransformGizmo.hpp"
 #include "Astral/Core/Components.hpp"
 #include "Astral/Core/InputSystem.hpp"
@@ -54,9 +55,10 @@ void TransformGizmo::ApplyStyleOnce() {
     m_StyleInitialized = true;
 }
 
-bool TransformGizmo::Manipulate(Scene& scene, Entity& entity, const glm::mat4& view,
+bool TransformGizmo::Manipulate(Scene& scene, SelectionContext& selection, const glm::mat4& view,
                                 const glm::mat4& projection, const GizmoViewportRect& viewport,
                                 const InputSystem* input) {
+    Entity entity = selection.Primary();
     m_State.usingGizmo = false;
     m_State.hoveringGizmo = false;
     if (!m_State.IsEnabled() || !entity.IsValid() || !entity.HasComponent<TransformComponent>() ||
@@ -68,6 +70,8 @@ bool TransformGizmo::Manipulate(Scene& scene, Entity& entity, const glm::mat4& v
     ImGuizmo::SetRect(viewport.x, viewport.y, viewport.width, viewport.height);
 
     glm::mat4 worldTransform = scene.GetWorldTransform(entity.GetHandle());
+    const glm::mat4 previousPivot = worldTransform;
+    if (std::abs(glm::determinant(previousPivot)) < 1e-8f) return false;
     const bool snapEnabled = input && (input->IsKeyPressed(GLFW_KEY_LEFT_CONTROL) ||
                                        input->IsKeyPressed(GLFW_KEY_RIGHT_CONTROL));
     float snapValue = m_State.translationSnap;
@@ -84,16 +88,7 @@ bool TransformGizmo::Manipulate(Scene& scene, Entity& entity, const glm::mat4& v
     m_State.hoveringGizmo = ImGuizmo::IsOver();
     if (!m_State.usingGizmo) return false;
 
-    glm::mat4 localTransform = worldTransform;
-    const auto& registry = scene.GetRegistry();
-    if (registry.HasComponent<HierarchyComponent>(entity.GetHandle())) {
-        const EntityHandle parent = registry.GetComponent<HierarchyComponent>(entity.GetHandle()).parent;
-        if (registry.IsAlive(parent)) localTransform = glm::inverse(scene.GetWorldTransform(parent)) * worldTransform;
-    }
-
-    auto& transform = entity.GetComponent<TransformComponent>();
-    DecomposeTransformMatrix(localTransform, transform.position, transform.rotation, transform.scale);
-    return true;
+    return ApplySelectionDelta(scene, selection, worldTransform * glm::inverse(previousPivot));
 }
 
 } // namespace Astral

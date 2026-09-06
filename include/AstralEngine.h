@@ -29,6 +29,11 @@
 #include "Astral/Project/Project.hpp"
 #include "Astral/Project/ProjectSerializer.hpp"
 
+// --- Asset System ---
+#include "Astral/Core/UUID.hpp"
+#include "Astral/Asset/Asset.hpp"
+#include "Astral/Asset/AssetManager.hpp"
+
 // --- Math (GLM) ---
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>

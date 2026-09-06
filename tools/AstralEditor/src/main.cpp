@@ -98,6 +98,7 @@ protected:
         return scene;
     }
     void OnInitialize() override {
+        Astral::AssetManager::Init("assets");
         PushSystem<Astral::EditorUISubsystem>(*this);
     }
 };

@@ -271,13 +271,13 @@ void Application::Run(int maxFrames) {
             // 5. Asama: Render Extraction (World Matrix hesaplandiktan sonra ayni karede GPU extraction - F08)
             m_SystemManager.UpdateStage(SystemStage::RenderExtraction, transformContext);
 
-            const auto& sceneEdits = m_RenderExtractionSubsystem->GetLastExtractedEdits();
+            const auto& snapshot = m_RenderExtractionSubsystem->GetLastExtractedSnapshot();
             const auto& sceneEntities = m_RenderExtractionSubsystem->GetLastExtractedEntities();
 
             // Yalnizca GPU ve Renderer aktif ise render islemleri calistirilir
             if (m_SDFRenderer && m_VulkanContext) {
                 // GPU SSBO'ya yaz ve Two-Level Grid'i guncelle
-                m_SDFRenderer->UpdateEdits(sceneEdits, m_Config.legacyMap);
+                m_SDFRenderer->UpdateEdits(snapshot, m_Config.legacyMap);
 
                 // Swapchain resmi edin
                 bool hasSwapchainImage = false;
@@ -327,7 +327,8 @@ void Application::Run(int maxFrames) {
                     m_Config.useGrid,
                     m_Config.optShadow,
                     m_Config.enableTAA,
-                    frameIndex
+                    frameIndex,
+                    m_Config.qualitySettings
                 );
 
                 if (hasSwapchainImage) {

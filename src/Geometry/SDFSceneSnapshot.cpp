@@ -35,12 +35,18 @@ static bool IsEntityVisibleInHierarchy(const Registry& registry, EntityHandle en
     return true;
 }
 
+struct RecordEntityPair {
+    SDFPrimitiveRecord record;
+    EntityHandle entity;
+};
+
 SDFSceneSnapshot SDFSceneSnapshot::Extract(const Registry& registry, uint32_t sceneInstanceId) {
     SDFSceneSnapshot snapshot;
     snapshot.m_Revision = s_SnapshotRevisionCounter.fetch_add(1, std::memory_order_relaxed);
 
     const auto& transforms = registry.GetView<TransformComponent>();
-    snapshot.m_Records.reserve(transforms.Size());
+    std::vector<RecordEntityPair> pairs;
+    pairs.reserve(transforms.Size());
 
     for (auto&& [entity, tr] : transforms) {
         if (!registry.HasComponent<SDFComponent>(entity)) continue;
@@ -159,15 +165,22 @@ SDFSceneSnapshot SDFSceneSnapshot::Extract(const Registry& registry, uint32_t sc
         rec.csgOrder = static_cast<uint32_t>(sdf.csgOrder);
         rec.surfaceId = surfaceKey.Hash();
 
-        snapshot.m_Records.push_back(rec);
+        pairs.push_back(RecordEntityPair{rec, entity});
     }
 
     // Deterministic ordering: strict sort by (csgOrder, surfaceId)
-    std::sort(snapshot.m_Records.begin(), snapshot.m_Records.end(),
-              [](const SDFPrimitiveRecord& a, const SDFPrimitiveRecord& b) {
-                  if (a.csgOrder != b.csgOrder) return a.csgOrder < b.csgOrder;
-                  return a.surfaceId < b.surfaceId;
+    std::sort(pairs.begin(), pairs.end(),
+              [](const RecordEntityPair& a, const RecordEntityPair& b) {
+                  if (a.record.csgOrder != b.record.csgOrder) return a.record.csgOrder < b.record.csgOrder;
+                  return a.record.surfaceId < b.record.surfaceId;
               });
+
+    snapshot.m_Records.reserve(pairs.size());
+    snapshot.m_Entities.reserve(pairs.size());
+    for (const auto& p : pairs) {
+        snapshot.m_Records.push_back(p.record);
+        snapshot.m_Entities.push_back(p.entity);
+    }
 
     return snapshot;
 }

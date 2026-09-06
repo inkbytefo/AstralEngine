@@ -271,10 +271,121 @@ void BrickGrid::FullRebuild(std::span<const SDFPrimitiveRecord> records) {
         m_GridBuffer->UpdateData(m_CellDistances.data(), m_CellDistances.size() * sizeof(float));
     }
     m_LastUpdatedCellCount = TOTAL_CELLS;
+    m_CachedRecords.assign(records.begin(), records.end());
+    m_IsRecordsInitialized = true;
 }
 
 void BrickGrid::Build(std::span<const SDFPrimitiveRecord> records) {
-    FullRebuild(records);
+    // 1. Ilk calisma veya primitif sayisi degisikligi (ekleme / silme)
+    if (!m_IsRecordsInitialized || records.size() != m_CachedRecords.size()) {
+        FullRebuild(records);
+        return;
+    }
+
+    // 2. Hangi primitiflerin degistigini tespit et (Dirty Tracking)
+    std::vector<size_t> dirtyIndices;
+    dirtyIndices.reserve(records.size());
+
+    for (size_t i = 0; i < records.size(); ++i) {
+        const auto& cur = records[i];
+        const auto& prev = m_CachedRecords[i];
+
+        if (cur.invTransform != prev.invTransform ||
+            cur.dimensions != prev.dimensions ||
+            cur.primitiveType != prev.primitiveType ||
+            cur.operation != prev.operation ||
+            cur.metallicParams.y != prev.metallicParams.y) {
+            dirtyIndices.push_back(i);
+        }
+    }
+
+    // 3. Hicbir primitif degismediyse: EARLY-OUT (0 hucre islenir, GPU memcpy yapilmaz!)
+    if (dirtyIndices.empty()) {
+        m_LastUpdatedCellCount = 0;
+        return;
+    }
+
+    // 4. Yalniz sonsuz etki alanli bir duzlem degistiyse veya CSG degisimi olduysa tam rebuild gerekir
+    bool requiresFullRebuild = false;
+    for (size_t idx : dirtyIndices) {
+        if (records[idx].primitiveType == 3 || m_CachedRecords[idx].primitiveType == 3 ||
+            records[idx].operation != m_CachedRecords[idx].operation ||
+            records[idx].metallicParams.y != m_CachedRecords[idx].metallicParams.y) {
+            requiresFullRebuild = true;
+            break;
+        }
+    }
+
+    if (requiresFullRebuild) {
+        FullRebuild(records);
+        return;
+    }
+
+    // 5. Kismi AABB Guncellemesi: Sadece degisen primitiflerin etki alanindaki hucreleri belirle
+    std::vector<uint8_t> dirtyCells(TOTAL_CELLS, 0);
+    std::vector<size_t> dirtyCellIndices;
+
+    float cellDiag = glm::length(m_CellSize);
+    float smoothExpansion = 0.0f;
+    for (const auto& rec : records) {
+        if (rec.operation == 3) smoothExpansion += std::max(rec.metallicParams.y, 0.001f) * 0.25f;
+    }
+
+    for (size_t idx : dirtyIndices) {
+        const auto& cur = records[idx];
+        const auto& prev = m_CachedRecords[idx];
+
+        glm::mat4 curWorld = glm::inverse(cur.invTransform);
+        glm::mat4 prevWorld = glm::inverse(prev.invTransform);
+        glm::vec3 curCenter = glm::vec3(curWorld[3]);
+        glm::vec3 prevCenter = glm::vec3(prevWorld[3]);
+
+        float curRadius = glm::dot(glm::abs(glm::vec3(cur.dimensions)), glm::vec3(1.0f)) + smoothExpansion;
+        float prevRadius = glm::dot(glm::abs(glm::vec3(prev.dimensions)), glm::vec3(1.0f)) + smoothExpansion;
+
+        float margin = cellDiag * 1.5f + std::max(cur.metallicParams.y, prev.metallicParams.y);
+
+        glm::vec3 minBound = glm::min(curCenter - glm::vec3(curRadius + margin),
+                                      prevCenter - glm::vec3(prevRadius + margin));
+        glm::vec3 maxBound = glm::max(curCenter + glm::vec3(curRadius + margin),
+                                      prevCenter + glm::vec3(prevRadius + margin));
+
+        int minX = std::clamp(static_cast<int>(std::floor((minBound.x - m_MinBounds.x) / m_CellSize.x)), 0, static_cast<int>(DIM_X - 1));
+        int maxX = std::clamp(static_cast<int>(std::ceil((maxBound.x - m_MinBounds.x) / m_CellSize.x)), 0, static_cast<int>(DIM_X - 1));
+        int minY = std::clamp(static_cast<int>(std::floor((minBound.y - m_MinBounds.y) / m_CellSize.y)), 0, static_cast<int>(DIM_Y - 1));
+        int maxY = std::clamp(static_cast<int>(std::ceil((maxBound.y - m_MinBounds.y) / m_CellSize.y)), 0, static_cast<int>(DIM_Y - 1));
+        int minZ = std::clamp(static_cast<int>(std::floor((minBound.z - m_MinBounds.z) / m_CellSize.z)), 0, static_cast<int>(DIM_Z - 1));
+        int maxZ = std::clamp(static_cast<int>(std::ceil((maxBound.z - m_MinBounds.z) / m_CellSize.z)), 0, static_cast<int>(DIM_Z - 1));
+
+        for (int z = minZ; z <= maxZ; ++z) {
+            for (int y = minY; y <= maxY; ++y) {
+                for (int x = minX; x <= maxX; ++x) {
+                    size_t cIdx = static_cast<size_t>(x) + DIM_X * (static_cast<size_t>(y) + DIM_Y * static_cast<size_t>(z));
+                    if (dirtyCells[cIdx] == 0) {
+                        dirtyCells[cIdx] = 1;
+                        dirtyCellIndices.push_back(cIdx);
+                    }
+                }
+            }
+        }
+    }
+
+    // 6. Sadece isaretlenen dirty hucreleri yeniden hesapla
+    for (size_t cIdx : dirtyCellIndices) {
+        const uint32_t x = static_cast<uint32_t>(cIdx % DIM_X);
+        const size_t yz = cIdx / DIM_X;
+        const uint32_t y = static_cast<uint32_t>(yz % DIM_Y);
+        const uint32_t z = static_cast<uint32_t>(yz / DIM_Y);
+
+        m_CellDistances[cIdx] = EvaluateCell(x, y, z, records);
+    }
+
+    if (m_GridBuffer) {
+        m_GridBuffer->UpdateData(m_CellDistances.data(), m_CellDistances.size() * sizeof(float));
+    }
+
+    m_LastUpdatedCellCount = dirtyCellIndices.size();
+    m_CachedRecords.assign(records.begin(), records.end());
 }
 
 void BrickGrid::Build(const SDFSceneSnapshot& snapshot) {

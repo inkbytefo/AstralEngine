@@ -1,4 +1,5 @@
 #pragma once
+#include "Astral/Editor/SelectionContext.hpp"
 
 #include "Astral/Scene/Scene.hpp"
 #include "Astral/Scene/Entity.hpp"
@@ -10,7 +11,7 @@ namespace Astral {
 /// Shows Transform, SDF Geometry & Material, and Physics sections.
 class Inspector {
 public:
-    void Draw(Scene& scene, Entity& selectedEntity);
+    void Draw(Scene& scene, SelectionContext& selection);
 
 private:
     EntityHandle m_NameEntity = NullEntityHandle;
@@ -18,3 +19,4 @@ private:
 };
 
 } // namespace Astral
+

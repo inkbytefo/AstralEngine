@@ -95,6 +95,8 @@ add_library(AstralEngine STATIC
     ${CMAKE_SOURCE_DIR}/src/Core/TransformSystem.cpp
     ${CMAKE_SOURCE_DIR}/src/Core/BenchmarkLogger.cpp
     ${CMAKE_SOURCE_DIR}/src/Core/RenderExtractionSystem.cpp
+    ${CMAKE_SOURCE_DIR}/src/Core/UUID.cpp
+    ${CMAKE_SOURCE_DIR}/src/Asset/AssetManager.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/VulkanContext.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/VmaImplementation.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/ComputePipeline.cpp

@@ -3,6 +3,7 @@
 #include "Astral/Core/Components.hpp"
 #include "Astral/Core/TransformSystem.hpp"
 #include "Astral/Renderer/SDFEdit.hpp"
+#include "Astral/Geometry/SDFSceneSnapshot.hpp"
 #include <cstring>
 #include <algorithm>
 #include <cmath>
@@ -211,12 +212,10 @@ void ExtractAndUploadRenderData(Registry& registry, void* mappedGpuBuffer, uint3
         return;
     }
 
-    std::vector<SDFEditGPU> uploadBuffer;
-    ExtractRenderData(registry, uploadBuffer);
-
-    outEditCount = static_cast<uint32_t>(uploadBuffer.size());
+    auto snapshot = SDFSceneSnapshot::Extract(registry, 1);
+    outEditCount = std::min(snapshot.GetRecordCount(), static_cast<uint32_t>(MAX_SDF_EDITS));
     if (outEditCount > 0) {
-        std::memcpy(mappedGpuBuffer, uploadBuffer.data(), outEditCount * sizeof(SDFEditGPU));
+        std::memcpy(mappedGpuBuffer, snapshot.GetRecords().data(), outEditCount * sizeof(SDFPrimitiveRecord));
     }
 }
 

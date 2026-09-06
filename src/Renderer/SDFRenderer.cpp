@@ -1179,7 +1179,8 @@ void SDFRenderer::Resize(int width, int height) {
 }
 
 void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode, int width, int height,
-                         bool useGrid, bool optShadow, bool enableTAA, uint32_t frameIndex) {
+                         bool useGrid, bool optShadow, bool enableTAA, uint32_t frameIndex,
+                         const QualitySettings& qualitySettings) {
     (void)width;
     (void)height;
 
@@ -1424,10 +1425,17 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
                 1.0f, // z: iblIntensity = 1.0
                 static_cast<float>(m_ActiveEditCount) // w: editCount
             );
-            defPush.rayParams = glm::vec4(m_CurrJitter.x, m_CurrJitter.y, 50.0f, 0.015f); // z: shadowMaxDistance, w: surfaceBias
-            defPush.shadowAOParams = glm::vec4(96.0f, 24.0f, 8.0f, 1.0f); // x: shadowMaxSteps, y: shadowK, z: aoSamples, w: aoRadius
+            const auto& qs = (qualitySettings.shadowMaxSteps > 0) ? qualitySettings : m_QualitySettings;
+            defPush.rayParams = glm::vec4(m_CurrJitter.x, m_CurrJitter.y, qs.shadowMaxDistance, 0.015f); // z: shadowMaxDistance, w: surfaceBias
+            defPush.shadowAOParams = glm::vec4(
+                static_cast<float>(qs.shadowMaxSteps),
+                qs.shadowK,
+                static_cast<float>(qs.aoSamples),
+                qs.aoRadius
+            ); // x: shadowMaxSteps, y: shadowK, z: aoSamples, w: aoRadius
             auto gridParams = m_BrickGrid->GetGridParams();
-            defPush.qualityParams = glm::vec4(optShadow ? 1.0f : 0.0f, gridParams.x, gridParams.y, gridParams.w);
+            float shadowFlag = (optShadow && qs.enableShadows) ? 1.0f : 0.0f;
+            defPush.qualityParams = glm::vec4(shadowFlag, gridParams.x, gridParams.y, gridParams.w);
 
             cmd.pushConstants(
                 m_DeferredLightingPipelineLayout.get(),
