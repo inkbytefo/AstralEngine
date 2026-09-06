@@ -1,3 +1,4 @@
+namespace Astral::Test { void RunVisualQualityTests(); }
 #include "TestFramework.hpp"
 #include <iostream>
 #include <string>
@@ -22,6 +23,12 @@ namespace Astral::Test {
     void RunApplicationLoopTests();
     void RunServiceBoundariesTests();
     void RunEditorGameplayCycleTests();
+    void RunSDFShapeTests();
+    void RunSDFContractTests();
+    void RunSDFContractGpuTests();
+    void RunDeferredLightingTests();
+    void RunSDFTemporalTests();
+    void RunSDFChangeSetTests();
 }
 
 int main(int argc, char** argv) {
@@ -45,6 +52,10 @@ int main(int argc, char** argv) {
     bool runLoop = false;
     bool runBoundaries = false;
     bool runGameplay = false;
+    bool runContract = false;
+    bool runLighting = false;
+    bool runTemporal = false;
+    bool runChangeSet = false;
     bool runGpu = false;
     int gpuFrames = 5;
 
@@ -59,6 +70,9 @@ int main(int argc, char** argv) {
                       << "  --all                Tüm Headless testleri ve GPU smoke testini calistirir\n"
                       << "  --gpu                Yalnizca Vulkan 1.4 GPU & Compute smoke testini calistirir\n"
                       << "  --gpu-frames <N>     GPU testi icin calistirilacak kare sayisi (varsayilan: 5)\n"
+                      << "  --contract           Yalnizca SDF Contract testlerini calistirir (CPU & GPU)\n"
+                      << "  --lighting           Yalnizca Deferred SDF Shadows & AO testlerini calistirir\n"
+                      << "  --temporal           Yalnizca SDF Temporal Confidence & Rejection testlerini calistirir\n"
                       << "  --ecs                Yalnizca ECS testlerini calistirir\n"
                       << "  --physics            Yalnizca Physics Pipeline testlerini calistirir\n"
                       << "  --identity           Yalnizca Generational Entity Handle testlerini calistirir\n"
@@ -78,7 +92,10 @@ int main(int argc, char** argv) {
                       << "  --help, -h           Bu yardim mesajini gosterir\n";
             return 0;
         } else if (arg == "--all") {
-            runEcs = runPhysics = runIdentity = runScene = runSerialization = runBrickGrid = runCommand = runEventBus = runActionMap = runVma = runJobSystem = runTaskGraph = runProject = runLoop = runBoundaries = runGameplay = runGpu = true;
+            runEcs = runPhysics = runIdentity = runScene = runSerialization = runBrickGrid = runCommand = runEventBus = runActionMap = runVma = runJobSystem = runTaskGraph = runProject = runLoop = runBoundaries = runGameplay = runContract = runGpu = true;
+            hasSpecificFlag = true;
+        } else if (arg == "--contract") {
+            runContract = true;
             hasSpecificFlag = true;
         } else if (arg == "--gpu") {
             runGpu = true;
@@ -133,15 +150,25 @@ int main(int argc, char** argv) {
         } else if (arg == "--gameplay") {
             runGameplay = true;
             hasSpecificFlag = true;
+        } else if (arg == "--lighting") {
+            runLighting = true;
+            hasSpecificFlag = true;
+        } else if (arg == "--temporal") {
+            runTemporal = true;
+            hasSpecificFlag = true;
+        } else if (arg == "--changeset") {
+            runChangeSet = true;
+            hasSpecificFlag = true;
         }
     }
 
     // Varsayilan davranis: Eger ozel bir bayrak verilmediyse tum headless testler calistirilir (CI guvenli)
     if (!hasSpecificFlag) {
-        runEcs = runPhysics = runIdentity = runScene = runSerialization = runBrickGrid = runCommand = runEventBus = runActionMap = runVma = runJobSystem = runTaskGraph = runProject = runLoop = runBoundaries = runGameplay = true;
+        runEcs = runPhysics = runIdentity = runScene = runSerialization = runBrickGrid = runCommand = runEventBus = runActionMap = runVma = runJobSystem = runTaskGraph = runProject = runLoop = runBoundaries = runGameplay = runContract = runLighting = runTemporal = runChangeSet = true;
     }
 
     auto& runner = Astral::Test::TestRunner::Instance();
+    if (runScene) runner.RunSuite("Visual Quality CPU Suite", Astral::Test::RunVisualQualityTests);
     if (runScene) runner.RunSuite("Camera & Client Scene Suite", Astral::Test::RunCameraTests);
 
     if (runEcs) {
@@ -158,6 +185,7 @@ int main(int argc, char** argv) {
     }
     if (runSerialization) {
         runner.RunSuite("DOD Binary Scene Serialization Suite (v2)", Astral::Test::RunSerializationTests);
+        runner.RunSuite("SDF Shape & Explicit Dimensions Suite", Astral::Test::RunSDFShapeTests);
     }
     if (runBrickGrid) {
         runner.RunSuite("Two-Level Spatial BrickGrid Acceleration Suite", Astral::Test::RunBrickGridTests);
@@ -193,6 +221,21 @@ int main(int argc, char** argv) {
     }
     if (runGameplay) {
         runner.RunSuite("Editor Gameplay Cycle & Reference Playable Suite", Astral::Test::RunEditorGameplayCycleTests);
+    }
+    if (runContract) {
+        runner.RunSuite("SDF Contract Suite", Astral::Test::RunSDFContractTests);
+        if (runGpu || hasSpecificFlag) {
+            runner.RunSuite("SDF Contract GPU Suite", Astral::Test::RunSDFContractGpuTests);
+        }
+    }
+    if (runLighting) {
+        runner.RunSuite("Deferred SDF Shadows & AO Suite", Astral::Test::RunDeferredLightingTests);
+    }
+    if (runTemporal) {
+        runner.RunSuite("SDF Temporal Confidence Suite", Astral::Test::RunSDFTemporalTests);
+    }
+    if (runChangeSet) {
+        runner.RunSuite("SDF Local ChangeSet & Invalidation Suite", Astral::Test::RunSDFChangeSetTests);
     }
     if (runGpu) {
         runner.RunSuite("Vulkan 1.4 GPU & SDF Compute Smoke Suite", [gpuFrames]() {

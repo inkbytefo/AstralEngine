@@ -1,10 +1,12 @@
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 #include "Astral/Renderer/BrickGrid.hpp"
 #include "Astral/Renderer/Buffer.hpp"
+#include "Astral/Geometry/SDFSceneSnapshot.hpp"
 
 #include <cmath>
 #include <algorithm>
 #include <iostream>
+#include <glm/gtc/quaternion.hpp>
 
 namespace Astral {
 
@@ -51,25 +53,30 @@ float BrickGrid::EvaluateCell(uint32_t x, uint32_t y, uint32_t z, std::span<cons
     glm::vec3 cellCenter = m_MinBounds + (glm::vec3(x, y, z) + 0.5f) * m_CellSize;
 
     // 1. Zemin mesafesi
-    float minDist = cellCenter.y - (-1.0f);
+    float minDist = 1.0f + halfDiag;
+    float smoothExpansion = 0.0f;
+    for (const auto& edit : edits)
+        if (edit.operation == 3) smoothExpansion += std::max(edit.blendFactor, 0.001f) * 0.25f;
 
     // 2. Sahnedeki tum primitiflere olan muhafazakar mesafe
     for (const auto& e : edits) {
         // Primitif tipi 3 Plane ise ayri hesapla
         if (e.primitiveType == 3) {
-            float dp = cellCenter.y - e.position.y;
+            glm::quat q(e.rotation.w, e.rotation.x, e.rotation.y, e.rotation.z);
+            q = glm::dot(q, q) > 0.001f ? glm::normalize(q) : glm::quat(1, 0, 0, 0);
+            float dp = (glm::conjugate(q) * (cellCenter - e.position)).y + e.scale.y;
             minDist = std::min(minDist, dp);
             continue;
         }
 
-        float boundRadius = glm::length(e.scale) * 1.15f;
+        float boundRadius = glm::dot(glm::abs(e.scale), glm::vec3(1.0f));
         float distToCenter = glm::distance(cellCenter, e.position);
         float dShape = distToCenter - boundRadius;
 
         minDist = std::min(minDist, dShape);
     }
 
-    return std::max(minDist - halfDiag, 0.0f);
+    return std::clamp(minDist - halfDiag - smoothExpansion, 0.0f, 1.0f);
 }
 
 void BrickGrid::FullRebuild(std::span<const SDFEditGPU> edits) {
@@ -128,7 +135,7 @@ void BrickGrid::Build(std::span<const SDFEditGPU> edits) {
     // Buyuk hareketler eski ve yeni AABB'nin birlesimiyle dogal olarak daha cok hucreyi kirletir.
     bool requiresFullRebuild = false;
     for (size_t idx : dirtyIndices) {
-        if (edits[idx].primitiveType == 3 || m_CachedEdits[idx].primitiveType == 3) {
+        if (edits[idx].primitiveType == 3 || m_CachedEdits[idx].primitiveType == 3 || edits[idx].operation != m_CachedEdits[idx].operation || edits[idx].blendFactor != m_CachedEdits[idx].blendFactor) {
             requiresFullRebuild = true;
             break;
         }
@@ -145,13 +152,16 @@ void BrickGrid::Build(std::span<const SDFEditGPU> edits) {
     std::vector<size_t> dirtyCellIndices;
 
     float cellDiag = glm::length(m_CellSize);
+    float smoothExpansion = 0.0f;
+    for (const auto& edit : edits)
+        if (edit.operation == 3) smoothExpansion += std::max(edit.blendFactor, 0.001f) * 0.25f;
 
     for (size_t idx : dirtyIndices) {
         const auto& cur = edits[idx];
         const auto& prev = m_CachedEdits[idx];
 
-        float curRadius = glm::length(cur.scale) * 1.15f;
-        float prevRadius = glm::length(prev.scale) * 1.15f;
+        float curRadius = glm::dot(glm::abs(cur.scale), glm::vec3(1.0f)) + smoothExpansion;
+        float prevRadius = glm::dot(glm::abs(prev.scale), glm::vec3(1.0f)) + smoothExpansion;
 
         // Guvenlik marjini: Hucre boyutu + blend factor + yer degistirme payi
         float margin = cellDiag * 1.5f + std::max(cur.blendFactor, prev.blendFactor);
@@ -216,6 +226,59 @@ void BrickGrid::Build(std::span<const SDFEditGPU> edits) {
 
     m_CachedEdits.assign(edits.begin(), edits.end());
     m_LastUpdatedCellCount = dirtyCellIndices.size();
+}
+
+float BrickGrid::EvaluateCell(uint32_t x, uint32_t y, uint32_t z, std::span<const SDFPrimitiveRecord> records) const {
+    float halfDiag = glm::length(m_CellSize) * 0.5f;
+    glm::vec3 cellCenter = m_MinBounds + (glm::vec3(x, y, z) + 0.5f) * m_CellSize;
+
+    float minDist = 1.0f + halfDiag;
+    float smoothExpansion = 0.0f;
+    for (const auto& rec : records) {
+        if (rec.operation == 3) smoothExpansion += std::max(rec.metallicParams.y, 0.001f) * 0.25f;
+    }
+
+    for (const auto& rec : records) {
+        if (rec.primitiveType == 3) {
+            glm::vec4 lp4 = rec.invTransform * glm::vec4(cellCenter, 1.0f);
+            float dp = lp4.y + rec.dimensions.x;
+            minDist = std::min(minDist, dp);
+            continue;
+        }
+
+        glm::mat4 worldFromLocal = glm::inverse(rec.invTransform);
+        glm::vec3 center = glm::vec3(worldFromLocal[3]);
+        float boundRadius = glm::dot(glm::abs(glm::vec3(rec.dimensions)), glm::vec3(1.0f));
+        float distToCenter = glm::distance(cellCenter, center);
+        float dShape = distToCenter - boundRadius;
+        minDist = std::min(minDist, dShape);
+    }
+
+    return std::clamp(minDist - halfDiag - smoothExpansion, 0.0f, 1.0f);
+}
+
+void BrickGrid::FullRebuild(std::span<const SDFPrimitiveRecord> records) {
+    for (uint32_t z = 0; z < DIM_Z; ++z) {
+        for (uint32_t y = 0; y < DIM_Y; ++y) {
+            for (uint32_t x = 0; x < DIM_X; ++x) {
+                size_t index = x + DIM_X * (y + DIM_Y * z);
+                m_CellDistances[index] = EvaluateCell(x, y, z, records);
+            }
+        }
+    }
+
+    if (m_GridBuffer) {
+        m_GridBuffer->UpdateData(m_CellDistances.data(), m_CellDistances.size() * sizeof(float));
+    }
+    m_LastUpdatedCellCount = TOTAL_CELLS;
+}
+
+void BrickGrid::Build(std::span<const SDFPrimitiveRecord> records) {
+    FullRebuild(records);
+}
+
+void BrickGrid::Build(const SDFSceneSnapshot& snapshot) {
+    Build(std::span<const SDFPrimitiveRecord>(snapshot.GetRecords().data(), snapshot.GetRecordCount()));
 }
 
 } // namespace Astral

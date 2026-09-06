@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vulkan/vulkan.hpp>
+#include "Astral/Renderer/QualitySettings.hpp"
 
 namespace Astral {
 
@@ -15,6 +16,7 @@ struct RenderContext {
     Scene* activeScene{nullptr};
     float gpuTimeMs{0.0f};
     float cpuTimeMs{0.0f};
+    QualitySettings qualitySettings{};
 };
 
 } // namespace Astral

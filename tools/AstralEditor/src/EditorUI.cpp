@@ -4,6 +4,7 @@
 #include "Astral/Core/InputSystem.hpp"
 #include "Astral/Scene/SceneCommands.hpp"
 #include "Astral/Renderer/Swapchain.hpp"
+#include "Astral/Renderer/SDFRenderer.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -200,6 +201,9 @@ void EditorUI::SetupDockSpace(Scene& scene, Entity& selectedEntity) {
     // Process menu bar actions
     if (actions.resetLayout) {
         m_ResetLayout = true;
+    }
+    if (actions.setDebugMode >= 0 && m_ViewportPanel.GetRenderer()) {
+        m_ViewportPanel.GetRenderer()->SetDebugMode(actions.setDebugMode);
     }
     if (actions.newScene || actions.openScene) {
         selectedEntity = Entity();

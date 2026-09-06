@@ -347,7 +347,8 @@ void Application::Run(int maxFrames) {
                         m_VulkanContext->GetSwapchain()->GetExtent(),
                         activeScene.get(),
                         static_cast<float>(gpuTotalMs),
-                        static_cast<float>(cpuFrameMs)
+                        static_cast<float>(cpuFrameMs),
+                        m_Config.qualitySettings
                     };
                     m_SystemManager.RenderAll(renderCtx);
 
@@ -441,6 +442,14 @@ void Application::Run(int maxFrames) {
         std::cerr << "[Astral::Application Kritik Hata]: Bilinmeyen kritik istisna yakalandi!\n";
         Cleanup();
         throw;
+    }
+}
+
+void Application::SetDebugMode(int mode) noexcept {
+    m_Config.debugMode = mode;
+    m_Config.qualitySettings.debugMode = mode;
+    if (m_SDFRenderer) {
+        m_SDFRenderer->SetDebugMode(mode);
     }
 }
 

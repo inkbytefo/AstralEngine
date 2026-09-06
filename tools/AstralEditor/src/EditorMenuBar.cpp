@@ -419,6 +419,18 @@ void DrawEditorMenuBar(Scene& scene, Entity& selectedEntity,
                 actions.resetLayout = true;
             }
             ImGui::Separator();
+            if (ImGui::BeginMenu("Render Debug Modu")) {
+                if (ImGui::MenuItem("0: Final Shaded")) actions.setDebugMode = 0;
+                if (ImGui::MenuItem("1: Surface Identity")) actions.setDebugMode = 1;
+                if (ImGui::MenuItem("2: Geometry Revision")) actions.setDebugMode = 2;
+                if (ImGui::MenuItem("3: Temporal Confidence")) actions.setDebugMode = 3;
+                if (ImGui::MenuItem("4: Rejection Reason")) actions.setDebugMode = 4;
+                if (ImGui::MenuItem("5: Changed Region Mask")) actions.setDebugMode = 5;
+                if (ImGui::MenuItem("6: Shadow Visibility")) actions.setDebugMode = 6;
+                if (ImGui::MenuItem("7: Ambient Occlusion (AO)")) actions.setDebugMode = 7;
+                ImGui::EndMenu();
+            }
+            ImGui::Separator();
             ImGui::MenuItem("ImGui Demo Penceresi", nullptr, &showDemoWindowState);
             ImGui::EndMenu();
         }

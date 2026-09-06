@@ -4,19 +4,20 @@
 #include <vulkan/vulkan.hpp>
 #include <glm/glm.hpp>
 #include <memory>
+#include "Astral/Renderer/EnvironmentImage.hpp"
 
 namespace Astral {
 
 /**
  * @brief Image-Based Lighting (IBL) Kaynak Yoneticisi (Faz 2)
  * 
- * Karis 2013 sayisal integraliyle CPU uzerinde 512x512 2D BRDF LUT uretir ve
+ * Karis 2013 sayisal integraliyle CPU uzerinde 256x256 2D BRDF LUT uretir ve
  * fiziksel tabanli prosedurel gokyuzu gradyani ile Irradiance ve Prefiltered
  * Cubemap ortam dokularini hazirlar.
  */
 class IBLManager {
 public:
-    explicit IBLManager(VulkanContext& context);
+    explicit IBLManager(VulkanContext& context, const std::filesystem::path& environment = {});
     ~IBLManager();
 
     IBLManager(const IBLManager&) = delete;
@@ -30,11 +31,17 @@ public:
     [[nodiscard]] vk::Sampler GetCubemapSampler() const noexcept { return m_CubemapSampler.get(); }
 
     [[nodiscard]] uint32_t GetPrefilteredMipLevels() const noexcept { return m_PrefilteredMipLevels; }
+    [[nodiscard]] vk::Image GetPrefilteredImage() const noexcept { return m_PrefilteredImage.get(); }
+    [[nodiscard]] vk::Image GetIrradianceImage() const noexcept { return m_IrradianceImage.get(); }
+    [[nodiscard]] vk::Image GetBRDFLutImage() const noexcept { return m_BrdfLutImage.get(); }
 
 private:
     VulkanContext& m_Context;
+    EnvironmentImage m_Environment;
+    glm::vec3 SampleRadiance(glm::vec3 direction) const;
+    glm::vec3 Convolve(glm::vec3 normal, float roughness, bool diffuse) const;
 
-    // BRDF 2D LUT (512x512, R16G16_SFLOAT)
+    // BRDF 2D LUT (256x256, R16G16_SFLOAT)
     VmaImage m_BrdfLutImage;
     vk::UniqueImageView m_BrdfLutView;
     vk::UniqueSampler m_BrdfLutSampler;

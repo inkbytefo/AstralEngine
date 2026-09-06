@@ -16,17 +16,7 @@
 
 namespace Astral {
 
-// 8-Fazli Low-Discrepancy Halton(2, 3) Sub-Pixel Jitter Dizisi
-static constexpr std::array<glm::vec2, 8> HALTON_8 = {{
-    { 0.0f,        -0.333333f},
-    {-0.5f,         0.333333f},
-    { 0.5f,        -0.777778f},
-    {-0.75f,       -0.111111f},
-    { 0.25f,        0.555556f},
-    {-0.25f,       -0.555556f},
-    { 0.75f,        0.111111f},
-    {-0.875f,       0.777778f}
-}};
+
 
 static std::vector<char> ReadFile(const std::string& filename) {
     std::ifstream file(filename, std::ios::ate | std::ios::binary);
@@ -131,6 +121,8 @@ SDFRenderer::SDFRenderer(VulkanContext& context, const std::string& spvPath, int
     // Faz 2: IBL ve Isik Buffer kurulumu
     m_IBLManager = std::make_unique<IBLManager>(m_Context);
     CreateLightBuffer();
+
+    m_TemporalHistory = std::make_unique<SDFTemporalHistory>();
 
     // 1. ImGui Viewport Sampler ve TAA Linear Clamp Sampler
     vk::SamplerCreateInfo samplerInfo{};
@@ -295,7 +287,7 @@ void SDFRenderer::CreateImages() {
     CreateGBufferTexture(m_GBufMaterial, m_GBufMaterialView, vk::Format::eR8G8B8A8Unorm,
                          vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled);
     CreateGBufferTexture(m_GBufDepth, m_GBufDepthView, vk::Format::eR32Sfloat,
-                         vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled);
+                         vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferSrc);
     CreateGBufferTexture(m_GBufMotion, m_GBufMotionView, vk::Format::eR16G16Sfloat,
                          vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst);
 
@@ -462,7 +454,7 @@ void SDFRenderer::CreateEditBuffer(bool persistentMap) {
 
 void SDFRenderer::CreateTAAPipeline() {
     // 1. Descriptor Set Layout (5 bindings: 4 storage image + 1 combined image sampler)
-    std::array<vk::DescriptorSetLayoutBinding, 5> bindings{};
+    std::array<vk::DescriptorSetLayoutBinding, 7> bindings{};
     // Binding 0: currImage (Raw HDR, rgba16f)
     bindings[0].binding = 0;
     bindings[0].descriptorType = vk::DescriptorType::eStorageImage;
@@ -492,6 +484,10 @@ void SDFRenderer::CreateTAAPipeline() {
     bindings[4].descriptorType = vk::DescriptorType::eStorageImage;
     bindings[4].descriptorCount = 1;
     bindings[4].stageFlags = vk::ShaderStageFlagBits::eCompute;
+    for (uint32_t i = 5; i < 7; ++i) {
+        bindings[i] = bindings[4];
+        bindings[i].binding = i;
+    }
 
     vk::DescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
@@ -635,7 +631,7 @@ void SDFRenderer::CreateDebugCompositePipeline() {
 }
 
 void SDFRenderer::CreateDeferredLightingPipeline() {
-    std::array<vk::DescriptorSetLayoutBinding, 9> bindings{};
+    std::array<vk::DescriptorSetLayoutBinding, 11> bindings{};
 
     // 0: g_Albedo (rgba8)
     bindings[0].binding = 0;
@@ -691,6 +687,18 @@ void SDFRenderer::CreateDeferredLightingPipeline() {
     bindings[8].descriptorCount = 1;
     bindings[8].stageFlags = vk::ShaderStageFlagBits::eCompute;
 
+    // 9: EditBuffer (SSBO - SDF Geometri)
+    bindings[9].binding = 9;
+    bindings[9].descriptorType = vk::DescriptorType::eStorageBuffer;
+    bindings[9].descriptorCount = 1;
+    bindings[9].stageFlags = vk::ShaderStageFlagBits::eCompute;
+
+    // 10: GridBuffer (SSBO - Seyrek Hucre Izgarasi)
+    bindings[10].binding = 10;
+    bindings[10].descriptorType = vk::DescriptorType::eStorageBuffer;
+    bindings[10].descriptorCount = 1;
+    bindings[10].stageFlags = vk::ShaderStageFlagBits::eCompute;
+
     vk::DescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
     layoutInfo.pBindings = bindings.data();
@@ -733,7 +741,7 @@ void SDFRenderer::CreateDescriptorPoolAndSets() {
     poolSizes[0].type = vk::DescriptorType::eStorageImage;
     poolSizes[0].descriptorCount = 48;
     poolSizes[1].type = vk::DescriptorType::eStorageBuffer;
-    poolSizes[1].descriptorCount = 16;
+    poolSizes[1].descriptorCount = 32;
     poolSizes[2].type = vk::DescriptorType::eUniformBuffer;
     poolSizes[2].descriptorCount = 8;
     poolSizes[3].type = vk::DescriptorType::eCombinedImageSampler;
@@ -836,7 +844,9 @@ void SDFRenderer::UpdateDescriptorSets() {
         vk::DescriptorImageInfo taaOutHistInfo(nullptr, m_HistoryImageView[writeIdx].get(), vk::ImageLayout::eGeneral);
         vk::DescriptorImageInfo taaMotionInfo(nullptr, m_GBufMotionView.get(), vk::ImageLayout::eGeneral);
 
-        std::array<vk::WriteDescriptorSet, 5> taaWriteSets{};
+        vk::DescriptorImageInfo depthInfo(nullptr, m_GBufDepthView.get(), vk::ImageLayout::eGeneral);
+        vk::DescriptorImageInfo normalInfo(nullptr, m_GBufNormalView.get(), vk::ImageLayout::eGeneral);
+        std::array<vk::WriteDescriptorSet, 7> taaWriteSets{};
         taaWriteSets[0].dstSet = m_TaaDescriptorSet[i];
         taaWriteSets[0].dstBinding = 0;
         taaWriteSets[0].dstArrayElement = 0;
@@ -871,6 +881,12 @@ void SDFRenderer::UpdateDescriptorSets() {
         taaWriteSets[4].descriptorCount = 1;
         taaWriteSets[4].descriptorType = vk::DescriptorType::eStorageImage;
         taaWriteSets[4].pImageInfo = &taaMotionInfo;
+        taaWriteSets[5] = taaWriteSets[4];
+        taaWriteSets[5].dstBinding = 5;
+        taaWriteSets[5].pImageInfo = &depthInfo;
+        taaWriteSets[6] = taaWriteSets[4];
+        taaWriteSets[6].dstBinding = 6;
+        taaWriteSets[6].pImageInfo = &normalInfo;
 
         m_Device.updateDescriptorSets(static_cast<uint32_t>(taaWriteSets.size()), taaWriteSets.data(), 0, nullptr);
     }
@@ -1020,8 +1036,10 @@ void SDFRenderer::UpdateDeferredLightingDescriptorSets() {
     );
 
     auto lightBufInfo = m_LightBuffer->GetDescriptorInfo();
+    auto editBufInfo = m_EditBuffer->GetDescriptorInfo();
+    auto gridBufInfo = m_BrickGrid->GetBuffer()->GetDescriptorInfo();
 
-    std::array<vk::WriteDescriptorSet, 9> writeSets{};
+    std::array<vk::WriteDescriptorSet, 11> writeSets{};
 
     writeSets[0].dstSet = m_DeferredLightingDescriptorSet;
     writeSets[0].dstBinding = 0;
@@ -1077,23 +1095,68 @@ void SDFRenderer::UpdateDeferredLightingDescriptorSets() {
     writeSets[8].descriptorType = vk::DescriptorType::eStorageBuffer;
     writeSets[8].pBufferInfo = &lightBufInfo;
 
+    writeSets[9].dstSet = m_DeferredLightingDescriptorSet;
+    writeSets[9].dstBinding = 9;
+    writeSets[9].descriptorCount = 1;
+    writeSets[9].descriptorType = vk::DescriptorType::eStorageBuffer;
+    writeSets[9].pBufferInfo = &editBufInfo;
+
+    writeSets[10].dstSet = m_DeferredLightingDescriptorSet;
+    writeSets[10].dstBinding = 10;
+    writeSets[10].descriptorCount = 1;
+    writeSets[10].descriptorType = vk::DescriptorType::eStorageBuffer;
+    writeSets[10].pBufferInfo = &gridBufInfo;
+
     m_Device.updateDescriptorSets(static_cast<uint32_t>(writeSets.size()), writeSets.data(), 0, nullptr);
 }
 
 void SDFRenderer::UpdateEdits(const std::vector<SDFEditGPU>& edits, bool useLegacyMapUnmap) {
     m_ActiveEditCount = std::min(edits.size(), MAX_EDITS);
     if (m_ActiveEditCount > 0) {
-        size_t uploadBytes = m_ActiveEditCount * sizeof(SDFEditGPU);
+        std::vector<SDFPrimitiveRecord> records;
+        records.reserve(m_ActiveEditCount);
+        for (size_t i = 0; i < m_ActiveEditCount; ++i) {
+            const auto& e = edits[i];
+            SDFPrimitiveRecord rec{};
+            glm::mat4 m = glm::translate(glm::mat4(1.0f), e.position) *
+                          glm::mat4_cast(glm::quat(e.rotation.w, e.rotation.x, e.rotation.y, e.rotation.z));
+            rec.invTransform = glm::inverse(m);
+            rec.dimensions = glm::vec4(e.scale, 0.0f);
+            rec.albedoRoughness = glm::vec4(e.albedo, e.roughness);
+            rec.metallicParams = glm::vec4(e.metallic, e.blendFactor, 1.0f, static_cast<float>(e.isDynamic));
+            rec.primitiveType = e.primitiveType;
+            rec.operation = e.operation;
+            rec.csgOrder = static_cast<uint32_t>(i);
+            rec.surfaceId = static_cast<uint32_t>(i + 1);
+            records.push_back(rec);
+        }
+        UpdateEdits(std::span<const SDFPrimitiveRecord>(records.data(), records.size()), useLegacyMapUnmap);
+    } else {
+        m_ActiveEditCount = 0;
+        if (m_BrickGrid) {
+            m_BrickGrid->Build(std::span<const SDFPrimitiveRecord>());
+        }
+    }
+}
+
+void SDFRenderer::UpdateEdits(std::span<const SDFPrimitiveRecord> records, bool useLegacyMapUnmap) {
+    m_ActiveEditCount = std::min(records.size(), MAX_EDITS);
+    if (m_ActiveEditCount > 0) {
+        size_t uploadBytes = m_ActiveEditCount * sizeof(SDFPrimitiveRecord);
         if (useLegacyMapUnmap) {
-            m_EditBuffer->UpdateDataLegacy(edits.data(), uploadBytes);
+            m_EditBuffer->UpdateDataLegacy(records.data(), uploadBytes);
         } else {
-            m_EditBuffer->UpdateData(edits.data(), uploadBytes);
+            m_EditBuffer->UpdateData(records.data(), uploadBytes);
         }
     }
 
     if (m_BrickGrid) {
-        m_BrickGrid->Build(std::span<const SDFEditGPU>(edits.data(), m_ActiveEditCount));
+        m_BrickGrid->Build(records.subspan(0, m_ActiveEditCount));
     }
+}
+
+void SDFRenderer::UpdateEdits(const SDFSceneSnapshot& snapshot, bool useLegacyMapUnmap) {
+    UpdateEdits(std::span<const SDFPrimitiveRecord>(snapshot.GetRecords().data(), snapshot.GetRecordCount()), useLegacyMapUnmap);
 }
 
 void SDFRenderer::Resize(int width, int height) {
@@ -1111,6 +1174,8 @@ void SDFRenderer::Resize(int width, int height) {
     UpdateDebugCompositeDescriptorSets();
     UpdateDeferredLightingDescriptorSets();
     m_HistoryInitialized = false;
+    if (m_TemporalHistory) m_TemporalHistory->Reset();
+    m_CurrentChangeSet = SDFChangeSet{};
 }
 
 void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode, int width, int height,
@@ -1143,13 +1208,16 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
         cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
             vk::PipelineStageFlagBits::eAllCommands, {}, {}, {}, barrier);
         m_HistoryInitialized = false;
+        if (m_TemporalHistory) m_TemporalHistory->Reset();
         m_PickingRequested = false;
         m_PickPendingRead = false;
         ClearSelectionResult();
         return;
     }
+    if (m_PreviousTAAEnabled != enableTAA) m_HistoryInitialized = false;
+    m_PreviousTAAEnabled = enableTAA;
     const auto& camera = *m_RenderCamera;
-    if (m_UseGBuffer) {
+    if (m_UseGBuffer || enableTAA) {
         // =========================================================================
         // 1. G-Buffer Compute Pass (SDFGBuffer.glsl)
         // =========================================================================
@@ -1206,7 +1274,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
         pushConstants.gridParams = m_BrickGrid->GetGridParams();
         pushConstants.gridParams.z = optShadow ? 1.0f : 0.0f;
 
-        glm::vec2 jitter = enableTAA ? HALTON_8[frameIndex % 8] : glm::vec2(0.0f);
+        glm::vec2 jitter = enableTAA ? m_CurrJitter : glm::vec2(0.0f);
         pushConstants.taaParams = glm::vec4(jitter.x, jitter.y, enableTAA ? 1.0f : 0.0f, 0.12f);
 
         pushConstants.mouseParams = glm::vec4(
@@ -1300,7 +1368,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
 
         bool isDebugActive = (m_DebugMode != 0);
 
-        if (isDebugActive) {
+        if (m_UseGBuffer && isDebugActive) {
             // =========================================================================
             // 3a. Debug Composite Pass (SDFDebugComposite.glsl -> m_RawColorImage)
             // =========================================================================
@@ -1330,7 +1398,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
             );
 
             cmd.dispatch(groupX, groupY, 1);
-        } else {
+        } else if (m_UseGBuffer) {
             // =========================================================================
             // 3b. Deferred PBR & IBL Pass (DeferredLighting.glsl -> m_RawColorImage Linear HDR)
             // =========================================================================
@@ -1345,13 +1413,21 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
 
             DeferredLightingPushConstants defPush{};
             defPush.cameraRight = glm::vec4(camera.right, camera.projection[1][1] * 0.5f);
-            defPush.cameraUp = glm::vec4(camera.up, 0.0f);
-            defPush.rayParams = glm::vec4(m_CurrJitter, 0.0f, 0.0f);
+            defPush.cameraUp = glm::vec4(camera.up, useGrid ? 1.0f : 0.0f);
             const glm::vec3 camPos = camera.position;
             const glm::vec3 camDir = camera.forward;
             defPush.camPos = glm::vec4(camPos, static_cast<float>(m_IBLManager->GetPrefilteredMipLevels()));
             defPush.camDir = glm::vec4(camDir, 1.0f); // xyz: dir, w: exposure = 1.0
-            defPush.screenRes = glm::vec4(static_cast<float>(m_Width), static_cast<float>(m_Height), 1.0f, 0.0f); // z: iblIntensity = 1.0
+            defPush.screenRes = glm::vec4(
+                static_cast<float>(m_Width),
+                static_cast<float>(m_Height),
+                1.0f, // z: iblIntensity = 1.0
+                static_cast<float>(m_ActiveEditCount) // w: editCount
+            );
+            defPush.rayParams = glm::vec4(m_CurrJitter.x, m_CurrJitter.y, 50.0f, 0.015f); // z: shadowMaxDistance, w: surfaceBias
+            defPush.shadowAOParams = glm::vec4(96.0f, 24.0f, 8.0f, 1.0f); // x: shadowMaxSteps, y: shadowK, z: aoSamples, w: aoRadius
+            auto gridParams = m_BrickGrid->GetGridParams();
+            defPush.qualityParams = glm::vec4(optShadow ? 1.0f : 0.0f, gridParams.x, gridParams.y, gridParams.w);
 
             cmd.pushConstants(
                 m_DeferredLightingPipelineLayout.get(),
@@ -1364,7 +1440,8 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
             cmd.dispatch(groupX, groupY, 1);
         }
 
-    } else {
+    }
+    if (!m_UseGBuffer) {
         // =========================================================================
         // Legacy Monolithic Mode (SDFCompute.glsl -> m_RawColorImage)
         // =========================================================================
@@ -1414,7 +1491,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
         pushConstants.gridParams = m_BrickGrid->GetGridParams();
         pushConstants.gridParams.z = optShadow ? 1.0f : 0.0f;
 
-        glm::vec2 jitter = enableTAA ? HALTON_8[frameIndex % 8] : glm::vec2(0.0f);
+        glm::vec2 jitter = enableTAA ? m_CurrJitter : glm::vec2(0.0f);
         pushConstants.taaParams = glm::vec4(jitter.x, jitter.y, enableTAA ? 1.0f : 0.0f, 0.12f);
 
         pushConstants.mouseParams = glm::vec4(
@@ -1528,6 +1605,17 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
     );
 
     TAAPushConstants taaPush{};
+    taaPush.colorParams.x = m_Exposure;
+    uint32_t numChangedRects = 0;
+    std::array<glm::vec4, 4> packedChangedRects{};
+    m_CurrentChangeSet.GetPackedRects(packedChangedRects, numChangedRects);
+    taaPush.colorParams.y = static_cast<float>(numChangedRects);
+    taaPush.colorParams.z = m_CurrentChangeSet.IsGlobalChange() ? 1.0f : 0.0f;
+    taaPush.changedRect0 = packedChangedRects[0];
+    taaPush.changedRect1 = packedChangedRects[1];
+    taaPush.changedRect2 = packedChangedRects[2];
+    taaPush.changedRect3 = packedChangedRects[3];
+
     float blendAlpha = 0.12f;
     if (isDebugActive) {
         blendAlpha = -1.0f; // Debug bypass modu: tonemap ve gamma uygulamadan ham veri aktarimi
@@ -1594,6 +1682,11 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
         0, nullptr,
         1, &toGeneral
     );
+
+    if (m_TemporalHistory) {
+        m_TemporalHistory->CommitRender();
+    }
+    m_CurrentChangeSet = SDFChangeSet{};
 }
 
 void SDFRenderer::SetPickingRequest(int mouseX, int mouseY) {
@@ -1628,15 +1721,39 @@ void SDFRenderer::ClearSelectionResult() {
     }
 }
 
+void SDFRenderer::LoadEnvironment(const std::filesystem::path& path) {
+    auto replacement = std::make_unique<IBLManager>(m_Context, path);
+    m_Device.waitIdle();
+    m_IBLManager.swap(replacement);
+    UpdateDeferredLightingDescriptorSets();
+    ResetTemporalHistory();
+}
+
+void SDFRenderer::SetExposure(float multiplier) {
+    if (!std::isfinite(multiplier) || multiplier < 0.0f || multiplier > 64.0f)
+        throw std::invalid_argument("Exposure must be finite and in [0, 64]");
+    m_Exposure = multiplier;
+}
+
 void SDFRenderer::SetCamera(const std::optional<RenderCamera>& camera, const glm::vec2& jitter) {
     if (!camera || !m_RenderCamera || camera->entity != m_RenderCamera->entity ||
         camera->sceneInstance != m_RenderCamera->sceneInstance ||
         camera->projection != m_RenderCamera->projection) {
         m_CameraMatricesInitialized = false;
         m_HistoryInitialized = false;
+        if (m_TemporalHistory) {
+            m_TemporalHistory->SetCameraCut(true);
+        }
     }
+    m_PreviousCameraPosition = (m_CameraMatricesInitialized && m_RenderCamera)
+        ? m_RenderCamera->position : (camera ? camera->position : glm::vec3(0.0f));
     m_RenderCamera = camera;
-    if (camera) SetCameraMatrices(camera->view, camera->projection, jitter);
+    if (camera) {
+        SetCameraMatrices(camera->view, camera->projection, jitter);
+        if (m_TemporalHistory) {
+            m_TemporalHistory->BeginFrame(camera->view, camera->projection, camera->position, jitter, camera->sceneInstance);
+        }
+    }
 }
 void SDFRenderer::SetCameraMatrices(const glm::mat4& view, const glm::mat4& proj, const glm::vec2& jitter) {
     glm::mat4 vkProj = proj;
@@ -1660,6 +1777,8 @@ void SDFRenderer::SetCameraMatrices(const glm::mat4& view, const glm::mat4& proj
         CameraUBOData uboData{};
         uboData.currViewProj = m_CurrViewProj;
         uboData.prevViewProj = m_PrevViewProj;
+        uboData.prevCameraPosition = glm::vec4(m_PreviousCameraPosition, 0.0f);
+        uboData.jitter = glm::vec4(m_CurrJitter, m_PrevJitter);
         std::memcpy(m_CameraUBO->GetMappedData(), &uboData, sizeof(CameraUBOData));
     }
 }

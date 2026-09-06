@@ -56,7 +56,7 @@ std::shared_ptr<Astral::Scene> PuzzleGameSubsystem::CreatePuzzleScene() {
     auto floor = scene->CreateEntity("Floor");
     auto& floorTr = floor.AddComponent<Astral::TransformComponent>();
     floorTr.position = glm::vec3(0.0f, -0.5f, 0.0f);
-    floorTr.scale = glm::vec3(8.0f, 0.5f, 8.0f);
+    floorTr.scale = glm::vec3(1.0f);
     auto& floorSdf = floor.AddComponent<Astral::SDFComponent>();
     floorSdf.primitiveType = 1; // Box
     floorSdf.operation = 0;     // Union
@@ -65,12 +65,15 @@ std::shared_ptr<Astral::Scene> PuzzleGameSubsystem::CreatePuzzleScene() {
     floorSdf.roughness = 0.8f;
     floorSdf.metallic = 0.1f;
     floorSdf.isVisible = 1;
+    floorSdf.shape.dimensions = glm::vec4(8.0f, 0.5f, 8.0f, 0.0f);
+    floorSdf.encoding = Astral::SDFShapeEncoding::ExplicitShape;
+    floorSdf.csgOrder = 1;
 
     // 2. Engel Duvar (Wall Box) - Oyuncunun hedefe ulasmasini onler
     auto wall = scene->CreateEntity("ObstacleWall");
     auto& wallTr = wall.AddComponent<Astral::TransformComponent>();
     wallTr.position = glm::vec3(0.0f, 1.0f, 0.0f);
-    wallTr.scale = glm::vec3(3.5f, 1.5f, 0.4f);
+    wallTr.scale = glm::vec3(1.0f);
     auto& wallSdf = wall.AddComponent<Astral::SDFComponent>();
     wallSdf.primitiveType = 1; // Box
     wallSdf.operation = 0;     // Union
@@ -79,19 +82,25 @@ std::shared_ptr<Astral::Scene> PuzzleGameSubsystem::CreatePuzzleScene() {
     wallSdf.roughness = 0.5f;
     wallSdf.metallic = 0.0f;
     wallSdf.isVisible = 1;
+    wallSdf.shape.dimensions = glm::vec4(3.5f, 1.5f, 0.4f, 0.0f);
+    wallSdf.encoding = Astral::SDFShapeEncoding::ExplicitShape;
+    wallSdf.csgOrder = 2;
 
     // 3. CSG Kapi Kesici (Cutter Box/Cylinder - Subtract)
     // Baslangicta gizlidir (isVisible = 0); oyuncu etkilesime girince kapi acar
     auto cutter = scene->CreateEntity("CutterDoorway");
     auto& cutterTr = cutter.AddComponent<Astral::TransformComponent>();
     cutterTr.position = glm::vec3(0.0f, 1.0f, 0.0f);
-    cutterTr.scale = glm::vec3(0.8f, 1.2f, 1.0f);
+    cutterTr.scale = glm::vec3(1.0f);
     auto& cutterSdf = cutter.AddComponent<Astral::SDFComponent>();
     cutterSdf.primitiveType = 1; // Box
     cutterSdf.operation = 1;     // Subtract (CSG Cikarma)
     cutterSdf.blendFactor = 0.05f;
     cutterSdf.albedo = glm::vec3(0.9f, 0.1f, 0.1f);
     cutterSdf.isVisible = 0;     // Baslangicta inaktif
+    cutterSdf.shape.dimensions = glm::vec4(0.8f, 1.2f, 1.0f, 0.0f);
+    cutterSdf.encoding = Astral::SDFShapeEncoding::ExplicitShape;
+    cutterSdf.csgOrder = 10;
     auto& cutterVis = cutter.AddComponent<Astral::VisibilityComponent>();
     cutterVis.isVisible = false;
 
@@ -99,7 +108,7 @@ std::shared_ptr<Astral::Scene> PuzzleGameSubsystem::CreatePuzzleScene() {
     auto goal = scene->CreateEntity("GoalOrb");
     auto& goalTr = goal.AddComponent<Astral::TransformComponent>();
     goalTr.position = glm::vec3(0.0f, 1.0f, -3.0f);
-    goalTr.scale = glm::vec3(0.5f, 0.5f, 0.5f);
+    goalTr.scale = glm::vec3(1.0f);
     auto& goalSdf = goal.AddComponent<Astral::SDFComponent>();
     goalSdf.primitiveType = 0; // Sphere
     goalSdf.operation = 0;     // Union
@@ -108,12 +117,14 @@ std::shared_ptr<Astral::Scene> PuzzleGameSubsystem::CreatePuzzleScene() {
     goalSdf.roughness = 0.2f;
     goalSdf.metallic = 0.8f;
     goalSdf.isVisible = 1;
+    goalSdf.shape.dimensions = glm::vec4(0.5f, 0.0f, 0.0f, 0.0f);
+    goalSdf.encoding = Astral::SDFShapeEncoding::ExplicitShape;
 
     // 5. Oyuncu Kuresi (Player Sphere)
     auto player = scene->CreateEntity("Player");
     auto& playerTr = player.AddComponent<Astral::TransformComponent>();
     playerTr.position = glm::vec3(0.0f, 0.5f, 3.5f);
-    playerTr.scale = glm::vec3(0.4f, 0.4f, 0.4f);
+    playerTr.scale = glm::vec3(1.0f);
     auto& playerSdf = player.AddComponent<Astral::SDFComponent>();
     playerSdf.primitiveType = 0; // Sphere
     playerSdf.operation = 0;     // Union
@@ -122,6 +133,8 @@ std::shared_ptr<Astral::Scene> PuzzleGameSubsystem::CreatePuzzleScene() {
     playerSdf.roughness = 0.3f;
     playerSdf.metallic = 0.2f;
     playerSdf.isVisible = 1;
+    playerSdf.shape.dimensions = glm::vec4(0.4f, 0.0f, 0.0f, 0.0f);
+    playerSdf.encoding = Astral::SDFShapeEncoding::ExplicitShape;
 
     // 6. Ana Kamera
     auto camera = scene->CreateEntity("MainCamera");

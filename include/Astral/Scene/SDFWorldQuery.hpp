@@ -5,6 +5,8 @@
 
 namespace Astral {
 
+class SDFSceneSnapshot;
+
 struct SDFRaycastHit {
     bool hasHit = false;
     float distance = 0.0f;
@@ -23,6 +25,10 @@ struct SDFRaycastHit {
  */
 class SDFWorldQuery {
 public:
+    // --- Snapshot-based overloads (fastest) ---
+    [[nodiscard]] static float QueryDistance(const SDFSceneSnapshot& snapshot, const glm::vec3& point);
+    [[nodiscard]] static glm::vec3 QueryNormal(const SDFSceneSnapshot& snapshot, const glm::vec3& point, float eps = 0.002f);
+
     // --- Registry-based overloads ---
     [[nodiscard]] static float QueryDistance(const Registry& reg, const glm::vec3& point);
     [[nodiscard]] static float QueryDistance(const Registry& reg, const glm::vec3& point, EntityHandle& outClosestEntity);

@@ -221,41 +221,8 @@ void SceneHierarchy::DrawEntityNode(Scene& scene, EntityHandle entityId, Entity&
         std::strncpy(m_RenameBuffer, displayName.c_str(), sizeof(m_RenameBuffer) - 1);
     }
 
-    // ── Görsel 2: Sağ Tarafa Hizalanmış Hızlı Eylemler (Right-Aligned Icons) ──
-    const float contentRight = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
-    float currentIconX = contentRight - 48.0f;
-
-    // 1. Görünürlük (Eye / Target Icon)
-    const bool isSelfVisible = IsEntitySelfVisible(registry, entityId);
-
-    ImGui::SameLine(currentIconX);
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.3f, 0.3f, 0.35f, 0.6f));
-    ImGui::PushStyleColor(ImGuiCol_Text, isSelfVisible ? ImVec4(0.85f, 0.85f, 0.85f, 1.0f) : ImVec4(0.4f, 0.4f, 0.4f, 0.5f));
-
-    if (ImGui::SmallButton(isSelfVisible ? "(o)" : "(-)")) {
-        if (m_CommandStack) {
-            m_CommandStack->PushAndExecute(std::make_unique<SetVisibilityCommand>(currentEntity, isSelfVisible, !isSelfVisible));
-        } else {
-            ToggleEntityVisibility(registry, entityId);
-        }
-    }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip(isSelfVisible ? "Gorunur (Gizlemek icin tiklayin)" : "Gizli (Gostermek icin tiklayin)");
-    }
-    ImGui::PopStyleColor(3);
-
-    // 2. SDF / Bileşen Rozeti
-    if (currentEntity.HasComponent<SDFComponent>()) {
-        ImGui::SameLine(contentRight - 22.0f);
-        ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.9f, 0.8f), "[S]");
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("SDF Geometri Bileseni");
-        }
-    }
-
-    // ── Sağ Tık Menüsü (Context Menu) ─────────────────────────────────────────
-    if (ImGui::BeginPopupContextItem()) {
+    // ── Sağ Tık Menüsü (Context Menu): Doğrudan TreeNodeEx satırına bağlanır ───
+    if (ImGui::BeginPopupContextItem("EntityContextMenu")) {
         ImGui::TextColored(ImVec4(0.35f, 0.75f, 1.0f, 1.0f), "%s", displayName.c_str());
         ImGui::Separator();
 
@@ -291,6 +258,39 @@ void SceneHierarchy::DrawEntityNode(Scene& scene, EntityHandle entityId, Entity&
             m_PendingDelete = entityId;
         }
         ImGui::EndPopup();
+    }
+
+    // ── Görsel 2: Sağ Tarafa Hizalanmış Hızlı Eylemler (Right-Aligned Icons) ──
+    const float contentRight = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+    float currentIconX = contentRight - 48.0f;
+
+    // 1. Görünürlük (Eye / Target Icon)
+    const bool isSelfVisible = IsEntitySelfVisible(registry, entityId);
+
+    ImGui::SameLine(currentIconX);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.3f, 0.3f, 0.35f, 0.6f));
+    ImGui::PushStyleColor(ImGuiCol_Text, isSelfVisible ? ImVec4(0.85f, 0.85f, 0.85f, 1.0f) : ImVec4(0.4f, 0.4f, 0.4f, 0.5f));
+
+    if (ImGui::SmallButton(isSelfVisible ? "(o)" : "(-)")) {
+        if (m_CommandStack) {
+            m_CommandStack->PushAndExecute(std::make_unique<SetVisibilityCommand>(currentEntity, isSelfVisible, !isSelfVisible));
+        } else {
+            ToggleEntityVisibility(registry, entityId);
+        }
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip(isSelfVisible ? "Gorunur (Gizlemek icin tiklayin)" : "Gizli (Gostermek icin tiklayin)");
+    }
+    ImGui::PopStyleColor(3);
+
+    // 2. SDF / Bileşen Rozeti
+    if (currentEntity.HasComponent<SDFComponent>()) {
+        ImGui::SameLine(contentRight - 22.0f);
+        ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.9f, 0.8f), "[S]");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("SDF Geometri Bileseni");
+        }
     }
 
     // ── Çocuk Düğümleri Çiz ──────────────────────────────────────────────────

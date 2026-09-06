@@ -80,7 +80,7 @@ static glm::vec2 IntegrateBRDF(float NdotV, float roughness) {
     float B = 0.0f;
     glm::vec3 N = glm::vec3(0.0f, 0.0f, 1.0f);
 
-    const uint32_t SAMPLE_COUNT = 128u;
+    const uint32_t SAMPLE_COUNT = 1024u;
     for (uint32_t i = 0u; i < SAMPLE_COUNT; ++i) {
         glm::vec2 Xi = Hammersley(i, SAMPLE_COUNT);
         glm::vec3 H = ImportanceSampleGGX(Xi, N, roughness);
@@ -137,31 +137,20 @@ static glm::vec3 EvaluateSkyRadiance(const glm::vec3& dir) {
     return sky;
 }
 
-static glm::vec3 EvaluateSkyIrradiance(const glm::vec3& dir) {
-    glm::vec3 n = glm::normalize(dir);
-    float t = 0.5f * (n.y + 1.0f);
-
-    glm::vec3 groundAmbient = glm::vec3(0.10f, 0.10f, 0.12f);
-    glm::vec3 skyAmbient    = glm::vec3(0.30f, 0.42f, 0.60f);
-    glm::vec3 irradiance    = glm::mix(groundAmbient, skyAmbient, t);
-
-    // Gunes difuz aydinlatmasi
-    glm::vec3 sunDir = glm::normalize(glm::vec3(0.5f, 0.8f, -0.4f));
-    float sunDot = std::max(glm::dot(n, sunDir), 0.0f);
-    irradiance += glm::vec3(1.0f, 0.9f, 0.75f) * (sunDot * 0.45f);
-
-    return irradiance;
-}
-
 } // namespace
 
-IBLManager::IBLManager(VulkanContext& context)
-    : m_Context(context) {
+IBLManager::IBLManager(VulkanContext& context, const std::filesystem::path& environment)
+    : m_Context(context), m_Environment(environment.empty() ? EnvironmentImage{} : EnvironmentImage::LoadRadiance(environment)) {
     auto tTotalStart = std::chrono::high_resolution_clock::now();
     std::cout << "[Astral::IBLManager] IBL ortami (BRDF LUT + Cubemaps) baslatiliyor...\n";
-    CreateSamplers();
-    GenerateBRDFLUT();
-    GenerateProceduralCubemaps();
+    try {
+        CreateSamplers();
+        GenerateBRDFLUT();
+        GenerateProceduralCubemaps();
+    } catch (...) {
+        Cleanup();
+        throw;
+    }
     auto tTotalEnd = std::chrono::high_resolution_clock::now();
     double totalMs = std::chrono::duration<double, std::milli>(tTotalEnd - tTotalStart).count();
     std::cout << "[Astral::IBLManager] IBL baslatma tamamlandi (Toplam sure: " << totalMs << " ms).\n";
@@ -225,7 +214,7 @@ void IBLManager::GenerateBRDFLUT() {
     std::vector<uint16_t> lutData(totalElements);
 
     // 1. Disk onbellegini kontrol et
-    const std::filesystem::path cachePath = "assets/cache/brdf_lut_256.bin";
+    const std::filesystem::path cachePath = "assets/cache/brdf_lut_256_ggx1024_v2.bin";
     bool loadedFromCache = false;
 
     if (std::filesystem::exists(cachePath) && std::filesystem::file_size(cachePath) == dataSize) {
@@ -305,7 +294,7 @@ void IBLManager::GenerateBRDFLUT() {
     imageInfo.arrayLayers = 1;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
@@ -375,6 +364,41 @@ void IBLManager::GenerateBRDFLUT() {
     m_BrdfLutView = m_Context.GetDevice().createImageViewUnique(viewInfo);
 }
 
+glm::vec3 IBLManager::SampleRadiance(glm::vec3 direction) const {
+    return m_Environment.Empty() ? EvaluateSkyRadiance(direction) : m_Environment.Sample(direction);
+}
+
+glm::vec3 IBLManager::Convolve(glm::vec3 normal, float roughness, bool diffuse) const {
+    if (!diffuse && roughness == 0.0f) return SampleRadiance(normal);
+    constexpr uint32_t samples = 512;
+    glm::vec3 sum(0.0f);
+    float weight = 0.0f;
+    const glm::vec3 axis = std::abs(normal.z) < 0.999f ? glm::vec3(0, 0, 1) : glm::vec3(1, 0, 0);
+    const glm::vec3 tangent = glm::normalize(glm::cross(axis, normal));
+    const glm::vec3 bitangent = glm::cross(normal, tangent);
+    for (uint32_t i = 0; i < samples; ++i) {
+        const glm::vec2 xi = Hammersley(i, samples);
+        glm::vec3 light;
+        float sampleWeight = 1.0f;
+        if (diffuse) {
+            const float phi = 6.28318530718f * xi.x;
+            const float radius = std::sqrt(xi.y);
+            light = tangent * (radius * std::cos(phi)) + bitangent * (radius * std::sin(phi)) +
+                    normal * std::sqrt(1.0f - xi.y);
+        } else {
+            const glm::vec3 half = ImportanceSampleGGX(xi, normal, roughness);
+            light = 2.0f * glm::dot(normal, half) * half - normal;
+            sampleWeight = std::max(glm::dot(normal, light), 0.0f);
+        }
+        if (sampleWeight > 0.0f) {
+            sum += SampleRadiance(light) * sampleWeight;
+            weight += sampleWeight;
+        }
+    }
+    // Cosine importance sampling stores irradiance / pi, matching the shader's Lambert term.
+    return sum / std::max(weight, 1e-6f);
+}
+
 void IBLManager::GenerateProceduralCubemaps() {
     auto tStart = std::chrono::high_resolution_clock::now();
     // ---------------------------------------------------------
@@ -385,11 +409,11 @@ void IBLManager::GenerateProceduralCubemaps() {
 
     for (int face = 0; face < 6; ++face) {
         for (uint32_t y = 0; y < IRRAD_SIZE; ++y) {
-            float v = 1.0f - 2.0f * (static_cast<float>(y) + 0.5f) / static_cast<float>(IRRAD_SIZE);
+            float v = 2.0f * (static_cast<float>(y) + 0.5f) / static_cast<float>(IRRAD_SIZE) - 1.0f;
             for (uint32_t x = 0; x < IRRAD_SIZE; ++x) {
                 float u = 2.0f * (static_cast<float>(x) + 0.5f) / static_cast<float>(IRRAD_SIZE) - 1.0f;
                 glm::vec3 dir = GetCubeRayDir(face, u, v);
-                glm::vec3 col = EvaluateSkyIrradiance(dir);
+                glm::vec3 col = Convolve(dir, 1.0f, true);
 
                 size_t idx = ((face * IRRAD_SIZE + y) * IRRAD_SIZE + x) * 4;
                 irradData[idx + 0] = FloatToHalf(col.r);
@@ -421,7 +445,7 @@ void IBLManager::GenerateProceduralCubemaps() {
     irradImageInfo.arrayLayers = 6;
     irradImageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
     irradImageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    irradImageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    irradImageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     irradImageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     irradImageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
@@ -521,15 +545,12 @@ void IBLManager::GenerateProceduralCubemaps() {
             prefilterCopyRegions.push_back(region);
 
             for (uint32_t y = 0; y < mipSize; ++y) {
-                float v = 1.0f - 2.0f * (static_cast<float>(y) + 0.5f) / static_cast<float>(mipSize);
+                float v = 2.0f * (static_cast<float>(y) + 0.5f) / static_cast<float>(mipSize) - 1.0f;
                 for (uint32_t x = 0; x < mipSize; ++x) {
                     float u = 2.0f * (static_cast<float>(x) + 0.5f) / static_cast<float>(mipSize) - 1.0f;
                     glm::vec3 dir = GetCubeRayDir(face, u, v);
 
-                    // Mip seviyesi arttikca radiance difuz aydinlatmaya dogru yumusatilir (Roughness simülasyonu)
-                    glm::vec3 sharp = EvaluateSkyRadiance(dir);
-                    glm::vec3 diffuse = EvaluateSkyIrradiance(dir);
-                    glm::vec3 col = glm::mix(sharp, diffuse, roughness);
+                    glm::vec3 col = Convolve(dir, roughness, false);
 
                     prefilterData[currentFloatIdx + 0] = FloatToHalf(col.r);
                     prefilterData[currentFloatIdx + 1] = FloatToHalf(col.g);
@@ -563,7 +584,7 @@ void IBLManager::GenerateProceduralCubemaps() {
     prefilterImageInfo.arrayLayers = 6;
     prefilterImageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
     prefilterImageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    prefilterImageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    prefilterImageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     prefilterImageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     prefilterImageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 

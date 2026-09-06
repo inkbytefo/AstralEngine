@@ -37,14 +37,21 @@ static_assert(sizeof(SDFPushConstants) == 128, "Push constants must fit Vulkan's
 
 struct TAAPushConstants {
     glm::vec4 screenRes; // x: width, y: height, z: frameIndex, w: blendAlpha
+    glm::vec4 colorParams{1.0f, 0.0f, 0.0f, 0.0f}; // x: linear exposure multiplier, y: numChangedRects, z: isGlobalChange, w: reserved
+    glm::vec4 changedRect0{0.0f}; // xy: minUV, zw: maxUV
+    glm::vec4 changedRect1{0.0f}; // xy: minUV, zw: maxUV
+    glm::vec4 changedRect2{0.0f}; // xy: minUV, zw: maxUV
+    glm::vec4 changedRect3{0.0f}; // xy: minUV, zw: maxUV
 };
-static_assert(sizeof(TAAPushConstants) == 16, "TAAPushConstants boyutu 16 bayt olmalidir!");
+static_assert(sizeof(TAAPushConstants) == 96, "TAAPushConstants must be exactly 96 bytes (within 128-byte budget)");
 
 struct alignas(16) CameraUBOData {
     glm::mat4 currViewProj{1.0f};
     glm::mat4 prevViewProj{1.0f};
+    glm::vec4 prevCameraPosition{0.0f};
+    glm::vec4 jitter{0.0f}; // current.xy, previous.zw in pixels
 };
-static_assert(sizeof(CameraUBOData) == 128, "CameraUBOData boyutu 128 bayt olmalidir!");
+static_assert(sizeof(CameraUBOData) == 160, "CameraUBOData boyutu 160 bayt olmalidir!");
 
 struct DebugCompositePushConstants {
     glm::vec4 screenRes; // x: width, y: height, z: debugMode, w: unused
@@ -69,14 +76,16 @@ struct alignas(16) LightBufferHeader {
 static_assert(sizeof(LightBufferHeader) == 16, "LightBufferHeader boyutu 16 bayt olmalidir!");
 
 struct DeferredLightingPushConstants {
-    glm::vec4 camPos;    // xyz: camPos, w: maxMipLevel (orn. 5.0)
-    glm::vec4 camDir;    // xyz: camDir, w: exposure (orn. 1.0)
-    glm::vec4 screenRes; // xy: resolution, z: iblIntensity (orn. 1.0), w: unused
-    glm::vec4 cameraRight; // xyz: right, w: focal length
-    glm::vec4 cameraUp;    // xyz: up
-    glm::vec4 rayParams;   // xy: same pixel jitter as the geometry pass
+    glm::vec4 camPos;         // xyz: camPos, w: maxMipLevel (orn. 5.0)
+    glm::vec4 camDir;         // xyz: camDir, w: exposure (orn. 1.0)
+    glm::vec4 screenRes;      // xy: resolution, z: iblIntensity (orn. 1.0), w: editCount
+    glm::vec4 cameraRight;    // xyz: right, w: focal length
+    glm::vec4 cameraUp;       // xyz: up, w: useGrid (0.0 or 1.0)
+    glm::vec4 rayParams;      // xy: same pixel jitter as geometry pass, z: shadowMaxDistance (50.0), w: surfaceBias (0.015)
+    glm::vec4 shadowAOParams; // x: shadowMaxSteps (96.0), y: shadowK (24.0), z: aoSamples (8.0), w: aoRadius (1.0)
+    glm::vec4 qualityParams;  // x: optShadow (1.0), y: gridDimX (32.0), z: gridDimY (16.0), w: gridCellSize (0.75)
 };
-static_assert(sizeof(DeferredLightingPushConstants) == 96);
+static_assert(sizeof(DeferredLightingPushConstants) == 128, "DeferredLightingPushConstants boyutu 128 bayt olmalidir!");
 
 class ComputePipeline {
 public:

@@ -22,7 +22,7 @@ enum class CSGOperation : uint32_t {
     SmoothSubtract = 4
 };
 
-/// GLSL std430 hizalama kurallarina tam uyumlu 96-bayt GPU primitif yapisi.
+/// GLSL std430 hizalama kurallarina tam uyumlu 128-bayt GPU primitif yapisi.
 /// RENDERER_ARCHITECTURE.md Bolum c.2.a semasi.
 struct alignas(16) SDFEditGPU {
     glm::vec3 position{0.0f};
@@ -46,6 +46,9 @@ struct alignas(16) SDFEditGPU {
     float prevPosY = 0.0f;
     float prevPosZ = 0.0f;
 
+    glm::vec4 prevRotation{0.0f, 0.0f, 0.0f, 1.0f};
+    glm::vec4 prevScale{1.0f};
+
     void SetPrevPosition(const glm::vec3& p) {
         prevPosX = p.x;
         prevPosY = p.y;
@@ -57,11 +60,11 @@ struct alignas(16) SDFEditGPU {
     }
 };
 
-static_assert(sizeof(SDFEditGPU) == 96, "SDFEditGPU struct boyutu tam olarak 96 bayt olmalidir!");
+static_assert(sizeof(SDFEditGPU) == 128, "SDFEditGPU struct boyutu tam olarak 128 bayt olmalidir!");
 
 /// Raymarching analitik primitif degerlendirme butcesi ve SSBO sabit tahsis limiti.
 /// Vulkan 1.4 SSBO donanim kisitlamasi degil, 60+ FPS hedeflenen isin adimi basina (128 max adim)
-/// O(N) analitik test maliyetini ve 24 KB (256 * 96 B) onbellek dostu tampon boyutunu optimize eden
+/// O(N) analitik test maliyetini ve 32 KB (256 * 128 B) onbellek dostu tampon boyutunu optimize eden
 /// merkezi sahne limiti.
 inline constexpr size_t MAX_SDF_EDITS = 256;
 

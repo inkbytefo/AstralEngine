@@ -349,6 +349,78 @@ void Inspector::Draw(Scene& scene, Entity& selectedEntity) {
                 sdf.primitiveType = static_cast<uint32_t>(primitive);
             }
 
+            // Encoding Bilgisi
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(o)");
+            ImGui::SameLine(0, 5.0f);
+            ImGui::TextUnformatted("Encoding");
+            ImGui::SameLine(110.0f);
+            if (sdf.encoding == SDFShapeEncoding::LegacyPackedScale) {
+                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Legacy Packed Scale");
+                if (ImGui::Button("ExplicitShape'e Donustur")) {
+                    if (selectedEntity.HasComponent<TransformComponent>()) {
+                        const auto& t = selectedEntity.GetComponent<TransformComponent>();
+                        if (sdf.primitiveType == 0) sdf.shape.dimensions = glm::vec4(t.scale.x, 0, 0, 0);
+                        else if (sdf.primitiveType == 1) sdf.shape.dimensions = glm::vec4(t.scale, 0);
+                        else if (sdf.primitiveType == 2) sdf.shape.dimensions = glm::vec4(t.scale.x, t.scale.y, 0, 0);
+                        else if (sdf.primitiveType == 3) sdf.shape.dimensions = glm::vec4(t.scale.y, 0, 0, 0);
+                        else if (sdf.primitiveType == 4 || sdf.primitiveType == 5) sdf.shape.dimensions = glm::vec4(t.scale.x, t.scale.y, 0, 0);
+                    }
+                    sdf.encoding = SDFShapeEncoding::ExplicitShape;
+                }
+            } else {
+                ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.4f, 1.0f), "Explicit Shape");
+            }
+
+            // CSG Sırası
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(o)");
+            ImGui::SameLine(0, 5.0f);
+            ImGui::TextUnformatted("CSG Sira");
+            ImGui::SameLine(110.0f);
+            int orderVal = static_cast<int>(sdf.csgOrder);
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::DragInt("##CsgOrder", &orderVal, 1.0f, 0, 100000)) {
+                sdf.csgOrder = static_cast<uint64_t>(std::max(0, orderVal));
+            }
+
+            // Şekil Boyutları
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.75f, 1.0f), "Sekil Boyutlari");
+            switch (sdf.primitiveType) {
+                case 0: // Sphere
+                    DrawModernSliderProperty("Radius", "SphereR", &sdf.shape.dimensions.x, 0.01f, 50.0f, "%.2f m");
+                    break;
+                case 1: { // Box
+                    glm::vec3 halfExtents(sdf.shape.dimensions.x, sdf.shape.dimensions.y, sdf.shape.dimensions.z);
+                    if (DrawModernVector3Field("Half Extents", "BoxExt", halfExtents, 0.02f, glm::vec3(1.0f), 0.01f, 100.0f)) {
+                        sdf.shape.dimensions.x = halfExtents.x;
+                        sdf.shape.dimensions.y = halfExtents.y;
+                        sdf.shape.dimensions.z = halfExtents.z;
+                    }
+                    break;
+                }
+                case 2: // Torus
+                    DrawModernSliderProperty("Major Radius (R)", "TorusR", &sdf.shape.dimensions.x, 0.05f, 50.0f, "%.2f m");
+                    DrawModernSliderProperty("Minor Radius (r)", "Torusr", &sdf.shape.dimensions.y, 0.01f, 20.0f, "%.2f m");
+                    break;
+                case 3: // Plane
+                    DrawModernSliderProperty("Y Offset", "PlaneOff", &sdf.shape.dimensions.x, -50.0f, 50.0f, "%.2f m");
+                    break;
+                case 4: // Capsule
+                    DrawModernSliderProperty("Radius (r)", "CapR", &sdf.shape.dimensions.x, 0.01f, 20.0f, "%.2f m");
+                    DrawModernSliderProperty("Length (h)", "CapL", &sdf.shape.dimensions.y, 0.01f, 50.0f, "%.2f m");
+                    break;
+                case 5: // Cylinder
+                    DrawModernSliderProperty("Radius (r)", "CylR", &sdf.shape.dimensions.x, 0.01f, 20.0f, "%.2f m");
+                    DrawModernSliderProperty("Half Height (h)", "CylH", &sdf.shape.dimensions.y, 0.01f, 50.0f, "%.2f m");
+                    break;
+                default:
+                    break;
+            }
+
+            ImGui::Spacing();
+
             // CSG İşlemi (Combo)
             ImGui::AlignTextToFramePadding();
             ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(o)");

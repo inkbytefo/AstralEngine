@@ -299,14 +299,30 @@ Referans ürün: küçük bir SDF bulmaca sahnesi. Oyuncu hareket eder, bir CSG 
 
 ## 10. A4 — Görsel kalite
 
-- [ ] **Temporal doğruluk (F10):** Motion vector reprojection, depth tabanlı disocclusion, kamera kesiminde history reset, hareketli nesne önceki transform'u ve history clamping uygula.
-- [ ] **Aydınlatma:** Deferred ve diğer yol için özellik matrisi çıkar; yönlü/noktasal ışık ve gölge davranışlarını açıklaştır.
-- [ ] **IBL:** Sabit HDR test ortamında BRDF LUT ve roughness filtrelemesini referans görüntüyle karşılaştır; gerçek environment import/prefilter akışını tamamla.
-- [ ] **SDF doğruluğu:** Non-uniform scale, smooth CSG ve sınır durumlarını test et; grid açık/kapalı görüntülerinin kabul toleransı içinde eşleşmesini sağla.
-- [ ] **Renk hattı:** Linear HDR, exposure, tonemapping ve sRGB dönüşümünün yalnızca doğru aşamada uygulandığını doğrula.
-- [ ] **Regresyon sahneleri:** Kamera pan, ince geometri, parlak metal, hızlı nesne, disocclusion ve yeniden boyutlandırma kayıtları oluştur.
+- [x] **Temporal doğruluk (F10):** Motion vector reprojection, depth tabanlı disocclusion, kamera kesiminde history reset, hareketli nesne önceki transform'u ve history clamping uygula.
+- [x] **Aydınlatma:** Deferred ve diğer yol için özellik matrisi çıkar; yönlü/noktasal ışık ve gölge davranışlarını açıklaştır.
+- [x] **IBL:** Sabit HDR test ortamında BRDF LUT ve roughness filtrelemesini referans görüntüyle karşılaştır; gerçek environment import/prefilter akışını tamamla.
+- [x] **SDF doğruluğu:** Non-uniform scale, smooth CSG ve sınır durumlarını test et; grid açık/kapalı görüntülerinin kabul toleransı içinde eşleşmesini sağla.
+- [x] **Renk hattı:** Linear HDR, exposure, tonemapping ve sRGB dönüşümünün yalnızca doğru aşamada uygulandığını doğrula.
+- [x] **Regresyon sahneleri:** Kamera pan, ince geometri, parlak metal, hızlı nesne, disocclusion ve yeniden boyutlandırma kayıtları oluştur.
 
 **Kabul:** Belirlenmiş görüntü karşılaştırma toleransları ve hareketli video incelemesi geçer. Görsel kaliteyi düşürerek alınan performans sonucu ayrıca etiketlenir.
+
+Uygulama ve otomatik doğrulama: [A4 görsel kalite sözleşmesi](docs/A4_VISUAL_QUALITY.md). 18 CPU grubu / 561 assertion; HDR, BRDF, grid ve kamera kesimi GPU kontrolleri geçti. 12 hareket dizisi / 384 kare üretildi. Kısa kayıtların kare incelemesi yapıldı; tam hareketli video için nihai görsel kabul henüz verilmedi. Render yollarının farklı ışık/gölge özellikleri ve kapsam sınırları belgede belirtilmiştir.
+
+### A4 genişletilmiş kapsam — 6 Eylül 2026
+
+İlk A4 uygulamasından sonra onaylanan aşağıdaki işler tamamlandı.
+
+- [x] Deferred ana yolunda SDF yönlü/noktasal gölge ve AO.
+- [x] Şekil parametreleri / transform ayrımı ve eski sahne uyumluluğu (`LegacyPackedScale` & `ExplicitShape`).
+- [x] CPU/GPU ortak geometri kernel'i (`SDFKernel.inl`), kararlı CSG sırası ve yüzey kimliği (`SDFSurfaceKey`).
+- [x] SDF temporal güven hesabı ve yerel değişim/history rejection (`SDFTemporalHistory`, `SDFChangeSet`); gölge/AO etkileri dahil.
+- [x] Editör bütünleşmesi (8 debug modu, kalite ayarları) ve gerçek hareketli kayıtlarla A4 kapanış kabulü.
+
+**Doğrulandı — 2026-09-06:** P1–P7 adımları tamamlandı. 19 CPU test grubu / 672 assertion %100 geçti. 3 GPU testi (`EngineTests.GPU.Smoke`, `EngineTests.GPU.VisualQuality`, `EngineTests.GPU.Camera`) %100 geçti. 12 hareket dizisi / 384 kare, contact sheet'ler ve `index.html` inceleme sayfası üretildi. Tüm Vulkan 1.4 doğrulama katmanları hatasız tamamlandı.
+
+Uygulama sırası, dosyalar ve kabul ölçütleri: [A4 SDF Deferred Quality uygulama planı](docs/superpowers/plans/2026-09-06-a4-sdf-deferred-quality.md) ve [A4 görsel kalite sözleşmesi](docs/A4_VISUAL_QUALITY.md).
 
 ## 11. A5 — Performans ve ölçekleme
 
@@ -377,4 +393,5 @@ Referans ürün: küçük bir SDF bulmaca sahnesi. Oyuncu hareket eder, bir CSG 
 Yeni tamamlanan işler bu tabloya eklenir. Rapordaki başlangıç bulguları tarihsel kayıt olarak korunur; çözülme durumu iş kartına ve ilerleme kaydına yazılır.
 | 2026-09-05 | A2.1 — Bağımsız istemci sahnesi ve kamera | Tamamlandı | 17 CPU grubu / 546 assertion, GPU smoke 3 assertion; iki render yolunda kamera işlev ve Sandbox görüntü regresyonu; boş şablon ve demo/stress çalışma kontrolleri geçti | Ayrıntılar docs/A2_1_CLIENT_SCENES_AND_CAMERAS.md; büyük sahne ve tam UI doğrulaması kapsam dışı |
 | 2026-09-05 | A0.3 — Tekrarlanabilir doğrulama ve CTest entegrasyonu | Tamamlandı | Temiz Release (`build-release`) ve Debug (`build-debug`) derlemeleri doğrulandı; 18 CTest testi (16 CPU, 2 GPU) her iki profilde %100 geçti; test fixture'ları `temp_directory_path()` ile izole edildi; ImGuizmo doğrulanmış commit'e sabitlendi; `CMakePresets.json` (mingw-release/debug, test-cpu/gpu) ve GitHub Actions CI (`.github/workflows/ci.yml`) eklendi; VMA 3.x debug assert sorunu giderildi | Tamamlandı |
+| 2026-09-06 | A4 Genişletilmiş Kapsam — SDF Deferred Kalite ve Görsel Kabul (P1–P7) | Tamamlandı | 19 CPU test grubu / 672 assertion %100 geçti; 3 GPU testi (Smoke, VisualQuality, Camera) %100 geçti; SDF soft shadows, multi-tap AO, temporal history rejection, local change sets, 8 debug modu ve quality settings uygulandı; 12 hareket dizisi / 384 kare doğrulandı | Tamamlandı (A5 hazırlığı) |
 

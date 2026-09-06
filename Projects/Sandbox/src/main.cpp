@@ -66,6 +66,15 @@ static SandboxOptions ParseCommandLine(const Astral::CommandLineArgs& args) {
             config.useGBuffer = false;
         } else if (arg == "--debug-mode" && i + 1 < args.argc) {
             config.debugMode = std::stoi(args.argv[++i]);
+            config.qualitySettings.debugMode = config.debugMode;
+        } else if (arg == "--shadow-steps" && i + 1 < args.argc) {
+            config.qualitySettings.shadowMaxSteps = std::stoul(args.argv[++i]);
+        } else if (arg == "--shadow-dist" && i + 1 < args.argc) {
+            config.qualitySettings.shadowMaxDistance = std::stof(args.argv[++i]);
+        } else if (arg == "--ao-samples" && i + 1 < args.argc) {
+            config.qualitySettings.aoSamples = std::stoul(args.argv[++i]);
+        } else if (arg == "--ao-radius" && i + 1 < args.argc) {
+            config.qualitySettings.aoRadius = std::stof(args.argv[++i]);
         }
     }
 

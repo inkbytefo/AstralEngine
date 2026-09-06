@@ -19,11 +19,14 @@ public:
         // Obje 0: Zemin Entity
         Entity ground = editorScene->CreateEntity();
         ground.AddComponent<TransformComponent>(glm::vec3(0.0f, -1.0f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f));
-        ground.AddComponent<SDFComponent>(
+        auto& gSdf = ground.AddComponent<SDFComponent>(
             static_cast<uint32_t>(PrimitiveType::Plane),
             static_cast<uint32_t>(CSGOperation::Union),
             0.0f, 0u, glm::vec3(0.3f, 0.32f, 0.35f), 0.8f, 0.05f
         );
+        gSdf.shape = SDFShapeParameters(glm::vec4(0.0f, 0.0f, 0.0f, 0.0f));
+        gSdf.encoding = SDFShapeEncoding::ExplicitShape;
+        gSdf.csgOrder = 0;
 
         if (stress) {
             for (int i = 0; i < 31; ++i) {
@@ -34,56 +37,69 @@ public:
                 glm::vec3 pos = glm::vec3(std::cos(angle) * radius, heightY, std::sin(angle) * radius);
 
                 uint32_t type = i % 3; // 0=Sphere, 1=Box, 2=Torus
-                glm::vec3 scale{1.0f};
+                glm::vec4 dims{1.0f};
                 glm::vec3 albedo{1.0f};
                 if (type == 0) {
-                    scale = glm::vec3(0.5f + (i % 2) * 0.2f);
+                    dims = glm::vec4(0.5f + (i % 2) * 0.2f, 0.0f, 0.0f, 0.0f);
                     albedo = glm::vec3(0.85f, 0.2f + (i % 5) * 0.15f, 0.25f);
                 } else if (type == 1) {
-                    scale = glm::vec3(0.45f + (i % 3) * 0.1f);
+                    float bDim = 0.45f + (i % 3) * 0.1f;
+                    dims = glm::vec4(bDim, bDim, bDim, 0.0f);
                     albedo = glm::vec3(0.2f, 0.5f + (i % 4) * 0.1f, 0.9f);
                 } else {
-                    scale = glm::vec3(0.6f, 0.2f, 1.0f);
+                    dims = glm::vec4(0.6f, 0.2f, 0.0f, 0.0f);
                     albedo = glm::vec3(0.9f, 0.8f, 0.2f);
                 }
 
-                obj.AddComponent<TransformComponent>(pos, glm::quat(1.0f, 0.0f, 0.0f, 0.0f), scale);
+                obj.AddComponent<TransformComponent>(pos, glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f));
                 obj.AddComponent<VelocityComponent>(glm::vec3(0.0f), glm::vec3(0.0f, 0.2f, 0.0f));
-                obj.AddComponent<SDFComponent>(
+                auto& objSdf = obj.AddComponent<SDFComponent>(
                     type,
                     static_cast<uint32_t>(CSGOperation::SmoothUnion),
                     0.2f, 1u, albedo, 0.3f, 0.5f
                 );
+                objSdf.shape = SDFShapeParameters(dims);
+                objSdf.encoding = SDFShapeEncoding::ExplicitShape;
+                objSdf.csgOrder = static_cast<uint64_t>(i + 1);
             }
         } else {
             // Obje 1: Kutu
             m_Box = editorScene->CreateEntity();
-            m_Box.AddComponent<TransformComponent>(glm::vec3(-1.8f, 0.2f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(0.6f));
+            m_Box.AddComponent<TransformComponent>(glm::vec3(-1.8f, 0.2f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f));
             m_Box.AddComponent<VelocityComponent>(glm::vec3(0.0f), glm::vec3(0.0f, 0.5f, 0.0f));
-            m_Box.AddComponent<SDFComponent>(
+            auto& boxSdf = m_Box.AddComponent<SDFComponent>(
                 static_cast<uint32_t>(PrimitiveType::Box),
                 static_cast<uint32_t>(CSGOperation::SmoothUnion),
                 0.3f, 1u, glm::vec3(0.2f, 0.5f, 0.9f), 0.4f, 0.3f
             );
+            boxSdf.shape = SDFShapeParameters(glm::vec4(0.6f, 0.6f, 0.6f, 0.0f));
+            boxSdf.encoding = SDFShapeEncoding::ExplicitShape;
+            boxSdf.csgOrder = 1;
 
             // Obje 2: Merkez Kure
             Entity sphereEntity = editorScene->CreateEntity();
-            sphereEntity.AddComponent<TransformComponent>(glm::vec3(0.0f, 0.3f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(0.85f));
-            sphereEntity.AddComponent<SDFComponent>(
+            sphereEntity.AddComponent<TransformComponent>(glm::vec3(0.0f, 0.3f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f));
+            auto& sphereSdf = sphereEntity.AddComponent<SDFComponent>(
                 static_cast<uint32_t>(PrimitiveType::Sphere),
                 static_cast<uint32_t>(CSGOperation::SmoothUnion),
                 0.3f, 1u, glm::vec3(0.9f, 0.25f, 0.2f), 0.2f, 0.8f
             );
+            sphereSdf.shape = SDFShapeParameters(glm::vec4(0.85f, 0.0f, 0.0f, 0.0f));
+            sphereSdf.encoding = SDFShapeEncoding::ExplicitShape;
+            sphereSdf.csgOrder = 2;
 
             // Obje 3: Torus
             m_Torus = editorScene->CreateEntity();
-            m_Torus.AddComponent<TransformComponent>(glm::vec3(1.8f, 0.2f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(0.7f, 0.25f, 1.0f));
+            m_Torus.AddComponent<TransformComponent>(glm::vec3(1.8f, 0.2f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f));
             m_Torus.AddComponent<VelocityComponent>(glm::vec3(0.0f), glm::vec3(0.5f, 0.0f, 0.0f));
-            m_Torus.AddComponent<SDFComponent>(
+            auto& torusSdf = m_Torus.AddComponent<SDFComponent>(
                 static_cast<uint32_t>(PrimitiveType::Torus),
                 static_cast<uint32_t>(CSGOperation::SmoothUnion),
                 0.25f, 1u, glm::vec3(0.9f, 0.75f, 0.15f), 0.3f, 0.9f
             );
+            torusSdf.shape = SDFShapeParameters(glm::vec4(0.7f, 0.25f, 0.0f, 0.0f));
+            torusSdf.encoding = SDFShapeEncoding::ExplicitShape;
+            torusSdf.csgOrder = 3;
         }
 
         auto camera = editorScene->CreateEntity();

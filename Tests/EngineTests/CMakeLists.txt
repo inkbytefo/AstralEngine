@@ -15,9 +15,16 @@ add_executable(EngineTests
     src/ProjectTests.cpp
     src/GpuSmokeTest.cpp
     src/CameraTests.cpp
+    src/VisualQualityTests.cpp
     src/ApplicationLoopTests.cpp
     src/ServiceBoundariesTests.cpp
     src/EditorGameplayCycleTests.cpp
+    src/SDFShapeTests.cpp
+    src/SDFContractTests.cpp
+    src/SDFContractGpuTests.cpp
+    src/DeferredLightingTests.cpp
+    src/SDFTemporalTests.cpp
+    src/SDFChangeSetTests.cpp
     ${CMAKE_SOURCE_DIR}/Projects/Sandbox/src/PuzzleGameSubsystem.cpp
 )
 
@@ -29,6 +36,10 @@ target_include_directories(EngineTests PRIVATE
 target_link_libraries(EngineTests PRIVATE
     AstralEngine
 )
+
+add_executable(VisualQualityGpuTests src/VisualQualityGpuTests.cpp)
+target_link_libraries(VisualQualityGpuTests PRIVATE AstralEngine)
+set_target_properties(VisualQualityGpuTests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
 add_executable(CameraGpuTests src/CameraGpuTests.cpp)
 target_include_directories(CameraGpuTests PRIVATE "${CMAKE_SOURCE_DIR}/Projects/Sandbox/src")
@@ -77,6 +88,9 @@ if(BUILD_TESTING)
     register_cpu_subtest(ApplicationLoop --loop 20)
     register_cpu_subtest(ServiceBoundaries --boundaries 20)
     register_cpu_subtest(EditorGameplayCycle --gameplay 20)
+    register_cpu_subtest(DeferredLighting --lighting 20)
+    register_cpu_subtest(SDFTemporal --temporal 20)
+    register_cpu_subtest(SDFChangeSet --changeset 20)
 
     # 3. GPU Testleri (Ayrik GPU Etiketi - Donanim Kosucusu Gerektirir)
     add_test(NAME EngineTests.GPU.Smoke COMMAND EngineTests --gpu --gpu-frames 5)
@@ -85,7 +99,10 @@ if(BUILD_TESTING)
         TIMEOUT 60
     )
 
-    add_test(NAME EngineTests.GPU.Camera COMMAND CameraGpuTests "${CMAKE_CURRENT_BINARY_DIR}/camera_gpu_output" "${CMAKE_CURRENT_SOURCE_DIR}/../../artifacts/a21/after")
+    add_test(NAME EngineTests.GPU.VisualQuality COMMAND VisualQualityGpuTests "${CMAKE_CURRENT_BINARY_DIR}/visual_quality_output")
+    set_tests_properties(EngineTests.GPU.VisualQuality PROPERTIES LABELS "GPU" TIMEOUT 180)
+
+    add_test(NAME EngineTests.GPU.Camera COMMAND CameraGpuTests "${CMAKE_CURRENT_BINARY_DIR}/camera_gpu_output" "${CMAKE_CURRENT_SOURCE_DIR}/../../artifacts/a4/camera")
     set_tests_properties(EngineTests.GPU.Camera PROPERTIES
         LABELS "GPU"
         TIMEOUT 60

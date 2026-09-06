@@ -2,14 +2,21 @@
 
 find_program(GLSLC_EXECUTABLE glslc REQUIRED)
 
+set(GLSLC_INCLUDES -I${CMAKE_SOURCE_DIR}/include -I${CMAKE_SOURCE_DIR}/shaders)
+set(SDF_KERNEL_HEADERS 
+    "${CMAKE_SOURCE_DIR}/include/Astral/Geometry/SDFKernel.inl" 
+    "${CMAKE_SOURCE_DIR}/shaders/SDFScene.glsl"
+    "${CMAKE_SOURCE_DIR}/shaders/SDFVisibility.glsl"
+)
+
 set(SHADER_SRC "${CMAKE_SOURCE_DIR}/shaders/SDFCompute.glsl")
 set(SHADER_SPV "${CMAKE_BINARY_DIR}/shaders/SDFCompute.spv")
 
 add_custom_command(
     OUTPUT ${SHADER_SPV}
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/shaders"
-    COMMAND ${GLSLC_EXECUTABLE} -fshader-stage=compute ${SHADER_SRC} -o ${SHADER_SPV}
-    DEPENDS ${SHADER_SRC}
+    COMMAND ${GLSLC_EXECUTABLE} -fshader-stage=compute ${GLSLC_INCLUDES} ${SHADER_SRC} -o ${SHADER_SPV}
+    DEPENDS ${SHADER_SRC} ${SDF_KERNEL_HEADERS}
     COMMENT "Compiling ${SHADER_SRC} -> ${SHADER_SPV}"
 )
 
@@ -19,7 +26,7 @@ set(TAA_SHADER_SPV "${CMAKE_BINARY_DIR}/shaders/TAAResolve.spv")
 add_custom_command(
     OUTPUT ${TAA_SHADER_SPV}
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/shaders"
-    COMMAND ${GLSLC_EXECUTABLE} -fshader-stage=compute ${TAA_SHADER_SRC} -o ${TAA_SHADER_SPV}
+    COMMAND ${GLSLC_EXECUTABLE} -fshader-stage=compute ${GLSLC_INCLUDES} ${TAA_SHADER_SRC} -o ${TAA_SHADER_SPV}
     DEPENDS ${TAA_SHADER_SRC}
     COMMENT "Compiling ${TAA_SHADER_SRC} -> ${TAA_SHADER_SPV}"
 )
@@ -30,8 +37,8 @@ set(GBUFFER_SHADER_SPV "${CMAKE_BINARY_DIR}/shaders/SDFGBuffer.spv")
 add_custom_command(
     OUTPUT ${GBUFFER_SHADER_SPV}
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/shaders"
-    COMMAND ${GLSLC_EXECUTABLE} -fshader-stage=compute ${GBUFFER_SHADER_SRC} -o ${GBUFFER_SHADER_SPV}
-    DEPENDS ${GBUFFER_SHADER_SRC}
+    COMMAND ${GLSLC_EXECUTABLE} -fshader-stage=compute ${GLSLC_INCLUDES} ${GBUFFER_SHADER_SRC} -o ${GBUFFER_SHADER_SPV}
+    DEPENDS ${GBUFFER_SHADER_SRC} ${SDF_KERNEL_HEADERS}
     COMMENT "Compiling ${GBUFFER_SHADER_SRC} -> ${GBUFFER_SHADER_SPV}"
 )
 
@@ -41,7 +48,7 @@ set(DEBUG_COMPOSITE_SHADER_SPV "${CMAKE_BINARY_DIR}/shaders/SDFDebugComposite.sp
 add_custom_command(
     OUTPUT ${DEBUG_COMPOSITE_SHADER_SPV}
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/shaders"
-    COMMAND ${GLSLC_EXECUTABLE} -fshader-stage=compute ${DEBUG_COMPOSITE_SHADER_SRC} -o ${DEBUG_COMPOSITE_SHADER_SPV}
+    COMMAND ${GLSLC_EXECUTABLE} -fshader-stage=compute ${GLSLC_INCLUDES} ${DEBUG_COMPOSITE_SHADER_SRC} -o ${DEBUG_COMPOSITE_SHADER_SPV}
     DEPENDS ${DEBUG_COMPOSITE_SHADER_SRC}
     COMMENT "Compiling ${DEBUG_COMPOSITE_SHADER_SRC} -> ${DEBUG_COMPOSITE_SHADER_SPV}"
 )
@@ -52,9 +59,20 @@ set(DEFERRED_LIGHTING_SHADER_SPV "${CMAKE_BINARY_DIR}/shaders/DeferredLighting.s
 add_custom_command(
     OUTPUT ${DEFERRED_LIGHTING_SHADER_SPV}
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/shaders"
-    COMMAND ${GLSLC_EXECUTABLE} -fshader-stage=compute ${DEFERRED_LIGHTING_SHADER_SRC} -o ${DEFERRED_LIGHTING_SHADER_SPV}
-    DEPENDS ${DEFERRED_LIGHTING_SHADER_SRC}
+    COMMAND ${GLSLC_EXECUTABLE} -fshader-stage=compute ${GLSLC_INCLUDES} ${DEFERRED_LIGHTING_SHADER_SRC} -o ${DEFERRED_LIGHTING_SHADER_SPV}
+    DEPENDS ${DEFERRED_LIGHTING_SHADER_SRC} ${SDF_KERNEL_HEADERS}
     COMMENT "Compiling ${DEFERRED_LIGHTING_SHADER_SRC} -> ${DEFERRED_LIGHTING_SHADER_SPV}"
+)
+
+set(INVALIDATION_SHADER_SRC "${CMAKE_SOURCE_DIR}/shaders/SDFHistoryInvalidation.glsl")
+set(INVALIDATION_SHADER_SPV "${CMAKE_BINARY_DIR}/shaders/SDFHistoryInvalidation.spv")
+
+add_custom_command(
+    OUTPUT ${INVALIDATION_SHADER_SPV}
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/shaders"
+    COMMAND ${GLSLC_EXECUTABLE} -fshader-stage=compute ${GLSLC_INCLUDES} ${INVALIDATION_SHADER_SRC} -o ${INVALIDATION_SHADER_SPV}
+    DEPENDS ${INVALIDATION_SHADER_SRC}
+    COMMENT "Compiling ${INVALIDATION_SHADER_SRC} -> ${INVALIDATION_SHADER_SPV}"
 )
 
 add_custom_target(CompileShaders ALL DEPENDS 
@@ -63,6 +81,7 @@ add_custom_target(CompileShaders ALL DEPENDS
     ${GBUFFER_SHADER_SPV} 
     ${DEBUG_COMPOSITE_SHADER_SPV}
     ${DEFERRED_LIGHTING_SHADER_SPV}
+    ${INVALIDATION_SHADER_SPV}
 )
 
 add_library(AstralEngine STATIC
@@ -91,6 +110,9 @@ add_library(AstralEngine STATIC
     ${CMAKE_SOURCE_DIR}/src/Scene/Scene.cpp
     ${CMAKE_SOURCE_DIR}/src/Scene/SceneSerializer.cpp
     ${CMAKE_SOURCE_DIR}/src/Scene/SDFWorldQuery.cpp
+    ${CMAKE_SOURCE_DIR}/src/Geometry/SDFSceneSnapshot.cpp
+    ${CMAKE_SOURCE_DIR}/src/Geometry/SDFChangeSet.cpp
+    ${CMAKE_SOURCE_DIR}/src/Renderer/SDFTemporalHistory.cpp
     ${CMAKE_SOURCE_DIR}/src/Project/Project.cpp
     ${CMAKE_SOURCE_DIR}/src/Project/ProjectSerializer.cpp
 )

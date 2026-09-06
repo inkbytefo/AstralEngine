@@ -72,7 +72,12 @@ vk::SurfaceFormatKHR Swapchain::ChooseSwapSurfaceFormat(const std::vector<vk::Su
             return availableFormat;
         }
     }
-    return availableFormats[0];
+    for (const auto& format : availableFormats) {
+        if (format.format == vk::Format::eR8G8B8A8Unorm &&
+            format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) return format;
+    }
+    // The resolve already encodes sRGB. Blitting to an sRGB attachment would encode twice.
+    throw std::runtime_error("The SDR presentation path requires an RGBA8/BGRA8 UNORM sRGB-nonlinear surface");
 }
 
 vk::PresentModeKHR Swapchain::ChooseSwapPresentMode(const std::vector<vk::PresentModeKHR>& availablePresentModes) {

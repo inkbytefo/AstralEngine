@@ -8,7 +8,7 @@
 #include <cmath>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/constants.hpp>
-#include <unordered_map>
+
 
 namespace Astral {
 
@@ -128,7 +128,31 @@ void ExtractRenderData(Registry& registry, std::vector<SDFEditGPU>& outEdits, st
                 worldRotation.z,
                 worldRotation.w
             );
-            gpuData.scale = worldScale;
+            glm::vec3 effectiveScale = worldScale;
+            if (sdf.encoding == SDFShapeEncoding::ExplicitShape) {
+                switch (sdf.primitiveType) {
+                    case 0: // Sphere: radius in x
+                        effectiveScale = glm::vec3(sdf.shape.dimensions.x) * worldScale;
+                        break;
+                    case 1: // Box: half-extents in xyz
+                        effectiveScale = glm::vec3(sdf.shape.dimensions.x, sdf.shape.dimensions.y, sdf.shape.dimensions.z) * worldScale;
+                        break;
+                    case 2: // Torus: major in x, minor in y
+                        effectiveScale = glm::vec3(sdf.shape.dimensions.x, sdf.shape.dimensions.y, worldScale.z);
+                        break;
+                    case 3: // Plane: offset in x
+                        effectiveScale = worldScale;
+                        break;
+                    case 4: // Capsule: radius in x, length in y
+                    case 5: // Cylinder: radius in x, height in y
+                        effectiveScale = glm::vec3(sdf.shape.dimensions.x, sdf.shape.dimensions.y, sdf.shape.dimensions.x) * worldScale;
+                        break;
+                    default:
+                        effectiveScale = glm::vec3(sdf.shape.dimensions) * worldScale;
+                        break;
+                }
+            }
+            gpuData.scale = effectiveScale;
             gpuData.primitiveType = sdf.primitiveType;
             gpuData.operation = sdf.operation;
             gpuData.blendFactor = sdf.blendFactor;
@@ -137,17 +161,41 @@ void ExtractRenderData(Registry& registry, std::vector<SDFEditGPU>& outEdits, st
             gpuData.roughness = sdf.roughness;
             gpuData.metallic = sdf.metallic;
 
-            static std::unordered_map<EntityHandle, glm::vec3> s_PrevEntityPositions;
-            auto it = s_PrevEntityPositions.find(entity);
-            if (it != s_PrevEntityPositions.end()) {
-                gpuData.SetPrevPosition(it->second);
-            } else {
-                gpuData.SetPrevPosition(worldPosition);
-            }
-            s_PrevEntityPositions[entity] = worldPosition;
-
+            auto& history = registry.GetComponent<WorldTransformComponent>(entity);
+            gpuData.SetPrevPosition(history.hasRenderHistory ? history.renderedPosition : worldPosition);
+            gpuData.prevRotation = history.hasRenderHistory ? history.renderedRotation : gpuData.rotation;
+            gpuData.prevScale = glm::vec4(history.hasRenderHistory ? history.renderedScale : effectiveScale, 0.0f);
+            history.renderedPosition = worldPosition;
+            history.renderedRotation = gpuData.rotation;
+            history.renderedScale = effectiveScale;
+            history.hasRenderHistory = true;
             outEdits.push_back(gpuData);
             outEntities.push_back(entity);
+        }
+    }
+
+    // Deterministic ordering: sort edits by csgOrder, tie-break with entity handle
+    if (outEdits.size() > 1) {
+        struct EditEntityPair {
+            SDFEditGPU edit;
+            EntityHandle entity;
+            uint64_t csgOrder;
+        };
+        std::vector<EditEntityPair> pairs;
+        pairs.reserve(outEdits.size());
+        for (size_t i = 0; i < outEdits.size(); ++i) {
+            uint64_t csg = registry.HasComponent<SDFComponent>(outEntities[i])
+                ? registry.GetComponent<SDFComponent>(outEntities[i]).csgOrder
+                : 0;
+            pairs.push_back({outEdits[i], outEntities[i], csg});
+        }
+        std::sort(pairs.begin(), pairs.end(), [](const EditEntityPair& a, const EditEntityPair& b) {
+            if (a.csgOrder != b.csgOrder) return a.csgOrder < b.csgOrder;
+            return a.entity < b.entity;
+        });
+        for (size_t i = 0; i < pairs.size(); ++i) {
+            outEdits[i] = pairs[i].edit;
+            outEntities[i] = pairs[i].entity;
         }
     }
 }

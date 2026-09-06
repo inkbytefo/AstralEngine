@@ -100,7 +100,7 @@ void RunJobSystemTests() {
 
         auto longJob = jobSystem.Dispatch([&longJobStarted]() {
             longJobStarted.store(true, std::memory_order_release);
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
         });
 
         // Kuyruga kisa bir is daha at

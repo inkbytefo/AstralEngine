@@ -2,6 +2,8 @@
 
 İstemci başlangıç sahnesi, yaşam döngüsü hook'ları ve ECS kamera kullanımı için
 [A2.1 — İstemci sahneleri ve kameralar](docs/A2_1_CLIENT_SCENES_AND_CAMERAS.md)
+
+[A4 — Görsel kalite, ışık matrisi ve regresyonlar](docs/A4_VISUAL_QUALITY.md)
 belgesine bakın. `EmptyGameTemplate` artık kamera ve geometri içermeyen boş bir sahneyle açılır;
 eski Sandbox görüntü demosu `--demo` seçeneğiyle çalıştırılır.
 

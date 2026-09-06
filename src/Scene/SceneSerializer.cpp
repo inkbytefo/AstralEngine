@@ -182,13 +182,13 @@ static bool WriteSDFChunk(const IPool& pool, std::ostream& stream) {
     const uint32_t elementCount = static_cast<uint32_t>(set.Size());
     if (elementCount == 0) return true;
 
-    constexpr uint32_t componentBytesPerElem = 40;
+    constexpr uint32_t componentBytesPerElem = 68;
     const uint32_t entityDataSize = static_cast<uint32_t>(elementCount * sizeof(EntityHandle));
     const uint32_t componentDataSize = elementCount * componentBytesPerElem;
 
     const ComponentChunkHeader chunkHeader{
         .typeId = ComponentTraits<SDFComponent>::TypeHash,
-        .version = 1,
+        .version = 2,
         .flags = 0,
         .elementCount = elementCount,
         .entityDataSize = entityDataSize,
@@ -213,6 +213,13 @@ static bool WriteSDFChunk(const IPool& pool, std::ostream& stream) {
         float metalLE      = Endian::ToLittle(s.metallic);
         uint32_t visLE     = Endian::ToLittle(s.isVisible);
 
+        float dimXLE       = Endian::ToLittle(s.shape.dimensions.x);
+        float dimYLE       = Endian::ToLittle(s.shape.dimensions.y);
+        float dimZLE       = Endian::ToLittle(s.shape.dimensions.z);
+        float dimWLE       = Endian::ToLittle(s.shape.dimensions.w);
+        uint32_t encLE     = Endian::ToLittle(static_cast<uint32_t>(s.encoding));
+        uint64_t csgLE     = Endian::ToLittle(s.csgOrder);
+
         stream.write(reinterpret_cast<const char*>(&primLE), 4);
         stream.write(reinterpret_cast<const char*>(&opLE), 4);
         stream.write(reinterpret_cast<const char*>(&blendLE), 4);
@@ -223,6 +230,13 @@ static bool WriteSDFChunk(const IPool& pool, std::ostream& stream) {
         stream.write(reinterpret_cast<const char*>(&roughLE), 4);
         stream.write(reinterpret_cast<const char*>(&metalLE), 4);
         stream.write(reinterpret_cast<const char*>(&visLE), 4);
+
+        stream.write(reinterpret_cast<const char*>(&dimXLE), 4);
+        stream.write(reinterpret_cast<const char*>(&dimYLE), 4);
+        stream.write(reinterpret_cast<const char*>(&dimZLE), 4);
+        stream.write(reinterpret_cast<const char*>(&dimWLE), 4);
+        stream.write(reinterpret_cast<const char*>(&encLE), 4);
+        stream.write(reinterpret_cast<const char*>(&csgLE), 8);
     }
     return stream.good();
 }
@@ -468,7 +482,9 @@ static bool ReadSDFChunk(Registry& registry, std::istream& stream, const Compone
     const uint32_t elementCount = chunkHeader.elementCount;
     if (elementCount > SceneSerializer::MAX_ELEMENT_COUNT) return false;
 
-    constexpr uint32_t componentBytesPerElem = 40;
+    if (chunkHeader.version != 1 && chunkHeader.version != 2) return false;
+
+    const uint32_t componentBytesPerElem = (chunkHeader.version == 1) ? 40 : 68;
     if (chunkHeader.entityDataSize != elementCount * sizeof(EntityHandle) ||
         chunkHeader.componentDataSize != elementCount * componentBytesPerElem) {
         return false;
@@ -510,6 +526,61 @@ static bool ReadSDFChunk(Registry& registry, std::istream& stream, const Compone
             data[i].roughness     = Endian::FromLittle(roughLE);
             data[i].metallic      = Endian::FromLittle(metalLE);
             data[i].isVisible     = Endian::FromLittle(visLE);
+
+            if (chunkHeader.version == 1) {
+                data[i].shape.dimensions = glm::vec4(1.0f);
+                data[i].encoding = SDFShapeEncoding::LegacyPackedScale;
+                data[i].csgOrder = i;
+            } else {
+                float dimXLE = 0.0f, dimYLE = 0.0f, dimZLE = 0.0f, dimWLE = 0.0f;
+                uint32_t encLE = 0;
+                uint64_t csgLE = 0;
+
+                stream.read(reinterpret_cast<char*>(&dimXLE), 4);
+                stream.read(reinterpret_cast<char*>(&dimYLE), 4);
+                stream.read(reinterpret_cast<char*>(&dimZLE), 4);
+                stream.read(reinterpret_cast<char*>(&dimWLE), 4);
+                stream.read(reinterpret_cast<char*>(&encLE), 4);
+                stream.read(reinterpret_cast<char*>(&csgLE), 8);
+                if (!stream) return false;
+
+                data[i].shape.dimensions.x = Endian::FromLittle(dimXLE);
+                data[i].shape.dimensions.y = Endian::FromLittle(dimYLE);
+                data[i].shape.dimensions.z = Endian::FromLittle(dimZLE);
+                data[i].shape.dimensions.w = Endian::FromLittle(dimWLE);
+                const uint32_t encVal = Endian::FromLittle(encLE);
+                if (encVal > 1) return false;
+                data[i].encoding = static_cast<SDFShapeEncoding>(encVal);
+                data[i].csgOrder = Endian::FromLittle(csgLE);
+
+                if (!std::isfinite(data[i].shape.dimensions.x) ||
+                    !std::isfinite(data[i].shape.dimensions.y) ||
+                    !std::isfinite(data[i].shape.dimensions.z) ||
+                    !std::isfinite(data[i].shape.dimensions.w)) {
+                    return false;
+                }
+
+                if (data[i].primitiveType == 0) {
+                    if (data[i].shape.dimensions.x < 0.0f) return false;
+                } else if (data[i].primitiveType == 1) {
+                    if (data[i].shape.dimensions.x < 0.0f || data[i].shape.dimensions.y < 0.0f || data[i].shape.dimensions.z < 0.0f) return false;
+                } else if (data[i].primitiveType == 2) {
+                    if (data[i].shape.dimensions.x < 0.0f || data[i].shape.dimensions.y < 0.0f) return false;
+                } else if (data[i].primitiveType == 4) {
+                    if (data[i].shape.dimensions.x < 0.0f || data[i].shape.dimensions.y < 0.0f) return false;
+                } else if (data[i].primitiveType == 5) {
+                    if (data[i].shape.dimensions.x < 0.0f || data[i].shape.dimensions.y < 0.0f) return false;
+                }
+            }
+
+            if (!std::isfinite(data[i].blendFactor) ||
+                !std::isfinite(data[i].albedo.x) || !std::isfinite(data[i].albedo.y) || !std::isfinite(data[i].albedo.z) ||
+                !std::isfinite(data[i].roughness) || !std::isfinite(data[i].metallic)) {
+                return false;
+            }
+            if (data[i].primitiveType > 5 || data[i].operation > 4) {
+                return false;
+            }
         }
     }
 

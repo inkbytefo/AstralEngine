@@ -9,6 +9,7 @@
 #include "Astral/Core/Input/ActionMap.hpp"
 #include "Astral/Core/Threading/JobSystem.hpp"
 #include "Astral/Scene/SceneManager.hpp"
+#include "Astral/Renderer/QualitySettings.hpp"
 
 #include "Astral/Scene/Entity.hpp"
 
@@ -57,6 +58,7 @@ struct AppConfig {
     bool enableTAA = true;   // PR-8: Sub-Pixel Jitter & Temporal Anti-Aliasing (TAA) aktif
     bool useGBuffer = true;  // Faz 1: Deferred G-Buffer & Motion Vectors hattı (Varsayılan aktif)
     int debugMode = 0;       // G-Buffer Debug: 0=Shaded, 1=Albedo, 2=Normal, 3=Depth, 4=Motion, 5=Material
+    QualitySettings qualitySettings{};
     std::string shaderPath = "";
     int maxFrames = -1;      // Belirtilen kare sayisina ulasildiginda otomatik sonlanma (-1 = sonsuz dongu)
 };
@@ -146,6 +148,13 @@ public:
 
     void SetMaxSubSteps(uint32_t steps) noexcept { m_Config.maxSubSteps = steps; }
     [[nodiscard]] uint32_t GetMaxSubSteps() const noexcept { return m_Config.maxSubSteps; }
+
+    void SetQualitySettings(const QualitySettings& qs) noexcept { m_Config.qualitySettings = qs; }
+    [[nodiscard]] const QualitySettings& GetQualitySettings() const noexcept { return m_Config.qualitySettings; }
+    [[nodiscard]] QualitySettings& GetQualitySettings() noexcept { return m_Config.qualitySettings; }
+
+    void SetDebugMode(int mode) noexcept;
+    [[nodiscard]] int GetDebugMode() const noexcept { return m_Config.debugMode; }
 
     [[nodiscard]] float GetAccumulator() const noexcept { return m_Accumulator; }
     [[nodiscard]] float GetInterpolationAlpha() const noexcept { return m_InterpolationAlpha; }

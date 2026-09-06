@@ -4,8 +4,8 @@
 //
 // Yenilikler (Faz 3 - Secenek A):
 // 1. g_MotionVectors ile alt-piksel geriye yansitma (Subpixel Reprojection).
-// 2. YCoCg renk uzayinda 3x3 Varyans Kirpmasi (Variance / AABB Clipping) — sifir ghosting.
-// 3. Catmull-Rom 5-tap bicubic filtreleme ile donanimsal linear ornekleme — sifir temporal bulaniklik.
+// 2. YCoCg renk uzayinda 3x3 Varyans Kirpmasi (Variance / AABB Clipping).
+// 3. Catmull-Rom 5-tap bicubic filtreleme ile donanimsal linear ornekleme.
 // 4. Luminance weighting ile anti-flicker ve parlak nokta (specular highlight) kararliligi.
 // 5. Dogrusal HDR ciktisi (outHistory) ve ACES Filmik Tonemapping + sRGB gamma (outImage).
 //
@@ -18,9 +18,21 @@ layout(binding = 2, rgba8)   uniform writeonly image2D outImage;
 layout(binding = 3, rgba16f) uniform writeonly image2D outHistory;
 layout(binding = 4, rg16f)   uniform readonly image2D motionVectors;
 
+layout(binding = 5, r32f) uniform readonly image2D currentDepth;
+layout(binding = 6, rgba16f) uniform readonly image2D normalDepth;
+
 layout(push_constant) uniform TAAPushConstants {
-    vec4 screenRes; // x: width, y: height, z: frameIndex (0 = reset), w: blendAlpha (negatif ise debug bypass)
+    vec4 screenRes; // xy: extent, z: reset/frame, w: blend
+    vec4 colorParams; // x: exposure, y: numChangedRects, z: isGlobalChange, w: reserved
+    vec4 changedRect0; // xy: minUV, zw: maxUV
+    vec4 changedRect1; // xy: minUV, zw: maxUV
+    vec4 changedRect2; // xy: minUV, zw: maxUV
+    vec4 changedRect3; // xy: minUV, zw: maxUV
 };
+
+bool isInsideRect(vec2 uv, vec4 r) {
+    return uv.x >= r.x && uv.x <= r.z && uv.y >= r.y && uv.y <= r.w;
+}
 
 // ACES Filmik Tonemapping Operatoru
 vec3 acesTonemap(vec3 x) {
@@ -114,6 +126,7 @@ void main() {
     vec2 motion = imageLoad(motionVectors, pixel).xy;
     if (isnan(motion.x) || isnan(motion.y) || isinf(motion.x) || isinf(motion.y)) {
         motion = vec2(0.0);
+        alpha = 1.0;
     }
     vec2 prevUV = currUV - motion;
 
@@ -123,6 +136,44 @@ void main() {
         alpha = 1.0;
     }
 
+    float depth = imageLoad(currentDepth, pixel).r;
+    float expectedDepth = imageLoad(normalDepth, pixel).a;
+    float lightingSignal = clamp(imageLoad(currImage, pixel).a, 0.0, 1.0);
+
+    // A4-P5: Yerel degisim ve gecmis reddi (Local Invalidation)
+    if (colorParams.z > 0.5) {
+        alpha = 1.0; // Global invalidation
+    } else {
+        int numRects = int(colorParams.y);
+        bool inChangedRegion = false;
+        if (numRects > 0 && (isInsideRect(currUV, changedRect0) || isInsideRect(prevUV, changedRect0))) inChangedRegion = true;
+        if (numRects > 1 && (isInsideRect(currUV, changedRect1) || isInsideRect(prevUV, changedRect1))) inChangedRegion = true;
+        if (numRects > 2 && (isInsideRect(currUV, changedRect2) || isInsideRect(prevUV, changedRect2))) inChangedRegion = true;
+        if (numRects > 3 && (isInsideRect(currUV, changedRect3) || isInsideRect(prevUV, changedRect3))) inChangedRegion = true;
+        if (inChangedRegion) {
+            alpha = 1.0; // Hard rejection for changed region
+        }
+    }
+
+    if (alpha < 0.999) {
+        ivec2 previousPixel = clamp(ivec2(prevUV * vec2(res)), ivec2(0), res - 1);
+        float historyDepth = texelFetch(historyTexture, previousPixel, 0).a;
+
+        bool depthValid = (depth > 0.0 && expectedDepth > 0.0 &&
+                           abs(historyDepth - expectedDepth) <= max(0.03, 0.02 * expectedDepth));
+
+        if (!depthValid) {
+            alpha = 1.0; // Hard rejection
+        } else {
+            // A4-P4: Guven faktoru ile tarihce agirligini ayarla (normal & aydinlatma guveni)
+            vec3 currNormal = imageLoad(normalDepth, pixel).rgb;
+            float normalConfidence = (length(currNormal) > 0.1) ? clamp(abs(currNormal.z) + 0.3, 0.3, 1.0) : 1.0;
+            float lightingConfidence = clamp(lightingSignal, 0.25, 1.0);
+            float confidence = lightingConfidence * normalConfidence;
+            float baseHistoryWeight = 0.88 * clamp(confidence, 0.0, 1.0);
+            alpha = 1.0 - baseHistoryWeight;
+        }
+    }
     vec3 blendedHDR = curr;
 
     if (alpha < 0.999) {
@@ -163,7 +214,7 @@ void main() {
 
         // 3. Tarihceyi AABB'ye Kirp (Variance Clipping)
         vec3 currYCoCg = RGB_to_YCoCg(curr);
-        vec3 clippedYCoCg = clipAABB(aabbMin, aabbMax, currYCoCg, histYCoCg);
+        vec3 clippedYCoCg = clipAABB(aabbMin, aabbMax, (aabbMin + aabbMax) * 0.5, histYCoCg);
         vec3 clampedHistRGB = max(YCoCg_to_RGB(clippedYCoCg), vec3(0.0));
 
         // 4. Luminance Weighting (Anti-Flicker)
@@ -180,11 +231,11 @@ void main() {
     }
 
     // Bir sonraki kare icin saf Dogrusal HDR tarihceye yazilir
-    imageStore(outHistory, pixel, vec4(blendedHDR, 1.0));
+    imageStore(outHistory, pixel, vec4(blendedHDR, depth));
 
     // Nihai goruntu icin ACES Tonemapping ve Gamma (sRGB) uygulanir
-    vec3 tonemapped = acesTonemap(blendedHDR);
-    tonemapped = pow(tonemapped, vec3(1.0 / 2.2));
+    vec3 tonemapped = acesTonemap(blendedHDR * colorParams.x);
+    tonemapped = mix(12.92 * tonemapped, 1.055 * pow(tonemapped, vec3(1.0 / 2.4)) - 0.055, greaterThan(tonemapped, vec3(0.0031308)));
 
     imageStore(outImage, pixel, vec4(tonemapped, 1.0));
 }

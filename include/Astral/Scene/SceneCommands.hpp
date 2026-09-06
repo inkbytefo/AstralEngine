@@ -268,5 +268,33 @@ private:
     EntityHandle m_NewParent;
 };
 
+/// SDF Bileseni degisikligi komutu (Inspector veya Undo/Redo icin)
+class ModifySDFCommand : public ICommand {
+public:
+    ModifySDFCommand(Entity entity, SDFComponent oldSdf, SDFComponent newSdf)
+        : m_Entity(entity), m_OldSDF(oldSdf), m_NewSDF(newSdf) {}
+
+    void Execute() override {
+        if (m_Entity.IsValid() && m_Entity.HasComponent<SDFComponent>()) {
+            m_Entity.GetComponent<SDFComponent>() = m_NewSDF;
+        }
+    }
+
+    void Undo() override {
+        if (m_Entity.IsValid() && m_Entity.HasComponent<SDFComponent>()) {
+            m_Entity.GetComponent<SDFComponent>() = m_OldSDF;
+        }
+    }
+
+    [[nodiscard]] std::string GetName() const override {
+        return "SDF Geometri Degistir";
+    }
+
+private:
+    Entity m_Entity;
+    SDFComponent m_OldSDF;
+    SDFComponent m_NewSDF;
+};
+
 } // namespace Astral
 

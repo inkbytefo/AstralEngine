@@ -8,6 +8,8 @@
 #include <vector>
 #include "Astral/Core/EntityHandle.hpp"
 
+#include "Astral/Geometry/SDFShape.hpp"
+
 namespace Astral {
 
 struct TagComponent {
@@ -40,6 +42,10 @@ struct CameraComponent {
 /// TransformSystem tarafindan her kare uretilen, serialize edilmeyen world-space cache.
 struct WorldTransformComponent {
     glm::mat4 matrix{1.0f};
+    glm::vec3 renderedPosition{0.0f};
+    glm::vec4 renderedRotation{0.0f, 0.0f, 0.0f, 1.0f};
+    glm::vec3 renderedScale{1.0f};
+    bool hasRenderHistory = false;
 };
 
 /// Parent-child baglantilari ayri tutulur; TransformComponent kontigu ve trivially-copyable kalir.
@@ -66,6 +72,9 @@ struct SDFComponent {
     float roughness = 0.5f;
     float metallic = 0.0f;
     uint32_t isVisible = 1;     // 1: Gorunur, 0: Gizli
+    SDFShapeParameters shape{};
+    SDFShapeEncoding encoding = SDFShapeEncoding::ExplicitShape;
+    uint64_t csgOrder = 0;
 };
 
 struct VisibilityComponent {

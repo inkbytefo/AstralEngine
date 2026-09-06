@@ -29,6 +29,7 @@ struct MenuBarActions {
     bool playToggle    = false;
     bool pauseToggle   = false;
     bool stopPlay      = false;
+    int  setDebugMode  = -1;
 };
 
 void DrawEditorMenuBar(Scene& scene, Entity& selectedEntity,

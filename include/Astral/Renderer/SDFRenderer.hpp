@@ -17,6 +17,10 @@
 #include "Astral/Renderer/IBLManager.hpp"
 #include "Astral/Renderer/ComputePipeline.hpp"
 #include "Astral/Renderer/RenderCamera.hpp"
+#include "Astral/Renderer/SDFTemporalHistory.hpp"
+#include "Astral/Geometry/SDFChangeSet.hpp"
+#include "Astral/Geometry/SDFSceneSnapshot.hpp"
+#include <span>
 #include <optional>
 
 namespace Astral {
@@ -39,6 +43,8 @@ public:
 
     /// Dinamik primitifleri GPU SSBO'ya aktarir ve Two-Level BrickGrid'i gunceller
     void UpdateEdits(const std::vector<SDFEditGPU>& edits, bool useLegacyMapUnmap = false);
+    void UpdateEdits(std::span<const SDFPrimitiveRecord> records, bool useLegacyMapUnmap = false);
+    void UpdateEdits(const SDFSceneSnapshot& snapshot, bool useLegacyMapUnmap = false);
 
     void Render(vk::CommandBuffer cmd, float time, uint32_t normalMode, int width, int height,
                 bool useGrid = true, bool optShadow = true, bool enableTAA = true, uint32_t frameIndex = 0);
@@ -70,11 +76,19 @@ public:
     void SetCamera(const std::optional<RenderCamera>& camera, const glm::vec2& jitter = glm::vec2(0.0f));
 
     /// G-Buffer modunu aktif/pasif yapar
-    void SetUseGBuffer(bool enabled) noexcept { m_UseGBuffer = enabled; }
+    void ResetTemporalHistory() noexcept {
+        m_HistoryInitialized = false;
+        m_CameraMatricesInitialized = false;
+        if (m_TemporalHistory) m_TemporalHistory->Reset();
+    }
+    /// Main/render thread only. Import and filtering complete before replacing live resources.
+    void LoadEnvironment(const std::filesystem::path& path);
+    void SetExposure(float multiplier);
+    void SetUseGBuffer(bool enabled) noexcept { if (enabled != m_UseGBuffer) ResetTemporalHistory(); m_UseGBuffer = enabled; }
     [[nodiscard]] bool IsUsingGBuffer() const noexcept { return m_UseGBuffer; }
 
     /// G-Buffer onizleme modunu ayarlar (0: Shaded, 1: Albedo, 2: Normal, 3: Depth, 4: Motion, 5: Material)
-    void SetDebugMode(int mode) noexcept { m_DebugMode = mode; }
+    void SetDebugMode(int mode) noexcept { if (mode != m_DebugMode) ResetTemporalHistory(); m_DebugMode = mode; }
     [[nodiscard]] int GetDebugMode() const noexcept { return m_DebugMode; }
 
     // G-Buffer Render Hedefleri Getter'lari
@@ -113,6 +127,12 @@ public:
     [[nodiscard]] std::vector<LightGPU>& GetLights() noexcept { return m_Lights; }
     [[nodiscard]] const std::vector<LightGPU>& GetLights() const noexcept { return m_Lights; }
 
+    [[nodiscard]] SDFTemporalHistory* GetTemporalHistory() noexcept { return m_TemporalHistory.get(); }
+    [[nodiscard]] const SDFTemporalHistory* GetTemporalHistory() const noexcept { return m_TemporalHistory.get(); }
+
+    void SetChangeSet(const SDFChangeSet& changeSet) noexcept { m_CurrentChangeSet = changeSet; }
+    [[nodiscard]] const SDFChangeSet& GetChangeSet() const noexcept { return m_CurrentChangeSet; }
+
 private:
     vk::UniqueSampler m_ViewportSampler;
     vk::UniqueSampler m_LinearClampSampler; // TAA alt-piksel Catmull-Rom ornekleyicisi
@@ -135,6 +155,9 @@ private:
     int m_PickingMouseY = -1;
     int m_SelectedHitIndex = -1;
     bool m_HistoryInitialized = false;
+    bool m_PreviousTAAEnabled = false;
+    float m_Exposure = 1.0f;
+    glm::vec3 m_PreviousCameraPosition{0.0f};
 
     // G-Buffer Pipeline & Degiskenleri (Faz 1)
     bool m_UseGBuffer = false;
@@ -193,6 +216,8 @@ private:
     std::unique_ptr<IBLManager> m_IBLManager;
     std::unique_ptr<Buffer> m_LightBuffer;
     std::vector<LightGPU> m_Lights;
+    std::unique_ptr<SDFTemporalHistory> m_TemporalHistory;
+    SDFChangeSet m_CurrentChangeSet;
 
     // TAA Pipeline (PR-8)
     std::string m_TaaSpvPath;

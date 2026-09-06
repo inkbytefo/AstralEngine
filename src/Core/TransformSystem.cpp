@@ -55,6 +55,10 @@ void UpdateWorldTransforms(Registry& registry) {
     auto& transforms = registry.GetView<TransformComponent>();
     for (auto&& [entity, transform] : transforms) {
         (void)transform;
+        if (registry.HasComponent<WorldTransformComponent>(entity)) {
+            registry.GetComponent<WorldTransformComponent>(entity).matrix = GetWorldTransformMatrix(registry, entity);
+            continue;
+        }
         WorldTransformComponent worldTransform{GetWorldTransformMatrix(registry, entity)};
         registry.AddComponent<WorldTransformComponent>(entity, std::move(worldTransform));
     }
