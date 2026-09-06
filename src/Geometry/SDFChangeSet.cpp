@@ -93,7 +93,24 @@ static bool GetWorldBounds(const SDFPrimitiveRecord& rec, glm::vec3& outMin, glm
     return true;
 }
 
-static ScreenRect ProjectWorldBoundsToScreen(const glm::vec3& worldMin, const glm::vec3& worldMax, const glm::mat4& viewProj) {
+static ScreenRect ProjectWorldBoundsToScreen(
+    const glm::vec3& worldMin,
+    const glm::vec3& worldMax,
+    const glm::mat4& viewProj,
+    float dilation = 0.015f
+) {
+    // 1. Check if camera position is strictly inside the world bounds
+    glm::mat4 invVP = glm::inverse(viewProj);
+    glm::vec4 camH = invVP * glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
+    if (std::abs(camH.w) > 1e-6f) {
+        glm::vec3 camPos = glm::vec3(camH) / camH.w;
+        if (camPos.x >= worldMin.x && camPos.x <= worldMax.x &&
+            camPos.y >= worldMin.y && camPos.y <= worldMax.y &&
+            camPos.z >= worldMin.z && camPos.z <= worldMax.z) {
+            return ScreenRect{glm::vec2(0.0f), glm::vec2(1.0f)};
+        }
+    }
+
     glm::vec3 corners[8] = {
         {worldMin.x, worldMin.y, worldMin.z},
         {worldMax.x, worldMin.y, worldMin.z},
@@ -105,23 +122,14 @@ static ScreenRect ProjectWorldBoundsToScreen(const glm::vec3& worldMin, const gl
         {worldMax.x, worldMax.y, worldMax.z}
     };
 
+    glm::vec4 clipCorners[8];
     bool allBehind = true;
-    bool anyNearClipped = false;
-    glm::vec2 minUV(1.0f);
-    glm::vec2 maxUV(0.0f);
+    constexpr float wNear = 0.001f;
 
     for (int i = 0; i < 8; ++i) {
-        glm::vec4 clip = viewProj * glm::vec4(corners[i], 1.0f);
-        if (clip.w <= 0.001f) {
-            anyNearClipped = true;
-        } else {
+        clipCorners[i] = viewProj * glm::vec4(corners[i], 1.0f);
+        if (clipCorners[i].w > wNear) {
             allBehind = false;
-            glm::vec2 ndc = glm::vec2(clip.x, clip.y) / clip.w;
-            glm::vec2 uv = ndc * 0.5f + 0.5f;
-            if (std::isfinite(uv.x) && std::isfinite(uv.y)) {
-                minUV = glm::min(minUV, uv);
-                maxUV = glm::max(maxUV, uv);
-            }
         }
     }
 
@@ -129,16 +137,59 @@ static ScreenRect ProjectWorldBoundsToScreen(const glm::vec3& worldMin, const gl
         return ScreenRect{};
     }
 
-    if (anyNearClipped) {
-        return ScreenRect{glm::vec2(0.0f), glm::vec2(1.0f)};
+    // 2. Conservative edge clipping against near plane w = wNear
+    static constexpr std::pair<int, int> edges[12] = {
+        {0, 1}, {2, 3}, {4, 5}, {6, 7}, // X
+        {0, 2}, {1, 3}, {4, 6}, {5, 7}, // Y
+        {0, 4}, {1, 5}, {2, 6}, {3, 7}  // Z
+    };
+
+    glm::vec2 minUV(1.0f);
+    glm::vec2 maxUV(0.0f);
+    bool anyValidPoint = false;
+
+    auto includePoint = [&](const glm::vec4& clip) {
+        if (clip.w <= 0.0001f) return;
+        glm::vec2 ndc = glm::vec2(clip.x, clip.y) / clip.w;
+        glm::vec2 uv = ndc * 0.5f + 0.5f;
+        if (std::isfinite(uv.x) && std::isfinite(uv.y)) {
+            minUV = glm::min(minUV, uv);
+            maxUV = glm::max(maxUV, uv);
+            anyValidPoint = true;
+        }
+    };
+
+    for (int i = 0; i < 8; ++i) {
+        if (clipCorners[i].w > wNear) {
+            includePoint(clipCorners[i]);
+        }
+    }
+
+    for (const auto& [i, j] : edges) {
+        const glm::vec4& c0 = clipCorners[i];
+        const glm::vec4& c1 = clipCorners[j];
+        bool c0InFront = (c0.w > wNear);
+        bool c1InFront = (c1.w > wNear);
+
+        if (c0InFront != c1InFront) {
+            float t = (wNear - c0.w) / (c1.w - c0.w);
+            t = glm::clamp(t, 0.0f, 1.0f);
+            glm::vec4 clipped = glm::mix(c0, c1, t);
+            clipped.w = wNear;
+            includePoint(clipped);
+        }
+    }
+
+    if (!anyValidPoint) {
+        return ScreenRect{};
     }
 
     minUV = glm::clamp(minUV, glm::vec2(0.0f), glm::vec2(1.0f));
     maxUV = glm::clamp(maxUV, glm::vec2(0.0f), glm::vec2(1.0f));
 
-    // Expand by small margin for reconstruction filter footprint
-    minUV = glm::max(glm::vec2(0.0f), minUV - 0.005f);
-    maxUV = glm::min(glm::vec2(1.0f), maxUV + 0.005f);
+    // 3. Conservative screen-space dilation
+    minUV = glm::max(glm::vec2(0.0f), minUV - dilation);
+    maxUV = glm::min(glm::vec2(1.0f), maxUV + dilation);
 
     return ScreenRect{minUV, maxUV};
 }
@@ -286,6 +337,26 @@ SDFChangeSet SDFChangeSet::Compare(
         }
     }
 
+    // If more than 4 non-intersecting rects remain, merge pairs that introduce the least dead space
+    while (result.m_ScreenRects.size() > 4) {
+        size_t bestA = 0, bestB = 1;
+        float bestCost = 1e9f;
+        for (size_t i = 0; i < result.m_ScreenRects.size(); ++i) {
+            for (size_t j = i + 1; j < result.m_ScreenRects.size(); ++j) {
+                ScreenRect u = result.m_ScreenRects[i];
+                u.Union(result.m_ScreenRects[j]);
+                float cost = u.Area() - (result.m_ScreenRects[i].Area() + result.m_ScreenRects[j].Area());
+                if (cost < bestCost) {
+                    bestCost = cost;
+                    bestA = i;
+                    bestB = j;
+                }
+            }
+        }
+        result.m_ScreenRects[bestA].Union(result.m_ScreenRects[bestB]);
+        result.m_ScreenRects.erase(result.m_ScreenRects.begin() + bestB);
+    }
+
     // If total invalidation area covers > 70% of screen, consider global change
     float totalArea = 0.0f;
     for (const auto& r : result.m_ScreenRects) {
@@ -310,18 +381,17 @@ void SDFChangeSet::GetPackedRects(std::array<glm::vec4, 4>& outRects, uint32_t& 
     }
 
     std::vector<ScreenRect> rects = m_ScreenRects;
-    // Iteratively merge until <= 4 rects
+    // Iteratively merge until <= 4 rects using area-weighted dead space minimization
     while (rects.size() > 4) {
-        // Find pair with smallest merged area
         size_t bestA = 0, bestB = 1;
-        float bestMergedArea = 1e9f;
+        float bestCost = 1e9f;
         for (size_t i = 0; i < rects.size(); ++i) {
             for (size_t j = i + 1; j < rects.size(); ++j) {
-                ScreenRect m = rects[i];
-                m.Union(rects[j]);
-                float a = m.Area();
-                if (a < bestMergedArea) {
-                    bestMergedArea = a;
+                ScreenRect u = rects[i];
+                u.Union(rects[j]);
+                float cost = u.Area() - (rects[i].Area() + rects[j].Area());
+                if (cost < bestCost) {
+                    bestCost = cost;
                     bestA = i;
                     bestB = j;
                 }

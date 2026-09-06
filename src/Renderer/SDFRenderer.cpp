@@ -1154,19 +1154,19 @@ void SDFRenderer::UpdateEdits(std::span<const SDFPrimitiveRecord> records, bool 
 
         if (m_PrevTransformBuffer) {
             std::vector<glm::mat4> prevMatrices(m_ActiveEditCount);
-            std::unordered_map<uint32_t, glm::mat4> nextWorldTransforms;
-            nextWorldTransforms.reserve(m_ActiveEditCount);
 
             for (size_t i = 0; i < m_ActiveEditCount; ++i) {
                 const auto& rec = records[i];
                 glm::mat4 currWorldTransform = glm::inverse(rec.invTransform);
-                auto it = m_PrevWorldTransforms.find(rec.surfaceId);
+                // For valid entity surfaceId, use rec.surfaceId. If 0 (e.g. raw test record), fallback to unique per-index key.
+                uint32_t key = (rec.surfaceId != 0u) ? rec.surfaceId : (0x80000000u | static_cast<uint32_t>(i));
+                auto it = m_PrevWorldTransforms.find(key);
                 if (it != m_PrevWorldTransforms.end()) {
                     prevMatrices[i] = it->second;
                 } else {
                     prevMatrices[i] = currWorldTransform;
                 }
-                nextWorldTransforms[rec.surfaceId] = currWorldTransform;
+                m_PrevWorldTransforms[key] = currWorldTransform;
             }
 
             size_t prevUploadBytes = m_ActiveEditCount * sizeof(glm::mat4);
@@ -1175,7 +1175,6 @@ void SDFRenderer::UpdateEdits(std::span<const SDFPrimitiveRecord> records, bool 
             } else {
                 m_PrevTransformBuffer->UpdateData(prevMatrices.data(), prevUploadBytes);
             }
-            m_PrevWorldTransforms = std::move(nextWorldTransforms);
         }
     } else {
         m_PrevWorldTransforms.clear();
@@ -1187,13 +1186,16 @@ void SDFRenderer::UpdateEdits(std::span<const SDFPrimitiveRecord> records, bool 
 }
 
 void SDFRenderer::UpdateEdits(const SDFSceneSnapshot& snapshot, bool useLegacyMapUnmap) {
-    if (m_RenderCamera && m_PreviousSnapshot.GetRecordCount() > 0 && m_HasPrevCameraViewProj) {
-        glm::mat4 currViewProj = m_RenderCamera->projection * m_RenderCamera->view;
-        m_CurrentChangeSet = SDFChangeSet::Compare(m_PreviousSnapshot, snapshot, m_PrevCameraViewProj, currViewProj);
+    if (m_PreviousSnapshot.GetRecordCount() > 0) {
+        glm::mat4 prevVP = m_CameraMatricesInitialized ? m_PrevViewProj :
+                           (m_RenderCamera ? m_RenderCamera->projection * m_RenderCamera->view : glm::mat4(1.0f));
+        glm::mat4 currVP = m_CameraMatricesInitialized ? m_CurrViewProj :
+                           (m_RenderCamera ? m_RenderCamera->projection * m_RenderCamera->view : prevVP);
+        m_CurrentChangeSet = SDFChangeSet::Compare(m_PreviousSnapshot, snapshot, prevVP, currVP);
     }
     m_PreviousSnapshot = snapshot;
     if (m_RenderCamera) {
-        m_PrevCameraViewProj = m_RenderCamera->projection * m_RenderCamera->view;
+        m_PrevCameraViewProj = m_CameraMatricesInitialized ? m_CurrViewProj : (m_RenderCamera->projection * m_RenderCamera->view);
         m_HasPrevCameraViewProj = true;
     }
     UpdateEdits(std::span<const SDFPrimitiveRecord>(snapshot.GetRecords().data(), snapshot.GetRecordCount()), useLegacyMapUnmap);
@@ -1315,10 +1317,10 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
         useGrid ? 1.0f : 0.0f
     );
     pushConstants.gridParams = m_BrickGrid->GetGridParams();
-    pushConstants.gridParams.z = optShadow ? 1.0f : 0.0f;
+    pushConstants.gridParams.z = static_cast<float>(qualitySettings.primaryRayMaxSteps);
 
     glm::vec2 jitter = enableTAA ? m_CurrJitter : glm::vec2(0.0f);
-    pushConstants.taaParams = glm::vec4(jitter.x, jitter.y, enableTAA ? 1.0f : 0.0f, 0.12f);
+    pushConstants.taaParams = glm::vec4(jitter.x, jitter.y, enableTAA ? 1.0f : 0.0f, qualitySettings.taaBlendAlpha);
 
     pushConstants.mouseParams = glm::vec4(
         static_cast<float>(m_PickingMouseX),
@@ -1468,7 +1470,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
             static_cast<float>(m_ActiveEditCount) // w: editCount
         );
         const auto& qs = (qualitySettings.shadowMaxSteps > 0) ? qualitySettings : m_QualitySettings;
-        defPush.rayParams = glm::vec4(jitter.x, jitter.y, qs.shadowMaxDistance, 0.015f); // Match GBuffer jitter, including TAA disabled.
+        defPush.rayParams = glm::vec4(jitter.x, jitter.y, qs.shadowMaxDistance, qs.surfaceBias); // Match GBuffer jitter, including TAA disabled.
         defPush.shadowAOParams = glm::vec4(
             static_cast<float>(qs.shadowMaxSteps),
             qs.shadowK,
@@ -1584,7 +1586,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
     taaPush.changedRect2 = packedChangedRects[2];
     taaPush.changedRect3 = packedChangedRects[3];
 
-    float blendAlpha = 0.12f;
+    float blendAlpha = qualitySettings.taaBlendAlpha;
     if (isDebugActive) {
         blendAlpha = -1.0f; // Debug bypass modu: tonemap ve gamma uygulamadan ham veri aktarimi
     } else if (!enableTAA) {
@@ -1654,7 +1656,6 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
     if (m_TemporalHistory) {
         m_TemporalHistory->CommitRender();
     }
-    m_CurrentChangeSet = SDFChangeSet{};
 }
 
 void SDFRenderer::SetPickingRequest(int mouseX, int mouseY) {

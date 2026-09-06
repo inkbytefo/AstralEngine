@@ -87,6 +87,7 @@ public:
         m_HasPrevCameraViewProj = false;
         m_CurrentChangeSet = SDFChangeSet{};
         m_PreviousSnapshot = SDFSceneSnapshot{};
+        m_PrevWorldTransforms.clear();
         if (m_TemporalHistory) m_TemporalHistory->Reset();
     }
     /// Main/render thread only. Import and filtering complete before replacing live resources.

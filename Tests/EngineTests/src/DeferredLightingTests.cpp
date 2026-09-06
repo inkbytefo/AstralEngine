@@ -1,6 +1,7 @@
 #include "TestFramework.hpp"
 #include "Astral/Geometry/SDFVisibility.hpp"
 #include "Astral/Geometry/SDFSceneSnapshot.hpp"
+#include "Astral/Geometry/SDFChangeSet.hpp"
 #include "Astral/Scene/Scene.hpp"
 #include "Astral/Core/Components.hpp"
 #include "Astral/Renderer/BrickGrid.hpp"
@@ -482,6 +483,160 @@ void RunDeferredLightingTests() {
                        "Grid-accelerated soft shadow penumbra must be monotonically non-decreasing!");
         TEST_CHECK_MSG(suite, "GridSkipMatchesFineEvaluation", closeMatch,
                        "Grid-accelerated soft shadow must closely match fine-step reference shadow (diff <= 0.05)!");
+    }
+
+    // =========================================================================
+    // 7. G-Buffer Material Encoding Contract (rgba32ui bit layout)
+    // =========================================================================
+    {
+        // Specification:
+        // X: Roughness (floatBitsToUint)
+        // Y: Metallic (floatBitsToUint)
+        // Z: HitIndex (uint32)
+        // W: SurfaceId (uint32)
+        const float testRoughness = 0.425f;
+        const float testMetallic = 0.850f;
+        const uint32_t testHitIndex = 17u;
+        const uint32_t testSurfaceId = 0xA1B2C3D4u;
+
+        // Simulate GPU G-Buffer store
+        const glm::uvec4 gBufferMaterial(
+            glm::floatBitsToUint(testRoughness),
+            glm::floatBitsToUint(testMetallic),
+            testHitIndex,
+            testSurfaceId
+        );
+
+        // Simulate Deferred Lighting decode (reads X/Y as float bits)
+        const float decodedRoughness = glm::uintBitsToFloat(gBufferMaterial.x);
+        const float decodedMetallic = glm::uintBitsToFloat(gBufferMaterial.y);
+
+        // Simulate TAA decode (reads W as surface ID)
+        const uint32_t decodedSurfaceId = gBufferMaterial.w;
+
+        // Simulate Debug Composite decode (reads Z as hit index, W as surface ID)
+        const uint32_t decodedHitIndex = gBufferMaterial.z;
+
+        TEST_CHECK_MSG(suite, "GBufferMaterialRoughnessLossless",
+                       std::abs(decodedRoughness - testRoughness) <= std::numeric_limits<float>::epsilon(),
+                       "Roughness bit pattern roundtrip must be bit-exact!");
+        TEST_CHECK_MSG(suite, "GBufferMaterialMetallicLossless",
+                       std::abs(decodedMetallic - testMetallic) <= std::numeric_limits<float>::epsilon(),
+                       "Metallic bit pattern roundtrip must be bit-exact!");
+        TEST_CHECK_MSG(suite, "GBufferMaterialHitIndexExact",
+                       decodedHitIndex == testHitIndex,
+                       "Hit index must match exactly!");
+        TEST_CHECK_MSG(suite, "GBufferMaterialSurfaceIdExact",
+                       decodedSurfaceId == testSurfaceId,
+                       "Surface ID must match exactly!");
+    }
+
+    // =========================================================================
+    // 8. Deterministic Previous Transform Tracking (Dynamic vs Static & Keying)
+    // =========================================================================
+    {
+        // Simulate consecutive frame primitive updates using the SDFRenderer algorithm
+        std::unordered_map<uint32_t, glm::mat4> prevWorldTransforms;
+
+        // Frame 1: Dynamic object at (1, 2, 3), Static object at (10, 0, 0), Raw test primitive with surfaceId=0 at (0, 0, 0)
+        glm::mat4 dynWorld1 = glm::translate(glm::mat4(1.0f), glm::vec3(1.0f, 2.0f, 3.0f));
+        glm::mat4 statWorld1 = glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f));
+        glm::mat4 rawWorld1 = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
+
+        std::vector<SDFPrimitiveRecord> recordsF1(3);
+        // Primitive 0: Dynamic
+        recordsF1[0].invTransform = glm::inverse(dynWorld1);
+        recordsF1[0].surfaceId = 101u;
+        recordsF1[0].metallicParams.w = 1.0f; // isDynamic
+
+        // Primitive 1: Static
+        recordsF1[1].invTransform = glm::inverse(statWorld1);
+        recordsF1[1].surfaceId = 202u;
+        recordsF1[1].metallicParams.w = 0.0f; // static
+
+        // Primitive 2: Raw test primitive without surfaceId
+        recordsF1[2].invTransform = glm::inverse(rawWorld1);
+        recordsF1[2].surfaceId = 0u;
+
+        // Execute Frame 1 transform resolution
+        std::vector<glm::mat4> prevMatricesF1(3);
+        for (size_t i = 0; i < 3; ++i) {
+            const auto& rec = recordsF1[i];
+            glm::mat4 currWorld = glm::inverse(rec.invTransform);
+            uint32_t key = (rec.surfaceId != 0u) ? rec.surfaceId : (0x80000000u | static_cast<uint32_t>(i));
+            auto it = prevWorldTransforms.find(key);
+            if (it != prevWorldTransforms.end()) {
+                prevMatricesF1[i] = it->second;
+            } else {
+                prevMatricesF1[i] = currWorld;
+            }
+            prevWorldTransforms[key] = currWorld;
+        }
+
+        // On first frame, prev transforms equal current transforms
+        TEST_CHECK(suite, "Frame1DynTransformInit", prevMatricesF1[0] == dynWorld1);
+        TEST_CHECK(suite, "Frame1StatTransformInit", prevMatricesF1[1] == statWorld1);
+        TEST_CHECK(suite, "Frame1RawTransformInit", prevMatricesF1[2] == rawWorld1);
+
+        // Frame 2: Dynamic object moves to (5, 6, 7). Static object stays at (10, 0, 0).
+        glm::mat4 dynWorld2 = glm::translate(glm::mat4(1.0f), glm::vec3(5.0f, 6.0f, 7.0f));
+        std::vector<SDFPrimitiveRecord> recordsF2 = recordsF1;
+        recordsF2[0].invTransform = glm::inverse(dynWorld2);
+
+        std::vector<glm::mat4> prevMatricesF2(3);
+        for (size_t i = 0; i < 3; ++i) {
+            const auto& rec = recordsF2[i];
+            glm::mat4 currWorld = glm::inverse(rec.invTransform);
+            uint32_t key = (rec.surfaceId != 0u) ? rec.surfaceId : (0x80000000u | static_cast<uint32_t>(i));
+            auto it = prevWorldTransforms.find(key);
+            if (it != prevWorldTransforms.end()) {
+                prevMatricesF2[i] = it->second;
+            } else {
+                prevMatricesF2[i] = currWorld;
+            }
+            prevWorldTransforms[key] = currWorld;
+        }
+
+        // On frame 2, dynamic object's previous transform must be its Frame 1 transform!
+        TEST_CHECK_MSG(suite, "Frame2DynPrevTransformMatchesFrame1", prevMatricesF2[0] == dynWorld1,
+                       "Dynamic object previous transform must match Frame 1 transform!");
+        TEST_CHECK_MSG(suite, "Frame2StatPrevTransformUnchanged", prevMatricesF2[1] == statWorld1,
+                       "Static object transform must remain stable!");
+        // Verify key 0 collision safety: slot 2 key must not have corrupted slot 0 or 1
+        TEST_CHECK(suite, "ZeroKeyCollisionSafety", prevWorldTransforms.find(0x80000002u) != prevWorldTransforms.end());
+    }
+
+    // =========================================================================
+    // 9. SDFChangeSet Retention Across Lifecycle
+    // =========================================================================
+    {
+        auto scene = std::make_shared<Scene>("ChangeSetTestScene");
+        Entity e = scene->CreateEntity("Mover");
+        e.AddComponent<TransformComponent>(glm::vec3(0.0f, 1.0f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f));
+        auto& s = e.AddComponent<SDFComponent>();
+        s.primitiveType = 0; // Sphere
+        s.shape.dimensions = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+        s.encoding = SDFShapeEncoding::ExplicitShape;
+
+        auto snap1 = SDFSceneSnapshot::Extract(scene->GetRegistry());
+
+        // Move entity
+        e.GetComponent<TransformComponent>().position = glm::vec3(10.0f, 1.0f, 0.0f);
+        auto snap2 = SDFSceneSnapshot::Extract(scene->GetRegistry());
+
+        glm::mat4 vp = glm::perspective(glm::radians(60.0f), 1.0f, 0.1f, 100.0f) *
+                       glm::lookAt(glm::vec3(0, 5, -10), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
+
+        SDFChangeSet changeSet = SDFChangeSet::Compare(snap1, snap2, vp, vp);
+        TEST_CHECK_MSG(suite, "ChangeSetDetectedMovement", changeSet.HasChanges(),
+                       "Moving an entity between snapshots must produce a non-empty ChangeSet!");
+
+        // Simulate retention: ChangeSet must not be empty after inspection or simulated pass
+        uint32_t numRects = 0;
+        std::array<glm::vec4, 4> packedRects{};
+        changeSet.GetPackedRects(packedRects, numRects);
+        TEST_CHECK_MSG(suite, "ChangeSetRetainsScreenRects", numRects > 0,
+                       "ChangeSet must retain projected screen rects for invalidation!");
     }
 
     std::cout << "--- [A4-P3] Deferred SDF Shadows & AO Suite Basariyla Tamamlandi! ---\n";

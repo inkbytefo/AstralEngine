@@ -79,6 +79,26 @@ Sphere artık üç yarıçaplı ellipsoid olarak değerlendirilir; mesafe, minim
 
 Grid dışında gerçek SDF değerlendirilir. Grid sınırı dünya sınırı değildir. Hücre mesafeleri muhafazakâr primitive sınırları, döndürülmüş plane, hücre yarı köşegeni ve smooth-union genişleme payını içerir. Uzak hücreler 1 metreyle sınırlandırılır; böylece eski/yeni nesne çevresinin kısmi güncellemesi uzaktaki bayat mesafelerle güvenli olmayan sıçrama oluşturmaz. Bu doğruluk tercihinin performans etkisi ayrıca ölçülmelidir.
 
+## G-Buffer Materyal ve Debug Modu Sözleşmesi
+
+`g_Material` depolama görüntüsü (`layout(binding = 2, rgba32ui)` / `VK_FORMAT_R32G32B32A32_UINT`) tüm render ve hata ayıklama hatlarında tek bir merkezi sözleşmeyle kodlanır ve çözülür:
+
+- **X (R):** `hit.roughness` — IEEE-754 32-bit float bit kalıbı (`floatBitsToUint`). Deferred lighting tarafında `uintBitsToFloat(matData.x)` ile okunur.
+- **Y (G):** `hit.metallic` — IEEE-754 32-bit float bit kalıbı (`floatBitsToUint`). Deferred lighting tarafında `uintBitsToFloat(matData.y)` ile okunur.
+- **Z (B):** `hit.hitIndex` — Sahne `edits[]` primitif dizisindeki uint32 indeks (gökyüzü/boşluk durumunda `0xFFFFFFFFu`).
+- **W (A):** `hit.surfaceId` — `SDFSurfaceKey::Hash()` ile üretilen benzersiz ve deterministik varlık/yüzey kimlik hash'i. TAA hard-rejection ve surface tracking tarafından kullanılır.
+
+`SDFDebugComposite.glsl` modları:
+- `0`: Final Shaded (Lambertian + Ambiyans)
+- `1`: Surface Identity (`matData.w / surfaceId` karma renkler)
+- `2`: Geometry Primitive Index (`matData.z / hitIndex` benzersiz renkler)
+- `3`: Temporal Confidence (Yeşil: 1.0, Sarı: 0.5, Kırmızı: 0.0)
+- `4`: Rejection Reason (Mavi: Derinlik, Kırmızı: Kimlik, Sarı: Sınır)
+- `5`: Changed Region Mask (Siyan: Değişim Bölgesi, Gri: Sabit Geçmiş)
+- `6`: Shadow Visibility (Gölge Maskesi)
+- `7`: Ambient Occlusion (AO Grayscale)
+- `8`: Material Parameters (R: Roughness, G: Metallic)
+
 ## Renk hattı
 
 `linear materyal/ışık → linear RGBA16F → linear temporal history → exposure → ACES fitted → gerçek parçalı sRGB transfer → RGBA8 UNORM`.

@@ -57,7 +57,7 @@ struct AppConfig {
     bool optShadow = true;   // PR-7: Golge erken terk ve back-face culling optimizasyonu aktif
     bool enableTAA = true;   // PR-8: Sub-Pixel Jitter & Temporal Anti-Aliasing (TAA) aktif
     bool useGBuffer = true;  // Faz 1: Deferred G-Buffer & Motion Vectors hattı (Varsayılan aktif)
-    int debugMode = 0;       // G-Buffer Debug: 0=Shaded, 1=Albedo, 2=Normal, 3=Depth, 4=Motion, 5=Material
+    int debugMode = 0;       // G-Buffer Debug: 0=Shaded, 1=SurfaceId, 2=PrimitiveIndex, 3=TemporalConf, 4=RejectionReason, 5=ChangedRegion, 6=Shadows, 7=AO, 8=Material
     QualitySettings qualitySettings{};
     std::string shaderPath = "";
     int maxFrames = -1;      // Belirtilen kare sayisina ulasildiginda otomatik sonlanma (-1 = sonsuz dongu)

@@ -429,6 +429,7 @@ void DrawEditorMenuBar(Scene& scene, Entity& selectedEntity,
                 if (ImGui::MenuItem("5: Changed Region Mask")) actions.setDebugMode = 5;
                 if (ImGui::MenuItem("6: Shadow Visibility")) actions.setDebugMode = 6;
                 if (ImGui::MenuItem("7: Ambient Occlusion (AO)")) actions.setDebugMode = 7;
+                if (ImGui::MenuItem("8: Roughness & Metallic")) actions.setDebugMode = 8;
                 ImGui::EndMenu();
             }
             ImGui::Separator();

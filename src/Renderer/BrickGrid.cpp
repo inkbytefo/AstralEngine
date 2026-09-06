@@ -1,6 +1,7 @@
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 #include "Astral/Renderer/BrickGrid.hpp"
 #include "Astral/Renderer/Buffer.hpp"
+#include "Astral/Renderer/QualitySettings.hpp"
 #include "Astral/Geometry/SDFSceneSnapshot.hpp"
 #include "Astral/Geometry/SDFChangeSet.hpp"
 
@@ -91,9 +92,10 @@ void BrickGrid::SetBounds(const glm::vec3& minBounds, const glm::vec3& maxBounds
     );
 }
 
-bool BrickGrid::ComputeDynamicBounds(std::span<const SDFPrimitiveRecord> records, float margin) {
-    glm::vec3 defaultMin{-12.0f, -1.0f, -12.0f};
-    glm::vec3 defaultMax{ 12.0f, 11.0f,  12.0f};
+bool BrickGrid::ComputeDynamicBounds(std::span<const SDFPrimitiveRecord> records, float margin, bool forceFit) {
+    QualitySettings defaultQs{};
+    glm::vec3 defaultMin = defaultQs.defaultGridMin;
+    glm::vec3 defaultMax = defaultQs.defaultGridMax;
 
     glm::vec3 sceneMin( 1e9f);
     glm::vec3 sceneMax(-1e9f);
@@ -121,8 +123,13 @@ bool BrickGrid::ComputeDynamicBounds(std::span<const SDFPrimitiveRecord> records
     glm::vec3 targetMax = defaultMax;
 
     if (hasFinitePrimitives) {
-        targetMin = glm::min(defaultMin, sceneMin - glm::vec3(margin));
-        targetMax = glm::max(defaultMax, sceneMax + glm::vec3(margin));
+        if (forceFit) {
+            targetMin = sceneMin - glm::vec3(margin);
+            targetMax = sceneMax + glm::vec3(margin);
+        } else {
+            targetMin = glm::min(defaultMin, sceneMin - glm::vec3(margin));
+            targetMax = glm::max(defaultMax, sceneMax + glm::vec3(margin));
+        }
     }
 
     if (glm::distance(targetMin, m_MinBounds) > 0.05f || glm::distance(targetMax, m_MaxBounds) > 0.05f) {

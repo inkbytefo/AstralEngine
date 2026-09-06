@@ -2,15 +2,22 @@
 //
 // SDFDebugComposite.glsl — Deferred G-Buffer Debug & Composite Compute Shader
 //
+// G-Buffer Material Kodlama Sözleşmesi (g_Material - rgba32ui):
+//   X: Roughness (IEEE-754 floatBitsToUint)
+//   Y: Metallic (IEEE-754 floatBitsToUint)
+//   Z: Hit Index (uint32_t scene primitive index in edits[])
+//   W: Surface ID (uint32_t persistent entity surface key hash)
+//
 // Debug Modlari:
 //   0: Final Shaded (Lambertian + Ambiyans)
-//   1: Surface Identity (Ayrik Nesne Renkleri)
-//   2: Geometry Revision (Revizyon ve Yuzeysel Detay)
+//   1: Surface Identity (matData.w / surfaceId - Ayrik Nesne Renkleri)
+//   2: Geometry Primitive Index (matData.z / hitIndex - Primitif Indeksi)
 //   3: Temporal Confidence (Yesil: 1.0, Sari: 0.5, Kirmizi: 0.0)
 //   4: Rejection Reason (Mavi: Derinlik, Kirmizi: Kimlik, Sari: Sinir)
 //   5: Changed Region Mask (Siyan: Degisim Bolgesi, Siyah: Sabit Gecmis)
 //   6: Shadow Visibility (Golge Maskesi)
 //   7: Ambient Occlusion (AO Grayscale)
+//   8: Material Parameters (R: Roughness, G: Metallic)
 //
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
@@ -51,7 +58,7 @@ void main() {
     bool isSurface = (albedoData.a > 0.0);
 
     switch (debugMode) {
-        case 1: // Surface Identity (Nesne / Yuzey Kimligi)
+        case 1: // Surface Identity (Nesne / Yuzey Kimligi — matData.w)
             if (isSurface) {
                 // Hash all identity bits before converting to display RGB.
                 uint id = matData.w;
@@ -64,10 +71,9 @@ void main() {
             }
             break;
 
-        case 2: // Geometry Revision
-            if (isSurface) {
-                // Revision is not stored in this attachment; do not fabricate it from identity.
-                finalColor = vec3(0.25);
+        case 2: // Geometry Primitive Index (matData.z — Primitif Hit Indeksi)
+            if (isSurface && matData.z != 0xFFFFFFFFu) {
+                finalColor = hashColor(float(matData.z) * 17.0 + 1.0);
             } else {
                 finalColor = vec3(0.0);
             }
@@ -121,6 +127,16 @@ void main() {
                 finalColor = vec3(ao);
             } else {
                 finalColor = vec3(1.0);
+            }
+            break;
+
+        case 8: // Material Parameters (R: Roughness, G: Metallic)
+            if (isSurface) {
+                float r = clamp(uintBitsToFloat(matData.x), 0.0, 1.0);
+                float m = clamp(uintBitsToFloat(matData.y), 0.0, 1.0);
+                finalColor = vec3(r, m, 0.0);
+            } else {
+                finalColor = vec3(0.0);
             }
             break;
 

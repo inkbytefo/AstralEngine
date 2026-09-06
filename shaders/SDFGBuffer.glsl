@@ -186,8 +186,8 @@ void main() {
     float tMax = cameraUp.w;
     SDFHitResult hit;
     bool found = false;
-
-    for (int i = 0; i < 96 && t < tMax; ++i) {
+    int maxSteps = int(gridParams.z > 0.5 ? gridParams.z : 96.0);
+    for (int i = 0; i < maxSteps && t < tMax; ++i) {
         vec3 p = ro + rd * t;
 
         // Seviye 1: Empty Space Skipping
@@ -220,8 +220,11 @@ void main() {
         vec2 currUV = (vec2(pixel) + 0.5 + jitterOffset) / vec2(res);
         vec3 prevHitPos = hitPos;
         if (hit.hitIndex >= 0 && hit.hitIndex < int(screenRes.z)) {
-            vec3 localP = (edits[hit.hitIndex].invTransform * vec4(hitPos, 1.0)).xyz;
-            prevHitPos = (prevTransforms[hit.hitIndex] * vec4(localP, 1.0)).xyz;
+            // Static objects have zero object-motion; avoid floating-point matrix roundtrip noise.
+            if (edits[hit.hitIndex].metallicParams.w > 0.5) {
+                vec3 localP = (edits[hit.hitIndex].invTransform * vec4(hitPos, 1.0)).xyz;
+                prevHitPos = (prevTransforms[hit.hitIndex] * vec4(localP, 1.0)).xyz;
+            }
         }
 
         vec4 clipPrev = camera.prevViewProj * vec4(prevHitPos, 1.0);

@@ -5,6 +5,7 @@
 #include "Astral/Renderer/Swapchain.hpp"
 #include "Astral/Renderer/SDFRenderer.hpp"
 #include "Astral/Renderer/RenderContext.hpp"
+#include "Astral/Renderer/QualitySettings.hpp"
 #include "Astral/Core/RenderExtractionSystem.hpp"
 #include "Astral/Core/Systems/InputSubsystem.hpp"
 #include "Astral/Core/Systems/PhysicsSubsystem.hpp"
@@ -277,7 +278,16 @@ void Application::Run(int maxFrames) {
 
             // Yalnizca GPU ve Renderer aktif ise render islemleri calistirilir
             if (m_SDFRenderer && m_VulkanContext) {
-                // GPU SSBO'ya yaz ve Two-Level Grid'i guncelle
+                // Kamera matrislerini besle (Motion Vectors, Deferred G-Buffer & SDFChangeSet senkronizasyonu)
+                const float aspect = static_cast<float>(m_SDFRenderer->GetWidth()) / m_SDFRenderer->GetHeight();
+                auto camera = ExtractActiveCamera(sceneRegistry, aspect);
+                if (camera) camera->sceneInstance = activeScene->GetInstanceId();
+                // The table is in [-1, 1]; ray offsets are measured in pixels.
+                // Keep the subpixel sequence within [-0.5, 0.5].
+                glm::vec2 jitter = m_Config.enableTAA ? HALTON_SEQUENCE_8[frameIndex % 8] * 0.5f : glm::vec2(0.0f);
+                m_SDFRenderer->SetCamera(camera, jitter);
+
+                // GPU SSBO'ya yaz ve Two-Level Grid'i guncelle (ChangeSet guncel kamera ile uretilir)
                 m_SDFRenderer->UpdateEdits(snapshot, m_Config.legacyMap);
 
                 // Swapchain resmi edin
@@ -300,25 +310,6 @@ void Application::Run(int maxFrames) {
 
                 // GPU Komut Tamponu & Timestamp Olcumu
                 auto cmd = m_VulkanContext->BeginFrameCommand();
-
-                // Kamera matrislerini besle (Motion Vectors & Deferred G-Buffer)
-                const float aspect = static_cast<float>(m_SDFRenderer->GetWidth()) / m_SDFRenderer->GetHeight();
-                auto camera = ExtractActiveCamera(sceneRegistry, aspect);
-                if (camera) camera->sceneInstance = activeScene->GetInstanceId();
-                static constexpr std::array<glm::vec2, 8> APP_HALTON_8 = {{
-                    { 0.0f,        -0.333333f},
-                    {-0.5f,         0.333333f},
-                    { 0.5f,        -0.777778f},
-                    {-0.75f,       -0.111111f},
-                    { 0.25f,        0.555556f},
-                    {-0.25f,       -0.555556f},
-                    { 0.75f,        0.111111f},
-                    {-0.875f,       0.777778f}
-                }};
-                // The table is in [-1, 1]; ray offsets are measured in pixels.
-                // Keep the subpixel sequence within [-0.5, 0.5].
-                glm::vec2 jitter = m_Config.enableTAA ? APP_HALTON_8[frameIndex % 8] * 0.5f : glm::vec2(0.0f);
-                m_SDFRenderer->SetCamera(camera, jitter);
 
                 // 1. 3D SDF Compute Raymarching
                 m_SDFRenderer->Render(

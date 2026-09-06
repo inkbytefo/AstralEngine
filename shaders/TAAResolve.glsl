@@ -38,14 +38,15 @@ bool isInsideRect(vec2 uv, vec4 r) {
     return uv.x >= r.x && uv.x <= r.z && uv.y >= r.y && uv.y <= r.w;
 }
 
-// ACES Filmik Tonemapping Operatoru
+// ACES Filmik Tonemapping Operatoru (Narkowicz 2015 sRGB fit)
+const float ACES_A = 2.51;
+const float ACES_B = 0.03;
+const float ACES_C = 2.43;
+const float ACES_D = 0.59;
+const float ACES_E = 0.14;
+
 vec3 acesTonemap(vec3 x) {
-    const float a = 2.51;
-    const float b = 0.03;
-    const float c = 2.43;
-    const float d = 0.59;
-    const float e = 0.14;
-    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+    return clamp((x * (ACES_A * x + ACES_B)) / (x * (ACES_C * x + ACES_D) + ACES_E), 0.0, 1.0);
 }
 
 // RGB <-> YCoCg Donusumleri (Unreal Engine / Call of Duty TAA standardi)

@@ -20,6 +20,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 // 1. G-Buffer Girdileri
 layout(binding = 0, rgba8)   uniform readonly image2D g_Albedo;
 layout(binding = 1, rgba16f) uniform readonly image2D g_Normal;
+// binding 2: g_Material (rgba32ui) — X: roughness (floatBits), Y: metallic (floatBits), Z: hitIndex (uint32), W: surfaceId (uint32)
 layout(binding = 2, rgba32ui) uniform readonly uimage2D g_Material;
 layout(binding = 3, r32f)    uniform readonly image2D g_Depth;
 

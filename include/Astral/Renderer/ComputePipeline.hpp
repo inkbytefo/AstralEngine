@@ -27,7 +27,7 @@ struct SDFPushConstants {
     glm::vec4 camPos;      // xyz: pos, w: near clip
     glm::vec4 camDir;      // xyz: dir, w: normalMode (0=central, 1=tetrahedron)
     glm::vec4 screenRes;   // x: width, y: height, z: editCount, w: useGrid (0=off, 1=on)
-    glm::vec4 gridParams;  // x: dimX, y: dimY, z: optShadow, w: cellSize
+    glm::vec4 gridParams;  // x: dimX, y: dimY, z: maxSteps (96.0), w: cellSize
     glm::vec4 taaParams;   // x: jitterX, y: jitterY, z: taaEnabled, w: blendAlpha
     glm::vec4 mouseParams; // x: mouseX, y: mouseY, z: pickRequested (0/1), w: selectedHitIndex (-1 = none)
     glm::vec4 cameraRight; // xyz: world right, w: focal length in viewport-height units

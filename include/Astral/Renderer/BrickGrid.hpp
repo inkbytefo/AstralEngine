@@ -50,7 +50,7 @@ public:
 
     /// Sahne primitiflerine gore dinamik AABB ve hucre boyutunu hesaplar.
     /// Eger sinirlar degistiyse true doner.
-    bool ComputeDynamicBounds(std::span<const SDFPrimitiveRecord> records, float margin = 2.0f);
+    bool ComputeDynamicBounds(std::span<const SDFPrimitiveRecord> records, float margin = 2.0f, bool forceFit = false);
     void SetBounds(const glm::vec3& minBounds, const glm::vec3& maxBounds);
 
     /// Son Build cagrisinda kac hucrenin yeniden degerlendirildigini dondurur (test ve profil icin)
