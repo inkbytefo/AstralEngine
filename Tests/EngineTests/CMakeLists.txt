@@ -25,6 +25,7 @@ add_executable(EngineTests
     src/DeferredLightingTests.cpp
     src/SDFTemporalTests.cpp
     src/SDFChangeSetTests.cpp
+    src/RendererArchitectureTests.cpp
     ${CMAKE_SOURCE_DIR}/Projects/Sandbox/src/PuzzleGameSubsystem.cpp
 )
 
@@ -45,6 +46,10 @@ add_executable(CameraGpuTests src/CameraGpuTests.cpp)
 target_include_directories(CameraGpuTests PRIVATE "${CMAKE_SOURCE_DIR}/Projects/Sandbox/src")
 target_link_libraries(CameraGpuTests PRIVATE AstralEngine)
 set_target_properties(CameraGpuTests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+
+add_executable(RendererLifecycleGpuTests src/RendererLifecycleGpuTests.cpp)
+target_link_libraries(RendererLifecycleGpuTests PRIVATE AstralEngine)
+set_target_properties(RendererLifecycleGpuTests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
 set_target_properties(EngineTests PROPERTIES
     VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
@@ -91,6 +96,7 @@ if(BUILD_TESTING)
     register_cpu_subtest(DeferredLighting --lighting 20)
     register_cpu_subtest(SDFTemporal --temporal 20)
     register_cpu_subtest(SDFChangeSet --changeset 20)
+    register_cpu_subtest(RendererArchitecture --renderer 15)
 
     # 3. GPU Testleri (Ayrik GPU Etiketi - Donanim Kosucusu Gerektirir)
     add_test(NAME EngineTests.GPU.Smoke COMMAND EngineTests --gpu --gpu-frames 5)
@@ -106,5 +112,11 @@ if(BUILD_TESTING)
     set_tests_properties(EngineTests.GPU.Camera PROPERTIES
         LABELS "GPU"
         TIMEOUT 60
+    )
+
+    add_test(NAME EngineTests.GPU.RendererLifecycle COMMAND RendererLifecycleGpuTests)
+    set_tests_properties(EngineTests.GPU.RendererLifecycle PROPERTIES
+        LABELS "GPU"
+        TIMEOUT 180
     )
 endif()

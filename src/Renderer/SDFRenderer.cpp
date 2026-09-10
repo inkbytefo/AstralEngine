@@ -1225,14 +1225,58 @@ void SDFRenderer::Resize(int width, int height) {
 void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode, int width, int height,
                          bool useGrid, bool optShadow, bool enableTAA, uint32_t frameIndex,
                          const QualitySettings& qualitySettings) {
+    (void)time;
     (void)width;
     (void)height;
 
-    uint32_t groupX = static_cast<uint32_t>(std::ceil(static_cast<float>(m_Width) / 8.0f));
-    uint32_t groupY = static_cast<uint32_t>(std::ceil(static_cast<float>(m_Height) / 8.0f));
+    RenderFrameSettings settings;
+    settings.camera = m_RenderCamera;
+    settings.jitter = m_CurrJitter;
+    settings.quality = qualitySettings;
+    settings.frameId = frameIndex;
+    settings.width = static_cast<uint32_t>(m_Width);
+    settings.height = static_cast<uint32_t>(m_Height);
+    settings.normalMode = normalMode;
+    settings.debugMode = m_DebugMode;
+    settings.selectedHitIndex = m_SelectedHitIndex;
+    settings.useGrid = useGrid;
+    settings.optimizedShadows = optShadow;
+    settings.taaEnabled = enableTAA;
+    settings.exposure = m_Exposure;
 
-    (void)time;
-    if (!m_RenderCamera) {
+    Render(cmd, settings);
+}
+
+void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& settings) {
+    uint32_t renderWidth = (settings.width > 0) ? settings.width : static_cast<uint32_t>(m_Width);
+    uint32_t renderHeight = (settings.height > 0) ? settings.height : static_cast<uint32_t>(m_Height);
+
+    if (settings.width > 0 && settings.height > 0 &&
+        (settings.width != static_cast<uint32_t>(m_Width) || settings.height != static_cast<uint32_t>(m_Height))) {
+        std::cerr << "[Astral::SDFRenderer] WARNING: RenderFrameSettings dimensions ("
+                  << settings.width << "x" << settings.height
+                  << ") do not match allocated render target dimensions ("
+                  << m_Width << "x" << m_Height << "). Using allocated dimensions. Call Resize() before Render() to change resolution.\n";
+        renderWidth = static_cast<uint32_t>(m_Width);
+        renderHeight = static_cast<uint32_t>(m_Height);
+    }
+
+    uint32_t groupX = static_cast<uint32_t>(std::ceil(static_cast<float>(renderWidth) / 8.0f));
+    uint32_t groupY = static_cast<uint32_t>(std::ceil(static_cast<float>(renderHeight) / 8.0f));
+
+    // Determine effective camera: settings.camera takes precedence over m_RenderCamera
+    std::optional<RenderCamera> effectiveCamera = settings.camera ? settings.camera : m_RenderCamera;
+
+    if (settings.camera.has_value() && (!m_RenderCamera || settings.camera->entity != m_RenderCamera->entity ||
+        settings.camera->sceneInstance != m_RenderCamera->sceneInstance ||
+        settings.camera->projection != m_RenderCamera->projection ||
+        settings.camera->view != m_RenderCamera->view ||
+        settings.jitter != m_CurrJitter)) {
+        SetCamera(settings.camera, settings.jitter);
+        effectiveCamera = m_RenderCamera;
+    }
+
+    if (!effectiveCamera) {
         // No implicit camera: discard the previous frame and produce opaque black.
         vk::ImageMemoryBarrier barrier{};
         barrier.oldLayout = vk::ImageLayout::eUndefined;
@@ -1259,9 +1303,30 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
         ClearSelectionResult();
         return;
     }
-    if (m_PreviousTAAEnabled != enableTAA) m_HistoryInitialized = false;
-    m_PreviousTAAEnabled = enableTAA;
-    const auto& camera = *m_RenderCamera;
+
+    if (m_PreviousTAAEnabled != settings.taaEnabled) m_HistoryInitialized = false;
+    m_PreviousTAAEnabled = settings.taaEnabled;
+    const auto& camera = *effectiveCamera;
+
+    // Quality settings fallback rule: shadowMaxSteps > 0 selects settings.quality, otherwise fallback to m_QualitySettings
+    const auto& qs = (settings.quality.shadowMaxSteps > 0) ? settings.quality : m_QualitySettings;
+
+    // Debug mode precedence
+    int effectiveDebugMode = settings.debugMode;
+    if (settings.debugMode != m_DebugMode) {
+        ResetTemporalHistory();
+        m_DebugMode = settings.debugMode;
+    }
+    bool isDebugActive = (effectiveDebugMode != 0);
+
+    // Selected hit index precedence
+    int effectiveHitIndex = (settings.selectedHitIndex != -1) ? settings.selectedHitIndex : m_SelectedHitIndex;
+
+    // Exposure precedence
+    float effectiveExposure = (settings.exposure > 0.0f) ? settings.exposure : m_Exposure;
+
+    // Jitter precedence
+    glm::vec2 jitter = settings.taaEnabled ? ((settings.jitter != glm::vec2(0.0f)) ? settings.jitter : m_CurrJitter) : glm::vec2(0.0f);
     
     // =========================================================================
     // 1. G-Buffer Compute Pass (SDFGBuffer.glsl)
@@ -1307,26 +1372,25 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
 
     SDFPushConstants pushConstants{};
     pushConstants.camPos = glm::vec4(camera.position, camera.nearClip);
-    pushConstants.camDir = glm::vec4(camera.forward, static_cast<float>(normalMode));
+    pushConstants.camDir = glm::vec4(camera.forward, static_cast<float>(settings.normalMode));
     pushConstants.cameraRight = glm::vec4(camera.right, camera.projection[1][1] * 0.5f);
     pushConstants.cameraUp = glm::vec4(camera.up, camera.farClip);
     pushConstants.screenRes = glm::vec4(
-        static_cast<float>(m_Width),
-        static_cast<float>(m_Height),
+        static_cast<float>(renderWidth),
+        static_cast<float>(renderHeight),
         static_cast<float>(m_ActiveEditCount),
-        useGrid ? 1.0f : 0.0f
+        settings.useGrid ? 1.0f : 0.0f
     );
     pushConstants.gridParams = m_BrickGrid->GetGridParams();
-    pushConstants.gridParams.z = static_cast<float>(qualitySettings.primaryRayMaxSteps);
+    pushConstants.gridParams.z = static_cast<float>(qs.primaryRayMaxSteps);
 
-    glm::vec2 jitter = enableTAA ? m_CurrJitter : glm::vec2(0.0f);
-    pushConstants.taaParams = glm::vec4(jitter.x, jitter.y, enableTAA ? 1.0f : 0.0f, qualitySettings.taaBlendAlpha);
+    pushConstants.taaParams = glm::vec4(jitter.x, jitter.y, settings.taaEnabled ? 1.0f : 0.0f, qs.taaBlendAlpha);
 
     pushConstants.mouseParams = glm::vec4(
         static_cast<float>(m_PickingMouseX),
         static_cast<float>(m_PickingMouseY),
         m_PickingRequested ? 1.0f : 0.0f,
-        static_cast<float>(m_SelectedHitIndex)
+        static_cast<float>(effectiveHitIndex)
     );
 
     if (m_PickingRequested && m_SelectionBuffer && m_SelectionBuffer->GetMappedData()) {
@@ -1411,8 +1475,6 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
         static_cast<uint32_t>(toCompositeBarriers.size()), toCompositeBarriers.data()
     );
 
-    bool isDebugActive = (m_DebugMode != 0);
-
     if (isDebugActive) {
         // =========================================================================
         // 3a. Debug Composite Pass (SDFDebugComposite.glsl -> m_RawColorImage)
@@ -1428,9 +1490,9 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
 
         DebugCompositePushConstants debugPush{};
         debugPush.screenRes = glm::vec4(
-            static_cast<float>(m_Width),
-            static_cast<float>(m_Height),
-            static_cast<float>(m_DebugMode),
+            static_cast<float>(renderWidth),
+            static_cast<float>(renderHeight),
+            static_cast<float>(effectiveDebugMode),
             0.0f
         );
 
@@ -1458,18 +1520,17 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
 
         DeferredLightingPushConstants defPush{};
         defPush.cameraRight = glm::vec4(camera.right, camera.projection[1][1] * 0.5f);
-        defPush.cameraUp = glm::vec4(camera.up, useGrid ? 1.0f : 0.0f);
+        defPush.cameraUp = glm::vec4(camera.up, settings.useGrid ? 1.0f : 0.0f);
         const glm::vec3 camPos = camera.position;
         const glm::vec3 camDir = camera.forward;
         defPush.camPos = glm::vec4(camPos, static_cast<float>(m_IBLManager->GetPrefilteredMipLevels()));
         defPush.camDir = glm::vec4(camDir, 1.0f); // xyz: dir, w: exposure = 1.0
         defPush.screenRes = glm::vec4(
-            static_cast<float>(m_Width),
-            static_cast<float>(m_Height),
+            static_cast<float>(renderWidth),
+            static_cast<float>(renderHeight),
             1.0f, // z: iblIntensity = 1.0
             static_cast<float>(m_ActiveEditCount) // w: editCount
         );
-        const auto& qs = (qualitySettings.shadowMaxSteps > 0) ? qualitySettings : m_QualitySettings;
         defPush.rayParams = glm::vec4(jitter.x, jitter.y, qs.shadowMaxDistance, qs.surfaceBias); // Match GBuffer jitter, including TAA disabled.
         defPush.shadowAOParams = glm::vec4(
             static_cast<float>(qs.shadowMaxSteps),
@@ -1478,7 +1539,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
             qs.aoRadius
         ); // x: shadowMaxSteps, y: shadowK, z: aoSamples, w: aoRadius
         auto gridParams = m_BrickGrid->GetGridParams();
-        float shadowFlag = (optShadow && qs.enableShadows) ? 1.0f : 0.0f;
+        float shadowFlag = (settings.optimizedShadows && qs.enableShadows) ? 1.0f : 0.0f;
         defPush.qualityParams = glm::vec4(shadowFlag, gridParams.x, gridParams.y, gridParams.w);
 
         cmd.pushConstants(
@@ -1526,7 +1587,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
     histReadBarrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
 
     // Tarihce yazma (writeIdx)
-    bool isFirstHistory = !m_HistoryInitialized || (frameIndex == 0);
+    bool isFirstHistory = !m_HistoryInitialized || (settings.frameId == 0);
     vk::ImageMemoryBarrier histWriteBarrier = toTaaBarrier;
     histWriteBarrier.image = m_HistoryImage[writeIdx].get();
     histWriteBarrier.oldLayout = vk::ImageLayout::eGeneral;
@@ -1575,7 +1636,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
     );
 
     TAAPushConstants taaPush{};
-    taaPush.colorParams.x = m_Exposure;
+    taaPush.colorParams.x = effectiveExposure;
     uint32_t numChangedRects = 0;
     std::array<glm::vec4, 4> packedChangedRects{};
     m_CurrentChangeSet.GetPackedRects(packedChangedRects, numChangedRects);
@@ -1586,17 +1647,17 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
     taaPush.changedRect2 = packedChangedRects[2];
     taaPush.changedRect3 = packedChangedRects[3];
 
-    float blendAlpha = qualitySettings.taaBlendAlpha;
+    float blendAlpha = qs.taaBlendAlpha;
     if (isDebugActive) {
         blendAlpha = -1.0f; // Debug bypass modu: tonemap ve gamma uygulamadan ham veri aktarimi
-    } else if (!enableTAA) {
+    } else if (!settings.taaEnabled) {
         blendAlpha = 1.0f;  // TAA kapali: tarihcesiz ACES tonemap ve sRGB gamma
     }
 
     taaPush.screenRes = glm::vec4(
-        static_cast<float>(m_Width),
-        static_cast<float>(m_Height),
-        (isFirstHistory || !enableTAA || isDebugActive) ? 0.0f : static_cast<float>(frameIndex),
+        static_cast<float>(renderWidth),
+        static_cast<float>(renderHeight),
+        (isFirstHistory || !settings.taaEnabled || isDebugActive) ? 0.0f : static_cast<float>(settings.frameId),
         blendAlpha
     );
 

@@ -16,11 +16,13 @@
 #include "Astral/Renderer/VulkanContext.hpp"
 #include "Astral/Renderer/IBLManager.hpp"
 #include "Astral/Renderer/ComputePipeline.hpp"
+#include "Astral/Renderer/ShaderInterop.hpp"
 #include "Astral/Renderer/RenderCamera.hpp"
 #include "Astral/Renderer/SDFTemporalHistory.hpp"
 #include "Astral/Geometry/SDFChangeSet.hpp"
 #include "Astral/Geometry/SDFSceneSnapshot.hpp"
 #include "Astral/Renderer/QualitySettings.hpp"
+#include "Astral/Renderer/RenderFrameSettings.hpp"
 #include <span>
 #include <optional>
 
@@ -47,6 +49,11 @@ public:
     void UpdateEdits(std::span<const SDFPrimitiveRecord> records, bool useLegacyMapUnmap = false);
     void UpdateEdits(const SDFSceneSnapshot& snapshot, bool useLegacyMapUnmap = false);
 
+    /// Acik kare ayarlariyla compute render gecislerini calistirir.
+    void Render(vk::CommandBuffer cmd, const RenderFrameSettings& settings);
+
+    /// Eski parametre zincirli render cagrisi. Girdileri RenderFrameSettings yapisina paketleyip yeni overload'a delege eder.
+    /// Not: 'time', 'width' ve 'height' parametreleri legacy olup kullanilmaz; render hedef boyutlari m_Width ve m_Height tarafindan belirlenir.
     void Render(vk::CommandBuffer cmd, float time, uint32_t normalMode, int width, int height,
                 bool useGrid = true, bool optShadow = true, bool enableTAA = true, uint32_t frameIndex = 0,
                 const QualitySettings& qualitySettings = QualitySettings{});

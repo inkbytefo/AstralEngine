@@ -29,6 +29,7 @@ namespace Astral::Test {
     void RunDeferredLightingTests();
     void RunSDFTemporalTests();
     void RunSDFChangeSetTests();
+    void RunRendererArchitectureTests();
 }
 
 int main(int argc, char** argv) {
@@ -56,6 +57,7 @@ int main(int argc, char** argv) {
     bool runLighting = false;
     bool runTemporal = false;
     bool runChangeSet = false;
+    bool runRenderer = false;
     bool runGpu = false;
     int gpuFrames = 5;
 
@@ -73,6 +75,7 @@ int main(int argc, char** argv) {
                       << "  --contract           Yalnizca SDF Contract testlerini calistirir (CPU & GPU)\n"
                       << "  --lighting           Yalnizca Deferred SDF Shadows & AO testlerini calistirir\n"
                       << "  --temporal           Yalnizca SDF Temporal Confidence & Rejection testlerini calistirir\n"
+                      << "  --renderer           Yalnizca Renderer Architecture CPU testlerini calistirir\n"
                       << "  --ecs                Yalnizca ECS testlerini calistirir\n"
                       << "  --physics            Yalnizca Physics Pipeline testlerini calistirir\n"
                       << "  --identity           Yalnizca Generational Entity Handle testlerini calistirir\n"
@@ -92,7 +95,7 @@ int main(int argc, char** argv) {
                       << "  --help, -h           Bu yardim mesajini gosterir\n";
             return 0;
         } else if (arg == "--all") {
-            runEcs = runPhysics = runIdentity = runScene = runSerialization = runBrickGrid = runCommand = runEventBus = runActionMap = runVma = runJobSystem = runTaskGraph = runProject = runLoop = runBoundaries = runGameplay = runContract = runGpu = true;
+            runEcs = runPhysics = runIdentity = runScene = runSerialization = runBrickGrid = runCommand = runEventBus = runActionMap = runVma = runJobSystem = runTaskGraph = runProject = runLoop = runBoundaries = runGameplay = runContract = runRenderer = runGpu = true;
             hasSpecificFlag = true;
         } else if (arg == "--contract") {
             runContract = true;
@@ -159,12 +162,19 @@ int main(int argc, char** argv) {
         } else if (arg == "--changeset") {
             runChangeSet = true;
             hasSpecificFlag = true;
+        } else if (arg == "--renderer") {
+            runRenderer = true;
+            hasSpecificFlag = true;
+        } else {
+            std::cerr << "[HATA] Bilinmeyen secenek: " << arg << "\n";
+            std::cerr << "Yardim icin: EngineTests.exe --help\n";
+            return 1;
         }
     }
 
     // Varsayilan davranis: Eger ozel bir bayrak verilmediyse tum headless testler calistirilir (CI guvenli)
     if (!hasSpecificFlag) {
-        runEcs = runPhysics = runIdentity = runScene = runSerialization = runBrickGrid = runCommand = runEventBus = runActionMap = runVma = runJobSystem = runTaskGraph = runProject = runLoop = runBoundaries = runGameplay = runContract = runLighting = runTemporal = runChangeSet = true;
+        runEcs = runPhysics = runIdentity = runScene = runSerialization = runBrickGrid = runCommand = runEventBus = runActionMap = runVma = runJobSystem = runTaskGraph = runProject = runLoop = runBoundaries = runGameplay = runContract = runLighting = runTemporal = runChangeSet = runRenderer = true;
     }
 
     auto& runner = Astral::Test::TestRunner::Instance();
@@ -236,6 +246,9 @@ int main(int argc, char** argv) {
     }
     if (runChangeSet) {
         runner.RunSuite("SDF Local ChangeSet & Invalidation Suite", Astral::Test::RunSDFChangeSetTests);
+    }
+    if (runRenderer) {
+        runner.RunSuite("Renderer Architecture Suite", Astral::Test::RunRendererArchitectureTests);
     }
     if (runGpu) {
         runner.RunSuite("Vulkan 1.4 GPU & SDF Compute Smoke Suite", [gpuFrames]() {

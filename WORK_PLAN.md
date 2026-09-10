@@ -1,6 +1,19 @@
 # AstralEngine — Görev planı ve devam kaydı
 
-Son güncelleme: 2026-09-06 (Europe/Istanbul)
+Son güncelleme: 2026-09-08 (Europe/Istanbul)
+
+## 2026-09-08 — Güncel kaynak üzerinden durum doğrulaması
+
+Bu bölüm, aşağıdaki tarihsel kayıtlardan önce okunmalıdır. Kullanıcı durum sorduğunda çalışma ağacı yeniden incelendi; güncel HEAD `3adfa0b`. Önceki sohbetin yarım uygulama kaydı artık bütün mevcut kodu yansıtmıyor.
+
+- GPU tampon tahsisi ve upload `SDFPrimitiveRecord` boyutunu kullanıyor; aktif Application snapshot yolunda.
+- GBuffer malzeme eki `RGBA32UI`; roughness/metallic bitleri, hit index ve yüzey kimliği 32-bit olarak taşınıyor.
+- TAA aynı 32-bit kimliği geçmişten okuyor ve farklı kimliklerin geçmişini reddediyor; önceki normal verisi de bağlı.
+- Eski yapı tamamen silinmiş değil: `LegacySDFEdit` CPU uyumluluk tipi ve renderer overload'ı var. `ToPrimitiveRecord` açık dönüşümüyle canonical kayda çevriliyor. Bu overload kimliği hâlâ sıra indeksinden üretir; kalıcı kimlikli aktif sahne yolu için kullanılmamalı.
+- Debug AstralEditor ve VisualQualityGpuTests derleme kontrolü başarılı (güncel, yeniden derleme gerekmiyor).
+- Güncel GPU VisualQuality testi başarılı (47.89 sn, Vulkan doğrulama hatası yok). Release AstralEditor derlemesi başarılı. `git diff --check` başarılı.
+- Tam 32-bit kimlik için üst bitleri farklı değerlerle bağımsız GPU readback regresyonu henüz doğrulanmadı. Genel görsel test başarısı bunun yerine geçmez.
+- `FINDINGS_VERIFICATION_REPORT.md` mevcut ancak burada yeni görev talimatı olarak alınmadı; kullanıcıya ait diğer çalışmaları koru.
 
 ## Amaç ve çalışma kuralları
 
