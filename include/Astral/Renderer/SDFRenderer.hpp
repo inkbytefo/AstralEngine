@@ -23,6 +23,9 @@
 #include "Astral/Geometry/SDFSceneSnapshot.hpp"
 #include "Astral/Renderer/QualitySettings.hpp"
 #include "Astral/Renderer/RenderFrameSettings.hpp"
+#include "Astral/Renderer/ComputeProgram.hpp"
+#include "Astral/Renderer/RenderTargets.hpp"
+#include "Astral/Renderer/SceneGpuData.hpp"
 #include <span>
 #include <optional>
 
@@ -94,7 +97,7 @@ public:
         m_HasPrevCameraViewProj = false;
         m_CurrentChangeSet = SDFChangeSet{};
         m_PreviousSnapshot = SDFSceneSnapshot{};
-        m_PrevWorldTransforms.clear();
+        if (m_SceneGpuData) m_SceneGpuData->ResetTransformHistory();
         if (m_TemporalHistory) m_TemporalHistory->Reset();
     }
     /// Main/render thread only. Import and filtering complete before replacing live resources.
@@ -108,25 +111,30 @@ public:
     void SetDebugMode(int mode) noexcept { if (mode != m_DebugMode) ResetTemporalHistory(); m_DebugMode = mode; }
     [[nodiscard]] int GetDebugMode() const noexcept { return m_DebugMode; }
 
-    // G-Buffer Render Hedefleri Getter'lari
-    [[nodiscard]] vk::Image GetGBufferAlbedo() const noexcept { return m_GBufAlbedo.image; }
-    [[nodiscard]] vk::ImageView GetGBufferAlbedoView() const noexcept { return m_GBufAlbedoView.get(); }
-    [[nodiscard]] vk::Image GetGBufferNormal() const noexcept { return m_GBufNormal.image; }
-    [[nodiscard]] vk::ImageView GetGBufferNormalView() const noexcept { return m_GBufNormalView.get(); }
-    [[nodiscard]] vk::Image GetGBufferMaterial() const noexcept { return m_GBufMaterial.image; }
-    [[nodiscard]] vk::ImageView GetGBufferMaterialView() const noexcept { return m_GBufMaterialView.get(); }
-    [[nodiscard]] vk::Image GetGBufferDepth() const noexcept { return m_GBufDepth.image; }
-    [[nodiscard]] vk::ImageView GetGBufferDepthView() const noexcept { return m_GBufDepthView.get(); }
-    [[nodiscard]] vk::Image GetGBufferMotion() const noexcept { return m_GBufMotion.image; }
-    [[nodiscard]] vk::ImageView GetGBufferMotionView() const noexcept { return m_GBufMotionView.get(); }
+    [[nodiscard]] const RenderTargets* GetRenderTargets() const noexcept { return m_RenderTargets.get(); }
 
-    vk::Image GetStorageImage() const { return m_StorageImage; }
-    vk::ImageView GetStorageImageView() const { return m_StorageImageView.get(); }
-    Buffer* GetEditBuffer() const { return m_EditBuffer.get(); }
+    // G-Buffer Render Hedefleri Getter'lari
+    [[nodiscard]] vk::Image GetGBufferAlbedo() const noexcept { return m_RenderTargets ? m_RenderTargets->GetGBuffer().albedo.image : vk::Image{}; }
+    [[nodiscard]] vk::ImageView GetGBufferAlbedoView() const noexcept { return m_RenderTargets ? m_RenderTargets->GetGBuffer().albedo.view : vk::ImageView{}; }
+    [[nodiscard]] vk::Image GetGBufferNormal() const noexcept { return m_RenderTargets ? m_RenderTargets->GetGBuffer().normal.image : vk::Image{}; }
+    [[nodiscard]] vk::ImageView GetGBufferNormalView() const noexcept { return m_RenderTargets ? m_RenderTargets->GetGBuffer().normal.view : vk::ImageView{}; }
+    [[nodiscard]] vk::Image GetGBufferMaterial() const noexcept { return m_RenderTargets ? m_RenderTargets->GetGBuffer().material.image : vk::Image{}; }
+    [[nodiscard]] vk::ImageView GetGBufferMaterialView() const noexcept { return m_RenderTargets ? m_RenderTargets->GetGBuffer().material.view : vk::ImageView{}; }
+    [[nodiscard]] vk::Image GetGBufferDepth() const noexcept { return m_RenderTargets ? m_RenderTargets->GetGBuffer().depth.image : vk::Image{}; }
+    [[nodiscard]] vk::ImageView GetGBufferDepthView() const noexcept { return m_RenderTargets ? m_RenderTargets->GetGBuffer().depth.view : vk::ImageView{}; }
+    [[nodiscard]] vk::Image GetGBufferMotion() const noexcept { return m_RenderTargets ? m_RenderTargets->GetGBuffer().motion.image : vk::Image{}; }
+    [[nodiscard]] vk::ImageView GetGBufferMotionView() const noexcept { return m_RenderTargets ? m_RenderTargets->GetGBuffer().motion.view : vk::ImageView{}; }
+
+    [[nodiscard]] vk::Image GetStorageImage() const noexcept { return m_RenderTargets ? m_RenderTargets->GetOutput().image : vk::Image{}; }
+    [[nodiscard]] vk::ImageView GetStorageImageView() const noexcept { return m_RenderTargets ? m_RenderTargets->GetOutput().view : vk::ImageView{}; }
+    [[nodiscard]] const SceneGpuData* GetSceneGpuData() const noexcept { return m_SceneGpuData.get(); }
+    [[nodiscard]] SceneGpuData* GetSceneGpuData() noexcept { return m_SceneGpuData.get(); }
+
+    Buffer* GetEditBuffer() const { return m_SceneGpuData ? m_SceneGpuData->GetEditBuffer() : nullptr; }
     Buffer* GetSelectionBuffer() const { return m_SelectionBuffer.get(); }
-    Buffer* GetCameraUBO() const { return m_CameraUBO.get(); }
-    BrickGrid* GetBrickGrid() const { return m_BrickGrid.get(); }
-    size_t GetActiveEditCount() const { return m_ActiveEditCount; }
+    Buffer* GetCameraUBO() const { return m_SceneGpuData ? m_SceneGpuData->GetCameraUBO() : nullptr; }
+    BrickGrid* GetBrickGrid() const { return m_SceneGpuData ? m_SceneGpuData->GetBrickGrid() : nullptr; }
+    size_t GetActiveEditCount() const { return m_SceneGpuData ? m_SceneGpuData->GetActiveEditCount() : 0; }
 
     [[nodiscard]] int GetWidth() const noexcept { return m_Width; }
     [[nodiscard]] int GetHeight() const noexcept { return m_Height; }
@@ -141,8 +149,8 @@ public:
     // IBL & Lights API (Faz 2)
     [[nodiscard]] IBLManager* GetIBLManager() const noexcept { return m_IBLManager.get(); }
     void SetLights(const std::vector<LightGPU>& lights);
-    [[nodiscard]] std::vector<LightGPU>& GetLights() noexcept { return m_Lights; }
-    [[nodiscard]] const std::vector<LightGPU>& GetLights() const noexcept { return m_Lights; }
+    [[nodiscard]] std::vector<LightGPU>& GetLights() noexcept { return m_SceneGpuData->GetLights(); }
+    [[nodiscard]] const std::vector<LightGPU>& GetLights() const noexcept { return m_SceneGpuData->GetLights(); }
 
     [[nodiscard]] SDFTemporalHistory* GetTemporalHistory() noexcept { return m_TemporalHistory.get(); }
     [[nodiscard]] const SDFTemporalHistory* GetTemporalHistory() const noexcept { return m_TemporalHistory.get(); }
@@ -159,11 +167,10 @@ private:
 
     int m_Width = 1280;
     int m_Height = 720;
-    size_t m_ActiveEditCount = 0;
 
-    std::unique_ptr<Buffer> m_EditBuffer;
+    // Scene GPU Data (G06: Primitifler, dunya donusumleri, isiklar, BrickGrid ve Kamera UBO)
+    std::unique_ptr<SceneGpuData> m_SceneGpuData;
     std::unique_ptr<Buffer> m_SelectionBuffer;
-    std::unique_ptr<BrickGrid> m_BrickGrid;
 
     bool m_PickingRequested = false;
     bool m_PickPendingRead = false;
@@ -179,24 +186,7 @@ private:
     // G-Buffer Pipeline & Degiskenleri (Faz 1)
     int m_DebugMode = 0;
 
-    // G-Buffer Render Hedefleri (VMA)
-    VmaImage m_GBufAlbedo;       // VK_FORMAT_R8G8B8A8_UNORM
-    vk::UniqueImageView m_GBufAlbedoView;
-
-    VmaImage m_GBufNormal;       // VK_FORMAT_R16G16B16A16_SFLOAT
-    vk::UniqueImageView m_GBufNormalView;
-
-    VmaImage m_GBufMaterial;     // VK_FORMAT_R8G8B8A8_UNORM
-    vk::UniqueImageView m_GBufMaterialView;
-
-    VmaImage m_GBufDepth;        // VK_FORMAT_R32_SFLOAT
-    vk::UniqueImageView m_GBufDepthView;
-
-    VmaImage m_GBufMotion;       // VK_FORMAT_R16G16_SFLOAT
-    vk::UniqueImageView m_GBufMotionView;
-
-    // Camera Matrices & Camera UBO (Motion Vectors)
-    std::unique_ptr<Buffer> m_CameraUBO;
+    // Camera Matrices (Motion Vectors)
     glm::mat4 m_CurrViewProj{1.0f};
     glm::mat4 m_PrevViewProj{1.0f};
     glm::vec2 m_CurrJitter{0.0f};
@@ -205,35 +195,22 @@ private:
     std::optional<RenderCamera> m_RenderCamera;
     void SetCameraMatrices(const glm::mat4& view, const glm::mat4& proj, const glm::vec2& jitter);
 
-    // G-Buffer Compute Pipeline
+    // Compute Programs (G04)
     std::string m_GBufferSpvPath;
-    vk::UniqueShaderModule m_GBufferShaderModule;
-    vk::UniqueDescriptorSetLayout m_GBufferDescriptorSetLayout;
-    vk::UniquePipelineLayout m_GBufferPipelineLayout;
-    vk::UniquePipeline m_GBufferPipeline;
+    std::unique_ptr<ComputeProgram> m_GBufferProgram;
     vk::DescriptorSet m_GBufferDescriptorSet;
 
     // Debug Composite Pipeline
     std::string m_DebugCompositeSpvPath;
-    vk::UniqueShaderModule m_DebugCompositeShaderModule;
-    vk::UniqueDescriptorSetLayout m_DebugCompositeDescriptorSetLayout;
-    vk::UniquePipelineLayout m_DebugCompositePipelineLayout;
-    vk::UniquePipeline m_DebugCompositePipeline;
+    std::unique_ptr<ComputeProgram> m_DebugCompositeProgram;
     vk::DescriptorSet m_DebugCompositeDescriptorSet;
 
     // Deferred Lighting Pipeline (Faz 2)
     std::string m_DeferredLightingSpvPath;
-    vk::UniqueShaderModule m_DeferredLightingShaderModule;
-    vk::UniqueDescriptorSetLayout m_DeferredLightingDescriptorSetLayout;
-    vk::UniquePipelineLayout m_DeferredLightingPipelineLayout;
-    vk::UniquePipeline m_DeferredLightingPipeline;
+    std::unique_ptr<ComputeProgram> m_DeferredLightingProgram;
     vk::DescriptorSet m_DeferredLightingDescriptorSet;
 
     std::unique_ptr<IBLManager> m_IBLManager;
-    std::unique_ptr<Buffer> m_LightBuffer;
-    std::unique_ptr<Buffer> m_PrevTransformBuffer;
-    std::unordered_map<uint32_t, glm::mat4> m_PrevWorldTransforms;
-    std::vector<LightGPU> m_Lights;
     std::unique_ptr<SDFTemporalHistory> m_TemporalHistory;
     SDFChangeSet m_CurrentChangeSet;
     SDFSceneSnapshot m_PreviousSnapshot;
@@ -242,33 +219,15 @@ private:
 
     // TAA Pipeline (PR-8)
     std::string m_TaaSpvPath;
-    vk::UniqueShaderModule m_TaaShaderModule;
-    vk::UniqueDescriptorSetLayout m_TaaDescriptorSetLayout;
-    vk::UniquePipelineLayout m_TaaPipelineLayout;
-    vk::UniquePipeline m_TAAPipeline;
+    std::unique_ptr<ComputeProgram> m_TaaProgram;
     std::array<vk::DescriptorSet, 2> m_TaaDescriptorSet;
 
-    // Render Hedefleri (VMA ile yonetilir)
-    VmaImage m_StorageImage;         // Son cikan goruntu (Swapchain'e blit edilen, RGBA8)
-    vk::UniqueImageView m_StorageImageView;
-
-    VmaImage m_RawColorImage;        // Raymarching / Deferred Lighting ciktisi (Linear HDR, RGBA16F)
-    vk::UniqueImageView m_RawColorImageView;
-
-    std::array<VmaImage, 2> m_HistoryImage;         // Ping-pong tarihce tamponlari (Linear HDR, RGBA16F)
-    std::array<vk::UniqueImageView, 2> m_HistoryImageView;
-    std::array<VmaImage, 2> m_HistoryExtraImage;    // Ping-pong tarihce ekstra tamponlari (RGBA32UI: X=surfaceId, Y=lighting, ZW=normal)
-    std::array<vk::UniqueImageView, 2> m_HistoryExtraImageView;
+    // RenderTargets (G05: 11 goruntuyu tek atomik RAII paketi olarak yonetir)
+    std::unique_ptr<RenderTargets> m_RenderTargets;
     uint32_t m_HistoryPingPong = 0;
 
     vk::UniqueDescriptorPool m_DescriptorPool;
 
-    void CreateImages();
-    void CleanupImages();
-    void CreateEditBuffer(bool persistentMap);
-    void CreateCameraUBO();
-    void CreateLightBuffer();
-    void UpdateLights();
     void CreateDescriptorPoolAndSets();
     void UpdateTAADescriptorSets();
     void UpdateGBufferDescriptorSets();
@@ -278,8 +237,6 @@ private:
     void CreateGBufferPipeline();
     void CreateDebugCompositePipeline();
     void CreateDeferredLightingPipeline();
-    void CreateTexture(VmaImage& img, vk::UniqueImageView& view, vk::ImageUsageFlags usage);
-    void CreateGBufferTexture(VmaImage& img, vk::UniqueImageView& view, vk::Format format, vk::ImageUsageFlags usage);
 };
 
 } // namespace Astral

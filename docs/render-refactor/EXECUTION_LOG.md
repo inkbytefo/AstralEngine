@@ -146,3 +146,140 @@ Bu belge, [RENDER_REFACTOR_IMPLEMENTATION_PLAN.md](../RENDER_REFACTOR_IMPLEMENTA
 - **Bilinen eksik veya risk:** Yok.
 - **Sonraki görev ve gerekli arayüzler:** G04 — `ComputeProgram` ve shader yüklemeyi merkezileştir (`include/Astral/Renderer/ComputeProgram.hpp`, `src/Renderer/ComputeProgram.cpp`).
 
+---
+
+### Görev: G04 — ComputeProgram ve shader yüklemeyi merkezileştir
+- **Durum:** Tamamlandı
+- **Kaynak commit ve çalışma ağacı bilgisi:**
+  - Commit: `3adfa0b6f32df6712f7236c257a56334a8ca1385`
+  - Kullanıcı değişiklikleri korundu: `WORK_PLAN.md`, `FINDINGS_VERIFICATION_REPORT.md`, `imgui.ini`
+- **Değişen dosyalar:**
+  - Yeni: `include/Astral/Renderer/ComputeProgram.hpp`
+  - Yeni: `src/Renderer/ComputeProgram.cpp`
+  - Değiştirildi: `AstralEngine/CMakeLists.txt`
+  - Değiştirildi: `include/Astral/Renderer/SDFRenderer.hpp`
+  - Değiştirildi: `src/Renderer/SDFRenderer.cpp`
+  - Değiştirildi: `Tests/EngineTests/src/RendererArchitectureTests.cpp`
+  - Dokümantasyon: `docs/RENDER_REFACTOR_IMPLEMENTATION_PLAN.md`, `docs/render-refactor/EXECUTION_LOG.md`
+- **Uygulanan mimari karar:**
+  - `ComputeProgramDesc` ve `ComputeProgram` sınıfı tasarlandı (`vk::UniqueDescriptorSetLayout`, `vk::UniquePipelineLayout`, `vk::UniqueShaderModule`, `vk::UniquePipeline`).
+  - Kısmi constructor hatalarında Vulkan C++ RAII sarmalayıcıları (`vk::Unique*`) sayesinde önceki tahsis edilmiş nesneler ters sırada sızıntısız temizlenir.
+  - `ComputeProgram::ReadSpirv`: Katı SPIR-V doğrulama mantığı getirildi (dosya mevcudiyeti, tellg/seekg, 0 bayt boş dosya kontrolü, 4 bayt katı olma kontrolü, < 20 bayt eksik başlık kontrolü, `0x07230203` little-endian ve `0x03022307` big-endian magic kontrolü).
+  - `ComputeProgram::ResolveShaderPath`: Arama sırası merkezileştirildi (verilen açık yol, hintBasePath üst dizini, SHADER_BIN_DIR, fallback klasörleri `build-release/shaders`, `build/shaders`, `shaders`). Bulunamadığında bilgilendirici `std::runtime_error`, boş yolda `std::invalid_argument` fırlatılır.
+  - `SDFRenderer.cpp` içindeki eski dosya-kapsamlı `ReadFile` ve 4 ayrı pipeline kurulum fonksiyonundaki (~250 satır) duplicate kod kaldırıldı. `m_GBufferProgram`, `m_DebugCompositeProgram`, `m_DeferredLightingProgram`, `m_TaaProgram` doğrudan `ComputeProgram` nesneleri olarak yönetildi.
+  - Descriptor tahsis ve dispatch bağlama çağrıları `m_XProgram->GetPipeline()`, `GetLayout()`, `GetSetLayout()` üzerinden yapıldı.
+  - `ComputePipeline` sınıfı silinmedi, mevcut tüketiciler korunarak G18'e ertelendi.
+- **Davranış değişti mi; değiştiyse gerekçe:**
+  - Hayır. Pipeline konfigürasyonları, descriptor bağlama slotları ve push constant boyutları birebir korundu; sadece kod temizliği, merkezileştirme ve RAII güvenliği sağlandı.
+- **Çalıştırılan komutlar ve exit code:**
+  - `cmake --build --preset mingw-release -j 4` -> Exit Code: `0`
+  - `./build-release/EngineTests.exe --renderer` -> Exit Code: `0` (99 assertion doğrulandı, +10 assertion)
+  - `./build-release/RendererLifecycleGpuTests.exe` -> Exit Code: `0` (32 assertion doğrulandı)
+  - `ctest --preset test-release --output-on-failure` -> Exit Code: `0` (25/25 test geçti, %100 başarı)
+  - `git checkout -- imgui.ini` -> Otomatik testlerin oluşturduğu dosya geri alındı.
+- **CPU/GPU test sonucu ve artifact yolları:**
+  - `ComputeProgram_ReadSpirv_NonExistent`: Varolmayan dosya exception'ı doğrulandı.
+  - `ComputeProgram_ReadSpirv_Empty`: 0 bayt dosya exception'ı doğrulandı.
+  - `ComputeProgram_ReadSpirv_NonMod4`: 7 bayt dosya exception'ı doğrulandı.
+  - `ComputeProgram_ReadSpirv_ShortHeader`: 16 bayt dosya exception'ı doğrulandı.
+  - `ComputeProgram_ReadSpirv_InvalidMagic`: Geçersiz magic sayısı exception'ı doğrulandı.
+  - `ComputeProgram_ReadSpirv_ValidHeader`: 5 kelimelik sentetik başlık başarıyla okundu.
+  - `ComputeProgram_Resolve_EmptyName`: Boş ad `std::invalid_argument` doğrulandı.
+  - `ComputeProgram_Resolve_ExplicitPath`: Varolan doğrudan yol çözümü doğrulandı.
+  - `ComputeProgram_Resolve_NonExistent`: Bulunamayan shader `std::runtime_error` doğrulandı.
+  - `ComputeProgram_ResolveAndRead_RealShader`: `TAAResolve.spv` gerçek shader'ı çözümlendi ve geçerli SPIR-V olarak okundu.
+- **Performans ölçüldüyse koşullar ve sonuç:**
+  - CTest toplam süre: 31.31 sn (21 CPU: 2.33 sn, 1 Editor: 0.13 sn, 4 GPU: 28.91 sn).
+- **Bilinen eksik veya risk:** Yok.
+- **Sonraki görev ve gerekli arayüzler:** G05 — `RenderTargets` ve RAII görüntü sahipliğini çıkar (`include/Astral/Renderer/RenderTargets.hpp`, `src/Renderer/RenderTargets.cpp`).
+
+---
+
+### Görev: G05 — RenderTargets ve RAII görüntü sahipliğini çıkar
+- **Durum:** Tamamlandı
+- **Kaynak commit ve çalışma ağacı bilgisi:**
+  - Commit: `3adfa0b6f32df6712f7236c257a56334a8ca1385`
+  - Kullanıcı değişiklikleri korundu: `WORK_PLAN.md`, `FINDINGS_VERIFICATION_REPORT.md`, `imgui.ini`
+- **Değişen dosyalar:**
+  - Yeni: `include/Astral/Renderer/RenderTargets.hpp`
+  - Yeni: `src/Renderer/RenderTargets.cpp`
+  - Değiştirildi: `AstralEngine/CMakeLists.txt`
+  - Değiştirildi: `include/Astral/Renderer/SDFRenderer.hpp`
+  - Değiştirildi: `src/Renderer/SDFRenderer.cpp`
+  - Değiştirildi: `Tests/EngineTests/src/RendererArchitectureTests.cpp`
+  - Değiştirildi: `Tests/EngineTests/src/RendererLifecycleGpuTests.cpp`
+  - Dokümantasyon: `docs/RENDER_REFACTOR_IMPLEMENTATION_PLAN.md`, `docs/render-refactor/EXECUTION_LOG.md`
+- **Uygulanan mimari karar:**
+  - `RenderTargets::OwnedImage` RAII sarmalayıcısı yazıldı (`vk::Image`, `VmaAllocation`, `vk::UniqueImageView`, `VmaAllocator`). Copy yasak (`= delete`), Move semantics tam uygulandı. Destructor `Release()` ile önce `view.reset()`, ardından `vmaDestroyImage(allocator, image, allocation)` çağırır.
+  - VMA bellek sızıntısını önlemek için `VmaImage::reset()` yerine doğrudan `vmaDestroyImage` kullanıldı. View oluşturma sırasında hata fırlatılırsa catch bloğunda `Release()` çağrılarak sızıntısız temizlik garantilendi.
+  - 11 GPU görüntüsü (Storage, RawColor, GBufferPosition, GBufferNormal, GBufferMaterial, GBufferAlbedo, GBufferEmissive, HistoryColor0, HistoryColor1, HistoryExtra0, HistoryExtra1) `RenderTargets` constructor'ı altında toplandı. Tek bir `ExecuteImmediate` çağrısı ile uygun layout transition (`VK_IMAGE_LAYOUT_GENERAL`) ve clear işlemleri gerçekleştirildi.
+  - `SDFRenderer::Resize` metodunda **Candidate Pattern** uygulandı: Önce aday `RenderTargets candidate(m_Context, newWidth, newHeight)` oluşturulur. Başarısız olursa (örn. 0 boyut veya bellek yetersizliği) exception fırlatılır ve önceki `m_RenderTargets` ile boyutlar (`m_Width`, `m_Height`) bozulmadan kalır. Aday başarılıysa `m_RenderTargets = std::move(candidate)` ile atomic takas yapılır ve descriptor set'ler güncellenir.
+  - `SDFRenderer` içerisindeki tüm manuel `CreateImages()`, `CleanupImages()` ve `CreateImageView()` fonksiyonları ve 11 adet dağınık `VmaImage`/`vk::ImageView` üyesi kaldırıldı.
+  - Legacy API korundu: `GetStorageImage()`, `GetStorageImageView()`, `GetGBuffer*()`, `GetOutput()`, `GetRawColor()` vb. metodlar doğrudan `m_RenderTargets` referanslarına delege edildi.
+- **Davranış değişti mi; değiştiyse gerekçe:**
+  - Hayır. Tüm görüntü formatları, boyutları, usage flag'leri ve pipeline descriptor bağlantıları birebir korundu. Resize sırasında kısmi tahsis çökmesi engellendi ve bellek güvenliği sağlandı.
+- **Çalıştırılan komutlar ve exit code:**
+  - `cmake --build --preset mingw-release -j 4` -> Exit Code: `0`
+  - `./build-release/EngineTests.exe --renderer` -> Exit Code: `0` (108 assertion doğrulandı, +9 assertion)
+  - `./build-release/RendererLifecycleGpuTests.exe` -> Exit Code: `0` (49 assertion doğrulandı, +17 assertion)
+  - `ctest --preset test-release --output-on-failure` -> Exit Code: `0` (25/25 test geçti, %100 başarı)
+- **CPU/GPU test sonucu ve artifact yolları:**
+  - `RenderTargets_ZeroDimensions_Throws`: Width/Height=0 durumunda `std::invalid_argument` fırlatıldığı CPU testinde doğrulandı.
+  - `RenderTargets_OwnedImage_MoveSemantics`: Move constructor ve move assignment ile sahipliğin eksiksiz aktarıldığı ve kaynak nesnenin temizlendiği doğrulandı.
+  - `RenderTargets_RAII_Lifecycle_And_AllocationCount`: `RenderTargets` oluşturulduğunda VMA tahsis sayısının tam olarak +11 arttığı, yok edildiğinde başlangıç taban çizgisine (0 sızıntı) döndüğü GPU testinde kanıtlandı.
+  - `SDFRenderer_Resize_ZeroDimension_PreservesOldTargets`: Sıfır boyut ile Resize çağrıldığında eski hedeflerin bozulmadan korunduğu GPU testinde doğrulandı.
+  - `SDFRenderer_Resize_Stress_50_Cycles`: 50 ardışık resize döngüsünün ardından VMA tahsis sayısının ve GPU belleğinin mükemmel korunduğu, hiçbir Vulkan validation layer hatası üretmediği kanıtlandı.
+- **Performans ölçüldüyse koşullar ve sonuç:**
+  - CTest toplam süre: 31.86 sn (21 CPU: 2.30 sn, 1 Editor: 0.12 sn, 4 GPU: 29.44 sn).
+- **Bilinen eksik veya risk:** Yok.
+- **Sonraki görev ve gerekli arayüzler:** G06 — `SceneGpuData` ile sahne aktarımını ayır (`include/Astral/Renderer/SceneGpuData.hpp`, `src/Renderer/SceneGpuData.cpp`).
+
+---
+
+### Görev: G06 — SceneGpuData ile sahne aktarımını ayır
+- **Durum:** Tamamlandı
+- **Kaynak commit ve çalışma ağacı bilgisi:**
+  - Commit: `3adfa0b6f32df6712f7236c257a56334a8ca1385`
+  - Kullanıcı değişiklikleri korundu: `WORK_PLAN.md`, `FINDINGS_VERIFICATION_REPORT.md`, `imgui.ini`
+- **Değişen dosyalar:**
+  - Yeni: `include/Astral/Renderer/SceneGpuData.hpp`
+  - Yeni: `src/Renderer/SceneGpuData.cpp`
+  - Değiştirildi: `AstralEngine/CMakeLists.txt`
+  - Değiştirildi: `include/Astral/Renderer/SDFRenderer.hpp`
+  - Değiştirildi: `src/Renderer/SDFRenderer.cpp`
+  - Değiştirildi: `Tests/EngineTests/src/RendererArchitectureTests.cpp`
+  - Değiştirildi: `Tests/EngineTests/src/RendererLifecycleGpuTests.cpp`
+  - Dokümantasyon: `docs/RENDER_REFACTOR_IMPLEMENTATION_PLAN.md`, `docs/render-refactor/EXECUTION_LOG.md`
+- **Uygulanan mimari karar:**
+  - `SceneGpuData` sınıfı oluşturuldu. Primitif tamponu (`m_EditBuffer`), önceki dünya dönüşümleri (`m_PrevTransformBuffer`), ışık SSBO (`m_LightBuffer`), iki seviyeli uzaysal ızgara (`m_BrickGrid`) ve Kamera UBO (`m_CameraUBO`) sahipliği ve GPU aktarım mantığı buraya taşındı.
+  - `SceneBufferViews` arayüzü tanımlandı: `primitives`, `previousTransforms`, `lights`, `grid` descriptor bilgileri ile `primitiveCount` ve `gridParams` açık bir veri yapısı altında toplandı.
+  - `SceneGpuData::MakeFallbackTransformKey(index)` statik yardımcı metodu (`0x80000000u | index`) ile surfaceId'si olmayan test kayıtları için deterministik ve standart entity ID'leri ile çakışmayan anahtarlar üretildi.
+  - `SDFRenderer` facade sınırında `LegacySDFEdit` -> `SDFPrimitiveRecord` dönüşümü yapıldı ve `MAX_SDF_EDITS` clamp kuralı korundu.
+  - IBL ortam üretimi ve doku yönetimi (`IBLManager`) `SDFRenderer`'da bırakıldı; `SceneGpuData` yalnızca analitik ışıkların SSBO tamponunu (`m_LightBuffer`) yönetmektedir.
+  - Geriye dönük uyumluluk: `GetEditBuffer()`, `GetCameraUBO()`, `GetBrickGrid()`, `GetActiveEditCount()` ve `GetLights()` getter'ları `m_SceneGpuData`'ya delege edildi.
+- **Davranış değişti mi; değiştiyse gerekçe:**
+  - Hayır. Tüm GPU tampon boyutları, bellek hizalamaları, VMA host-visible tahsisleri ve descriptor bağlamaları birebir korundu. Pass orkestrasyonundan tampon kopyalama karmaşası arındırıldı.
+- **Çalıştırılan komutlar ve exit code:**
+  - `cmake --build --preset mingw-release -j 4` -> Exit Code: `0`
+  - `./build-release/EngineTests.exe --renderer` -> Exit Code: `0` (118 assertion doğrulandı, +10 assertion)
+  - `./build-release/RendererLifecycleGpuTests.exe` -> Exit Code: `0` (63 assertion doğrulandı, +14 assertion)
+  - `./build-release/EngineTests.exe --contract` -> Exit Code: `0` (43 assertion doğrulandı)
+  - `ctest --preset test-release --output-on-failure` -> Exit Code: `0` (25/25 test geçti, %100 başarı)
+- **CPU/GPU test sonucu ve artifact yolları:**
+  - `SceneBufferViews_Default*`: Varsayılan yapının null/0 başlatıldığı CPU testinde doğrulandı.
+  - `SceneGpuData_FallbackKey_*`: Yüksek bitin 1 olduğu, indekslerin korunduğu ve surfaceId ile çakışmadığı doğrulandı.
+  - `SceneGpuData_0Records` & `1Record`: 0 ve 1 kayıt yüklemelerinde sayaçların ve view'ların doğruluğu GPU testinde kanıtlandı.
+  - `SceneGpuData_ClampToMaxEdits`: 300 kayıt verildiğinde `MAX_SDF_EDITS` (256) sınırına clamp edildiği doğrulandı.
+  - `SceneGpuData_MovingPrim_Frame1/2/3`: 3 ardışık karede hareket eden nesnenin önceki dünya dönüşüm matrisinin GPU tamponuna eksiksiz yazıldığı doğrulandı.
+  - `SceneGpuData_DeletedAndReaddedIdentity`: Boş sahne geçişinde geçmişin sıfırlandığı ve nesne yeniden eklendiğinde bayat matris yerine yeni matrisin yazıldığı kanıtlandı.
+  - `SceneGpuData_LegacyVsPersistentMapEquivalence`: Legacy haritalama ile kalıcı haritalama verilerinin GPU tamponunda bayt bayt özdeş olduğu (`memcmp == 0`) kanıtlandı.
+  - `SceneGpuData_CameraUBOUpload`: `UploadCamera` ile yazılan `CameraUBOData`'nın mapped bellekte bayt bayt eşleştiği doğrulandı.
+  - `SceneGpuData_SetLights_*`: Işık başlığının ve ışık dizisinin doğruluğu test edildi.
+- **Performans ölçüldüyse koşullar ve sonuç:**
+  - CTest toplam süre: 31.99 sn (21 CPU: 2.44 sn, 1 Editor: 0.13 sn, 4 GPU: 29.49 sn).
+- **Bilinen eksik veya risk:** Yok.
+- **Sonraki görev ve gerekli arayüzler:** G07 — `TemporalState` durum makinesini ayır (`include/Astral/Renderer/TemporalState.hpp`, `src/Renderer/TemporalState.cpp`).
+
+
+
+

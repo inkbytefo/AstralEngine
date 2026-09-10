@@ -88,6 +88,9 @@ add_library(AstralEngine STATIC
     ${CMAKE_SOURCE_DIR}/src/Renderer/VulkanContext.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/VmaImplementation.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/ComputePipeline.cpp
+    ${CMAKE_SOURCE_DIR}/src/Renderer/ComputeProgram.cpp
+    ${CMAKE_SOURCE_DIR}/src/Renderer/RenderTargets.cpp
+    ${CMAKE_SOURCE_DIR}/src/Renderer/SceneGpuData.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/Buffer.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/BrickGrid.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/IBLManager.cpp

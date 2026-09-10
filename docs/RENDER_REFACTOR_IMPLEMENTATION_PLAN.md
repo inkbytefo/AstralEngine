@@ -391,13 +391,13 @@ struct ComputeProgramDesc {
 // std::vector<uint32_t> ReadSpirv(const std::filesystem::path& path);
 ```
 
-- [ ] CPU shader yükleyici testlerini yaz: bulunamayan dosya, boş dosya, 4 byte katı olmayan dosya, eksik SPIR-V header, geçerli magic ve payload okuma.
-- [ ] SPIR-V'yi `vector<uint32_t>` olarak oku; boyut/read başarı kontrollerini yap. Magic kontrolünü tam shader doğrulaması diye sunma; geçersiz program ayrıca pipeline creation'da hata verebilir.
-- [ ] Eski shader arama sırasını ortak yardımcıya taşı: verilen açık yol; legacy ana yolun parent'ı; mevcut fallback'ler. CWD değişince sessizce başka shader seçilmesini raporla.
-- [ ] Program sahibi sırasıyla descriptor layout, pipeline layout ve pipeline oluşturur. Kısmi constructor hatasında Unique handle'lar temizlenir.
-- [ ] Dört oluşturucu aynı yardımcıyı kullanır; descriptor kaynak yazımı pass sorumluluğunda kalır.
+- [x] CPU shader yükleyici testlerini yaz: bulunamayan dosya, boş dosya, 4 byte katı olmayan dosya, eksik SPIR-V header, geçerli magic ve payload okuma. (RendererArchitectureTests.cpp altında 10 test assertion'ı ile doğrulandı).
+- [x] SPIR-V'yi `vector<uint32_t>` olarak oku; boyut/read başarı kontrollerini yap. Magic kontrolünü tam shader doğrulaması diye sunma; geçersiz program ayrıca pipeline creation'da hata verebilir. (`ComputeProgram::ReadSpirv` içinde katı kontroller sağlandı).
+- [x] Eski shader arama sırasını ortak yardımcıya taşı: verilen açık yol; legacy ana yolun parent'ı; mevcut fallback'ler. CWD değişince sessizce başka shader seçilmesini raporla. (`ComputeProgram::ResolveShaderPath` ile merkezileştirildi).
+- [x] Program sahibi sırasıyla descriptor layout, pipeline layout ve pipeline oluşturur. Kısmi constructor hatasında Unique handle'lar temizlenir. (`vk::Unique*` RAII ile güvenceye alındı).
+- [x] Dört oluşturucu aynı yardımcıyı kullanır; descriptor kaynak yazımı pass sorumluluğunda kalır. (`SDFRenderer` içindeki ~250 satır tekrar eden pipeline kodu kaldırıldı, `m_GBufferProgram`, `m_DebugCompositeProgram`, `m_DeferredLightingProgram`, `m_TaaProgram` bağlandı).
 
-**Test:** CPU yükleyici vakaları ve GPU smoke. **Tamamlanma:** Dört kopya pipeline kurulum kodu yok; shader hatası yol bilgisiyle dışarı çıkıyor. Mevcut `ComputePipeline` başka yerde kullanılıyorsa silme; tüketici taraması G18'de.
+**Test:** CPU yükleyici vakaları ve GPU smoke. **Tamamlanma:** Dört kopya pipeline kurulum kodu yok; shader hatası yol bilgisiyle dışarı çıkıyor. Mevcut `ComputePipeline` başka yerde kullanılıyorsa silme; tüketici taraması G18'de. (G04 Tamamlandı: 25/25 CTest %100 başarılı).
 
 ### G05 — RenderTargets ve RAII görüntü sahipliğini çıkar
 
@@ -407,14 +407,14 @@ struct ComputeProgramDesc {
 
 **Bağımlılık:** G04. **Arayüz:** `ImageViewRef`, `GBufferViews`; `RenderTargets(VulkanContext&, uint32_t width, uint32_t height)`, `GBufferViews GetGBuffer() const`, `ImageViewRef GetOutput() const`, `ImageViewRef GetRawColor() const`, `ImageViewRef GetHistoryColor(uint32_t) const`, `ImageViewRef GetHistoryExtra(uint32_t) const`.
 
-- [ ] İçte `OwnedImage` RAII sahibi yaz. VMA allocator, image/allocation ve view tek nesnede olsun; copy yasak, move sonrası kaynak nesne boş, destructor önce view sonra `vmaDestroyImage` çağırsın.
-- [ ] Mevcut `VmaImage::reset()` bellek serbest bırakmadığı için onu gerçek RAII destructor yerine kullanma.
-- [ ] Bölüm 4.1 formatlarını ve mevcut usage/clear işlemlerini taşı. On bir görüntünün creation/initialization adımlarını tek paket altında topla.
-- [ ] `Resize` için önce aday `RenderTargets` oluştur. Aday başarısızsa eski boyut ve kaynaklar geçerli kalsın. İlk aşamada mevcut güvenli device-idle beklemesini koru.
-- [ ] Descriptor yeniden bağlama ve editör view tüketimi güncellendikten sonra eski paketi yok et. Frame-slot sürümüne G15'te geçilecek.
-- [ ] Eski getter'lar yeni sahibin view'larını döndürsün; API kaldırma.
+- [x] İçte `OwnedImage` RAII sahibi yaz. VMA allocator, image/allocation ve view tek nesnede olsun; copy yasak, move sonrası kaynak nesne boş, destructor önce view sonra `vmaDestroyImage` çağırsın. (`RenderTargets::OwnedImage` struct'ı ile uygulandı, view ve allocation güvenli şekilde yok ediliyor).
+- [x] Mevcut `VmaImage::reset()` bellek serbest bırakmadığı için onu gerçek RAII destructor yerine kullanma. (`OwnedImage::Release()` içinde `vmaDestroyImage(allocator, image, allocation)` doğrudan çağrılarak bellek serbest bırakılıyor).
+- [x] Bölüm 4.1 formatlarını ve mevcut usage/clear işlemlerini taşı. On bir görüntünün creation/initialization adımlarını tek paket altında topla. (11 görüntü formatları, usage ve ExecuteImmediate transition/clear adımları `RenderTargets` constructor'ında toplandı).
+- [x] `Resize` için önce aday `RenderTargets` oluştur. Aday başarısızsa eski boyut ve kaynaklar geçerli kalsın. İlk aşamada mevcut güvenli device-idle beklemesini koru. (`SDFRenderer::Resize` içinde Candidate Pattern uygulandı, aday başarılı olursa `m_RenderTargets = std::move(candidateTargets)` ile takas ediliyor).
+- [x] Descriptor yeniden bağlama ve editör view tüketimi güncellendikten sonra eski paketi yok et. Frame-slot sürümüne G15'te geçilecek. (Candidate swap sonrası `UpdateDescriptors()`, `UpdateDeferredLightingDescriptors()` çağrıldı).
+- [x] Eski getter'lar yeni sahibin view'larını döndürsün; API kaldırma. (`GetStorageImage()`, `GetStorageImageView()`, `GetGBuffer*()` vb. getter'lar `m_RenderTargets` referanslarına delege edildi).
 
-**Test:** 127×65 resize/readback, art arda 50 resize, sıfır boyutun eski hedefi koruması; hata enjeksiyonunda N'inci görüntü oluşturma başarısızlığından sonra VMA allocation sayısının eski değere dönmesi. **Tamamlanma:** `SDFRenderer` içinde manuel on bir image cleanup zinciri yok.
+**Test:** 127×65 resize/readback, art arda 50 resize, sıfır boyutun eski hedefi koruması; hata enjeksiyonunda N'inci görüntü oluşturma başarısızlığından sonra VMA allocation sayısının eski değere dönmesi. **Tamamlanma:** `SDFRenderer` içinde manuel on bir image cleanup zinciri yok. (G05 Tamamlandı: 108 CPU assertion, 49 GPU assertion, 25/25 CTest %100 başarılı).
 
 ### G06 — SceneGpuData ile sahne aktarımını ayır
 
@@ -424,15 +424,15 @@ struct ComputeProgramDesc {
 
 **Bağımlılık:** G05. **Arayüz:** `void Upload(std::span<const SDFPrimitiveRecord>, const SDFChangeSet&, bool legacyMap)`, `SceneBufferViews GetViews() const`, `void SetLights(std::span<const LightGPU>)`, `void UploadCamera(const CameraUBOData&)`, `vk::DescriptorBufferInfo GetCameraDescriptor() const`. Legacy getter'ların ihtiyaç duyduğu Buffer/BrickGrid erişimleri uyum katmanında korunur.
 
-- [ ] `CreateEditBuffer`, `CreateLightBuffer`, `UpdateLights` ve span `UpdateEdits` tampon işlerini yeni sahibine taşı.
-- [ ] `CreateCameraUBO` kaynak sahipliğini de buraya taşı; kamera matrislerini hesaplayan politika bu sınıfa taşınmaz. G07'de hazırlanan `CameraUBOData`, `UploadCamera` ile yazılır.
-- [ ] Legacy edit → record dönüşümünü facade sınırında tut. `MAX_SDF_EDITS` clamp davranışını koru.
-- [ ] İlk adımda mevcut upload algoritmasını aynen taşı; dirty-range optimizasyonunu G13'te yap.
-- [ ] Önceki dönüşümler için surfaceId anahtarını koru; kimliği olmayan test kayıtlarındaki index fallback'ini açıkça isimlendir.
-- [ ] Empty/non-empty sahne geçişleri ve grid update davranışını her overload için aynı işleme yönlendir.
-- [ ] IBL görüntü üretimini bu sınıfa taşıma; yalnız ışık SSBO burada olsun.
+- [x] `CreateEditBuffer`, `CreateLightBuffer`, `UpdateLights` ve span `UpdateEdits` tampon işlerini yeni sahibine taşı. (`SceneGpuData` sınıfına taşındı; `m_EditBuffer`, `m_PrevTransformBuffer`, `m_LightBuffer`, `m_BrickGrid` ve `m_CameraUBO` tek çatı altında toplandı).
+- [x] `CreateCameraUBO` kaynak sahipliğini de buraya taşı; kamera matrislerini hesaplayan politika bu sınıfa taşınmaz. G07'de hazırlanan `CameraUBOData`, `UploadCamera` ile yazılır. (`SceneGpuData::UploadCamera` ve `GetCameraDescriptor` sağlandı).
+- [x] Legacy edit → record dönüşümünü facade sınırında tut. `MAX_SDF_EDITS` clamp davranışını koru. (`SDFRenderer::UpdateEdits` içinde `LegacySDFEdit` -> `SDFPrimitiveRecord` dönüşümü yapılıp `SceneGpuData::Upload`'a yönlendirildi).
+- [x] İlk adımda mevcut upload algoritmasını aynen taşı; dirty-range optimizasyonunu G13'te yap. (`SceneGpuData::Upload` içinde mevcut algoritma korundu).
+- [x] Önceki dönüşümler için surfaceId anahtarını koru; kimliği olmayan test kayıtlarındaki index fallback'ini açıkça isimlendir. (`SceneGpuData::MakeFallbackTransformKey` ile `0x80000000u | index` açıkça tanımlandı ve test edildi).
+- [x] Empty/non-empty sahne geçişleri ve grid update davranışını her overload için aynı işleme yönlendir. (Tüm overload'lar `SceneGpuData::Upload`'a yönlendirildi; boş sahnede `m_PrevWorldTransforms.clear()` ve boş grid build sağlandı).
+- [x] IBL görüntü üretimini bu sınıfa taşıma; yalnız ışık SSBO burada olsun. (`IBLManager` SDFRenderer'da kaldı, yalnızca `m_LightBuffer` ve ışık yönetimi `SceneGpuData`'ya alındı).
 
-**Test:** 0/1/kapasite sınırı kayıt; hareket eden primitive; silinen ve yeniden eklenen kimlik; legacy map ve persistent map GPU eşdeğerliği. **Tamamlanma:** Facade buffer kopyalama ve grid build ayrıntılarını bilmiyor.
+**Test:** 0/1/kapasite sınırı kayıt; hareket eden primitive; silinen ve yeniden eklenen kimlik; legacy map ve persistent map GPU eşdeğerliği. **Tamamlanma:** Facade buffer kopyalama ve grid build ayrıntılarını bilmiyor. (G06 Tamamlandı: 118 CPU assertion, 63 GPU assertion, 25/25 CTest %100 başarılı).
 
 ### G07 — TemporalState durum makinesini ayır
 

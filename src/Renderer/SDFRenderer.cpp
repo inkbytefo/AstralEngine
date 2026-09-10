@@ -18,19 +18,6 @@ namespace Astral {
 
 
 
-static std::vector<char> ReadFile(const std::string& filename) {
-    std::ifstream file(filename, std::ios::ate | std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("[Astral::SDFRenderer] Dosya acilamadi: " + filename);
-    }
-    size_t fileSize = (size_t)file.tellg();
-    std::vector<char> buffer(fileSize);
-    file.seekg(0);
-    file.read(buffer.data(), fileSize);
-    file.close();
-    return buffer;
-}
-
 SDFRenderer::SDFRenderer(VulkanContext& context, const std::string& spvPath, int width, int height,
                          bool persistentMap, const std::string& taaSpvPath,
                          const std::string& gbufferSpvPath, const std::string& debugCompositeSpvPath,
@@ -47,58 +34,15 @@ SDFRenderer::SDFRenderer(VulkanContext& context, const std::string& spvPath, int
 
     std::filesystem::path p(spvPath);
 
-    // TAA shader yolunu tespit et
-    if (m_TaaSpvPath.empty()) {
-        std::filesystem::path cand = p.parent_path() / "TAAResolve.spv";
-        if (std::filesystem::exists(cand)) {
-            m_TaaSpvPath = cand.string();
-        } else if (std::filesystem::exists("build/shaders/TAAResolve.spv")) {
-            m_TaaSpvPath = "build/shaders/TAAResolve.spv";
-        } else {
-            m_TaaSpvPath = "shaders/TAAResolve.spv";
-        }
-    }
-
-    // G-Buffer shader yolunu tespit et
-    if (m_GBufferSpvPath.empty()) {
-        std::filesystem::path cand = p.parent_path() / "SDFGBuffer.spv";
-        if (std::filesystem::exists(cand)) {
-            m_GBufferSpvPath = cand.string();
-        } else if (std::filesystem::exists("build/shaders/SDFGBuffer.spv")) {
-            m_GBufferSpvPath = "build/shaders/SDFGBuffer.spv";
-        } else {
-            m_GBufferSpvPath = "shaders/SDFGBuffer.spv";
-        }
-    }
-
-    // Debug Composite shader yolunu tespit et
-    if (m_DebugCompositeSpvPath.empty()) {
-        std::filesystem::path cand = p.parent_path() / "SDFDebugComposite.spv";
-        if (std::filesystem::exists(cand)) {
-            m_DebugCompositeSpvPath = cand.string();
-        } else if (std::filesystem::exists("build/shaders/SDFDebugComposite.spv")) {
-            m_DebugCompositeSpvPath = "build/shaders/SDFDebugComposite.spv";
-        } else {
-            m_DebugCompositeSpvPath = "shaders/SDFDebugComposite.spv";
-        }
-    }
-
-    // Deferred Lighting shader yolunu tespit et
-    if (m_DeferredLightingSpvPath.empty()) {
-        std::filesystem::path cand = p.parent_path() / "DeferredLighting.spv";
-        if (std::filesystem::exists(cand)) {
-            m_DeferredLightingSpvPath = cand.string();
-        } else if (std::filesystem::exists("build/shaders/DeferredLighting.spv")) {
-            m_DeferredLightingSpvPath = "build/shaders/DeferredLighting.spv";
-        } else {
-            m_DeferredLightingSpvPath = "shaders/DeferredLighting.spv";
-        }
-    }
+    // Shader yollarini ComputeProgram::ResolveShaderPath ile tespit et
+    m_TaaSpvPath = ComputeProgram::ResolveShaderPath(m_TaaSpvPath.empty() ? "TAAResolve.spv" : m_TaaSpvPath, p).string();
+    m_GBufferSpvPath = ComputeProgram::ResolveShaderPath(m_GBufferSpvPath.empty() ? "SDFGBuffer.spv" : m_GBufferSpvPath, p).string();
+    m_DebugCompositeSpvPath = ComputeProgram::ResolveShaderPath(m_DebugCompositeSpvPath.empty() ? "SDFDebugComposite.spv" : m_DebugCompositeSpvPath, p).string();
+    m_DeferredLightingSpvPath = ComputeProgram::ResolveShaderPath(m_DeferredLightingSpvPath.empty() ? "DeferredLighting.spv" : m_DeferredLightingSpvPath, p).string();
 
     (void)spvPath;
-    CreateImages();
-    CreateEditBuffer(persistentMap);
-    CreateCameraUBO();
+    m_RenderTargets = std::make_unique<RenderTargets>(m_Context, static_cast<uint32_t>(m_Width), static_cast<uint32_t>(m_Height));
+    m_SceneGpuData = std::make_unique<SceneGpuData>(m_Context, persistentMap);
 
     // PR-9: Selection Buffer (32 bayt, persistent mapped, host-visible & coherent)
     m_SelectionBuffer = std::make_unique<Buffer>(
@@ -116,11 +60,8 @@ SDFRenderer::SDFRenderer(VulkanContext& context, const std::string& spvPath, int
         std::memcpy(m_SelectionBuffer->GetMappedData(), &initData, sizeof(SelectionDataGPU));
     }
 
-    m_BrickGrid = std::make_unique<BrickGrid>(m_Context.GetAllocator(), m_Device, m_PhysicalDevice);
-
-    // Faz 2: IBL ve Isik Buffer kurulumu
+    // Faz 2: IBL kurulumu (Isik tamponu SceneGpuData tarafindan yonetilir)
     m_IBLManager = std::make_unique<IBLManager>(m_Context);
-    CreateLightBuffer();
 
     m_TemporalHistory = std::make_unique<SDFTemporalHistory>();
 
@@ -157,611 +98,86 @@ SDFRenderer::~SDFRenderer() {
     m_LinearClampSampler.reset();
 
     m_DescriptorPool.reset();
-    m_DeferredLightingPipeline.reset();
-    m_DeferredLightingPipelineLayout.reset();
-    m_DeferredLightingDescriptorSetLayout.reset();
-    m_DeferredLightingShaderModule.reset();
+    m_DeferredLightingProgram.reset();
+    m_DebugCompositeProgram.reset();
+    m_GBufferProgram.reset();
+    m_TaaProgram.reset();
 
-    m_DebugCompositePipeline.reset();
-    m_DebugCompositePipelineLayout.reset();
-    m_DebugCompositeDescriptorSetLayout.reset();
-    m_DebugCompositeShaderModule.reset();
-
-    m_GBufferPipeline.reset();
-    m_GBufferPipelineLayout.reset();
-    m_GBufferDescriptorSetLayout.reset();
-    m_GBufferShaderModule.reset();
-
-    m_TAAPipeline.reset();
-    m_TaaPipelineLayout.reset();
-    m_TaaDescriptorSetLayout.reset();
-    m_TaaShaderModule.reset();
-
-    m_LightBuffer.reset();
     m_IBLManager.reset();
-    m_BrickGrid.reset();
     m_SelectionBuffer.reset();
-    m_CameraUBO.reset();
-    m_EditBuffer.reset();
-    CleanupImages();
-}
-void SDFRenderer::CreateTexture(VmaImage& img, vk::UniqueImageView& view, vk::ImageUsageFlags usage) {
-    VkImageCreateInfo imageInfo{};
-    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.extent = VkExtent3D{static_cast<uint32_t>(m_Width), static_cast<uint32_t>(m_Height), 1};
-    imageInfo.mipLevels = 1;
-    imageInfo.arrayLayers = 1;
-    imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    imageInfo.usage = static_cast<VkImageUsageFlags>(usage);
-    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    VmaAllocationCreateInfo allocCreateInfo{};
-    allocCreateInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-
-    VkImage rawImg = VK_NULL_HANDLE;
-    VmaAllocation alloc = VK_NULL_HANDLE;
-    VkResult res = vmaCreateImage(m_Context.GetAllocator(), &imageInfo, &allocCreateInfo, &rawImg, &alloc, nullptr);
-    if (res != VK_SUCCESS) {
-        throw std::runtime_error("[Astral::SDFRenderer] vmaCreateImage basarisiz! VkResult: " + std::to_string(res));
-    }
-    img.image = rawImg;
-    img.allocation = alloc;
-
-    vk::ImageViewCreateInfo viewInfo{};
-    viewInfo.image = img.get();
-    viewInfo.viewType = vk::ImageViewType::e2D;
-    viewInfo.format = vk::Format::eR8G8B8A8Unorm;
-    viewInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
-    viewInfo.subresourceRange.baseMipLevel = 0;
-    viewInfo.subresourceRange.levelCount = 1;
-    viewInfo.subresourceRange.baseArrayLayer = 0;
-    viewInfo.subresourceRange.layerCount = 1;
-
-    view = m_Device.createImageViewUnique(viewInfo);
-}
-
-void SDFRenderer::CreateGBufferTexture(VmaImage& img, vk::UniqueImageView& view, vk::Format format, vk::ImageUsageFlags usage) {
-    VkImageCreateInfo imageInfo{};
-    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.extent = VkExtent3D{static_cast<uint32_t>(m_Width), static_cast<uint32_t>(m_Height), 1};
-    imageInfo.mipLevels = 1;
-    imageInfo.arrayLayers = 1;
-    imageInfo.format = static_cast<VkFormat>(format);
-    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    imageInfo.usage = static_cast<VkImageUsageFlags>(usage);
-    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    VmaAllocationCreateInfo allocCreateInfo{};
-    allocCreateInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-
-    VkImage rawImg = VK_NULL_HANDLE;
-    VmaAllocation alloc = VK_NULL_HANDLE;
-    VkResult res = vmaCreateImage(m_Context.GetAllocator(), &imageInfo, &allocCreateInfo, &rawImg, &alloc, nullptr);
-    if (res != VK_SUCCESS) {
-        throw std::runtime_error("[Astral::SDFRenderer] G-Buffer vmaCreateImage basarisiz! VkResult: " + std::to_string(res));
-    }
-    img.image = rawImg;
-    img.allocation = alloc;
-
-    vk::ImageViewCreateInfo viewInfo{};
-    viewInfo.image = img.get();
-    viewInfo.viewType = vk::ImageViewType::e2D;
-    viewInfo.format = format;
-    viewInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
-    viewInfo.subresourceRange.baseMipLevel = 0;
-    viewInfo.subresourceRange.levelCount = 1;
-    viewInfo.subresourceRange.baseArrayLayer = 0;
-    viewInfo.subresourceRange.layerCount = 1;
-
-    view = m_Device.createImageViewUnique(viewInfo);
-}
-
-void SDFRenderer::CreateImages() {
-    CreateTexture(m_StorageImage, m_StorageImageView,
-                  vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc | 
-                  vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled);
-
-    // m_RawColorImage: Dogrusal HDR ciktisi (VK_FORMAT_R16G16B16A16_SFLOAT)
-    CreateGBufferTexture(m_RawColorImage, m_RawColorImageView, vk::Format::eR16G16B16A16Sfloat,
-                         vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst);
-
-    // Ping-pong TAA Tarihce Tamponlari: Dogrusal HDR (VK_FORMAT_R16G16B16A16_SFLOAT) ve Ekstra Tarihce (VK_FORMAT_R32G32B32A32_UINT)
-    for (int i = 0; i < 2; ++i) {
-        CreateGBufferTexture(m_HistoryImage[i], m_HistoryImageView[i], vk::Format::eR16G16B16A16Sfloat,
-                             vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst);
-        CreateGBufferTexture(m_HistoryExtraImage[i], m_HistoryExtraImageView[i], vk::Format::eR32G32B32A32Uint,
-                             vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst);
-    }
-
-    // G-Buffer Render Hedefleri (Faz 1)
-    CreateGBufferTexture(m_GBufAlbedo, m_GBufAlbedoView, vk::Format::eR8G8B8A8Unorm,
-                         vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled);
-    CreateGBufferTexture(m_GBufNormal, m_GBufNormalView, vk::Format::eR16G16B16A16Sfloat,
-                         vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled);
-    CreateGBufferTexture(m_GBufMaterial, m_GBufMaterialView, vk::Format::eR32G32B32A32Uint,
-                         vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferSrc);
-    CreateGBufferTexture(m_GBufDepth, m_GBufDepthView, vk::Format::eR32Sfloat,
-                         vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferSrc);
-    CreateGBufferTexture(m_GBufMotion, m_GBufMotionView, vk::Format::eR16G16Sfloat,
-                         vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc);
-
-    // Tum goruntuleri baslangicta guvenli eGeneral duzenine gecir (Monolitik / G-Buffer modu tam uyumluluk)
-    m_Context.ExecuteImmediate([&](vk::CommandBuffer cmd) {
-        auto makeInitBarrier = [](VkImage img) {
-            vk::ImageMemoryBarrier b{};
-            b.oldLayout = vk::ImageLayout::eUndefined;
-            b.newLayout = vk::ImageLayout::eGeneral;
-            b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            b.image = img;
-            b.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
-            b.srcAccessMask = {};
-            b.dstAccessMask = vk::AccessFlagBits::eTransferWrite | vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite;
-            return b;
-        };
-
-        std::array<vk::ImageMemoryBarrier, 11> initBarriers = {
-            makeInitBarrier(m_StorageImage.get()),
-            makeInitBarrier(m_RawColorImage.get()),
-            makeInitBarrier(m_HistoryImage[0].get()),
-            makeInitBarrier(m_HistoryImage[1].get()),
-            makeInitBarrier(m_HistoryExtraImage[0].get()),
-            makeInitBarrier(m_HistoryExtraImage[1].get()),
-            makeInitBarrier(m_GBufAlbedo.get()),
-            makeInitBarrier(m_GBufNormal.get()),
-            makeInitBarrier(m_GBufMaterial.get()),
-            makeInitBarrier(m_GBufDepth.get()),
-            makeInitBarrier(m_GBufMotion.get())
-        };
-
-        cmd.pipelineBarrier(
-            vk::PipelineStageFlagBits::eTopOfPipe,
-            vk::PipelineStageFlagBits::eTransfer | vk::PipelineStageFlagBits::eComputeShader,
-            {},
-            0, nullptr, 0, nullptr,
-            static_cast<uint32_t>(initBarriers.size()), initBarriers.data()
-        );
-
-        // Tarihce, motion vector ve raw color hedeflerini 0 ile temizle (NaN/çöp veri önleme)
-        vk::ClearColorValue zeroColor(std::array<float, 4>{0.0f, 0.0f, 0.0f, 0.0f});
-        vk::ClearColorValue zeroUint(std::array<uint32_t, 4>{0u, 0u, 0u, 0u});
-        vk::ImageSubresourceRange clearRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1);
-        cmd.clearColorImage(m_GBufMotion.get(), vk::ImageLayout::eGeneral, zeroColor, clearRange);
-        cmd.clearColorImage(m_HistoryImage[0].get(), vk::ImageLayout::eGeneral, zeroColor, clearRange);
-        cmd.clearColorImage(m_HistoryImage[1].get(), vk::ImageLayout::eGeneral, zeroColor, clearRange);
-        cmd.clearColorImage(m_HistoryExtraImage[0].get(), vk::ImageLayout::eGeneral, zeroUint, clearRange);
-        cmd.clearColorImage(m_HistoryExtraImage[1].get(), vk::ImageLayout::eGeneral, zeroUint, clearRange);
-        cmd.clearColorImage(m_RawColorImage.get(), vk::ImageLayout::eGeneral, zeroColor, clearRange);
-
-        vk::MemoryBarrier clearDoneBarrier{};
-        clearDoneBarrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
-        clearDoneBarrier.dstAccessMask = vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite;
-        cmd.pipelineBarrier(
-            vk::PipelineStageFlagBits::eTransfer,
-            vk::PipelineStageFlagBits::eComputeShader,
-            {},
-            1, &clearDoneBarrier,
-            0, nullptr,
-            0, nullptr
-        );
-    });
-}
-
-void SDFRenderer::CleanupImages() {
-    VmaAllocator allocator = m_Context.GetAllocator();
-
-    auto destroyImg = [allocator](VmaImage& img, vk::UniqueImageView& view) {
-        view.reset();
-        if (img.image && allocator != VK_NULL_HANDLE) {
-            vmaDestroyImage(allocator, img.image, img.allocation);
-            img.reset();
-        }
-    };
-
-    destroyImg(m_GBufMotion, m_GBufMotionView);
-    destroyImg(m_GBufDepth, m_GBufDepthView);
-    destroyImg(m_GBufMaterial, m_GBufMaterialView);
-    destroyImg(m_GBufNormal, m_GBufNormalView);
-    destroyImg(m_GBufAlbedo, m_GBufAlbedoView);
-
-    for (int i = 0; i < 2; ++i) {
-        destroyImg(m_HistoryImage[i], m_HistoryImageView[i]);
-        destroyImg(m_HistoryExtraImage[i], m_HistoryExtraImageView[i]);
-    }
-    destroyImg(m_RawColorImage, m_RawColorImageView);
-    destroyImg(m_StorageImage, m_StorageImageView);
-}
-
-void SDFRenderer::CreateLightBuffer() {
-    constexpr size_t MAX_LIGHTS = 64;
-    VkDeviceSize bufSize = sizeof(LightBufferHeader) + MAX_LIGHTS * sizeof(LightGPU);
-
-    m_LightBuffer = std::make_unique<Buffer>(
-        m_Context.GetAllocator(),
-        m_Device,
-        m_PhysicalDevice,
-        bufSize,
-        vk::BufferUsageFlagBits::eStorageBuffer,
-        vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-        true
-    );
-
-    // Varsayilan Isiklar: 1 Yonlu (Gunes) + 1 Noktasal (Dolgu)
-    m_Lights.clear();
-
-    // 1. Yonlu Gunes Isigi (Warm sunlight)
-    LightGPU sunLight{};
-    sunLight.position = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f); // w=0: Directional
-    sunLight.direction = glm::vec4(glm::normalize(glm::vec3(0.5f, -0.8f, 0.4f)), 3.0f); // xyz: dir, w: intensity
-    sunLight.color = glm::vec4(1.0f, 0.95f, 0.88f, 0.0f); // rgb: color, w: range
-    m_Lights.push_back(sunLight);
-
-    // 2. Noktasal Dolgu Isigi (Cool blue fill)
-    LightGPU fillLight{};
-    fillLight.position = glm::vec4(-2.0f, 2.5f, 2.0f, 1.0f); // w=1: Point
-    fillLight.direction = glm::vec4(0.0f, 0.0f, 0.0f, 2.0f); // w: intensity
-    fillLight.color = glm::vec4(0.4f, 0.65f, 1.0f, 20.0f); // rgb: soft blue, w: range = 20.0
-    m_Lights.push_back(fillLight);
-
-    UpdateLights();
-}
-
-void SDFRenderer::UpdateLights() {
-    if (!m_LightBuffer) return;
-
-    LightBufferHeader header{};
-    header.lightCount = static_cast<uint32_t>(m_Lights.size());
-    m_LightBuffer->UpdateData(&header, sizeof(LightBufferHeader), 0);
-
-    if (!m_Lights.empty()) {
-        m_LightBuffer->UpdateData(m_Lights.data(), m_Lights.size() * sizeof(LightGPU), sizeof(LightBufferHeader));
-    }
+    m_SceneGpuData.reset();
+    m_RenderTargets.reset();
 }
 
 void SDFRenderer::SetLights(const std::vector<LightGPU>& lights) {
-    m_Lights = lights;
-    UpdateLights();
-}
-
-void SDFRenderer::CreateCameraUBO() {
-    m_CameraUBO = std::make_unique<Buffer>(
-        m_Context.GetAllocator(),
-        m_Device,
-        m_PhysicalDevice,
-        sizeof(CameraUBOData),
-        vk::BufferUsageFlagBits::eUniformBuffer,
-        vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-        true
-    );
-    if (m_CameraUBO->GetMappedData()) {
-        CameraUBOData initData{};
-        std::memcpy(m_CameraUBO->GetMappedData(), &initData, sizeof(CameraUBOData));
+    if (m_SceneGpuData) {
+        m_SceneGpuData->SetLights(lights);
     }
-}
-
-void SDFRenderer::CreateEditBuffer(bool persistentMap) {
-    vk::DeviceSize bufferSize = MAX_EDITS * sizeof(SDFPrimitiveRecord);
-    m_EditBuffer = std::make_unique<Buffer>(
-        m_Context.GetAllocator(),
-        m_Device,
-        m_PhysicalDevice,
-        bufferSize,
-        vk::BufferUsageFlagBits::eStorageBuffer,
-        vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-        persistentMap
-    );
-
-    vk::DeviceSize prevBufferSize = MAX_EDITS * sizeof(glm::mat4);
-    m_PrevTransformBuffer = std::make_unique<Buffer>(
-        m_Context.GetAllocator(),
-        m_Device,
-        m_PhysicalDevice,
-        prevBufferSize,
-        vk::BufferUsageFlagBits::eStorageBuffer,
-        vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-        persistentMap
-    );
 }
 
 void SDFRenderer::CreateTAAPipeline() {
-    // 1. Descriptor Set Layout (5 bindings: 4 storage image + 1 combined image sampler)
-    std::array<vk::DescriptorSetLayoutBinding, 11> bindings{};
-    // Binding 0: currImage (Raw HDR, rgba16f)
-    bindings[0].binding = 0;
-    bindings[0].descriptorType = vk::DescriptorType::eStorageImage;
-    bindings[0].descriptorCount = 1;
-    bindings[0].stageFlags = vk::ShaderStageFlagBits::eCompute;
+    ComputeProgramDesc desc;
+    desc.shaderPath = m_TaaSpvPath;
+    desc.pushConstantBytes = sizeof(TAAPushConstants);
+    desc.bindings.resize(11);
 
-    // Binding 1: historyTexture (Combined Image Sampler, Linear Clamp, sampler2D)
-    bindings[1].binding = 1;
-    bindings[1].descriptorType = vk::DescriptorType::eCombinedImageSampler;
-    bindings[1].descriptorCount = 1;
-    bindings[1].stageFlags = vk::ShaderStageFlagBits::eCompute;
-
-    // Binding 2: outImage (Resolved final sRGB, rgba8)
-    bindings[2].binding = 2;
-    bindings[2].descriptorType = vk::DescriptorType::eStorageImage;
-    bindings[2].descriptorCount = 1;
-    bindings[2].stageFlags = vk::ShaderStageFlagBits::eCompute;
-
-    // Binding 3: outHistory (write HDR, rgba16f)
-    bindings[3].binding = 3;
-    bindings[3].descriptorType = vk::DescriptorType::eStorageImage;
-    bindings[3].descriptorCount = 1;
-    bindings[3].stageFlags = vk::ShaderStageFlagBits::eCompute;
-
-    // Bindings 4..10: Storage Images
-    // 4: motionVectors (read velocity, rg16f)
-    // 5: currentDepth (read depth, r32f)
-    // 6: normalDepth (read normal & expected depth, rgba16f)
-    // 7: g_Material (read roughness, metallic, hitIndex, surfaceId, rgba32ui)
-    // 8: g_Albedo (read albedo & attribution confidence, rgba8)
-    // 9: historyExtra (read previous surfaceId, lighting, normal, rgba32ui)
-    // 10: outHistoryExtra (write current surfaceId, lighting, normal, rgba32ui)
+    desc.bindings[0] = {0, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute};
+    desc.bindings[1] = {1, vk::DescriptorType::eCombinedImageSampler, 1, vk::ShaderStageFlagBits::eCompute};
+    desc.bindings[2] = {2, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute};
+    desc.bindings[3] = {3, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute};
     for (uint32_t i = 4; i < 11; ++i) {
-        bindings[i].binding = i;
-        bindings[i].descriptorType = vk::DescriptorType::eStorageImage;
-        bindings[i].descriptorCount = 1;
-        bindings[i].stageFlags = vk::ShaderStageFlagBits::eCompute;
+        desc.bindings[i] = {i, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute};
     }
 
-    vk::DescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
-    layoutInfo.pBindings = bindings.data();
-    m_TaaDescriptorSetLayout = m_Device.createDescriptorSetLayoutUnique(layoutInfo);
-
-    // 2. Pipeline Layout
-    vk::PushConstantRange pushRange{};
-    pushRange.stageFlags = vk::ShaderStageFlagBits::eCompute;
-    pushRange.offset = 0;
-    pushRange.size = sizeof(TAAPushConstants);
-
-    vk::PipelineLayoutCreateInfo pipeLayoutInfo{};
-    pipeLayoutInfo.setLayoutCount = 1;
-    auto rawLayout = m_TaaDescriptorSetLayout.get();
-    pipeLayoutInfo.pSetLayouts = &rawLayout;
-    pipeLayoutInfo.pushConstantRangeCount = 1;
-    pipeLayoutInfo.pPushConstantRanges = &pushRange;
-    m_TaaPipelineLayout = m_Device.createPipelineLayoutUnique(pipeLayoutInfo);
-
-    // 3. Shader Module & Pipeline
-    auto code = ReadFile(m_TaaSpvPath);
-    vk::ShaderModuleCreateInfo moduleInfo{};
-    moduleInfo.codeSize = code.size();
-    moduleInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
-    m_TaaShaderModule = m_Device.createShaderModuleUnique(moduleInfo);
-
-    vk::ComputePipelineCreateInfo pipeInfo{};
-    pipeInfo.layout = m_TaaPipelineLayout.get();
-    pipeInfo.stage.stage = vk::ShaderStageFlagBits::eCompute;
-    pipeInfo.stage.module = m_TaaShaderModule.get();
-    pipeInfo.stage.pName = "main";
-
-    auto result = m_Device.createComputePipelineUnique(nullptr, pipeInfo);
-    if (result.result != vk::Result::eSuccess) {
-        throw std::runtime_error("[Astral::SDFRenderer] TAA Compute pipeline olusturulamadi!");
-    }
-    m_TAAPipeline = std::move(result.value);
+    m_TaaProgram = std::make_unique<ComputeProgram>(m_Device, desc);
 }
 
 void SDFRenderer::CreateGBufferPipeline() {
-    std::array<vk::DescriptorSetLayoutBinding, 10> bindings{};
+    ComputeProgramDesc desc;
+    desc.shaderPath = m_GBufferSpvPath;
+    desc.pushConstantBytes = sizeof(SDFPushConstants);
+    desc.bindings.resize(10);
     for (uint32_t i = 0; i < 5; ++i) {
-        bindings[i].binding = i;
-        bindings[i].descriptorType = vk::DescriptorType::eStorageImage;
-        bindings[i].descriptorCount = 1;
-        bindings[i].stageFlags = vk::ShaderStageFlagBits::eCompute;
+        desc.bindings[i] = {i, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute};
     }
     for (uint32_t i = 5; i < 8; ++i) {
-        bindings[i].binding = i;
-        bindings[i].descriptorType = vk::DescriptorType::eStorageBuffer;
-        bindings[i].descriptorCount = 1;
-        bindings[i].stageFlags = vk::ShaderStageFlagBits::eCompute;
+        desc.bindings[i] = {i, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eCompute};
     }
-    bindings[8].binding = 8;
-    bindings[8].descriptorType = vk::DescriptorType::eUniformBuffer;
-    bindings[8].descriptorCount = 1;
-    bindings[8].stageFlags = vk::ShaderStageFlagBits::eCompute;
+    desc.bindings[8] = {8, vk::DescriptorType::eUniformBuffer, 1, vk::ShaderStageFlagBits::eCompute};
+    desc.bindings[9] = {9, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eCompute};
 
-    bindings[9].binding = 9;
-    bindings[9].descriptorType = vk::DescriptorType::eStorageBuffer;
-    bindings[9].descriptorCount = 1;
-    bindings[9].stageFlags = vk::ShaderStageFlagBits::eCompute;
-
-    vk::DescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
-    layoutInfo.pBindings = bindings.data();
-    m_GBufferDescriptorSetLayout = m_Device.createDescriptorSetLayoutUnique(layoutInfo);
-
-    vk::PushConstantRange pushRange{};
-    pushRange.stageFlags = vk::ShaderStageFlagBits::eCompute;
-    pushRange.offset = 0;
-    pushRange.size = sizeof(SDFPushConstants);
-
-    vk::PipelineLayoutCreateInfo pipeLayoutInfo{};
-    pipeLayoutInfo.setLayoutCount = 1;
-    auto rawLayout = m_GBufferDescriptorSetLayout.get();
-    pipeLayoutInfo.pSetLayouts = &rawLayout;
-    pipeLayoutInfo.pushConstantRangeCount = 1;
-    pipeLayoutInfo.pPushConstantRanges = &pushRange;
-    m_GBufferPipelineLayout = m_Device.createPipelineLayoutUnique(pipeLayoutInfo);
-
-    auto code = ReadFile(m_GBufferSpvPath);
-    vk::ShaderModuleCreateInfo moduleInfo{};
-    moduleInfo.codeSize = code.size();
-    moduleInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
-    m_GBufferShaderModule = m_Device.createShaderModuleUnique(moduleInfo);
-
-    vk::ComputePipelineCreateInfo pipeInfo{};
-    pipeInfo.layout = m_GBufferPipelineLayout.get();
-    pipeInfo.stage.stage = vk::ShaderStageFlagBits::eCompute;
-    pipeInfo.stage.module = m_GBufferShaderModule.get();
-    pipeInfo.stage.pName = "main";
-
-    auto result = m_Device.createComputePipelineUnique(nullptr, pipeInfo);
-    if (result.result != vk::Result::eSuccess) {
-        throw std::runtime_error("[Astral::SDFRenderer] G-Buffer Compute pipeline olusturulamadi!");
-    }
-    m_GBufferPipeline = std::move(result.value);
+    m_GBufferProgram = std::make_unique<ComputeProgram>(m_Device, desc);
 }
 
 void SDFRenderer::CreateDebugCompositePipeline() {
-    std::array<vk::DescriptorSetLayoutBinding, 6> bindings{};
+    ComputeProgramDesc desc;
+    desc.shaderPath = m_DebugCompositeSpvPath;
+    desc.pushConstantBytes = sizeof(DebugCompositePushConstants);
+    desc.bindings.resize(6);
     for (uint32_t i = 0; i < 6; ++i) {
-        bindings[i].binding = i;
-        bindings[i].descriptorType = vk::DescriptorType::eStorageImage;
-        bindings[i].descriptorCount = 1;
-        bindings[i].stageFlags = vk::ShaderStageFlagBits::eCompute;
+        desc.bindings[i] = {i, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute};
     }
 
-    vk::DescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
-    layoutInfo.pBindings = bindings.data();
-    m_DebugCompositeDescriptorSetLayout = m_Device.createDescriptorSetLayoutUnique(layoutInfo);
-
-    vk::PushConstantRange pushRange{};
-    pushRange.stageFlags = vk::ShaderStageFlagBits::eCompute;
-    pushRange.offset = 0;
-    pushRange.size = sizeof(DebugCompositePushConstants);
-
-    vk::PipelineLayoutCreateInfo pipeLayoutInfo{};
-    pipeLayoutInfo.setLayoutCount = 1;
-    auto rawLayout = m_DebugCompositeDescriptorSetLayout.get();
-    pipeLayoutInfo.pSetLayouts = &rawLayout;
-    pipeLayoutInfo.pushConstantRangeCount = 1;
-    pipeLayoutInfo.pPushConstantRanges = &pushRange;
-    m_DebugCompositePipelineLayout = m_Device.createPipelineLayoutUnique(pipeLayoutInfo);
-
-    auto code = ReadFile(m_DebugCompositeSpvPath);
-    vk::ShaderModuleCreateInfo moduleInfo{};
-    moduleInfo.codeSize = code.size();
-    moduleInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
-    m_DebugCompositeShaderModule = m_Device.createShaderModuleUnique(moduleInfo);
-
-    vk::ComputePipelineCreateInfo pipeInfo{};
-    pipeInfo.layout = m_DebugCompositePipelineLayout.get();
-    pipeInfo.stage.stage = vk::ShaderStageFlagBits::eCompute;
-    pipeInfo.stage.module = m_DebugCompositeShaderModule.get();
-    pipeInfo.stage.pName = "main";
-
-    auto result = m_Device.createComputePipelineUnique(nullptr, pipeInfo);
-    if (result.result != vk::Result::eSuccess) {
-        throw std::runtime_error("[Astral::SDFRenderer] DebugComposite Compute pipeline olusturulamadi!");
-    }
-    m_DebugCompositePipeline = std::move(result.value);
+    m_DebugCompositeProgram = std::make_unique<ComputeProgram>(m_Device, desc);
 }
 
 void SDFRenderer::CreateDeferredLightingPipeline() {
-    std::array<vk::DescriptorSetLayoutBinding, 11> bindings{};
+    ComputeProgramDesc desc;
+    desc.shaderPath = m_DeferredLightingSpvPath;
+    desc.pushConstantBytes = sizeof(DeferredLightingPushConstants);
+    desc.bindings.resize(11);
 
-    // 0: g_Albedo (rgba8)
-    bindings[0].binding = 0;
-    bindings[0].descriptorType = vk::DescriptorType::eStorageImage;
-    bindings[0].descriptorCount = 1;
-    bindings[0].stageFlags = vk::ShaderStageFlagBits::eCompute;
-
-    // 1: g_Normal (rgba16f)
-    bindings[1].binding = 1;
-    bindings[1].descriptorType = vk::DescriptorType::eStorageImage;
-    bindings[1].descriptorCount = 1;
-    bindings[1].stageFlags = vk::ShaderStageFlagBits::eCompute;
-
-    // 2: g_Material (rgba32ui)
-    bindings[2].binding = 2;
-    bindings[2].descriptorType = vk::DescriptorType::eStorageImage;
-    bindings[2].descriptorCount = 1;
-    bindings[2].stageFlags = vk::ShaderStageFlagBits::eCompute;
-
-    // 3: g_Depth (r32f)
-    bindings[3].binding = 3;
-    bindings[3].descriptorType = vk::DescriptorType::eStorageImage;
-    bindings[3].descriptorCount = 1;
-    bindings[3].stageFlags = vk::ShaderStageFlagBits::eCompute;
-
-    // 4: outColor (rgba16f, m_RawColorImage Linear HDR)
-    bindings[4].binding = 4;
-    bindings[4].descriptorType = vk::DescriptorType::eStorageImage;
-    bindings[4].descriptorCount = 1;
-    bindings[4].stageFlags = vk::ShaderStageFlagBits::eCompute;
-
-    // 5: u_IrradianceMap (samplerCube)
-    bindings[5].binding = 5;
-    bindings[5].descriptorType = vk::DescriptorType::eCombinedImageSampler;
-    bindings[5].descriptorCount = 1;
-    bindings[5].stageFlags = vk::ShaderStageFlagBits::eCompute;
-
-    // 6: u_PrefilteredMap (samplerCube)
-    bindings[6].binding = 6;
-    bindings[6].descriptorType = vk::DescriptorType::eCombinedImageSampler;
-    bindings[6].descriptorCount = 1;
-    bindings[6].stageFlags = vk::ShaderStageFlagBits::eCompute;
-
-    // 7: u_BRDFLut (sampler2D)
-    bindings[7].binding = 7;
-    bindings[7].descriptorType = vk::DescriptorType::eCombinedImageSampler;
-    bindings[7].descriptorCount = 1;
-    bindings[7].stageFlags = vk::ShaderStageFlagBits::eCompute;
-
-    // 8: LightBuffer (SSBO)
-    bindings[8].binding = 8;
-    bindings[8].descriptorType = vk::DescriptorType::eStorageBuffer;
-    bindings[8].descriptorCount = 1;
-    bindings[8].stageFlags = vk::ShaderStageFlagBits::eCompute;
-
-    // 9: EditBuffer (SSBO - SDF Geometri)
-    bindings[9].binding = 9;
-    bindings[9].descriptorType = vk::DescriptorType::eStorageBuffer;
-    bindings[9].descriptorCount = 1;
-    bindings[9].stageFlags = vk::ShaderStageFlagBits::eCompute;
-
-    // 10: GridBuffer (SSBO - Seyrek Hucre Izgarasi)
-    bindings[10].binding = 10;
-    bindings[10].descriptorType = vk::DescriptorType::eStorageBuffer;
-    bindings[10].descriptorCount = 1;
-    bindings[10].stageFlags = vk::ShaderStageFlagBits::eCompute;
-
-    vk::DescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
-    layoutInfo.pBindings = bindings.data();
-    m_DeferredLightingDescriptorSetLayout = m_Device.createDescriptorSetLayoutUnique(layoutInfo);
-
-    vk::PushConstantRange pushRange{};
-    pushRange.stageFlags = vk::ShaderStageFlagBits::eCompute;
-    pushRange.offset = 0;
-    pushRange.size = sizeof(DeferredLightingPushConstants);
-
-    vk::PipelineLayoutCreateInfo pipeLayoutInfo{};
-    pipeLayoutInfo.setLayoutCount = 1;
-    auto rawLayout = m_DeferredLightingDescriptorSetLayout.get();
-    pipeLayoutInfo.pSetLayouts = &rawLayout;
-    pipeLayoutInfo.pushConstantRangeCount = 1;
-    pipeLayoutInfo.pPushConstantRanges = &pushRange;
-    m_DeferredLightingPipelineLayout = m_Device.createPipelineLayoutUnique(pipeLayoutInfo);
-
-    auto code = ReadFile(m_DeferredLightingSpvPath);
-    vk::ShaderModuleCreateInfo moduleInfo{};
-    moduleInfo.codeSize = code.size();
-    moduleInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
-    m_DeferredLightingShaderModule = m_Device.createShaderModuleUnique(moduleInfo);
-
-    vk::ComputePipelineCreateInfo pipeInfo{};
-    pipeInfo.layout = m_DeferredLightingPipelineLayout.get();
-    pipeInfo.stage.stage = vk::ShaderStageFlagBits::eCompute;
-    pipeInfo.stage.module = m_DeferredLightingShaderModule.get();
-    pipeInfo.stage.pName = "main";
-
-    auto result = m_Device.createComputePipelineUnique(nullptr, pipeInfo);
-    if (result.result != vk::Result::eSuccess) {
-        throw std::runtime_error("[Astral::SDFRenderer] DeferredLighting Compute pipeline olusturulamadi!");
+    for (uint32_t i = 0; i < 5; ++i) {
+        desc.bindings[i] = {i, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute};
     }
-    m_DeferredLightingPipeline = std::move(result.value);
+    for (uint32_t i = 5; i < 8; ++i) {
+        desc.bindings[i] = {i, vk::DescriptorType::eCombinedImageSampler, 1, vk::ShaderStageFlagBits::eCompute};
+    }
+    for (uint32_t i = 8; i < 11; ++i) {
+        desc.bindings[i] = {i, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eCompute};
+    }
+
+    m_DeferredLightingProgram = std::make_unique<ComputeProgram>(m_Device, desc);
 }
 
 void SDFRenderer::CreateDescriptorPoolAndSets() {
@@ -784,7 +200,7 @@ void SDFRenderer::CreateDescriptorPoolAndSets() {
     m_DescriptorPool = m_Device.createDescriptorPoolUnique(poolInfo);
 
     // 1. TAA Descriptor Sets (Ping-Pong 0 & 1)
-    auto taaLayout = m_TaaDescriptorSetLayout.get();
+    auto taaLayout = m_TaaProgram->GetSetLayout();
     for (uint32_t i = 0; i < 2; ++i) {
         vk::DescriptorSetAllocateInfo taaAllocInfo(m_DescriptorPool.get(), 1, &taaLayout);
         auto taaSets = m_Device.allocateDescriptorSets(taaAllocInfo);
@@ -792,19 +208,19 @@ void SDFRenderer::CreateDescriptorPoolAndSets() {
     }
 
     // 2. G-Buffer Descriptor Set
-    auto gbufLayout = m_GBufferDescriptorSetLayout.get();
+    auto gbufLayout = m_GBufferProgram->GetSetLayout();
     vk::DescriptorSetAllocateInfo gbufAllocInfo(m_DescriptorPool.get(), 1, &gbufLayout);
     auto gbufSets = m_Device.allocateDescriptorSets(gbufAllocInfo);
     m_GBufferDescriptorSet = gbufSets[0];
 
     // 3. DebugComposite Descriptor Set
-    auto debugLayout = m_DebugCompositeDescriptorSetLayout.get();
+    auto debugLayout = m_DebugCompositeProgram->GetSetLayout();
     vk::DescriptorSetAllocateInfo debugAllocInfo(m_DescriptorPool.get(), 1, &debugLayout);
     auto debugSets = m_Device.allocateDescriptorSets(debugAllocInfo);
     m_DebugCompositeDescriptorSet = debugSets[0];
 
     // 4. DeferredLighting Descriptor Set
-    auto defLayout = m_DeferredLightingDescriptorSetLayout.get();
+    auto defLayout = m_DeferredLightingProgram->GetSetLayout();
     vk::DescriptorSetAllocateInfo defAllocInfo(m_DescriptorPool.get(), 1, &defLayout);
     auto defSets = m_Device.allocateDescriptorSets(defAllocInfo);
     m_DeferredLightingDescriptorSet = defSets[0];
@@ -816,6 +232,11 @@ void SDFRenderer::CreateDescriptorPoolAndSets() {
 }
 
 void SDFRenderer::UpdateTAADescriptorSets() {
+    if (!m_RenderTargets) return;
+    auto gbuf = m_RenderTargets->GetGBuffer();
+    auto rawColor = m_RenderTargets->GetRawColor();
+    auto storage = m_RenderTargets->GetOutput();
+
     // TAA Setleri Guncelleme (Ping-Pong 0 ve 1)
     // TAA Set 0: curr=RawColor, hist=History[0] (Sampler), out=Storage, outHist=History[1], motion=GBufMotion
     // TAA Set 1: curr=RawColor, hist=History[1] (Sampler), out=Storage, outHist=History[0], motion=GBufMotion
@@ -823,18 +244,18 @@ void SDFRenderer::UpdateTAADescriptorSets() {
         uint32_t readIdx = i;
         uint32_t writeIdx = 1 - i;
 
-        vk::DescriptorImageInfo taaCurrInfo(nullptr, m_RawColorImageView.get(), vk::ImageLayout::eGeneral);
-        vk::DescriptorImageInfo taaHistInfo(m_LinearClampSampler.get(), m_HistoryImageView[readIdx].get(), vk::ImageLayout::eGeneral);
-        vk::DescriptorImageInfo taaOutInfo(nullptr, m_StorageImageView.get(), vk::ImageLayout::eGeneral);
-        vk::DescriptorImageInfo taaOutHistInfo(nullptr, m_HistoryImageView[writeIdx].get(), vk::ImageLayout::eGeneral);
-        vk::DescriptorImageInfo taaMotionInfo(nullptr, m_GBufMotionView.get(), vk::ImageLayout::eGeneral);
+        vk::DescriptorImageInfo taaCurrInfo(nullptr, rawColor.view, vk::ImageLayout::eGeneral);
+        vk::DescriptorImageInfo taaHistInfo(m_LinearClampSampler.get(), m_RenderTargets->GetHistoryColor(readIdx).view, vk::ImageLayout::eGeneral);
+        vk::DescriptorImageInfo taaOutInfo(nullptr, storage.view, vk::ImageLayout::eGeneral);
+        vk::DescriptorImageInfo taaOutHistInfo(nullptr, m_RenderTargets->GetHistoryColor(writeIdx).view, vk::ImageLayout::eGeneral);
+        vk::DescriptorImageInfo taaMotionInfo(nullptr, gbuf.motion.view, vk::ImageLayout::eGeneral);
 
-        vk::DescriptorImageInfo depthInfo(nullptr, m_GBufDepthView.get(), vk::ImageLayout::eGeneral);
-        vk::DescriptorImageInfo normalInfo(nullptr, m_GBufNormalView.get(), vk::ImageLayout::eGeneral);
-        vk::DescriptorImageInfo materialInfo(nullptr, m_GBufMaterialView.get(), vk::ImageLayout::eGeneral);
-        vk::DescriptorImageInfo albedoInfo(nullptr, m_GBufAlbedoView.get(), vk::ImageLayout::eGeneral);
-        vk::DescriptorImageInfo histExtraReadInfo(nullptr, m_HistoryExtraImageView[readIdx].get(), vk::ImageLayout::eGeneral);
-        vk::DescriptorImageInfo histExtraWriteInfo(nullptr, m_HistoryExtraImageView[writeIdx].get(), vk::ImageLayout::eGeneral);
+        vk::DescriptorImageInfo depthInfo(nullptr, gbuf.depth.view, vk::ImageLayout::eGeneral);
+        vk::DescriptorImageInfo normalInfo(nullptr, gbuf.normal.view, vk::ImageLayout::eGeneral);
+        vk::DescriptorImageInfo materialInfo(nullptr, gbuf.material.view, vk::ImageLayout::eGeneral);
+        vk::DescriptorImageInfo albedoInfo(nullptr, gbuf.albedo.view, vk::ImageLayout::eGeneral);
+        vk::DescriptorImageInfo histExtraReadInfo(nullptr, m_RenderTargets->GetHistoryExtra(readIdx).view, vk::ImageLayout::eGeneral);
+        vk::DescriptorImageInfo histExtraWriteInfo(nullptr, m_RenderTargets->GetHistoryExtra(writeIdx).view, vk::ImageLayout::eGeneral);
 
         std::array<vk::WriteDescriptorSet, 11> taaWriteSets{};
         taaWriteSets[0].dstSet = m_TaaDescriptorSet[i];
@@ -901,17 +322,21 @@ void SDFRenderer::UpdateTAADescriptorSets() {
 }
 
 void SDFRenderer::UpdateGBufferDescriptorSets() {
-    vk::DescriptorImageInfo albedoInfo(nullptr, m_GBufAlbedoView.get(), vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo normalInfo(nullptr, m_GBufNormalView.get(), vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo materialInfo(nullptr, m_GBufMaterialView.get(), vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo depthInfo(nullptr, m_GBufDepthView.get(), vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo motionInfo(nullptr, m_GBufMotionView.get(), vk::ImageLayout::eGeneral);
+    if (!m_RenderTargets || !m_SceneGpuData) return;
+    auto gbuf = m_RenderTargets->GetGBuffer();
+    auto sceneViews = m_SceneGpuData->GetViews();
 
-    auto editBufInfo = m_EditBuffer->GetDescriptorInfo();
-    auto gridBufInfo = m_BrickGrid->GetBuffer()->GetDescriptorInfo();
+    vk::DescriptorImageInfo albedoInfo(nullptr, gbuf.albedo.view, vk::ImageLayout::eGeneral);
+    vk::DescriptorImageInfo normalInfo(nullptr, gbuf.normal.view, vk::ImageLayout::eGeneral);
+    vk::DescriptorImageInfo materialInfo(nullptr, gbuf.material.view, vk::ImageLayout::eGeneral);
+    vk::DescriptorImageInfo depthInfo(nullptr, gbuf.depth.view, vk::ImageLayout::eGeneral);
+    vk::DescriptorImageInfo motionInfo(nullptr, gbuf.motion.view, vk::ImageLayout::eGeneral);
+
+    auto editBufInfo = sceneViews.primitives;
+    auto gridBufInfo = sceneViews.grid;
     auto selBufInfo = m_SelectionBuffer->GetDescriptorInfo();
-    auto camBufInfo = m_CameraUBO->GetDescriptorInfo();
-    auto histBufInfo = m_PrevTransformBuffer->GetDescriptorInfo();
+    auto camBufInfo = m_SceneGpuData->GetCameraDescriptor();
+    auto histBufInfo = sceneViews.previousTransforms;
 
     std::array<vk::WriteDescriptorSet, 10> writeSets{};
     writeSets[0].dstSet = m_GBufferDescriptorSet;
@@ -978,12 +403,15 @@ void SDFRenderer::UpdateGBufferDescriptorSets() {
 }
 
 void SDFRenderer::UpdateDebugCompositeDescriptorSets() {
-    vk::DescriptorImageInfo albedoInfo(nullptr, m_GBufAlbedoView.get(), vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo normalInfo(nullptr, m_GBufNormalView.get(), vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo materialInfo(nullptr, m_GBufMaterialView.get(), vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo depthInfo(nullptr, m_GBufDepthView.get(), vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo motionInfo(nullptr, m_GBufMotionView.get(), vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo outInfo(nullptr, m_RawColorImageView.get(), vk::ImageLayout::eGeneral);
+    if (!m_RenderTargets) return;
+    auto gbuf = m_RenderTargets->GetGBuffer();
+
+    vk::DescriptorImageInfo albedoInfo(nullptr, gbuf.albedo.view, vk::ImageLayout::eGeneral);
+    vk::DescriptorImageInfo normalInfo(nullptr, gbuf.normal.view, vk::ImageLayout::eGeneral);
+    vk::DescriptorImageInfo materialInfo(nullptr, gbuf.material.view, vk::ImageLayout::eGeneral);
+    vk::DescriptorImageInfo depthInfo(nullptr, gbuf.depth.view, vk::ImageLayout::eGeneral);
+    vk::DescriptorImageInfo motionInfo(nullptr, gbuf.motion.view, vk::ImageLayout::eGeneral);
+    vk::DescriptorImageInfo outInfo(nullptr, m_RenderTargets->GetRawColor().view, vk::ImageLayout::eGeneral);
 
     std::array<vk::WriteDescriptorSet, 6> writeSets{};
     writeSets[0].dstSet = m_DebugCompositeDescriptorSet;
@@ -1026,13 +454,14 @@ void SDFRenderer::UpdateDebugCompositeDescriptorSets() {
 }
 
 void SDFRenderer::UpdateDeferredLightingDescriptorSets() {
-    if (!m_DeferredLightingDescriptorSet) return;
+    if (!m_DeferredLightingDescriptorSet || !m_RenderTargets) return;
+    auto gbuf = m_RenderTargets->GetGBuffer();
 
-    vk::DescriptorImageInfo albedoInfo(nullptr, m_GBufAlbedoView.get(), vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo normalInfo(nullptr, m_GBufNormalView.get(), vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo materialInfo(nullptr, m_GBufMaterialView.get(), vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo depthInfo(nullptr, m_GBufDepthView.get(), vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo outColorInfo(nullptr, m_RawColorImageView.get(), vk::ImageLayout::eGeneral);
+    vk::DescriptorImageInfo albedoInfo(nullptr, gbuf.albedo.view, vk::ImageLayout::eGeneral);
+    vk::DescriptorImageInfo normalInfo(nullptr, gbuf.normal.view, vk::ImageLayout::eGeneral);
+    vk::DescriptorImageInfo materialInfo(nullptr, gbuf.material.view, vk::ImageLayout::eGeneral);
+    vk::DescriptorImageInfo depthInfo(nullptr, gbuf.depth.view, vk::ImageLayout::eGeneral);
+    vk::DescriptorImageInfo outColorInfo(nullptr, m_RenderTargets->GetRawColor().view, vk::ImageLayout::eGeneral);
 
     vk::DescriptorImageInfo irradianceInfo(
         m_IBLManager->GetCubemapSampler(),
@@ -1050,9 +479,11 @@ void SDFRenderer::UpdateDeferredLightingDescriptorSets() {
         vk::ImageLayout::eShaderReadOnlyOptimal
     );
 
-    auto lightBufInfo = m_LightBuffer->GetDescriptorInfo();
-    auto editBufInfo = m_EditBuffer->GetDescriptorInfo();
-    auto gridBufInfo = m_BrickGrid->GetBuffer()->GetDescriptorInfo();
+    if (!m_RenderTargets || !m_SceneGpuData) return;
+    auto sceneViews = m_SceneGpuData->GetViews();
+    auto lightBufInfo = sceneViews.lights;
+    auto editBufInfo = sceneViews.primitives;
+    auto gridBufInfo = sceneViews.grid;
 
     std::array<vk::WriteDescriptorSet, 11> writeSets{};
 
@@ -1126,62 +557,18 @@ void SDFRenderer::UpdateDeferredLightingDescriptorSets() {
 }
 
 void SDFRenderer::UpdateEdits(const std::vector<LegacySDFEdit>& edits, bool useLegacyMapUnmap) {
-    m_ActiveEditCount = std::min(edits.size(), MAX_EDITS);
-    if (m_ActiveEditCount > 0) {
-        std::vector<SDFPrimitiveRecord> records;
-        records.reserve(m_ActiveEditCount);
-        for (size_t i = 0; i < m_ActiveEditCount; ++i) {
-            records.push_back(edits[i].ToPrimitiveRecord(static_cast<uint32_t>(i), static_cast<uint32_t>(i + 1)));
-        }
-        UpdateEdits(std::span<const SDFPrimitiveRecord>(records.data(), records.size()), useLegacyMapUnmap);
-    } else {
-        m_ActiveEditCount = 0;
-        if (m_BrickGrid) {
-            m_BrickGrid->Build(std::span<const SDFPrimitiveRecord>(), &m_CurrentChangeSet);
-        }
+    size_t activeCount = std::min(edits.size(), MAX_EDITS);
+    std::vector<SDFPrimitiveRecord> records;
+    records.reserve(activeCount);
+    for (size_t i = 0; i < activeCount; ++i) {
+        records.push_back(edits[i].ToPrimitiveRecord(static_cast<uint32_t>(i), static_cast<uint32_t>(i + 1)));
     }
+    UpdateEdits(std::span<const SDFPrimitiveRecord>(records.data(), records.size()), useLegacyMapUnmap);
 }
 
 void SDFRenderer::UpdateEdits(std::span<const SDFPrimitiveRecord> records, bool useLegacyMapUnmap) {
-    m_ActiveEditCount = std::min(records.size(), MAX_EDITS);
-    if (m_ActiveEditCount > 0) {
-        size_t uploadBytes = m_ActiveEditCount * sizeof(SDFPrimitiveRecord);
-        if (useLegacyMapUnmap) {
-            m_EditBuffer->UpdateDataLegacy(records.data(), uploadBytes);
-        } else {
-            m_EditBuffer->UpdateData(records.data(), uploadBytes);
-        }
-
-        if (m_PrevTransformBuffer) {
-            std::vector<glm::mat4> prevMatrices(m_ActiveEditCount);
-
-            for (size_t i = 0; i < m_ActiveEditCount; ++i) {
-                const auto& rec = records[i];
-                glm::mat4 currWorldTransform = glm::inverse(rec.invTransform);
-                // For valid entity surfaceId, use rec.surfaceId. If 0 (e.g. raw test record), fallback to unique per-index key.
-                uint32_t key = (rec.surfaceId != 0u) ? rec.surfaceId : (0x80000000u | static_cast<uint32_t>(i));
-                auto it = m_PrevWorldTransforms.find(key);
-                if (it != m_PrevWorldTransforms.end()) {
-                    prevMatrices[i] = it->second;
-                } else {
-                    prevMatrices[i] = currWorldTransform;
-                }
-                m_PrevWorldTransforms[key] = currWorldTransform;
-            }
-
-            size_t prevUploadBytes = m_ActiveEditCount * sizeof(glm::mat4);
-            if (useLegacyMapUnmap) {
-                m_PrevTransformBuffer->UpdateDataLegacy(prevMatrices.data(), prevUploadBytes);
-            } else {
-                m_PrevTransformBuffer->UpdateData(prevMatrices.data(), prevUploadBytes);
-            }
-        }
-    } else {
-        m_PrevWorldTransforms.clear();
-    }
-
-    if (m_BrickGrid) {
-        m_BrickGrid->Build(records.subspan(0, m_ActiveEditCount), &m_CurrentChangeSet);
+    if (m_SceneGpuData) {
+        m_SceneGpuData->Upload(records, m_CurrentChangeSet, useLegacyMapUnmap);
     }
 }
 
@@ -1206,11 +593,13 @@ void SDFRenderer::Resize(int width, int height) {
 
     m_Device.waitIdle();
 
+    // Aday RenderTargets olustur (hata olursa mevcut durum bozulmaz)
+    auto candidateTargets = std::make_unique<RenderTargets>(m_Context, static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+
     m_Width = width;
     m_Height = height;
+    m_RenderTargets = std::move(candidateTargets);
 
-    CleanupImages();
-    CreateImages();
     UpdateTAADescriptorSets();
     UpdateGBufferDescriptorSets();
     UpdateDebugCompositeDescriptorSets();
@@ -1283,12 +672,12 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
         barrier.newLayout = vk::ImageLayout::eTransferDstOptimal;
         barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = m_StorageImage.get();
+        barrier.image = m_RenderTargets->GetOutput().image;
         barrier.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
         barrier.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
         cmd.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands,
             vk::PipelineStageFlagBits::eTransfer, {}, {}, {}, barrier);
-        cmd.clearColorImage(m_StorageImage.get(), vk::ImageLayout::eTransferDstOptimal,
+        cmd.clearColorImage(m_RenderTargets->GetOutput().image, vk::ImageLayout::eTransferDstOptimal,
             vk::ClearColorValue(std::array<float, 4>{0, 0, 0, 1}), barrier.subresourceRange);
         barrier.oldLayout = vk::ImageLayout::eTransferDstOptimal;
         barrier.newLayout = vk::ImageLayout::eGeneral;
@@ -1331,6 +720,10 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
     // =========================================================================
     // 1. G-Buffer Compute Pass (SDFGBuffer.glsl)
     // =========================================================================
+    auto gbuf = m_RenderTargets->GetGBuffer();
+    auto rawColor = m_RenderTargets->GetRawColor();
+    auto outputImg = m_RenderTargets->GetOutput();
+
     auto makeGBufBarrier = [](VkImage img) {
         vk::ImageMemoryBarrier b{};
         b.oldLayout = vk::ImageLayout::eUndefined;
@@ -1345,11 +738,11 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
     };
 
     std::array<vk::ImageMemoryBarrier, 5> gbufBarriers = {
-        makeGBufBarrier(m_GBufAlbedo.get()),
-        makeGBufBarrier(m_GBufNormal.get()),
-        makeGBufBarrier(m_GBufMaterial.get()),
-        makeGBufBarrier(m_GBufDepth.get()),
-        makeGBufBarrier(m_GBufMotion.get())
+        makeGBufBarrier(gbuf.albedo.image),
+        makeGBufBarrier(gbuf.normal.image),
+        makeGBufBarrier(gbuf.material.image),
+        makeGBufBarrier(gbuf.depth.image),
+        makeGBufBarrier(gbuf.motion.image)
     };
 
     cmd.pipelineBarrier(
@@ -1361,10 +754,10 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
         static_cast<uint32_t>(gbufBarriers.size()), gbufBarriers.data()
     );
 
-    cmd.bindPipeline(vk::PipelineBindPoint::eCompute, m_GBufferPipeline.get());
+    cmd.bindPipeline(vk::PipelineBindPoint::eCompute, m_GBufferProgram->GetPipeline());
     cmd.bindDescriptorSets(
         vk::PipelineBindPoint::eCompute,
-        m_GBufferPipelineLayout.get(),
+        m_GBufferProgram->GetLayout(),
         0,
         1, &m_GBufferDescriptorSet,
         0, nullptr
@@ -1375,13 +768,16 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
     pushConstants.camDir = glm::vec4(camera.forward, static_cast<float>(settings.normalMode));
     pushConstants.cameraRight = glm::vec4(camera.right, camera.projection[1][1] * 0.5f);
     pushConstants.cameraUp = glm::vec4(camera.up, camera.farClip);
+    uint32_t activeCount = m_SceneGpuData ? m_SceneGpuData->GetActiveEditCount() : 0;
+    auto sceneViews = m_SceneGpuData ? m_SceneGpuData->GetViews() : SceneBufferViews{};
+
     pushConstants.screenRes = glm::vec4(
         static_cast<float>(renderWidth),
         static_cast<float>(renderHeight),
-        static_cast<float>(m_ActiveEditCount),
+        static_cast<float>(activeCount),
         settings.useGrid ? 1.0f : 0.0f
     );
-    pushConstants.gridParams = m_BrickGrid->GetGridParams();
+    pushConstants.gridParams = sceneViews.gridParams;
     pushConstants.gridParams.z = static_cast<float>(qs.primaryRayMaxSteps);
 
     pushConstants.taaParams = glm::vec4(jitter.x, jitter.y, settings.taaEnabled ? 1.0f : 0.0f, qs.taaBlendAlpha);
@@ -1399,7 +795,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
     }
 
     cmd.pushConstants(
-        m_GBufferPipelineLayout.get(),
+        m_GBufferProgram->GetLayout(),
         vk::ShaderStageFlagBits::eCompute,
         0,
         sizeof(SDFPushConstants),
@@ -1452,17 +848,17 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
     rawColorWriteBarrier.newLayout = vk::ImageLayout::eGeneral;
     rawColorWriteBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     rawColorWriteBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    rawColorWriteBarrier.image = m_RawColorImage.get();
+    rawColorWriteBarrier.image = rawColor.image;
     rawColorWriteBarrier.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
     rawColorWriteBarrier.srcAccessMask = {};
     rawColorWriteBarrier.dstAccessMask = vk::AccessFlagBits::eShaderWrite;
 
     std::array<vk::ImageMemoryBarrier, 6> toCompositeBarriers = {
-        makeGBufReadBarrier(m_GBufAlbedo.get()),
-        makeGBufReadBarrier(m_GBufNormal.get()),
-        makeGBufReadBarrier(m_GBufMaterial.get()),
-        makeGBufReadBarrier(m_GBufDepth.get()),
-        makeGBufReadBarrier(m_GBufMotion.get()),
+        makeGBufReadBarrier(gbuf.albedo.image),
+        makeGBufReadBarrier(gbuf.normal.image),
+        makeGBufReadBarrier(gbuf.material.image),
+        makeGBufReadBarrier(gbuf.depth.image),
+        makeGBufReadBarrier(gbuf.motion.image),
         rawColorWriteBarrier
     };
 
@@ -1479,10 +875,10 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
         // =========================================================================
         // 3a. Debug Composite Pass (SDFDebugComposite.glsl -> m_RawColorImage)
         // =========================================================================
-        cmd.bindPipeline(vk::PipelineBindPoint::eCompute, m_DebugCompositePipeline.get());
+        cmd.bindPipeline(vk::PipelineBindPoint::eCompute, m_DebugCompositeProgram->GetPipeline());
         cmd.bindDescriptorSets(
             vk::PipelineBindPoint::eCompute,
-            m_DebugCompositePipelineLayout.get(),
+            m_DebugCompositeProgram->GetLayout(),
             0,
             1, &m_DebugCompositeDescriptorSet,
             0, nullptr
@@ -1497,7 +893,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
         );
 
         cmd.pushConstants(
-            m_DebugCompositePipelineLayout.get(),
+            m_DebugCompositeProgram->GetLayout(),
             vk::ShaderStageFlagBits::eCompute,
             0,
             sizeof(DebugCompositePushConstants),
@@ -1509,10 +905,10 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
         // =========================================================================
         // 3b. Deferred PBR & IBL Pass (DeferredLighting.glsl -> m_RawColorImage Linear HDR)
         // =========================================================================
-        cmd.bindPipeline(vk::PipelineBindPoint::eCompute, m_DeferredLightingPipeline.get());
+        cmd.bindPipeline(vk::PipelineBindPoint::eCompute, m_DeferredLightingProgram->GetPipeline());
         cmd.bindDescriptorSets(
             vk::PipelineBindPoint::eCompute,
-            m_DeferredLightingPipelineLayout.get(),
+            m_DeferredLightingProgram->GetLayout(),
             0,
             1, &m_DeferredLightingDescriptorSet,
             0, nullptr
@@ -1529,7 +925,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
             static_cast<float>(renderWidth),
             static_cast<float>(renderHeight),
             1.0f, // z: iblIntensity = 1.0
-            static_cast<float>(m_ActiveEditCount) // w: editCount
+            static_cast<float>(m_SceneGpuData ? m_SceneGpuData->GetActiveEditCount() : 0) // w: editCount
         );
         defPush.rayParams = glm::vec4(jitter.x, jitter.y, qs.shadowMaxDistance, qs.surfaceBias); // Match GBuffer jitter, including TAA disabled.
         defPush.shadowAOParams = glm::vec4(
@@ -1538,12 +934,12 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
             static_cast<float>(qs.aoSamples),
             qs.aoRadius
         ); // x: shadowMaxSteps, y: shadowK, z: aoSamples, w: aoRadius
-        auto gridParams = m_BrickGrid->GetGridParams();
+        auto gridParams = m_SceneGpuData ? m_SceneGpuData->GetViews().gridParams : glm::vec4(0.0f);
         float shadowFlag = (settings.optimizedShadows && qs.enableShadows) ? 1.0f : 0.0f;
         defPush.qualityParams = glm::vec4(shadowFlag, gridParams.x, gridParams.y, gridParams.w);
 
         cmd.pushConstants(
-            m_DeferredLightingPipelineLayout.get(),
+            m_DeferredLightingProgram->GetLayout(),
             vk::ShaderStageFlagBits::eCompute,
             0,
             sizeof(DeferredLightingPushConstants),
@@ -1565,14 +961,14 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
     toTaaBarrier.newLayout = vk::ImageLayout::eGeneral;
     toTaaBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     toTaaBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    toTaaBarrier.image = m_RawColorImage.get();
+    toTaaBarrier.image = rawColor.image;
     toTaaBarrier.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
     toTaaBarrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
     toTaaBarrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
 
     // m_StorageImage yazmaya hazirla
     vk::ImageMemoryBarrier storageBarrier = toTaaBarrier;
-    storageBarrier.image = m_StorageImage.get();
+    storageBarrier.image = outputImg.image;
     storageBarrier.oldLayout = vk::ImageLayout::eGeneral;
     storageBarrier.newLayout = vk::ImageLayout::eGeneral;
     storageBarrier.srcAccessMask = {};
@@ -1580,7 +976,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
 
     // Tarihce okuma (readIdx)
     vk::ImageMemoryBarrier histReadBarrier = toTaaBarrier;
-    histReadBarrier.image = m_HistoryImage[readIdx].get();
+    histReadBarrier.image = m_RenderTargets->GetHistoryColor(readIdx).image;
     histReadBarrier.oldLayout = vk::ImageLayout::eGeneral;
     histReadBarrier.newLayout = vk::ImageLayout::eGeneral;
     histReadBarrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
@@ -1589,7 +985,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
     // Tarihce yazma (writeIdx)
     bool isFirstHistory = !m_HistoryInitialized || (settings.frameId == 0);
     vk::ImageMemoryBarrier histWriteBarrier = toTaaBarrier;
-    histWriteBarrier.image = m_HistoryImage[writeIdx].get();
+    histWriteBarrier.image = m_RenderTargets->GetHistoryColor(writeIdx).image;
     histWriteBarrier.oldLayout = vk::ImageLayout::eGeneral;
     histWriteBarrier.newLayout = vk::ImageLayout::eGeneral;
     histWriteBarrier.srcAccessMask = vk::AccessFlagBits::eShaderRead;
@@ -1597,7 +993,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
 
     // Tarihce ekstra okuma (readIdx)
     vk::ImageMemoryBarrier histExtraReadBarrier = toTaaBarrier;
-    histExtraReadBarrier.image = m_HistoryExtraImage[readIdx].get();
+    histExtraReadBarrier.image = m_RenderTargets->GetHistoryExtra(readIdx).image;
     histExtraReadBarrier.oldLayout = vk::ImageLayout::eGeneral;
     histExtraReadBarrier.newLayout = vk::ImageLayout::eGeneral;
     histExtraReadBarrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
@@ -1605,7 +1001,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
 
     // Tarihce ekstra yazma (writeIdx)
     vk::ImageMemoryBarrier histExtraWriteBarrier = toTaaBarrier;
-    histExtraWriteBarrier.image = m_HistoryExtraImage[writeIdx].get();
+    histExtraWriteBarrier.image = m_RenderTargets->GetHistoryExtra(writeIdx).image;
     histExtraWriteBarrier.oldLayout = vk::ImageLayout::eGeneral;
     histExtraWriteBarrier.newLayout = vk::ImageLayout::eGeneral;
     histExtraWriteBarrier.srcAccessMask = vk::AccessFlagBits::eShaderRead;
@@ -1626,10 +1022,10 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
     );
 
     // TAA Pipeline bagla ve calistir
-    cmd.bindPipeline(vk::PipelineBindPoint::eCompute, m_TAAPipeline.get());
+    cmd.bindPipeline(vk::PipelineBindPoint::eCompute, m_TaaProgram->GetPipeline());
     cmd.bindDescriptorSets(
         vk::PipelineBindPoint::eCompute,
-        m_TaaPipelineLayout.get(),
+        m_TaaProgram->GetLayout(),
         0,
         1, &m_TaaDescriptorSet[readIdx],
         0, nullptr
@@ -1662,7 +1058,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
     );
 
     cmd.pushConstants(
-        m_TaaPipelineLayout.get(),
+        m_TaaProgram->GetLayout(),
         vk::ShaderStageFlagBits::eCompute,
         0,
         sizeof(TAAPushConstants),
@@ -1677,7 +1073,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
     storageReadyBarrier.newLayout = vk::ImageLayout::eTransferSrcOptimal;
     storageReadyBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     storageReadyBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    storageReadyBarrier.image = m_StorageImage.get();
+    storageReadyBarrier.image = outputImg.image;
     storageReadyBarrier.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
     storageReadyBarrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
     storageReadyBarrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
@@ -1700,7 +1096,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
     toGeneral.newLayout = vk::ImageLayout::eGeneral;
     toGeneral.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     toGeneral.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    toGeneral.image = m_StorageImage.get();
+    toGeneral.image = outputImg.image;
     toGeneral.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
     toGeneral.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
     toGeneral.dstAccessMask = vk::AccessFlagBits::eShaderRead;
@@ -1803,13 +1199,13 @@ void SDFRenderer::SetCameraMatrices(const glm::mat4& view, const glm::mat4& proj
     m_PrevJitter = m_CurrJitter;
     m_CurrJitter = jitter;
 
-    if (m_CameraUBO && m_CameraUBO->GetMappedData()) {
-        CameraUBOData uboData{};
-        uboData.currViewProj = m_CurrViewProj;
-        uboData.prevViewProj = m_PrevViewProj;
-        uboData.prevCameraPosition = glm::vec4(m_PreviousCameraPosition, 0.0f);
-        uboData.jitter = glm::vec4(m_CurrJitter, m_PrevJitter);
-        std::memcpy(m_CameraUBO->GetMappedData(), &uboData, sizeof(CameraUBOData));
+    CameraUBOData uboData{};
+    uboData.currViewProj = m_CurrViewProj;
+    uboData.prevViewProj = m_PrevViewProj;
+    uboData.prevCameraPosition = glm::vec4(m_PreviousCameraPosition, 0.0f);
+    uboData.jitter = glm::vec4(m_CurrJitter, m_PrevJitter);
+    if (m_SceneGpuData) {
+        m_SceneGpuData->UploadCamera(uboData);
     }
 }
 

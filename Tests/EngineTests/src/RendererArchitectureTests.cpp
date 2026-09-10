@@ -3,11 +3,16 @@
 #include "Astral/Renderer/RenderCamera.hpp"
 #include "Astral/Renderer/ShaderInterop.hpp"
 #include "Astral/Renderer/SDFRenderer.hpp"
+#include "Astral/Renderer/ComputeProgram.hpp"
+#include "Astral/Renderer/RenderTargets.hpp"
+#include "Astral/Renderer/SceneGpuData.hpp"
 #include "Astral/Geometry/SDFChangeSet.hpp"
 #include "Astral/Geometry/SDFSceneSnapshot.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <cmath>
 #include <limits>
+#include <filesystem>
+#include <fstream>
 
 namespace Astral::Test {
 
@@ -194,6 +199,200 @@ void RunRendererArchitectureTests() {
                        "Acik selectedHitIndex persistent degeri ezmelidir.");
         TEST_CHECK_MSG(suite, "HitIndexPrecedence_DefaultFallback", resolveHit(rfsHitDefault.selectedHitIndex, persistentHitIndex) == 42,
                        "Secim belirtilmediginde persistent hitIndex kullanilmalidir.");
+    }
+
+    // 8. ComputeProgram SPIR-V Yukleme ve Dogrulama Sozlesmeleri
+    {
+        namespace fs = std::filesystem;
+        fs::path tempDir = fs::temp_directory_path() / "astral_test_spv";
+        fs::create_directories(tempDir);
+
+        // 8.1. Varolmayan dosya kontrolu
+        fs::path nonExistentPath = tempDir / "non_existent_shader.spv";
+        fs::remove(nonExistentPath);
+        bool caughtNonExistent = false;
+        try {
+            ComputeProgram::ReadSpirv(nonExistentPath);
+        } catch (const std::runtime_error&) {
+            caughtNonExistent = true;
+        }
+        TEST_CHECK_MSG(suite, "ComputeProgram_ReadSpirv_NonExistent", caughtNonExistent,
+                       "Varolmayan dosya std::runtime_error firlatmalidir.");
+
+        // 8.2. Bos dosya (0 bayt)
+        fs::path emptyPath = tempDir / "empty.spv";
+        {
+            std::ofstream ofs(emptyPath, std::ios::binary | std::ios::trunc);
+        }
+        bool caughtEmpty = false;
+        try {
+            ComputeProgram::ReadSpirv(emptyPath);
+        } catch (const std::runtime_error&) {
+            caughtEmpty = true;
+        }
+        TEST_CHECK_MSG(suite, "ComputeProgram_ReadSpirv_Empty", caughtEmpty,
+                       "0 baytlik dosya std::runtime_error firlatmalidir.");
+
+        // 8.3. 4 baytin kati olmayan dosya (orn. 7 bayt)
+        fs::path nonMod4Path = tempDir / "non_mod4.spv";
+        {
+            std::ofstream ofs(nonMod4Path, std::ios::binary | std::ios::trunc);
+            const char dummy[7] = {1, 2, 3, 4, 5, 6, 7};
+            ofs.write(dummy, sizeof(dummy));
+        }
+        bool caughtNonMod4 = false;
+        try {
+            ComputeProgram::ReadSpirv(nonMod4Path);
+        } catch (const std::runtime_error&) {
+            caughtNonMod4 = true;
+        }
+        TEST_CHECK_MSG(suite, "ComputeProgram_ReadSpirv_NonMod4", caughtNonMod4,
+                       "4 bayt kati olmayan dosya std::runtime_error firlatmalidir.");
+
+        // 8.4. Yetersiz baslik (< 20 bayt, orn. 16 bayt)
+        fs::path shortHeaderPath = tempDir / "short_header.spv";
+        {
+            std::ofstream ofs(shortHeaderPath, std::ios::binary | std::ios::trunc);
+            uint32_t words[4] = {0x07230203, 0x00010000, 0, 0};
+            ofs.write(reinterpret_cast<const char*>(words), sizeof(words));
+        }
+        bool caughtShortHeader = false;
+        try {
+            ComputeProgram::ReadSpirv(shortHeaderPath);
+        } catch (const std::runtime_error&) {
+            caughtShortHeader = true;
+        }
+        TEST_CHECK_MSG(suite, "ComputeProgram_ReadSpirv_ShortHeader", caughtShortHeader,
+                       "20 bayttan kisa dosya std::runtime_error firlatmalidir.");
+
+        // 8.5. Gecersiz magic sayisi (orn. 0x12345678)
+        fs::path invalidMagicPath = tempDir / "invalid_magic.spv";
+        {
+            std::ofstream ofs(invalidMagicPath, std::ios::binary | std::ios::trunc);
+            uint32_t words[5] = {0x12345678, 0x00010000, 1, 10, 0};
+            ofs.write(reinterpret_cast<const char*>(words), sizeof(words));
+        }
+        bool caughtInvalidMagic = false;
+        try {
+            ComputeProgram::ReadSpirv(invalidMagicPath);
+        } catch (const std::runtime_error&) {
+            caughtInvalidMagic = true;
+        }
+        TEST_CHECK_MSG(suite, "ComputeProgram_ReadSpirv_InvalidMagic", caughtInvalidMagic,
+                       "Gecersiz magic sayisi std::runtime_error firlatmalidir.");
+
+        // 8.6. Gecerli 20 baytlik sentetik SPIR-V basligi
+        fs::path validHeaderPath = tempDir / "valid_header.spv";
+        {
+            std::ofstream ofs(validHeaderPath, std::ios::binary | std::ios::trunc);
+            uint32_t words[5] = {0x07230203, 0x00010300, 0x00080001, 14, 0};
+            ofs.write(reinterpret_cast<const char*>(words), sizeof(words));
+        }
+        bool readSuccess = false;
+        std::vector<uint32_t> spvWords;
+        try {
+            spvWords = ComputeProgram::ReadSpirv(validHeaderPath);
+            readSuccess = (spvWords.size() == 5 && spvWords[0] == 0x07230203);
+        } catch (...) {
+            readSuccess = false;
+        }
+        TEST_CHECK_MSG(suite, "ComputeProgram_ReadSpirv_ValidHeader", readSuccess,
+                       "Gecerli sentetik SPIR-V dosyasi basariyla 5 kelime olarak okunmalidir.");
+
+        // 8.7. ResolveShaderPath testleri
+        bool caughtEmptyName = false;
+        try {
+            ComputeProgram::ResolveShaderPath("");
+        } catch (const std::invalid_argument&) {
+            caughtEmptyName = true;
+        }
+        TEST_CHECK_MSG(suite, "ComputeProgram_Resolve_EmptyName", caughtEmptyName,
+                       "Bos shader dosya adi std::invalid_argument firlatmalidir.");
+
+        fs::path resolvedValid = ComputeProgram::ResolveShaderPath(validHeaderPath.string());
+        TEST_CHECK_MSG(suite, "ComputeProgram_Resolve_ExplicitPath", fs::equivalent(resolvedValid, validHeaderPath),
+                       "Varolan dogrudan yol oldugu gibi cozulmelidir.");
+
+        bool caughtMissingShader = false;
+        try {
+            ComputeProgram::ResolveShaderPath("totally_non_existent_shader_xyz_123.spv");
+        } catch (const std::runtime_error&) {
+            caughtMissingShader = true;
+        }
+        TEST_CHECK_MSG(suite, "ComputeProgram_Resolve_NonExistent", caughtMissingShader,
+                       "Hicbir yerde bulunamayan shader std::runtime_error firlatmalidir.");
+
+        // 8.8. Gercek derlenmis shader dosyasini cozme ve okuma
+        bool realShaderFound = false;
+        try {
+            fs::path realSpv = ComputeProgram::ResolveShaderPath("TAAResolve.spv");
+            auto realWords = ComputeProgram::ReadSpirv(realSpv);
+            realShaderFound = (!realWords.empty() && realWords[0] == 0x07230203);
+        } catch (...) {
+            realShaderFound = false;
+        }
+        TEST_CHECK_MSG(suite, "ComputeProgram_ResolveAndRead_RealShader", realShaderFound,
+                       "TAAResolve.spv cozulebilmeli ve gecerli SPIR-V olarak okunabilmelidir.");
+
+        // Temizlik
+        std::error_code ec;
+        fs::remove_all(tempDir, ec);
+    }
+
+    // 9. RenderTargets ve ImageViewRef / GBufferViews Sozlesmeleri
+    {
+        ImageViewRef defaultRef;
+        TEST_CHECK_MSG(suite, "ImageViewRef_DefaultNullImage", !defaultRef.image,
+                       "Varsayilan ImageViewRef image null olmalidir.");
+        TEST_CHECK_MSG(suite, "ImageViewRef_DefaultNullView", !defaultRef.view,
+                       "Varsayilan ImageViewRef view null olmalidir.");
+        TEST_CHECK_MSG(suite, "ImageViewRef_DefaultFormatUndefined", defaultRef.format == vk::Format::eUndefined,
+                       "Varsayilan ImageViewRef formati eUndefined olmalidir.");
+        TEST_CHECK_MSG(suite, "ImageViewRef_DefaultZeroExtent", defaultRef.extent.width == 0 && defaultRef.extent.height == 0,
+                       "Varsayilan ImageViewRef boyutlari 0x0 olmalidir.");
+
+        GBufferViews defaultGbuf;
+        TEST_CHECK_MSG(suite, "GBufferViews_AlbedoDefaultNull", !defaultGbuf.albedo.image,
+                       "Varsayilan GBufferViews albedo null olmalidir.");
+        TEST_CHECK_MSG(suite, "GBufferViews_NormalDefaultNull", !defaultGbuf.normal.image,
+                       "Varsayilan GBufferViews normal null olmalidir.");
+        TEST_CHECK_MSG(suite, "GBufferViews_MaterialDefaultNull", !defaultGbuf.material.image,
+                       "Varsayilan GBufferViews material null olmalidir.");
+        TEST_CHECK_MSG(suite, "GBufferViews_DepthDefaultNull", !defaultGbuf.depth.image,
+                       "Varsayilan GBufferViews depth null olmalidir.");
+        TEST_CHECK_MSG(suite, "GBufferViews_MotionDefaultNull", !defaultGbuf.motion.image,
+                       "Varsayilan GBufferViews motion null olmalidir.");
+    }
+
+    // 10. SceneGpuData ve SceneBufferViews Sozlesmeleri
+    {
+        SceneBufferViews defaultViews;
+        TEST_CHECK_MSG(suite, "SceneBufferViews_DefaultNullPrimitives", !defaultViews.primitives.buffer,
+                       "Varsayilan SceneBufferViews primitives buffer null olmalidir.");
+        TEST_CHECK_MSG(suite, "SceneBufferViews_DefaultNullPrevTransforms", !defaultViews.previousTransforms.buffer,
+                       "Varsayilan SceneBufferViews previousTransforms buffer null olmalidir.");
+        TEST_CHECK_MSG(suite, "SceneBufferViews_DefaultNullLights", !defaultViews.lights.buffer,
+                       "Varsayilan SceneBufferViews lights buffer null olmalidir.");
+        TEST_CHECK_MSG(suite, "SceneBufferViews_DefaultNullGrid", !defaultViews.grid.buffer,
+                       "Varsayilan SceneBufferViews grid buffer null olmalidir.");
+        TEST_CHECK_MSG(suite, "SceneBufferViews_DefaultZeroPrimitiveCount", defaultViews.primitiveCount == 0,
+                       "Varsayilan SceneBufferViews primitiveCount 0 olmalidir.");
+        TEST_CHECK_MSG(suite, "SceneBufferViews_DefaultZeroGridParams", defaultViews.gridParams == glm::vec4(0.0f),
+                       "Varsayilan SceneBufferViews gridParams (0,0,0,0) olmalidir.");
+
+        // Fallback key testleri
+        uint32_t key0 = SceneGpuData::MakeFallbackTransformKey(0);
+        uint32_t key1 = SceneGpuData::MakeFallbackTransformKey(1);
+        uint32_t key255 = SceneGpuData::MakeFallbackTransformKey(255);
+
+        TEST_CHECK_MSG(suite, "SceneGpuData_FallbackKey_HighBitSet", (key0 & 0x80000000u) != 0,
+                       "Fallback transform key'in en yuksek biti 1 olmalidir.");
+        TEST_CHECK_MSG(suite, "SceneGpuData_FallbackKey_DistinctPerIndex", key0 != key1 && key1 != key255,
+                       "Farkli indeksler farkli fallback anahtarlari uretmelidir.");
+        TEST_CHECK_MSG(suite, "SceneGpuData_FallbackKey_PreservesIndex", (key255 & 0x7FFFFFFFu) == 255,
+                       "Fallback anahtar alt bitlerde indeks degerini korumalidir.");
+        TEST_CHECK_MSG(suite, "SceneGpuData_FallbackKey_NoSurfaceIdCollision", key0 > 0x00FFFFFFu,
+                       "Fallback anahtarlar standart 24-bit/entity surfaceId degerleriyle cakismamalidir.");
     }
 }
 
