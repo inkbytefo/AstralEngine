@@ -54,9 +54,24 @@ void Buffer::InitVma(VmaMemoryUsage memUsage, VmaAllocationCreateFlags allocFlag
     if (m_IsPersistentMapped) {
         m_MappedData = allocInfo.pMappedData;
     }
+
+    VkMemoryPropertyFlags actualFlags = 0;
+    vmaGetAllocationMemoryProperties(m_Allocator, m_Allocation, &actualFlags);
+    m_ActualMemoryFlags = vk::MemoryPropertyFlags(actualFlags);
+
+    if (m_Properties & vk::MemoryPropertyFlagBits::eHostVisible) {
+        if (!(m_ActualMemoryFlags & vk::MemoryPropertyFlagBits::eHostVisible)) {
+            throw std::runtime_error("[Astral::Buffer] Tahsis edilen VMA bellegi HostVisible degil!");
+        }
+        if ((m_Properties & vk::MemoryPropertyFlagBits::eHostCoherent) &&
+            !(m_ActualMemoryFlags & vk::MemoryPropertyFlagBits::eHostCoherent)) {
+            throw std::runtime_error("[Astral::Buffer] Istenen HostCoherent bellek VMA tarafindan saglanamadi!");
+        }
+    }
 }
 
 void Buffer::InitFallback() {
+    m_ActualMemoryFlags = m_Properties;
     if (!m_Device) {
         // Headless mock / test ortami
         return;
@@ -154,20 +169,61 @@ Buffer::~Buffer() {
     }
 }
 
+void Buffer::Flush(vk::DeviceSize offset, vk::DeviceSize size) {
+    if (size == 0) return;
+    if (m_Allocator != VK_NULL_HANDLE && m_Allocation != VK_NULL_HANDLE) {
+        if (!(m_ActualMemoryFlags & vk::MemoryPropertyFlagBits::eHostCoherent)) {
+            vmaFlushAllocation(m_Allocator, m_Allocation, offset, (size == VK_WHOLE_SIZE) ? m_Size : size);
+        }
+    } else if (m_Device && m_FallbackMemory) {
+        if (!(m_ActualMemoryFlags & vk::MemoryPropertyFlagBits::eHostCoherent)) {
+            vk::MappedMemoryRange range{};
+            range.memory = m_FallbackMemory.get();
+            range.offset = offset;
+            range.size = (size == VK_WHOLE_SIZE) ? m_Size : size;
+            (void)m_Device.flushMappedMemoryRanges(1, &range);
+        }
+    }
+}
+
+void Buffer::Invalidate(vk::DeviceSize offset, vk::DeviceSize size) {
+    if (size == 0) return;
+    if (m_Allocator != VK_NULL_HANDLE && m_Allocation != VK_NULL_HANDLE) {
+        if (!(m_ActualMemoryFlags & vk::MemoryPropertyFlagBits::eHostCoherent)) {
+            vmaInvalidateAllocation(m_Allocator, m_Allocation, offset, (size == VK_WHOLE_SIZE) ? m_Size : size);
+        }
+    } else if (m_Device && m_FallbackMemory) {
+        if (!(m_ActualMemoryFlags & vk::MemoryPropertyFlagBits::eHostCoherent)) {
+            vk::MappedMemoryRange range{};
+            range.memory = m_FallbackMemory.get();
+            range.offset = offset;
+            range.size = (size == VK_WHOLE_SIZE) ? m_Size : size;
+            (void)m_Device.invalidateMappedMemoryRanges(1, &range);
+        }
+    }
+}
+
 void Buffer::UpdateData(const void* data, size_t size, size_t offset) {
-    if (offset + size > m_Size) {
+    if (size == 0) {
+        return; // Sifir byte kopyayi no-op yap
+    }
+    if (offset > m_Size || size > m_Size - offset) {
         throw std::out_of_range("[Astral::Buffer] Yazilmak istenen veri boyutu tampon kapasitesini asiyor!");
     }
 
     if (m_IsPersistentMapped && m_MappedData) {
         std::memcpy(static_cast<char*>(m_MappedData) + offset, data, size);
+        Flush(offset, size);
     } else {
         UpdateDataLegacy(data, size, offset);
     }
 }
 
 void Buffer::UpdateDataLegacy(const void* data, size_t size, size_t offset) {
-    if (offset + size > m_Size) {
+    if (size == 0) {
+        return; // Sifir byte kopyayi no-op yap
+    }
+    if (offset > m_Size || size > m_Size - offset) {
         throw std::out_of_range("[Astral::Buffer] Yazilmak istenen veri boyutu tampon kapasitesini asiyor!");
     }
 
@@ -176,11 +232,13 @@ void Buffer::UpdateDataLegacy(const void* data, size_t size, size_t offset) {
         VkResult res = vmaMapMemory(m_Allocator, m_Allocation, &mappedPtr);
         if (res == VK_SUCCESS && mappedPtr) {
             std::memcpy(static_cast<char*>(mappedPtr) + offset, data, size);
+            vmaFlushAllocation(m_Allocator, m_Allocation, offset, size);
             vmaUnmapMemory(m_Allocator, m_Allocation);
         }
     } else if (m_Device && m_FallbackMemory) {
         void* mappedPtr = m_Device.mapMemory(m_FallbackMemory.get(), offset, size);
         std::memcpy(mappedPtr, data, size);
+        Flush(offset, size);
         m_Device.unmapMemory(m_FallbackMemory.get());
     }
 }

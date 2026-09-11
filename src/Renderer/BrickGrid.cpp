@@ -76,10 +76,10 @@ void BrickGrid::UploadGridBuffer() {
         m_CellSize.x
     );
 
-    std::vector<uint8_t> uploadBytes(sizeof(GridGPUHeader) + m_CellDistances.size() * sizeof(float));
-    std::memcpy(uploadBytes.data(), &header, sizeof(GridGPUHeader));
-    std::memcpy(uploadBytes.data() + sizeof(GridGPUHeader), m_CellDistances.data(), m_CellDistances.size() * sizeof(float));
-    m_GridBuffer->UpdateData(uploadBytes.data(), uploadBytes.size());
+    m_GridBuffer->UpdateData(&header, sizeof(GridGPUHeader), 0);
+    if (!m_CellDistances.empty()) {
+        m_GridBuffer->UpdateData(m_CellDistances.data(), m_CellDistances.size() * sizeof(float), sizeof(GridGPUHeader));
+    }
 }
 
 void BrickGrid::SetBounds(const glm::vec3& minBounds, const glm::vec3& maxBounds) {

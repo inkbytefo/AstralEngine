@@ -642,15 +642,15 @@ submit başarılı mı?
 
 **Bağımlılık:** G12. **Sözleşme:** GPU'daki slot verisi CPU'nun o slot için bildiği sürümle eşleşmelidir. Global scene revision tek başına çoklu slot doğruluğu sağlamaz.
 
-- [ ] Records, previous matrices ve upload byte çalışma tamponlarını üye olarak tut; kapasiteyi yeniden kullan. Warmup sonrası sabit kapasiteli sahnede bu tamponlar yeniden allocate etmesin.
-- [ ] Record alanlarını anlamlı eşitlikle karşılaştır; padding içeren struct'a kör `memcmp` yapma. Stabil surfaceId ve değişen transform/material bilgisini kullan.
-- [ ] Değişmeyen primitive byte aralıklarını yeniden yükleme. Önceki dönüşümün bir sonraki kareye ilerlemesi primitive verisi değişmese de gerekli olabilir.
-- [ ] A konumu → B konumu → B sabit senaryosunda previous matrices sırasıyla A → A → B olmalı. Bu testi optimizasyondan önce yaz.
-- [ ] Silinen surfaceId girdilerini temizle; sonsuza büyüyen geçmiş map bırakma. Yeni kimlik ilk karede kendi transformunu previous olarak alır.
-- [ ] BrickGrid incremental hesaplama algoritmasını koru. İlk kazanç geçici upload byte vektörünü kaldırmak olsun; dirty-cell upload yalnız ölçüm gösteriyorsa bitişik aralıklara birleştirilir.
-- [ ] Grid bounds değişimi/global change/sıralama değişimi için tam upload fallback bırak.
-- [ ] Buffer offset/size doğrulamasını taşma güvenli yaz: `offset > capacity || size > capacity - offset`. Sıfır byte kopyayı no-op yap.
-- [ ] VMA host-visible allocation için flush; readback için invalidate gereksinimini gerçek memory flags ile doğrula. Host coherent olmayan bellek desteklenmiyorsa oluşturma anında açık hata ver; sessiz veri kaybı bırakma.
+- [x] Records, previous matrices ve upload byte çalışma tamponlarını üye olarak tut; kapasiteyi yeniden kullan. Warmup sonrası sabit kapasiteli sahnede bu tamponlar yeniden allocate etmesin.
+- [x] Record alanlarını anlamlı eşitlikle karşılaştır; padding içeren struct'a kör `memcmp` yapma. Stabil surfaceId ve değişen transform/material bilgisini kullan.
+- [x] Değişmeyen primitive byte aralıklarını yeniden yükleme. Önceki dönüşümün bir sonraki kareye ilerlemesi primitive verisi değişmese de gerekli olabilir.
+- [x] A konumu → B konumu → B sabit senaryosunda previous matrices sırasıyla A → A → B olmalı. Bu testi optimizasyondan önce yaz.
+- [x] Silinen surfaceId girdilerini temizle; sonsuza büyüyen geçmiş map bırakma. Yeni kimlik ilk karede kendi transformunu previous olarak alır.
+- [x] BrickGrid incremental hesaplama algoritmasını koru. İlk kazanç geçici upload byte vektörünü kaldırmak olsun; dirty-cell upload yalnız ölçüm gösteriyorsa bitişik aralıklara birleştirilir.
+- [x] Grid bounds değişimi/global change/sıralama değişimi için tam upload fallback bırak.
+- [x] Buffer offset/size doğrulamasını taşma güvenli yaz: `offset > capacity || size > capacity - offset`. Sıfır byte kopyayı no-op yap.
+- [x] VMA host-visible allocation için flush; readback için invalidate gereksinimini gerçek memory flags ile doğrula. Host coherent olmayan bellek desteklenmiyorsa oluşturma anında açık hata ver; sessiz veri kaybı bırakma.
 
 ```text
 Upload kararının referans algoritması:

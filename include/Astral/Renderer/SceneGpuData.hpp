@@ -85,6 +85,11 @@ public:
     [[nodiscard]] const std::vector<LightGPU>& GetLights() const noexcept { return m_Lights; }
     [[nodiscard]] std::vector<LightGPU>& GetLights() noexcept { return m_Lights; }
 
+    /// G13: Son karede GPU'ya yuklenen primitif ve donusum bayt miktarlari
+    [[nodiscard]] size_t GetLastPrimitiveUploadBytes() const noexcept { return m_LastPrimitiveUploadBytes; }
+    [[nodiscard]] size_t GetLastTransformUploadBytes() const noexcept { return m_LastTransformUploadBytes; }
+    [[nodiscard]] size_t GetLastTotalUploadBytes() const noexcept { return m_LastPrimitiveUploadBytes + m_LastTransformUploadBytes; }
+
 private:
     VulkanContext* m_Context = nullptr;
     std::unique_ptr<Buffer> m_EditBuffer;
@@ -97,6 +102,15 @@ private:
     std::unordered_map<uint32_t, glm::mat4> m_PrevWorldTransforms;
     std::unordered_map<uint32_t, glm::mat4> m_CandidateWorldTransforms;
     uint32_t m_ActiveEditCount = 0;
+
+    // G13: Calisma tamponlari ve yuklenen kayit durum onbellegi (Kapasiteyi yeniden kullanir)
+    std::vector<glm::mat4> m_PrevMatricesWorkBuffer;
+    std::vector<SDFPrimitiveRecord> m_UploadedRecords;
+    std::vector<glm::mat4> m_UploadedPrevMatrices;
+    bool m_IsInitialized = false;
+
+    size_t m_LastPrimitiveUploadBytes = 0;
+    size_t m_LastTransformUploadBytes = 0;
 
     void UpdateLights();
 };

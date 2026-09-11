@@ -83,44 +83,123 @@ SceneGpuData& SceneGpuData::operator=(SceneGpuData&&) noexcept = default;
 
 void SceneGpuData::Upload(std::span<const SDFPrimitiveRecord> records, const SDFChangeSet& changeSet, bool legacyMap) {
     m_ActiveEditCount = static_cast<uint32_t>(std::min(records.size(), MAX_SDF_EDITS));
-    if (m_ActiveEditCount > 0) {
-        size_t uploadBytes = m_ActiveEditCount * sizeof(SDFPrimitiveRecord);
-        if (legacyMap) {
-            m_EditBuffer->UpdateDataLegacy(records.data(), uploadBytes);
-        } else {
-            m_EditBuffer->UpdateData(records.data(), uploadBytes);
-        }
+    m_LastPrimitiveUploadBytes = 0;
+    m_LastTransformUploadBytes = 0;
 
-        if (m_PrevTransformBuffer) {
-            std::vector<glm::mat4> prevMatrices(m_ActiveEditCount);
-            m_CandidateWorldTransforms.clear();
-            m_CandidateWorldTransforms.reserve(m_ActiveEditCount);
-
-            for (size_t i = 0; i < m_ActiveEditCount; ++i) {
-                const auto& rec = records[i];
-                glm::mat4 currWorldTransform = glm::inverse(rec.invTransform);
-                // For valid entity surfaceId, use rec.surfaceId. If 0 (e.g. raw test record), fallback to unique per-index key.
-                uint32_t key = (rec.surfaceId != 0u) ? rec.surfaceId : MakeFallbackTransformKey(static_cast<uint32_t>(i));
-                auto it = m_PrevWorldTransforms.find(key);
-                if (it != m_PrevWorldTransforms.end()) {
-                    prevMatrices[i] = it->second;
-                } else {
-                    prevMatrices[i] = currWorldTransform;
-                }
-                m_CandidateWorldTransforms[key] = currWorldTransform;
-            }
-
-            size_t prevUploadBytes = m_ActiveEditCount * sizeof(glm::mat4);
-            if (legacyMap) {
-                m_PrevTransformBuffer->UpdateDataLegacy(prevMatrices.data(), prevUploadBytes);
-            } else {
-                m_PrevTransformBuffer->UpdateData(prevMatrices.data(), prevUploadBytes);
-            }
-        }
-    } else {
+    if (m_ActiveEditCount == 0) {
+        m_UploadedRecords.clear();
+        m_UploadedPrevMatrices.clear();
+        m_PrevMatricesWorkBuffer.clear();
         m_PrevWorldTransforms.clear();
         m_CandidateWorldTransforms.clear();
+        m_IsInitialized = true;
+        if (m_BrickGrid) {
+            m_BrickGrid->Build(records.subspan(0, 0), &changeSet);
+        }
+        return;
     }
+
+    // 1. Primitive upload: Tam yukleme veya dilim yukleme (dirty-range slice)
+    bool fullPrimitiveUpload = !m_IsInitialized || (m_ActiveEditCount != m_UploadedRecords.size()) || changeSet.IsGlobalChange();
+    if (!fullPrimitiveUpload) {
+        for (size_t i = 0; i < m_ActiveEditCount; ++i) {
+            if (records[i].surfaceId != m_UploadedRecords[i].surfaceId) {
+                fullPrimitiveUpload = true;
+                break;
+            }
+        }
+    }
+
+    if (fullPrimitiveUpload) {
+        size_t uploadBytes = m_ActiveEditCount * sizeof(SDFPrimitiveRecord);
+        if (legacyMap) {
+            m_EditBuffer->UpdateDataLegacy(records.data(), uploadBytes, 0);
+        } else {
+            m_EditBuffer->UpdateData(records.data(), uploadBytes, 0);
+        }
+        m_LastPrimitiveUploadBytes = uploadBytes;
+        m_UploadedRecords.assign(records.begin(), records.begin() + m_ActiveEditCount);
+    } else {
+        // Degisen primitif araliklarini tespit et ve yalnizca dirty dilimleri yukle
+        size_t i = 0;
+        while (i < m_ActiveEditCount) {
+            if (records[i] != m_UploadedRecords[i]) {
+                size_t start = i;
+                while (i < m_ActiveEditCount && records[i] != m_UploadedRecords[i]) {
+                    m_UploadedRecords[i] = records[i];
+                    ++i;
+                }
+                size_t sliceCount = i - start;
+                size_t offset = start * sizeof(SDFPrimitiveRecord);
+                size_t size = sliceCount * sizeof(SDFPrimitiveRecord);
+                if (legacyMap) {
+                    m_EditBuffer->UpdateDataLegacy(records.data() + start, size, offset);
+                } else {
+                    m_EditBuffer->UpdateData(records.data() + start, size, offset);
+                }
+                m_LastPrimitiveUploadBytes += size;
+            } else {
+                ++i;
+            }
+        }
+    }
+
+    // 2. Onceki Dunya Donusumleri (Previous Transform) hesaplama ve yukleme
+    if (m_PrevTransformBuffer) {
+        m_PrevMatricesWorkBuffer.resize(m_ActiveEditCount);
+        m_CandidateWorldTransforms.clear();
+        m_CandidateWorldTransforms.reserve(m_ActiveEditCount);
+
+        for (size_t i = 0; i < m_ActiveEditCount; ++i) {
+            const auto& rec = records[i];
+            glm::mat4 currWorldTransform = glm::inverse(rec.invTransform);
+            uint32_t key = (rec.surfaceId != 0u) ? rec.surfaceId : MakeFallbackTransformKey(static_cast<uint32_t>(i));
+            auto it = m_PrevWorldTransforms.find(key);
+            if (it != m_PrevWorldTransforms.end()) {
+                m_PrevMatricesWorkBuffer[i] = it->second;
+            } else {
+                m_PrevMatricesWorkBuffer[i] = currWorldTransform;
+            }
+            m_CandidateWorldTransforms[key] = currWorldTransform;
+        }
+
+        bool fullTransformUpload = fullPrimitiveUpload || (m_UploadedPrevMatrices.size() != m_ActiveEditCount);
+        if (fullTransformUpload) {
+            size_t uploadBytes = m_ActiveEditCount * sizeof(glm::mat4);
+            if (legacyMap) {
+                m_PrevTransformBuffer->UpdateDataLegacy(m_PrevMatricesWorkBuffer.data(), uploadBytes, 0);
+            } else {
+                m_PrevTransformBuffer->UpdateData(m_PrevMatricesWorkBuffer.data(), uploadBytes, 0);
+            }
+            m_LastTransformUploadBytes = uploadBytes;
+            m_UploadedPrevMatrices.assign(m_PrevMatricesWorkBuffer.begin(), m_PrevMatricesWorkBuffer.end());
+        } else {
+            // Onceki donusum tamponu icin dirty dilim yuklemesi
+            size_t i = 0;
+            while (i < m_ActiveEditCount) {
+                if (m_PrevMatricesWorkBuffer[i] != m_UploadedPrevMatrices[i]) {
+                    size_t start = i;
+                    while (i < m_ActiveEditCount && m_PrevMatricesWorkBuffer[i] != m_UploadedPrevMatrices[i]) {
+                        m_UploadedPrevMatrices[i] = m_PrevMatricesWorkBuffer[i];
+                        ++i;
+                    }
+                    size_t sliceCount = i - start;
+                    size_t offset = start * sizeof(glm::mat4);
+                    size_t size = sliceCount * sizeof(glm::mat4);
+                    if (legacyMap) {
+                        m_PrevTransformBuffer->UpdateDataLegacy(m_PrevMatricesWorkBuffer.data() + start, size, offset);
+                    } else {
+                        m_PrevTransformBuffer->UpdateData(m_PrevMatricesWorkBuffer.data() + start, size, offset);
+                    }
+                    m_LastTransformUploadBytes += size;
+                } else {
+                    ++i;
+                }
+            }
+        }
+    }
+
+    m_IsInitialized = true;
 
     if (m_BrickGrid) {
         m_BrickGrid->Build(records.subspan(0, m_ActiveEditCount), &changeSet);
@@ -180,6 +259,9 @@ void SceneGpuData::AbortPrepared() noexcept {
 void SceneGpuData::ResetTransformHistory() noexcept {
     m_PrevWorldTransforms.clear();
     m_CandidateWorldTransforms.clear();
+    m_UploadedRecords.clear();
+    m_UploadedPrevMatrices.clear();
+    m_IsInitialized = false;
 }
 
 } // namespace Astral

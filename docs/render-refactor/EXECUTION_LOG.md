@@ -612,3 +612,65 @@ Bu belge, [RENDER_REFACTOR_IMPLEMENTATION_PLAN.md](../RENDER_REFACTOR_IMPLEMENTA
 - **Bilinen eksik veya risk:** Yok.
 - **Sonraki görev ve gerekli arayüzler:** G13 — Sahne upload ve CPU çalışma alanını optimize et (`SceneGpuData.hpp/.cpp`, `BrickGrid.hpp/.cpp`).
 
+### Görev: G13 — Sahne upload ve CPU çalışma alanını optimize et
+- **Tarih:** 2026-09-12
+- **Yapılan değişikliklerin özeti:**
+  - `include/Astral/Renderer/Buffer.hpp` & `src/Renderer/Buffer.cpp`:
+    - `UpdateData` ve `UpdateDataLegacy` içine `offset > capacity || size > capacity - offset` koşuluyla taşma korumalı (overflow-safe) sınır kontrolü eklendi; 0-boyutlu çağrılar güvenli no-op yapıldı.
+    - `Flush(offset, size)` ve `Invalidate(offset, size)` metotları eklendi.
+    - `InitVma` içinde VMA bellek türü bayrakları incelendi (`m_ActualMemoryFlags`), host-visible istenip tahsis edilemezse açık `std::runtime_error` fırlatıldı.
+  - `include/Astral/Geometry/SDFSceneSnapshot.hpp`:
+    - `SDFPrimitiveRecord` için tüm mantıksal alanları (surfaceId, primitiveType, operation, csgOrder, invTransform, dimensions, albedoRoughness, metallicParams) karşılaştıran `operator==` ve `operator!=` eklendi; uninitialized dolgu (padding) baytları eşitliği bozmayacak şekilde kör `memcmp` kaldırıldı.
+  - `src/Renderer/BrickGrid.cpp`:
+    - `UploadGridBuffer()` içindeki geçici 64 KB `std::vector<uint8_t>` tahsisi kaldırıldı; başlık doğrudan ofset 0'a, mesafe verileri doğrudan ofset 48'e yazıldı (sıfır geçici tahsis).
+  - `include/Astral/Renderer/SceneGpuData.hpp` & `src/Renderer/SceneGpuData.cpp`:
+    - Sürekli yeniden kullanılabilir üye çalışma tamponları eklendi (`m_PrevMatricesWorkBuffer`, `m_UploadedRecords`, `m_UploadedPrevMatrices`, `m_IsInitialized`).
+    - Kirli dilim (dirty-range slice) yükleme algoritması uygulandı: Yalnızca değişen primitive aralıkları GPU'ya yüklendi; statik sahnelerde 0 bayt yüklendi.
+    - Boyut değişimi, global değişim veya `surfaceId` sıralama değişimi durumunda tam yükleme (full upload) fallback'i uygulandı.
+    - Önceki dönüşüm (previous transform) aday ve committed yaşam döngüsü korundu; hareket edip duran nesnelerde ($A \to B \to B \implies A \to A \to B$) önceki dönüşüm geçişi sağlandı.
+    - Silinen nesneler `CommitSubmitted()` çağrısında `m_CandidateWorldTransforms` üzerinden temizlendi; sonsuza büyüyen harita engellendi.
+    - Upload telemetri metotları eklendi: `GetLastPrimitiveUploadBytes()`, `GetLastTransformUploadBytes()`, `GetLastTotalUploadBytes()`.
+- **Çalıştırılan komutlar ve sonuçları:**
+  - `cmake --build --preset mingw-release -j 4` -> Exit Code: `0` (Hatasız derleme ve linkleme)
+  - `./build-release/EngineTests.exe` -> Exit Code: `0` (24/24 test suite, 982 assertion başarılı)
+  - `./build-release/RendererLifecycleGpuTests.exe` -> Exit Code: `0` (82 assertion başarılı)
+  - `ctest --preset test-release --output-on-failure` -> Exit Code: `0` (25/25 test geçti, %100 başarı)
+- **Eklenen / Güncellenen Testler:**
+  - `RendererArchitectureTests.cpp`:
+    - Bölüm 17:
+      - `G13_RecordEquality_IdenticalEqual`
+      - `G13_RecordEquality_DifferentSurfaceId`
+      - `G13_RecordEquality_DifferentPrimitiveType`
+      - `G13_RecordEquality_DifferentOperation`
+      - `G13_RecordEquality_DifferentCsgOrder`
+      - `G13_RecordEquality_DifferentInvTransform`
+      - `G13_RecordEquality_DifferentDimensions`
+      - `G13_RecordEquality_DifferentAlbedoRoughness`
+      - `G13_RecordEquality_DifferentMetallicParams`
+      - `G13_RecordEquality_PaddingDoesNotAffectEquality`
+      - `G13_BufferBounds_ZeroSizeNoOp`
+      - `G13_BufferBounds_ValidRange`
+      - `G13_BufferBounds_ExactFit`
+      - `G13_BufferBounds_ExceedsCapacity`
+      - `G13_BufferBounds_OffsetBeyondCapacity`
+      - `G13_BufferBounds_OverflowSafe`
+  - `RendererLifecycleGpuTests.cpp`:
+    - Test 14 (Canlı GPU üzerinde Buffer sınırları ve SceneGpuData dilim yükleme):
+      - `G13_Buffer_ZeroSizeNoOp`
+      - `G13_Buffer_OffsetExceedsThrows`
+      - `G13_Buffer_SizeExceedsThrows`
+      - `G13_Buffer_IntegerOverflowSafe`
+      - `G13_Upload_Frame1_FullUpload`
+      - `G13_Upload_Frame2_StaticZeroUpload`
+      - `G13_Upload_Frame3_SinglePrimitiveSliceUpload`
+      - `G13_Upload_Frame4_TransformProgressionSlice`
+      - `G13_Upload_Frame5_StaticAgainZeroUpload`
+      - `G13_Upload_ReorderFallbackFullUpload`
+      - `G13_Upload_DeletedEntityCleanupOnReadd`
+- **Performans ölçüldüyse koşullar ve sonuç:**
+  - CTest toplam süre: 33.42 sn (21 CPU: 2.32 sn, 1 Editor: 0.16 sn, 4 GPU: 31.06 sn).
+  - Statik sahnede ardıl kare primitive ve transform GPU yükleme baytı: 0 bayt.
+  - BrickGrid kare başı 64 KB heap vektör tahsisi 0 bayta düşürüldü.
+- **Bilinen eksik veya risk:** Yok.
+- **Sonraki görev ve gerekli arayüzler:** G14 — Kare slotlarını kur, önce senkron davranışı koru (`FrameResources.hpp/.cpp`, slot başına command buffer / fence / timestamp / descriptor yönetimi).
+

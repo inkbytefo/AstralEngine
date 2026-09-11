@@ -57,6 +57,12 @@ public:
     /// Karsilastirma / Benchmark icin her kare map-unmap yapan yontem
     void UpdateDataLegacy(const void* data, size_t size, size_t offset = 0);
 
+    /// Host-coherent olmayan bellek icin CPU yazimlarini GPU'ya aktarir
+    void Flush(vk::DeviceSize offset = 0, vk::DeviceSize size = VK_WHOLE_SIZE);
+
+    /// Host-coherent olmayan bellek icin GPU yazimlarini CPU onbellegine yeniler
+    void Invalidate(vk::DeviceSize offset = 0, vk::DeviceSize size = VK_WHOLE_SIZE);
+
     [[nodiscard]] vk::Buffer GetBuffer() const noexcept { return m_Buffer; }
     [[nodiscard]] vk::DeviceMemory GetMemory() const;
     [[nodiscard]] VmaAllocation GetAllocation() const noexcept { return m_Allocation; }
@@ -64,6 +70,7 @@ public:
     [[nodiscard]] void* GetMappedData() const noexcept { return m_MappedData; }
     [[nodiscard]] bool IsPersistentMapped() const noexcept { return m_IsPersistentMapped; }
     [[nodiscard]] bool IsVma() const noexcept { return m_Allocator != VK_NULL_HANDLE; }
+    [[nodiscard]] vk::MemoryPropertyFlags GetActualMemoryFlags() const noexcept { return m_ActualMemoryFlags; }
 
     vk::DescriptorBufferInfo GetDescriptorInfo(vk::DeviceSize offset = 0, vk::DeviceSize range = VK_WHOLE_SIZE) const;
 
@@ -77,6 +84,7 @@ private:
     vk::DeviceSize m_Size = 0;
     vk::BufferUsageFlags m_Usage{};
     vk::MemoryPropertyFlags m_Properties{};
+    vk::MemoryPropertyFlags m_ActualMemoryFlags{};
     bool m_IsPersistentMapped = false;
     void* m_MappedData = nullptr;
 

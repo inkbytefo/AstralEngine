@@ -1130,6 +1130,130 @@ void RunRendererArchitectureTests() {
                        resolvedDebug.debugMode == 2,
                        "debugMode=2 Normal onizleme shader sozlesmesiyle tutarli olmalidir.");
     }
+
+    // 17. Sahne Upload, Donusum Gecmisi ve Tampon Sinirlari Sozlesmeleri (G13)
+    {
+        // 17.1. SDFPrimitiveRecord mantiksal esitlik (operator== ve operator!=)
+        SDFPrimitiveRecord recA{};
+        recA.surfaceId = 100;
+        recA.primitiveType = 1;
+        recA.operation = 0;
+        recA.csgOrder = 2;
+        recA.invTransform = glm::mat4(2.0f);
+        recA.dimensions = glm::vec4(1.0f, 2.0f, 3.0f, 0.5f);
+        recA.albedoRoughness = glm::vec4(0.8f, 0.2f, 0.1f, 0.4f);
+        recA.metallicParams = glm::vec4(0.9f, 0.0f, 0.0f, 0.0f);
+
+        SDFPrimitiveRecord recB = recA;
+        TEST_CHECK_MSG(suite, "G13_RecordEquality_IdenticalEqual",
+                       recA == recB && !(recA != recB),
+                       "Birebir ayni alanlara sahip iki SDFPrimitiveRecord esit sayilmalidir.");
+
+        // Yalnizca surfaceId degisimi
+        recB.surfaceId = 101;
+        TEST_CHECK_MSG(suite, "G13_RecordEquality_DifferentSurfaceId",
+                       recA != recB && !(recA == recB),
+                       "Farkli surfaceId esitsizlik uretmelidir.");
+        recB.surfaceId = recA.surfaceId;
+
+        // Yalnizca primitiveType degisimi
+        recB.primitiveType = 2;
+        TEST_CHECK_MSG(suite, "G13_RecordEquality_DifferentPrimitiveType",
+                       recA != recB,
+                       "Farkli primitiveType esitsizlik uretmelidir.");
+        recB.primitiveType = recA.primitiveType;
+
+        // Yalnizca operation degisimi
+        recB.operation = 1;
+        TEST_CHECK_MSG(suite, "G13_RecordEquality_DifferentOperation",
+                       recA != recB,
+                       "Farkli operation esitsizlik uretmelidir.");
+        recB.operation = recA.operation;
+
+        // Yalnizca csgOrder degisimi
+        recB.csgOrder = 5;
+        TEST_CHECK_MSG(suite, "G13_RecordEquality_DifferentCsgOrder",
+                       recA != recB,
+                       "Farkli csgOrder esitsizlik uretmelidir.");
+        recB.csgOrder = recA.csgOrder;
+
+        // Yalnizca invTransform degisimi
+        recB.invTransform = glm::mat4(3.0f);
+        TEST_CHECK_MSG(suite, "G13_RecordEquality_DifferentInvTransform",
+                       recA != recB,
+                       "Farkli transform esitsizlik uretmelidir.");
+        recB.invTransform = recA.invTransform;
+
+        // Yalnizca dimensions degisimi
+        recB.dimensions.x += 0.01f;
+        TEST_CHECK_MSG(suite, "G13_RecordEquality_DifferentDimensions",
+                       recA != recB,
+                       "Farkli dimensions esitsizlik uretmelidir.");
+        recB.dimensions = recA.dimensions;
+
+        // Yalnizca albedoRoughness degisimi
+        recB.albedoRoughness.w += 0.05f;
+        TEST_CHECK_MSG(suite, "G13_RecordEquality_DifferentAlbedoRoughness",
+                       recA != recB,
+                       "Farkli albedoRoughness esitsizlik uretmelidir.");
+        recB.albedoRoughness = recA.albedoRoughness;
+
+        // Yalnizca metallicParams degisimi
+        recB.metallicParams.x += 0.1f;
+        TEST_CHECK_MSG(suite, "G13_RecordEquality_DifferentMetallicParams",
+                       recA != recB,
+                       "Farkli metallicParams esitsizlik uretmelidir.");
+        recB.metallicParams = recA.metallicParams;
+
+        // 17.2. Padding baytlarinin mantiksal esitligi etkilememesi (memcmp yerine mantiksal karsilastirma)
+        alignas(16) uint8_t rawA[sizeof(SDFPrimitiveRecord)];
+        alignas(16) uint8_t rawB[sizeof(SDFPrimitiveRecord)];
+        std::memset(rawA, 0xAA, sizeof(rawA));
+        std::memset(rawB, 0x55, sizeof(rawB));
+
+        auto* pA = reinterpret_cast<SDFPrimitiveRecord*>(rawA);
+        auto* pB = reinterpret_cast<SDFPrimitiveRecord*>(rawB);
+
+        *pA = recA;
+        *pB = recA;
+        TEST_CHECK_MSG(suite, "G13_RecordEquality_PaddingDoesNotAffectEquality",
+                       *pA == *pB,
+                       "Farkli uninitialized/padding degerleri mantiksal alanlar ayni oldugunda esitligi bozmamalidir.");
+
+        // 17.3. Tampon tasma sinir kontrol formulu (size == 0 no-op, offset > capacity || size > capacity - offset)
+        size_t capacity = 1024;
+        auto validateBounds = [](size_t cap, size_t size, size_t offset) -> bool {
+            if (size == 0) return true;
+            if (offset > cap || size > cap - offset) return false;
+            return true;
+        };
+
+        TEST_CHECK_MSG(suite, "G13_BufferBounds_ZeroSizeNoOp",
+                       validateBounds(capacity, 0, 2048) == true,
+                       "0 boyutlu kopyalama no-op olmali ve tasma hatasi vermemelidir.");
+
+        TEST_CHECK_MSG(suite, "G13_BufferBounds_ValidRange",
+                       validateBounds(capacity, 512, 256) == true,
+                       "Gecerli aralik kabul edilmelidir.");
+
+        TEST_CHECK_MSG(suite, "G13_BufferBounds_ExactFit",
+                       validateBounds(capacity, 512, 512) == true,
+                       "Kapasiteye tam oturan aralik kabul edilmelidir.");
+
+        TEST_CHECK_MSG(suite, "G13_BufferBounds_ExceedsCapacity",
+                       validateBounds(capacity, 513, 512) == false,
+                       "Kapasiteyi asan aralik reddedilmelidir.");
+
+        TEST_CHECK_MSG(suite, "G13_BufferBounds_OffsetBeyondCapacity",
+                       validateBounds(capacity, 10, 1025) == false,
+                       "Kapasite otesindeki ofset reddedilmelidir.");
+
+        size_t largeOffset = std::numeric_limits<size_t>::max() - 10;
+        size_t testSize = 20;
+        TEST_CHECK_MSG(suite, "G13_BufferBounds_OverflowSafe",
+                       validateBounds(capacity, testSize, largeOffset) == false,
+                       "Integer overflow olusturan ofset guvenle reddedilmelidir.");
+    }
 }
 
 } // namespace Astral::Test

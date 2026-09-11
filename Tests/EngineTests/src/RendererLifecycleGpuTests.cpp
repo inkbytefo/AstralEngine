@@ -690,6 +690,144 @@ void RunLifecycleTests() {
         TEST_CHECK_MSG(suite, "G11_Facade_DoubleCommitThrows", caughtDoubleCommit,
                        "Ayni kare uzerinde ikinci kez CommitSubmittedFrame std::logic_error firlatmalidir.");
     }
+
+    // =========================================================================
+    // 14. G13 Sahne Upload Optimizasyonu, Dilim Yukleme ve Tampon Sinirlari GPU Testi
+    // =========================================================================
+    {
+        std::cout << "[Test 14] G13 Sahne Upload Optimizasyonu ve Dilim Yukleme..." << std::endl;
+        SceneGpuData sceneData(context, true);
+        SDFChangeSet emptyChangeSet;
+
+        // 14.1. Buffer Tasma ve 0-Boyut Sinir Dogrulama (Live GPU Buffer)
+        Buffer* editBuffer = sceneData.GetEditBuffer();
+        vk::DeviceSize cap = editBuffer->GetSize();
+        uint8_t dummyByte = 0xFF;
+
+        // 0-boyut no-op, tasma veya hata olmamali
+        bool zeroSizeThrew = false;
+        try {
+            editBuffer->UpdateData(&dummyByte, 0, cap + 100);
+        } catch (...) {
+            zeroSizeThrew = true;
+        }
+        TEST_CHECK_MSG(suite, "G13_Buffer_ZeroSizeNoOp", !zeroSizeThrew,
+                       "UpdateData ile size=0 cagrisi ofset kapasiteyi assa bile no-op olmali ve firlatmamalidir.");
+
+        // Ofset kapasiteyi asarsa std::out_of_range
+        bool offsetExceedsThrew = false;
+        try {
+            editBuffer->UpdateData(&dummyByte, 1, cap + 1);
+        } catch (const std::out_of_range&) {
+            offsetExceedsThrew = true;
+        }
+        TEST_CHECK_MSG(suite, "G13_Buffer_OffsetExceedsThrows", offsetExceedsThrew,
+                       "Kapasiteyi asan ofset std::out_of_range firlatmalidir.");
+
+        // Boyut kapasiteyi asarsa std::out_of_range
+        bool sizeExceedsThrew = false;
+        try {
+            editBuffer->UpdateData(&dummyByte, cap + 1, 0);
+        } catch (const std::out_of_range&) {
+            sizeExceedsThrew = true;
+        }
+        TEST_CHECK_MSG(suite, "G13_Buffer_SizeExceedsThrows", sizeExceedsThrew,
+                       "Kapasiteyi asan boyut std::out_of_range firlatmalidir.");
+
+        // Integer overflow guvenligi (SIZE_MAX - 5 ofset)
+        bool overflowThrew = false;
+        try {
+            editBuffer->UpdateData(&dummyByte, 10, std::numeric_limits<size_t>::max() - 5);
+        } catch (const std::out_of_range&) {
+            overflowThrew = true;
+        }
+        TEST_CHECK_MSG(suite, "G13_Buffer_IntegerOverflowSafe", overflowThrew,
+                       "Integer overflow olusturan devasa ofset std::out_of_range firlatmalidir.");
+
+        // 14.2. Sahne Upload Bayt Takibi ve Dilim Yuklemesi
+        sceneData.ResetTransformHistory();
+
+        // 3 adet primitif hazirla (surfaceId 10, 20, 30)
+        std::vector<SDFPrimitiveRecord> recs(3);
+        glm::mat4 tA = glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f));
+        glm::mat4 tB = glm::translate(glm::mat4(1.0f), glm::vec3(20.0f, 0.0f, 0.0f));
+        glm::mat4 tC = glm::translate(glm::mat4(1.0f), glm::vec3(30.0f, 0.0f, 0.0f));
+
+        recs[0].surfaceId = 10; recs[0].primitiveType = 0; recs[0].invTransform = glm::inverse(tA);
+        recs[1].surfaceId = 20; recs[1].primitiveType = 0; recs[1].invTransform = glm::inverse(tB);
+        recs[2].surfaceId = 30; recs[2].primitiveType = 0; recs[2].invTransform = glm::inverse(tC);
+
+        // Kare 1: Ilk yukleme (Full upload)
+        sceneData.Upload(recs, emptyChangeSet);
+        size_t expectedPrimBytes = 3 * sizeof(SDFPrimitiveRecord);
+        size_t expectedTransBytes = 3 * sizeof(glm::mat4);
+        TEST_CHECK_MSG(suite, "G13_Upload_Frame1_FullUpload",
+                       sceneData.GetLastPrimitiveUploadBytes() == expectedPrimBytes &&
+                       sceneData.GetLastTransformUploadBytes() == expectedTransBytes,
+                       "Ilk karede tum primitifler ve transformlar tam yuklenmelidir.");
+        sceneData.CommitSubmitted();
+
+        // Kare 2: Statik sahne (Hicbir nesne degismedi) -> 0 bayt yukleme
+        sceneData.Upload(recs, emptyChangeSet);
+        TEST_CHECK_MSG(suite, "G13_Upload_Frame2_StaticZeroUpload",
+                       sceneData.GetLastPrimitiveUploadBytes() == 0 &&
+                       sceneData.GetLastTransformUploadBytes() == 0,
+                       "Statik sahnede ardil karede 0 bayt primitif ve 0 bayt transform yuklenmelidir.");
+        sceneData.CommitSubmitted();
+
+        // Kare 3: Yalnizca recs[1] (surfaceId 20) hareket etti
+        glm::mat4 tB_new = glm::translate(glm::mat4(1.0f), glm::vec3(25.0f, 0.0f, 0.0f));
+        recs[1].invTransform = glm::inverse(tB_new);
+        sceneData.Upload(recs, emptyChangeSet);
+
+        TEST_CHECK_MSG(suite, "G13_Upload_Frame3_SinglePrimitiveSliceUpload",
+                       sceneData.GetLastPrimitiveUploadBytes() == sizeof(SDFPrimitiveRecord),
+                       "Tek bir primitif degistiginde yalnizca o primitifin baytlari yuklenmelidir.");
+        sceneData.CommitSubmitted();
+
+        // Kare 4: recs[1] ayni yeni konumunda durdu (statiklesme)
+        // Primitif degismedigi icin primitive upload 0 bayt olmali,
+        // ancak onceki transformu tB'den tB_new'e gectigi icin transform dilimi yuklenmeli
+        sceneData.Upload(recs, emptyChangeSet);
+        TEST_CHECK_MSG(suite, "G13_Upload_Frame4_TransformProgressionSlice",
+                       sceneData.GetLastPrimitiveUploadBytes() == 0 &&
+                       sceneData.GetLastTransformUploadBytes() == sizeof(glm::mat4),
+                       "Duran nesnenin onceki transform gecisi yalnizca o slotun transform dilimini yuklemelidir.");
+        sceneData.CommitSubmitted();
+
+        // Kare 5: Tekrar tamamen statik kare
+        sceneData.Upload(recs, emptyChangeSet);
+        TEST_CHECK_MSG(suite, "G13_Upload_Frame5_StaticAgainZeroUpload",
+                       sceneData.GetLastPrimitiveUploadBytes() == 0 &&
+                       sceneData.GetLastTransformUploadBytes() == 0,
+                       "Nesne durduktan sonraki ardil karede tekrar 0 bayt yuklenmelidir.");
+        sceneData.CommitSubmitted();
+
+        // 14.3. Yeniden Siralama (Reorder) Fallback Tam Yukleme
+        std::swap(recs[0], recs[1]);
+        sceneData.Upload(recs, emptyChangeSet);
+        TEST_CHECK_MSG(suite, "G13_Upload_ReorderFallbackFullUpload",
+                       sceneData.GetLastPrimitiveUploadBytes() == expectedPrimBytes,
+                       "surfaceId siralamasi degistiginde tam yukleme fallback'i tetiklenmelidir.");
+        sceneData.CommitSubmitted();
+
+        // 14.4. Silinen nesne kimliginin Commit sonrasi temizlenmesi
+        recs.pop_back();
+        sceneData.Upload(recs, emptyChangeSet);
+        sceneData.CommitSubmitted();
+
+        SDFPrimitiveRecord readded{};
+        glm::mat4 tC_readded = glm::translate(glm::mat4(1.0f), glm::vec3(99.0f, 0.0f, 0.0f));
+        readded.surfaceId = 30;
+        readded.invTransform = glm::inverse(tC_readded);
+        recs.push_back(readded);
+
+        sceneData.Upload(recs, emptyChangeSet);
+        const auto* prevMatPtr = static_cast<const glm::mat4*>(sceneData.GetPrevTransformBuffer()->GetMappedData());
+        TEST_CHECK_MSG(suite, "G13_Upload_DeletedEntityCleanupOnReadd",
+                       prevMatPtr != nullptr && prevMatPtr[2] == tC_readded,
+                       "Silinip tekrar eklenen nesne bayat gecmis yerine yeni transformu ile baslamalidir.");
+    }
 }
 } // namespace
 

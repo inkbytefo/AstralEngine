@@ -63,6 +63,21 @@ static_assert(offsetof(SDFPrimitiveRecord, operation) == 116);
 static_assert(offsetof(SDFPrimitiveRecord, csgOrder) == 120);
 static_assert(offsetof(SDFPrimitiveRecord, surfaceId) == 124);
 
+inline bool operator==(const SDFPrimitiveRecord& a, const SDFPrimitiveRecord& b) noexcept {
+    return a.surfaceId == b.surfaceId &&
+           a.primitiveType == b.primitiveType &&
+           a.operation == b.operation &&
+           a.csgOrder == b.csgOrder &&
+           a.invTransform == b.invTransform &&
+           a.dimensions == b.dimensions &&
+           a.albedoRoughness == b.albedoRoughness &&
+           a.metallicParams == b.metallicParams;
+}
+
+inline bool operator!=(const SDFPrimitiveRecord& a, const SDFPrimitiveRecord& b) noexcept {
+    return !(a == b);
+}
+
 class SDFSceneSnapshot {
 public:
     SDFSceneSnapshot() = default;
