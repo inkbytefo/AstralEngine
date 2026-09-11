@@ -280,6 +280,335 @@ Bu belge, [RENDER_REFACTOR_IMPLEMENTATION_PLAN.md](../RENDER_REFACTOR_IMPLEMENTA
 - **Bilinen eksik veya risk:** Yok.
 - **Sonraki görev ve gerekli arayüzler:** G07 — `TemporalState` durum makinesini ayır (`include/Astral/Renderer/TemporalState.hpp`, `src/Renderer/TemporalState.cpp`).
 
+---
 
+### Görev: G07 — TemporalState durum makinesini ayır
+- **Durum:** Tamamlandı
+- **Kaynak commit ve çalışma ağacı bilgisi:**
+  - Commit: `3adfa0b6f32df6712f7236c257a56334a8ca1385`
+  - Kullanıcı değişiklikleri korundu: `WORK_PLAN.md`, `FINDINGS_VERIFICATION_REPORT.md`, `imgui.ini`
+- **Değişen dosyalar:**
+  - Yeni: `include/Astral/Renderer/TemporalState.hpp`
+  - Yeni: `src/Renderer/TemporalState.cpp`
+  - Değiştirildi: `AstralEngine/CMakeLists.txt`
+  - Değiştirildi: `include/Astral/Renderer/SDFRenderer.hpp`
+  - Değiştirildi: `src/Renderer/SDFRenderer.cpp`
+  - Değiştirildi: `Tests/EngineTests/src/RendererArchitectureTests.cpp`
+  - Dokümantasyon: `docs/RENDER_REFACTOR_IMPLEMENTATION_PLAN.md`, `docs/render-refactor/EXECUTION_LOG.md`
+- **Uygulanan mimari karar:**
+  - `TemporalState` sınıfı ve `TemporalPlan` ile `TemporalResetReason` enum yapısı oluşturuldu.
+  - Kamera, sahne, çözünürlük, TAA ve debug modu değişimleri ile ping-pong indeks yönetimi ve aday (candidate) / onaylanmış (committed) durum ayrımı tek bir durum makinesi altında toplandı.
+  - Durum makinesi geçiş kuralları uygulandı:
+    - İkinci `Prepare` ilk aday tüketilmeden (commit veya abort olmadan) çağrıldığında `std::logic_error` fırlatılır.
+    - Aday yokken `CommitSubmitted` çağrıldığında `std::logic_error` fırlatılır.
+    - `AbortPrepared` adayı temizler ve ping-pong yazma indeksini korur.
+    - `CommitSubmitted` ping-pong slotunu ilerletir ve adayı resmi geçmişe dönüştürür.
+    - `Reset(reason)` tarihçeyi sıfırlar ve sebebi (`TemporalResetReason`) kaydeder.
+  - `TemporalResetReason` merkezi reset API'si kuruldu: `None`, `Explicit`, `Resize`, `SceneChanged`, `CameraCut`, `MissingCamera`, `TaaChanged`, `DebugChanged`, `EnvironmentChanged`, `SubmissionFailed`.
+  - `SDFTemporalHistory` güven değerlendirmesi (`EvaluateConfidence`) `TemporalState` bünyesine alındı ve `GetHistoryEvaluator()` ile tam geriye dönük delegasyon sağlandı.
+  - `CameraUBOData` matris hesaplamaları (Vulkan NDC Y-flip dahil) aday oluşturma (`Prepare`) sırasında hesaplanıp `SceneGpuData::UploadCamera`'ya iletilmesi sağlandı.
+  - `SDFRenderer` içerisindeki dağınık geçmiş değişkenleri (`m_HistoryInitialized`, `m_HistoryPingPong`, `m_CameraMatricesInitialized`, vb.) `TemporalState` ile senkronize edildi.
+- **Davranış değişti mi; değiştiyse gerekçe:**
+  - Hayır. Vulkan Y-flip, ACES tonemapping parametreleri, TAA blend kuralları ve kamera matris aktarımları matematiksel ve işlevsel olarak birebir korundu. Gönderilmemiş veya abort edilmiş karelerin geçmişe sızması önlendi.
+- **Çalıştırılan komutlar ve exit code:**
+  - `cmake --build --preset mingw-release -j 4` -> Exit Code: `0`
+  - `./build-release/EngineTests.exe --renderer` -> Exit Code: `0` (140 assertion doğrulandı, +22 yeni assertion)
+  - `./build-release/RendererLifecycleGpuTests.exe` -> Exit Code: `0` (63 assertion doğrulandı)
+  - `ctest --preset test-release --output-on-failure` -> Exit Code: `0` (25/25 test geçti, %100 başarı)
+- **CPU/GPU test sonucu ve artifact yolları:**
+  - `TemporalState_FirstFrameRejectsHistory`: İlk karede history kapalı (`useHistory == false`) olduğu doğrulandı.
+  - `TemporalState_AbortKeepsWriteIndex`: `AbortPrepared` sonrasında `writeIndex` değerinin değişmediği doğrulandı.
+  - `TemporalState_CommitAdvancesHistory`: `CommitSubmitted` sonrasında yeni `readIndex` değerinin önceki adayın `writeIndex` değerine eşit olduğu ve `useHistory == true` olduğu doğrulandı.
+  - `TemporalState_DoublePrepareThrows`: Peş peşe iki `Prepare` çağrısının `std::logic_error` fırlattığı doğrulandı.
+  - `TemporalState_CommitWithoutCandidateThrows`: Aday yokken `CommitSubmitted` çağrısının `std::logic_error` fırlattığı doğrulandı.
+  - `TemporalState_MissingCameraReason`: Kamerasız karede reset sebebi `MissingCamera` doğrulandı.
+  - `TemporalState_ResizeReason`: Çözünürlük değiştiğinde reset sebebi `Resize` doğrulandı.
+  - `TemporalState_CameraCutReason`: Kamera değiştiğinde reset sebebi `CameraCut` doğrulandı.
+  - `TemporalState_SceneChangedReason`: Sahne ID değiştiğinde reset sebebi `SceneChanged` doğrulandı.
+  - `TemporalState_DebugChangedReason`: Debug modu değiştiğinde reset sebebi `DebugChanged` doğrulandı.
+  - `TemporalState_TaaChangedReason`: TAA açma/kapama durumunda reset sebebi `TaaChanged` doğrulandı.
+  - `TemporalState_ExplicitResetReason`: Açık reset durumunda `HasValidHistory == false` ve reset sebebi `Explicit` doğrulandı.
+- **Performans ölçüldüyse koşullar ve sonuç:**
+  - CTest toplam süre: 32.67 sn (21 CPU: 2.34 sn, 1 Editor: 0.11 sn, 4 GPU: 30.27 sn).
+- **Bilinen eksik veya risk:** Yok.
+- **Sonraki görev ve gerekli arayüzler:** G08 — `PickingReadback`'i istek/sonuç yaşam döngüsüne ayır (`include/Astral/Renderer/PickingReadback.hpp`, `src/Renderer/PickingReadback.cpp`).
 
+---
+
+### Görev: G08 — PickingReadback'i istek/sonuç yaşam döngüsüne ayır
+- **Durum:** Tamamlandı
+- **Kaynak commit ve çalışma ağacı bilgisi:**
+  - Commit: `3adfa0b6f32df6712f7236c257a56334a8ca1385`
+  - Kullanıcı değişiklikleri korundu: `WORK_PLAN.md`, `FINDINGS_VERIFICATION_REPORT.md`, `imgui.ini`
+- **Değişen dosyalar:**
+  - Yeni: `include/Astral/Renderer/PickingReadback.hpp`
+  - Yeni: `src/Renderer/PickingReadback.cpp`
+  - Değiştirildi: `AstralEngine/CMakeLists.txt`
+  - Değiştirildi: `include/Astral/Renderer/SDFRenderer.hpp`
+  - Değiştirildi: `src/Renderer/SDFRenderer.cpp`
+  - Değiştirildi: `include/Astral/Core/Application.hpp`
+  - Değiştirildi: `src/Core/Application.cpp`
+  - Değiştirildi: `Tests/EngineTests/src/RendererArchitectureTests.cpp`
+  - Dokümantasyon: `docs/RENDER_REFACTOR_IMPLEMENTATION_PLAN.md`, `docs/render-refactor/EXECUTION_LOG.md`
+- **Uygulanan mimari karar:**
+  - `PickingReadback` sınıfı oluşturuldu. Seçim isteği, GPU dispatch, frame tamamlanması ve sonuç tüketimi durumları açık bir durum makinesi (`Idle`, `PendingRequest`, `Dispatched`, `Completed`, `Consumed`) ile ayrıştırıldı.
+  - `PickRequest { uint64_t requestId, sceneInstance; int x, y; }` ve `CompletedPick { uint64_t requestId, sceneInstance, frameSerial; SelectionDataGPU data; }` arayüzleri tanımlandı.
+  - Her seçim isteğine monoton artan bir `requestId` atandı (`m_NextRequestId++`).
+  - `ConsumeCompleted()` tek tüketimli (single-consumption) kuralı uygulandı: ilk çağrıda `std::optional<CompletedPick>` sonucunu döndürür, sonraki çağrılarda `std::nullopt` döner.
+  - Shader-write -> host-read bariyeri (`RecordBarrier`) ile fence/frame tamamlama bildirimleri (`OnFrameCompleted`) ayrıştırıldı. Yalnızca `Completed` durumunda host readback yapılır.
+  - `InvalidateScene(sceneInstance)` ve sahne kontrolü eklendi; sahne geçişi veya sahne uyuşmazlığı durumunda bekleyen ve tamamlanan sonuçlar güvenle geçersiz kılınır.
+  - Kamera yoksa (`MissingCamera`) veya koordinatlar ekran dışındaysa (`x < 0 || y < 0 || x >= width || y >= height`) GPU işi dispatch edilmeden `hasHit = false` sonucu anında tamamlanır.
+  - `Application.hpp/cpp` içinde `PendingPickRequest` ile istek zamanındaki entity snapshot'ı (`std::vector<Entity> entitySnapshot`) saklanır ve seçim sonucu geldiğinde entity çözümlemesi geç kare dizisi yerine istek anındaki snapshot üzerinden yapılır.
+  - Testlenebilirlik: Vulkan bağlamı olmayan CPU testleri için `SetSimulatedDataForTesting` ve CPU fallback tamponu sağlandı.
+  - Geriye dönük uyumluluk: `SDFRenderer`'da `SetPickingRequest`, `ConsumeSelectionResult`, `GetSelectionResult`, `HasPendingSelection` ve `GetSelectionBuffer` korundu ve yeni `PickingReadback` sistemine delege edildi.
+- **Davranış değişti mi; değiştiyse gerekçe:**
+  - Hayır. Dış API davranışsal olarak aynı kalırken; bayat sahne seçimlerinin okunması, çift tüketim, ekran dışı seçimlerin GPU'da boşa dispatch edilmesi ve entity listesi değişimlerinde yanlış nesnenin seçilmesi riskleri tamamen giderildi.
+- **Çalıştırılan komutlar ve exit code:**
+  - `cmake --build --preset mingw-release -j 4` -> Exit Code: `0`
+  - `./build-release/EngineTests.exe --renderer` -> Exit Code: `0` (161 assertion doğrulandı, +21 yeni assertion)
+  - `./build-release/RendererLifecycleGpuTests.exe` -> Exit Code: `0` (63 assertion doğrulandı)
+  - `./build-release/EditorSelectionTests.exe` -> Exit Code: `0`
+  - `ctest --preset test-release --output-on-failure` -> Exit Code: `0` (25/25 test geçti, %100 başarı)
+- **CPU/GPU test sonucu ve artifact yolları:**
+  - `PickingReadback_InitialStateIdle`: Başlangıçta durumun Idle ve sonucun nullopt olduğu doğrulandı.
+  - `PickingReadback_MonotonicRequestId`: Ardışık isteklerin artan requestId ürettiği doğrulandı.
+  - `PickingReadback_SingleConsumption`: İlk `ConsumeCompleted` sonucu dönerken ikincisinin `std::nullopt` olduğu doğrulandı.
+  - `PickingReadback_MissingCameraYieldsNoHit`: Kamera olmadığında durumun doğrudan Completed'a geçtiği ve `hasHit == 0` olduğu doğrulandı.
+  - `PickingReadback_OutOfBoundsYieldsNoHit`: Ekran dışı koordinatlarda GPU işi yapılmadan `hasHit == 0` sonucu döndüğü doğrulandı.
+  - `PickingReadback_SceneInvalidationClearsStale`: Sahne değiştiğinde bekleyen veya tamamlanmış seçimin temizlendiği doğrulandı.
+  - `PickingReadback_CompletedMatchingSceneAccepted`: Eşleşen sahne kimliğine sahip sonucun kabul edildiği doğrulandı.
+  - `PickingReadback_SceneMismatchRejected`: Farklı sahne kimliğine sahip sonucun reddedildiği doğrulandı.
+- **Performans ölçüldüyse koşullar ve sonuç:**
+  - CTest toplam süre: 31.95 sn (21 CPU: 2.37 sn, 1 Editor: 0.12 sn, 4 GPU: 29.46 sn).
+- **Bilinen eksik veya risk:** Yok.
+- **Sonraki görev ve gerekli arayüzler:** G09 — Pass'leri ayrı sahipliklerle çıkar (`GBufferPass`, `DeferredLightingPass`, `DebugCompositePass`, `TemporalResolvePass`).
+
+---
+
+### Görev: G09 — Pass'leri ayrı sahipliklerle çıkar
+- **Durum:** Tamamlandı
+- **Kaynak commit ve çalışma ağacı bilgisi:**
+  - Commit: `3adfa0b6f32df6712f7236c257a56334a8ca1385`
+  - Kullanıcı değişiklikleri korundu: `WORK_PLAN.md`, `FINDINGS_VERIFICATION_REPORT.md`, `imgui.ini`
+- **Değişen dosyalar:**
+  - Yeni: `src/Renderer/Passes/PassUtils.hpp`
+  - Yeni: `include/Astral/Renderer/Passes/GBufferPass.hpp`
+  - Yeni: `src/Renderer/Passes/GBufferPass.cpp`
+  - Yeni: `include/Astral/Renderer/Passes/DeferredLightingPass.hpp`
+  - Yeni: `src/Renderer/Passes/DeferredLightingPass.cpp`
+  - Yeni: `include/Astral/Renderer/Passes/DebugCompositePass.hpp`
+  - Yeni: `src/Renderer/Passes/DebugCompositePass.cpp`
+  - Yeni: `include/Astral/Renderer/Passes/TemporalResolvePass.hpp`
+  - Yeni: `src/Renderer/Passes/TemporalResolvePass.cpp`
+  - Değiştirildi: `include/Astral/Renderer/RenderFrameSettings.hpp`
+  - Değiştirildi: `include/Astral/Renderer/IBLManager.hpp`
+  - Değiştirildi: `include/Astral/Renderer/SDFRenderer.hpp`
+  - Değiştirildi: `src/Renderer/SDFRenderer.cpp`
+  - Değiştirildi: `AstralEngine/CMakeLists.txt`
+  - Değiştirildi: `Tests/EngineTests/src/RendererArchitectureTests.cpp`
+  - Dokümantasyon: `docs/RENDER_REFACTOR_IMPLEMENTATION_PLAN.md`, `docs/render-refactor/EXECUTION_LOG.md`
+- **Uygulanan mimari karar:**
+  - Dört render pass'i (`GBufferPass`, `DeferredLightingPass`, `DebugCompositePass`, `TemporalResolvePass`) `SDFRenderer` monolitinden çıkarılarak bağımsız, self-contained sınıflar haline getirildi.
+  - Tek kaynaktan tanımlama (single-source of truth): Her pass `GetBindingDescriptions()` metodu üzerinden bağlama numaralarını, descriptor tiplerini ve shader stage bayraklarını tanımlar. Pipeline layout ve descriptor pool boyutları bu listeden `CreateDescriptorPoolFromBindings` ile otomatik türetilir.
+  - Açık girdi modelleri oluşturuldu:
+    - `GBufferInputs`: `GBufferViews targets`, `SceneBufferViews scene`, `camera`, `selection`.
+    - `LightingInputs`: `GBufferViews gbuffer`, `ImageViewRef output`, `SceneBufferViews scene`, `irradiance`, `prefiltered`, `brdf`, `prefilteredMipLevels`.
+    - `DebugInputs`: `GBufferViews gbuffer`, `ImageViewRef output`.
+    - `ResolveInputs`: `GBufferViews gbuffer`, `ImageViewRef rawColor`, `ImageViewRef output`, `ImageViewRef historyColor0/1`, `ImageViewRef historyExtra0/1`.
+  - Her pass'te `BindResources(...)` ve `Record(...)` ayrımı:
+    - `BindResources` yalnızca başlatma, pencere boyutu değişimi (resize), hedef veya ortam değişiminde çağrılır ve Vulkan descriptor set yazımlarını gerçekleştirir.
+    - `Record` her kare sadece komut kaydeder (`bindPipeline`, `bindDescriptorSets`, `pushConstants`, `dispatch`). Sıfır device wait, sıfır queue submit, sıfır dosya okuma ve sıfır descriptor güncellemesi.
+  - Facade sadeleştirmesi: `SDFRenderer::Render` içerisindeki tüm shader binding numaraları, push constant struct inşası ve dispatch ızgara hesaplamaları pass sınıflarının içerisine taşındı.
+  - `IBLManager`'a inline descriptor getter'ları eklenerek (`GetIrradianceDescriptor`, `GetPrefilteredDescriptor`, `GetBRDFLUTDescriptor`) pass kaynak bağlamaları temizlendi.
+- **Davranış değişti mi; değiştiyse gerekçe:**
+  - Hayır. Tüm shader parametreleri, push constants düzenleri, binding eşlemeleri ve dispatch boyutları (8x8 tile) birebir korundu. Render çıktıları ve test sonuçları tamamen uyumludur.
+- **Çalıştırılan komutlar ve exit code:**
+  - `cmake --build --preset mingw-release -j 4` -> Exit Code: `0`
+  - `./build-release/EngineTests.exe --renderer` -> Exit Code: `0` (211 assertion doğrulandı, +50 yeni assertion)
+  - `./build-release/RendererLifecycleGpuTests.exe` -> Exit Code: `0` (63 assertion doğrulandı)
+  - `./build-release/EditorSelectionTests.exe` -> Exit Code: `0`
+  - `./build-release/EngineTests.exe --contract` -> Exit Code: `0` (43 assertion doğrulandı)
+  - `ctest --preset test-release --output-on-failure` -> Exit Code: `0` (25/25 test geçti, %100 başarı)
+- **CPU/GPU test sonucu ve artifact yolları:**
+  - `GBufferPass_BindingDescriptionsMatchShaderLayout`: GBufferPass 10 binding tanımı ve tipleri doğrulandı.
+  - `DeferredLightingPass_BindingDescriptionsMatchShaderLayout`: DeferredLightingPass 11 binding tanımı ve tipleri doğrulandı.
+  - `DebugCompositePass_BindingDescriptionsMatchShaderLayout`: DebugCompositePass 6 binding tanımı ve tipleri doğrulandı.
+  - `TemporalResolvePass_BindingDescriptionsMatchShaderLayout`: TemporalResolvePass 11 binding tanımı ve tipleri doğrulandı.
+  - `PassInputs_GBufferInputsEncapsulatesOnlyRequiredResources`: GBuffer girdilerinin izole olduğu doğrulandı.
+  - `PassInputs_LightingInputsEncapsulatesOnlyRequiredResources`: Lighting girdilerinin izole olduğu doğrulandı.
+  - `PassInputs_DebugInputsEncapsulatesOnlyRequiredResources`: Debug girdilerinin izole olduğu doğrulandı.
+  - `PassInputs_ResolveInputsEncapsulatesOnlyRequiredResources`: Temporal resolve girdilerinin izole olduğu doğrulandı.
+- **Performans ölçüldüyse koşullar ve sonuç:**
+  - CTest toplam süre: 30.43 sn (21 CPU: 2.30 sn, 1 Editor: 0.12 sn, 4 GPU: 28.01 sn).
+- **Bilinen eksik veya risk:** Yok.
+- **Sonraki görev ve gerekli arayüzler:** G10 — Kaynak geçişlerini açıkça modelle (`ImageTransitions.hpp/.cpp`, `enum class ImageUse`, `TransitionImage`).
+
+---
+
+### Görev: G10 — Kaynak geçişlerini açıkça modelle
+- **Durum:** Tamamlandı
+- **Kaynak commit ve çalışma ağacı bilgisi:**
+  - Commit: `3adfa0b6f32df6712f7236c257a56334a8ca1385`
+  - Kullanıcı değişiklikleri korundu: `WORK_PLAN.md`, `FINDINGS_VERIFICATION_REPORT.md`, `imgui.ini`
+- **Değişen dosyalar:**
+  - Yeni: `include/Astral/Renderer/ImageTransitions.hpp`
+  - Yeni: `src/Renderer/ImageTransitions.cpp`
+  - Değiştirildi: `AstralEngine/CMakeLists.txt`
+  - Değiştirildi: `src/Renderer/RenderTargets.cpp`
+  - Değiştirildi: `include/Astral/Renderer/SDFRenderer.hpp`
+  - Değiştirildi: `src/Renderer/SDFRenderer.cpp`
+  - Değiştirildi: `include/Astral/Renderer/VulkanContext.hpp`
+  - Değiştirildi: `src/Renderer/VulkanContext.cpp`
+  - Değiştirildi: `Tests/EngineTests/src/CameraGpuTests.cpp`
+  - Değiştirildi: `Tests/EngineTests/src/VisualQualityGpuTests.cpp`
+  - Değiştirildi: `Tests/EngineTests/src/RendererLifecycleGpuTests.cpp`
+  - Değiştirildi: `Tests/EngineTests/src/SDFContractGpuTests.cpp`
+  - Değiştirildi: `Tests/EngineTests/src/IBLReferenceChecks.hpp`
+  - Değiştirildi: `Tests/EngineTests/src/RendererArchitectureTests.cpp`
+  - Dokümantasyon: `docs/RENDER_REFACTOR_IMPLEMENTATION_PLAN.md`, `docs/render-refactor/EXECUTION_LOG.md`
+- **Uygulanan mimari karar:**
+  - `ImageTransitions.hpp/.cpp` modülü oluşturuldu:
+    - `enum class ImageUse { ComputeRead, ComputeWrite, FragmentRead, TransferRead, TransferWrite };`
+    - `ImageAccessInfo GetImageAccessInfo(ImageUse use) noexcept;` (stage, access ve layout dönüşümü).
+    - `TransitionImage(...)`, `InitializeImage(...)`, `DiscardAndTransitionImage(...)`, `TransitionImages(...)`.
+  - Blanket `eAllCommands` bayrakları tamamen kaldırıldı; her bariyer için üretici ve tüketici pipeline stage'leri açıkça tanımlandı.
+  - Eski gereksiz `general → transfer-src → general` çıkış ping-pong zinciri kaldırıldı: ImGui için doğrudan `ComputeWrite -> FragmentRead` geçişi yapıldı ve `eGeneral` düzeni korundu.
+  - `EndFrameBlit` ve GPU test readback yardımcılarında (`CameraGpuTests`, `VisualQualityGpuTests`, `RendererLifecycleGpuTests`, `SDFContractGpuTests`) transfer okuması için `TransferRead` (`eTransferSrcOptimal`) geçişi yapıldı ve işlem bitiminde beklenen `FragmentRead` / `ComputeRead` (`eGeneral`) düzenine geri döndürüldü (`CameraGpuTests`'deki layout sızıntısı giderildi).
+  - `oldLayout = eUndefined` yalnızca içeriği atılacak kaynaklar için sınırlandırıldı; önceki GPU kullanımının tamamlanma bağımlılığı (`srcStageMask` ve `srcAccessMask`) korunarak `DiscardAndTransitionImage` oluşturuldu.
+  - Kamerasız siyah temizleme yolu `DiscardAndTransitionImage` -> `clearColorImage` -> `TransitionImage` akışına geçirildi.
+  - `VulkanContext` içinde `VK_EXT_validation_features` desteği algılandı ve `VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT` ile synchronization validation entegre edildi.
+  - Mimari testlere Bölüm 14 eklendi (+23 yeni assertion, toplam 234 assertion).
+- **Davranış değişti mi; değiştiyse gerekçe:**
+  - Hayır. Görsel çıktılar, PBR/IBL ışıklandırma, TAA geçmişi ve seçim mekanizması birebir korundu. Render döngüsündeki lüzumsuz layout geçişleri kaldırılarak sürücü yükü azaltıldı ve potansiyel GPU hazard riskleri ortadan kaldırıldı.
+- **Çalıştırılan komutlar ve exit code:**
+  - `cmake --build --preset mingw-release -j 4` -> Exit Code: `0`
+  - `./build-release/EngineTests.exe --renderer` -> Exit Code: `0` (234 assertion doğrulandı, +23 yeni assertion)
+  - `./build-release/RendererLifecycleGpuTests.exe` -> Exit Code: `0` (63 assertion doğrulandı)
+  - `./build-release/EditorSelectionTests.exe` -> Exit Code: `0`
+  - `./build-release/EngineTests.exe --contract` -> Exit Code: `0` (43 assertion doğrulandı)
+  - `ctest --preset test-release --output-on-failure` -> Exit Code: `0` (25/25 test geçti, %100 başarı)
+- **CPU/GPU test sonucu ve artifact yolları:**
+  - `ImageAccess_ComputeRead/Write/Fragment/Transfer`: Tüm `ImageUse` enum değerlerinin stage, access ve layout eşlemeleri doğrulandı.
+  - `ImageTransitions_OutputLayoutPreservedGeneral`: `ComputeWrite` ve `FragmentRead` düzenlerinin `eGeneral` olarak korunduğu doğrulandı.
+  - `AccessTable_*`: Section 3.3 tablosundaki 7 üretici-tüketici bağımlılığı tam olarak doğrulandı.
+- **Performans ölçüldüyse koşullar ve sonuç:**
+  - CTest toplam süre: 32.54 sn (21 CPU: 2.27 sn, 1 Editor: 0.03 sn, 4 GPU: 30.22 sn).
+- **Bilinen eksik veya risk:** Yok.
+- **Sonraki görev ve gerekli arayüzler:** G11 — Facade'ı sadeleştir ve submit/commit sözleşmesini bağla (`CommitSubmittedFrame()`, `AbortPreparedFrame() noexcept`).
+
+---
+
+### Görev: G11 — Facade'ı sadeleştir ve submit/commit sözleşmesini bağla
+
+- **Tarih:** 2026-09-12
+- **Durum:** Tamamlandı (KAPI A Geçildi)
+- **Kaynak commit ve çalışma ağacı bilgisi:**
+  - Commit: `3adfa0b6f32df6712f7236c257a56334a8ca1385`
+  - Kullanıcı değişiklikleri korundu: `WORK_PLAN.md`, `FINDINGS_VERIFICATION_REPORT.md`, `imgui.ini`
+- **Değişen dosyalar:**
+  - Değiştirildi: `include/Astral/Renderer/SceneGpuData.hpp`
+  - Değiştirildi: `src/Renderer/SceneGpuData.cpp`
+  - Değiştirildi: `include/Astral/Renderer/PickingReadback.hpp`
+  - Değiştirildi: `src/Renderer/PickingReadback.cpp`
+  - Değiştirildi: `include/Astral/Renderer/SDFRenderer.hpp`
+  - Değiştirildi: `src/Renderer/SDFRenderer.cpp`
+  - Değiştirildi: `include/Astral/Renderer/VulkanContext.hpp`
+  - Değiştirildi: `src/Renderer/VulkanContext.cpp`
+  - Değiştirildi: `src/Core/Application.cpp`
+  - Değiştirildi: `Tests/EngineTests/src/RendererLifecycleGpuTests.cpp`
+  - Değiştirildi: `Tests/EngineTests/src/VisualQualityGpuTests.cpp`
+  - Değiştirildi: `Tests/EngineTests/src/RendererArchitectureTests.cpp`
+  - Dokümantasyon: `docs/RENDER_REFACTOR_IMPLEMENTATION_PLAN.md`, `docs/render-refactor/EXECUTION_LOG.md`
+- **Uygulanan mimari karar:**
+  - `SDFRenderer` facade'ına açık yaşam döngüsü arayüzü eklendi:
+    - `void CommitSubmittedFrame()`: Başarılı kuyruk gönderimi sonrasında aday geçmişi (ping-pong, temporal history, kamera matrisleri, önceki dönüşümler ve picking) committed duruma geçirir. Aday yokken veya mükerrer çağrılırsa `std::logic_error` fırlatır.
+    - `void AbortPreparedFrame() noexcept`: Komut kaydında istisna olduğunda veya submit başarısız olduğunda aday durumu temizler; committed geçmiş korunur.
+    - `[[nodiscard]] bool HasPreparedCandidate() const noexcept`.
+  - `SceneGpuData`: `m_CandidateWorldTransforms` eklendi; `Upload` sırasında aday dönüşümler kaydedilirken önceki dönüşümler committed haritadan okunur. `CommitSubmitted()` adayları committed haritaya taşır; `AbortPrepared()` adayları temizler.
+  - `PickingReadback`: `AbortPrepared() noexcept` eklendi; iptal edilen submit sonrasında durum `Requested`'a geri alınarak bayat host okuması engellendi.
+  - `VulkanContext`: `EndAndSubmitFrameCommand()` ve `EndFramePresent()` metodları kuyruk submit başarısını belirten `bool` dönüş tipine geçirildi.
+    - `m_DeviceLost` bayrağı ve `IsDeviceLost()` kontrolü eklendi.
+    - `presentKHR` sırasında `OutOfDateKHRError` / `eSuboptimalKHR` yakalandığında `RecreateSwapchain()` çağrılır ancak kuyruk submit'i başarılı olduğundan `true` dönülür (present out-of-date başarılı submit'i geri almaz).
+    - `waitForFences` çağrılarında `UINT64_MAX` yerine 5 saniyelik zaman aşımı (`5'000'000'000ULL` ns) ve `DeviceLostError` yakalama uygulandı; sonsuz fence beklemesi engellendi.
+  - `Application.cpp`: Render ve submit akışı `try ... catch` bloğuna alındı. Başarılı submit için `CommitSubmittedFrame()`, başarısızlık veya hata durumunda `AbortPreparedFrame()` çağrısı yapıldı. Cihaz kaybında ana döngü temiz bir şekilde sonlandırıldı.
+  - `RendererLifecycleGpuTests` ve `VisualQualityGpuTests`: `ExecuteImmediate` sonrası `CommitSubmittedFrame()` çağrıları bağlandı.
+  - Mimari testlere Bölüm 15 eklendi (+14 yeni assertion, toplam 248 assertion).
+  - GPU lifecycle testine Test 13 eklendi (+8 yeni assertion, toplam 71 assertion).
+- **Davranış değişti mi; değiştiyse gerekçe:**
+  - Hayır. Başarılı kare akışında görsel kalite, TAA doğruluğu, kamera hareketi ve nesne seçim davranışı %100 özdeştir. Kayıt iptal edildiğinde geçmişin bozulması önlendi.
+- **Çalıştırılan komutlar ve exit code:**
+  - `cmake --build --preset mingw-release -j 4` -> Exit Code: `0`
+  - `./build-release/EngineTests.exe --contract` -> Exit Code: `0` (43 assertion doğrulandı)
+  - `./build-release/EngineTests.exe` -> Exit Code: `0` (953 assertion doğrulandı)
+  - `./build-release/RendererLifecycleGpuTests.exe` -> Exit Code: `0` (71 assertion doğrulandı, +8 yeni assertion)
+  - `ctest --preset test-release --output-on-failure` -> Exit Code: `0` (25/25 test geçti, %100 başarı)
+- **KAPI A Doğrulama Özeti:**
+  - [x] Tam Release build hatasız tamamlandı.
+  - [x] Tüm CPU sözleşme ve mimari testleri geçti (953/953 assertion).
+  - [x] Tüm GPU smoke, lifecycle, camera ve görsel kalite testleri geçti (25/25 CTest).
+  - [x] Modüler sınırlar (RenderTargets, SceneGpuData, TemporalState, PickingReadback, ImageTransitions, Passes, Facade Lifecycle) başarıyla kuruldu.
+- **Performans ölçüldüyse koşullar ve sonuç:**
+  - CTest toplam süre: 34.52 sn (21 CPU: 2.13 sn, 1 Editor: 0.11 sn, 4 GPU: 32.35 sn).
+- **Bilinen eksik veya risk:** Yok.
+- **Sonraki görev ve gerekli arayüzler:** G12 — Tek kalite politikası ve API geçişi (`ResolveFrameSettings`, `RenderFrameSettings` tekil otorite).
+
+---
+
+### Görev: G12 — Tek kalite politikası ve API geçişi
+
+- **Tarih:** 2026-09-12
+- **Durum:** Tamamlandı
+- **Kaynak commit ve çalışma ağacı bilgisi:**
+  - Commit: `3adfa0b6f32df6712f7236c257a56334a8ca1385`
+  - Kullanıcı değişiklikleri korundu: `WORK_PLAN.md`, `FINDINGS_VERIFICATION_REPORT.md`, `imgui.ini`
+- **Değişen dosyalar:**
+  - Değiştirildi: `include/Astral/Renderer/RenderFrameSettings.hpp`
+  - Değiştirildi: `include/Astral/Renderer/SDFRenderer.hpp`
+  - Değiştirildi: `src/Renderer/SDFRenderer.cpp`
+  - Değiştirildi: `include/Astral/Core/Application.hpp`
+  - Değiştirildi: `src/Core/Application.cpp`
+  - Değiştirildi: `Tests/EngineTests/src/RendererArchitectureTests.cpp`
+  - Dokümantasyon: `docs/RENDER_REFACTOR_IMPLEMENTATION_PLAN.md`, `docs/render-refactor/EXECUTION_LOG.md`
+- **Uygulanan mimari karar:**
+  - `ResolveFrameSettings`: Facade sınırında (`SDFRenderer`) tekil çözümleyici olarak tanımlandı. Girdiler tek bir yerde deterministik olarak doğrulanıp etkin `RenderFrameSettings` nesnesine dönüştürülür; pass'ler artık bağımsız fallback yapmaz.
+  - `std::optional<QualitySettings> qualityOverride`: `RenderFrameSettings` yapısına eklendi. `shadowMaxSteps > 0` sentinel kontrolü tamamen kaldırıldı; açık kalite override'ı ile varsayılan kalite ayrıldı.
+  - `Application.cpp`: Eski çok parametreli `Render(...)` yerine açık `Render(cmd, frameSettings)` çağrısına geçirildi. `m_SDFRenderer->SetQualitySettings` ile persistent varsayılan bağlandı.
+  - Eski `Render(...)`: Girdileri `RenderFrameSettings` nesnesine paketleyen ve `settings.qualityOverride = qualitySettings` atamasıyla yeni API'ye delege eden uyum adaptörü haline getirildi.
+  - Sayısal doğrulama ve güvenli fallback:
+    - Hedef boyutlar: `width > 0 && height > 0` gereksinimi; geçersiz veya 0 boyutlar ile tahsis edilen render hedefleriyle uyuşmayan boyutlar güvenle tahsis edilen boyutlara kenetlenir.
+    - Exposure: `std::isfinite(exposure) && exposure > 0.0f` geçerlilik kontrolü; NaN, sonsuz (Inf) ve negatif değerler persistent varsayılana (`defaultExposure >= 0.0f ? defaultExposure : 1.0f`) fallback yapar.
+  - Jitter senkronizasyonu: `taaEnabled == true` iken geometri (`GBufferPass`) ve aydinlatma (`DeferredLightingPass`) birebir aynı jitter değerini alır; `taaEnabled == false` iken jitter `(0, 0)` olarak sıfırlanır ve TAA kapalıyken de exposure tonemapping'e uygulanır.
+  - Etkisiz kalite parametreleri tablosu incelendi ve doğrulandı:
+    - `rayHitEpsilon`: Shader'a iletilmiyor (`SDFGBuffer.glsl` sabit `0.001` kullanıyor); etkisiz olarak belgelendi.
+    - `enableAO`: Shader push constant'larına aktarılmıyor; AO hesaplaması `aoSamples > 0` koşuluyla çalışıyor. Etkisiz olarak belgelendi.
+    - `screenDilation`: Shader'a aktarılmıyor; etkisiz olarak belgelendi.
+    - `enableShadows`: `optimizedShadows` ile birlikte `qualityParams.x` olarak iletilip erken çıkış optimizasyonunu kontrol ediyor; bağımsız anlamı korundu.
+- **Davranış değişti mi; değiştiyse gerekçe:**
+  - Hayır. Görsel çıktı ve determinizm korundu. Setter/parametre/override çakışmaları deterministik tek bir politikaya bağlandı.
+- **Çalıştırılan komutlar ve exit code:**
+  - `cmake --build --preset mingw-release -j 4` -> Exit Code: `0` (0 uyarı, 0 hata)
+  - `./build-release/EngineTests.exe --contract` -> Exit Code: `0` (43 assertion doğrulandı)
+  - `ctest --preset test-release -R VisualQuality --output-on-failure` -> Exit Code: `0` (1/1 test geçti)
+  - `ctest --preset test-release --output-on-failure` -> Exit Code: `0` (25/25 test geçti, %100 başarı)
+- **Eklenen / Güncellenen Testler:**
+  - `RendererArchitectureTests.cpp`:
+    - Bölüm 7: `qualityOverride` ve `ResolveFrameSettings` kontratlarına uyarlandı.
+    - Bölüm 16:
+      - `G12_Quality_OverrideTakesPrecedence`
+      - `G12_Quality_NulloptUsesDefault`
+      - `G12_Quality_ShadowFlagsSeparateMeaning`
+      - `G12_Exposure_ValidValueRetained`
+      - `G12_Exposure_NaNFallbackSafe`
+      - `G12_Exposure_InfFallbackSafe`
+      - `G12_Exposure_NegativeFallbackSafe`
+      - `G12_Dimensions_ZeroFallbackToAllocated`
+      - `G12_Dimensions_MismatchClampedToAllocated`
+      - `G12_Jitter_TaaOnPreserved`
+      - `G12_Jitter_TaaOffZeroed`
+      - `G12_TaaOff_TonemapExposureMaintained`
+      - `G12_DebugMode_SemanticsConsistent`
+- **Performans ölçüldüyse koşullar ve sonuç:**
+  - CTest toplam süre: 32.28 sn (21 CPU: 2.20 sn, 1 Editor: 0.10 sn, 4 GPU: 30.05 sn).
+- **Bilinen eksik veya risk:** Yok.
+- **Sonraki görev ve gerekli arayüzler:** G13 — Sahne upload ve CPU çalışma alanını optimize et (`SceneGpuData.hpp/.cpp`, `BrickGrid.hpp/.cpp`).
 

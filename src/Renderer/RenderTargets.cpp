@@ -1,6 +1,7 @@
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 #include "Astral/Renderer/RenderTargets.hpp"
 #include "Astral/Renderer/VulkanContext.hpp"
+#include "Astral/Renderer/ImageTransitions.hpp"
 
 #include <stdexcept>
 #include <string>
@@ -201,68 +202,43 @@ RenderTargets::RenderTargets(VulkanContext& context, uint32_t width, uint32_t he
             vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc,
         vk::ImageAspectFlagBits::eColor
     );
-
-    // Tum goruntuleri guvenli eGeneral duzenine gecir ve temizle
+    // Tum goruntuleri guvenli duzene gecir ve temizle
     context.ExecuteImmediate([&](vk::CommandBuffer cmd) {
-        auto makeInitBarrier = [](vk::Image img) {
-            vk::ImageMemoryBarrier b{};
-            b.oldLayout = vk::ImageLayout::eUndefined;
-            b.newLayout = vk::ImageLayout::eGeneral;
-            b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            b.image = img;
-            b.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
-            b.srcAccessMask = {};
-            b.dstAccessMask = vk::AccessFlagBits::eTransferWrite | vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite;
-            return b;
+        InitializeImage(cmd, m_StorageImage.GetImage(), ImageUse::ComputeWrite);
+        InitializeImage(cmd, m_GBufAlbedo.GetImage(), ImageUse::ComputeWrite);
+        InitializeImage(cmd, m_GBufNormal.GetImage(), ImageUse::ComputeWrite);
+        InitializeImage(cmd, m_GBufMaterial.GetImage(), ImageUse::ComputeWrite);
+        InitializeImage(cmd, m_GBufDepth.GetImage(), ImageUse::ComputeWrite);
+
+        // Tarihce, motion vector ve raw color hedeflerini TransferWrite olarak baslat ve 0 ile temizle
+        const std::array<vk::Image, 6> toClear = {
+            m_GBufMotion.GetImage(),
+            m_HistoryImages[0].GetImage(),
+            m_HistoryImages[1].GetImage(),
+            m_HistoryExtraImages[0].GetImage(),
+            m_HistoryExtraImages[1].GetImage(),
+            m_RawColorImage.GetImage()
         };
 
-        std::array<vk::ImageMemoryBarrier, 11> initBarriers = {
-            makeInitBarrier(m_StorageImage.GetImage()),
-            makeInitBarrier(m_RawColorImage.GetImage()),
-            makeInitBarrier(m_HistoryImages[0].GetImage()),
-            makeInitBarrier(m_HistoryImages[1].GetImage()),
-            makeInitBarrier(m_HistoryExtraImages[0].GetImage()),
-            makeInitBarrier(m_HistoryExtraImages[1].GetImage()),
-            makeInitBarrier(m_GBufAlbedo.GetImage()),
-            makeInitBarrier(m_GBufNormal.GetImage()),
-            makeInitBarrier(m_GBufMaterial.GetImage()),
-            makeInitBarrier(m_GBufDepth.GetImage()),
-            makeInitBarrier(m_GBufMotion.GetImage())
-        };
+        for (auto img : toClear) {
+            InitializeImage(cmd, img, ImageUse::TransferWrite);
+        }
 
-        cmd.pipelineBarrier(
-            vk::PipelineStageFlagBits::eTopOfPipe,
-            vk::PipelineStageFlagBits::eTransfer | vk::PipelineStageFlagBits::eComputeShader,
-            {},
-            0, nullptr, 0, nullptr,
-            static_cast<uint32_t>(initBarriers.size()), initBarriers.data()
-        );
-
-        // Tarihce, motion vector ve raw color hedeflerini 0 ile temizle (NaN / cop veri onleme)
         vk::ClearColorValue zeroColor(std::array<float, 4>{ 0.0f, 0.0f, 0.0f, 0.0f });
         vk::ClearColorValue zeroUint(std::array<uint32_t, 4>{ 0u, 0u, 0u, 0u });
         vk::ImageSubresourceRange clearRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1);
 
-        cmd.clearColorImage(m_GBufMotion.GetImage(), vk::ImageLayout::eGeneral, zeroColor, clearRange);
-        cmd.clearColorImage(m_HistoryImages[0].GetImage(), vk::ImageLayout::eGeneral, zeroColor, clearRange);
-        cmd.clearColorImage(m_HistoryImages[1].GetImage(), vk::ImageLayout::eGeneral, zeroColor, clearRange);
-        cmd.clearColorImage(m_HistoryExtraImages[0].GetImage(), vk::ImageLayout::eGeneral, zeroUint, clearRange);
-        cmd.clearColorImage(m_HistoryExtraImages[1].GetImage(), vk::ImageLayout::eGeneral, zeroUint, clearRange);
-        cmd.clearColorImage(m_RawColorImage.GetImage(), vk::ImageLayout::eGeneral, zeroColor, clearRange);
+        cmd.clearColorImage(m_GBufMotion.GetImage(), vk::ImageLayout::eTransferDstOptimal, zeroColor, clearRange);
+        cmd.clearColorImage(m_HistoryImages[0].GetImage(), vk::ImageLayout::eTransferDstOptimal, zeroColor, clearRange);
+        cmd.clearColorImage(m_HistoryImages[1].GetImage(), vk::ImageLayout::eTransferDstOptimal, zeroColor, clearRange);
+        cmd.clearColorImage(m_HistoryExtraImages[0].GetImage(), vk::ImageLayout::eTransferDstOptimal, zeroUint, clearRange);
+        cmd.clearColorImage(m_HistoryExtraImages[1].GetImage(), vk::ImageLayout::eTransferDstOptimal, zeroUint, clearRange);
+        cmd.clearColorImage(m_RawColorImage.GetImage(), vk::ImageLayout::eTransferDstOptimal, zeroColor, clearRange);
 
-        vk::MemoryBarrier clearDoneBarrier{};
-        clearDoneBarrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
-        clearDoneBarrier.dstAccessMask = vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite;
-
-        cmd.pipelineBarrier(
-            vk::PipelineStageFlagBits::eTransfer,
-            vk::PipelineStageFlagBits::eComputeShader,
-            {},
-            1, &clearDoneBarrier,
-            0, nullptr,
-            0, nullptr
-        );
+        // Temizleme sonrasi ComputeRead (eGeneral) duzenine gecir
+        for (auto img : toClear) {
+            TransitionImage(cmd, img, ImageUse::TransferWrite, ImageUse::ComputeRead);
+        }
     });
 }
 

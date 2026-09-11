@@ -21,7 +21,8 @@ inline std::vector<uint16_t> ReadIBL(VulkanContext& context, vk::Image image,
         barrier.subresourceRange = {vk::ImageAspectFlagBits::eColor, mip, 1, 0, layers};
         barrier.srcAccessMask = vk::AccessFlagBits::eShaderRead;
         barrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eTransfer,
+        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader | vk::PipelineStageFlagBits::eFragmentShader,
+                            vk::PipelineStageFlagBits::eTransfer,
                             {}, {}, {}, barrier);
         vk::BufferImageCopy region{};
         region.imageSubresource = {vk::ImageAspectFlagBits::eColor, mip, 0, layers};
@@ -30,7 +31,8 @@ inline std::vector<uint16_t> ReadIBL(VulkanContext& context, vk::Image image,
         std::swap(barrier.oldLayout, barrier.newLayout);
         barrier.srcAccessMask = vk::AccessFlagBits::eTransferRead;
         barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eAllCommands,
+        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                            vk::PipelineStageFlagBits::eComputeShader | vk::PipelineStageFlagBits::eFragmentShader,
                             {}, {}, {}, barrier);
     });
     const auto* data = static_cast<const uint16_t*>(buffer.GetMappedData());

@@ -64,6 +64,12 @@ public:
     /// Donusum gecmisi haritasini temizler
     void ResetTransformHistory() noexcept;
 
+    /// G11: Basarili gonderim sonrasinda aday donusum gecmisini committed duruma gecirir
+    void CommitSubmitted() noexcept;
+
+    /// G11: Gonderim iptal edilirse aday donusum gecmisini temizler
+    void AbortPrepared() noexcept;
+
     /// Kimligi (surfaceId == 0) olmayan primitifler icin indeks tabanli benzersiz anahtar uretir
     static constexpr uint32_t MakeFallbackTransformKey(uint32_t index) noexcept {
         return 0x80000000u | index;
@@ -89,6 +95,7 @@ private:
 
     std::vector<LightGPU> m_Lights;
     std::unordered_map<uint32_t, glm::mat4> m_PrevWorldTransforms;
+    std::unordered_map<uint32_t, glm::mat4> m_CandidateWorldTransforms;
     uint32_t m_ActiveEditCount = 0;
 
     void UpdateLights();

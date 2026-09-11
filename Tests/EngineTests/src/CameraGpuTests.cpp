@@ -2,6 +2,7 @@
 #include "AstralEngine.h"
 #include "Astral/Renderer/Buffer.hpp"
 #include "Astral/Renderer/SDFRenderer.hpp"
+#include "Astral/Renderer/ImageTransitions.hpp"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -78,22 +79,17 @@ std::vector<uint8_t> Capture(bool deferred, const std::filesystem::path& output,
         vk::BufferUsageFlagBits::eTransferDst,
         vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
     context.ExecuteImmediate([&](vk::CommandBuffer cmd) {
-        vk::ImageMemoryBarrier barrier{};
-        barrier.oldLayout = vk::ImageLayout::eGeneral;
-        barrier.newLayout = vk::ImageLayout::eTransferSrcOptimal;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = renderer->GetStorageImage();
-        barrier.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
-        barrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite | vk::AccessFlagBits::eTransferWrite;
-        barrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands,
-            vk::PipelineStageFlagBits::eTransfer, {}, {}, {}, barrier);
+        Astral::TransitionImage(cmd, renderer->GetStorageImage(),
+            Astral::ImageUse::FragmentRead, Astral::ImageUse::TransferRead);
+
         vk::BufferImageCopy region{};
         region.imageSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1};
         region.imageExtent = vk::Extent3D(config.width, config.height, 1);
         cmd.copyImageToBuffer(renderer->GetStorageImage(), vk::ImageLayout::eTransferSrcOptimal,
             readback.GetBuffer(), region);
+
+        Astral::TransitionImage(cmd, renderer->GetStorageImage(),
+            Astral::ImageUse::TransferRead, Astral::ImageUse::FragmentRead);
     });
     std::ofstream stream(output, std::ios::binary);
     stream.write(static_cast<const char*>(readback.GetMappedData()), static_cast<std::streamsize>(bytes));

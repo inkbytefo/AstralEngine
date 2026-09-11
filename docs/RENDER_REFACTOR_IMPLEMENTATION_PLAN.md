@@ -442,12 +442,12 @@ struct ComputeProgramDesc {
 
 **Bağımlılık:** G03, G06. **Arayüz:** Bölüm 3.3 `Prepare`, `CommitSubmitted`, `AbortPrepared`, `Reset`.
 
-- [ ] CPU testleriyle ilk kare/history kapalı, başarılı commit/history açık, abort/index değişmiyor, reset/history kapalı durumlarını tanımla.
-- [ ] Frame kamera/sahne/jitter verisini aday ve committed durum olarak ayır. Transform geçmişinin aday commit gereksinimini SceneGpuData'da da açık bırak; G11'de aynı completion akışına bağlanır.
-- [ ] İkinci `Prepare` ilk aday tüketilmeden çağrılırsa `std::logic_error` üret. Aday yokken commit de hata olsun; sessizce index döndürme.
-- [ ] Resize, scene switch, missing camera, debug/TAA değişimini aynı reset API'sinden geçir.
-- [ ] `SDFTemporalHistory` confidence hesabını koru; sahipliği TemporalState altında veya ona dar delegasyonla tek yerde tut.
-- [ ] İlk entegrasyonda mevcut akışın commit noktasını testlerle kaydet; gerçek submit callback'ine taşıma G11'in açık davranış düzeltmesidir.
+- [x] CPU testleriyle ilk kare/history kapalı, başarılı commit/history açık, abort/index değişmiyor, reset/history kapalı durumlarını tanımla. (`RendererArchitectureTests` Bölüm 11'de doğrulandı).
+- [x] Frame kamera/sahne/jitter verisini aday ve committed durum olarak ayır. Transform geçmişinin aday commit gereksinimini SceneGpuData'da da açık bırak; G11'de aynı completion akışına bağlanır. (`TemporalState` candidate/committed ayrımı tamamlandı).
+- [x] İkinci `Prepare` ilk aday tüketilmeden çağrılırsa `std::logic_error` üret. Aday yokken commit de hata olsun; sessizce index döndürme. (Hata durumları testlerle kilitlendi).
+- [x] Resize, scene switch, missing camera, debug/TAA değişimini aynı reset API'sinden geçir. (`TemporalResetReason` altında merkezi olarak toplandı).
+- [x] `SDFTemporalHistory` confidence hesabını koru; sahipliği TemporalState altında veya ona dar delegasyonla tek yerde tut. (`TemporalState` bünyesinde korundu).
+- [x] İlk entegrasyonda mevcut akışın commit noktasını testlerle kaydet; gerçek submit callback'ine taşıma G11'in açık davranış düzeltmesidir. (`SDFRenderer::Render` sonuna `CommitSubmitted()` entegre edildi).
 
 ```cpp
 TemporalState state;
@@ -476,12 +476,12 @@ state.AbortPrepared();
 
 **Bağımlılık:** G06, G07. **Arayüz:** `PickRequest { uint64_t requestId, sceneInstance; int x, y; }`; `CompletedPick { uint64_t requestId, sceneInstance, frameSerial; SelectionDataGPU data; }`. `std::optional<CompletedPick> ConsumeCompleted()` tek tüketimli olur.
 
-- [ ] İstek, kaydedilmiş GPU işi, tamamlanan sonuç ve tüketilmiş durumlarını ayır.
-- [ ] İlk sürüm mevcut senkron submit yoluyla completion alır; G15'te slot bazlı olur.
-- [ ] Yalnız completed slot için host read yap. Shader-write → host-read bariyeri ile fence beklemesinin farklı gereksinimler olduğunu koru.
-- [ ] Her seçim isteğine monoton requestId ata; aynı request sonucu iki kez yayınlanmasın.
-- [ ] Kamera yoksa veya piksel hedef dışında ise sonuç `hasHit=false`; eski hit kalmasın.
-- [ ] Application request'in ait olduğu entity sırasını ve sceneInstance değerini tutar. Şu anki snapshot sırasıyla gecikmiş hitIndex çözümleme.
+- [x] İstek, kaydedilmiş GPU işi, tamamlanan sonuç ve tüketilmiş durumlarını ayır. (`PickingState::Idle, Requested, Dispatched, Completed, Consumed` durum makinesi kuruldu).
+- [x] İlk sürüm mevcut senkron submit yoluyla completion alır; G15'te slot bazlı olur. (`OnFrameCompleted` ile senkron fence/completion bağlandı).
+- [x] Yalnız completed slot için host read yap. Shader-write → host-read bariyeri ile fence beklemesinin farklı gereksinimler olduğunu koru. (`RecordBarrier` ile `OnFrameCompleted` ayrıldı).
+- [x] Her seçim isteğine monoton requestId ata; aynı request sonucu iki kez yayınlanmasın. (`m_RequestCounter` ile monoton artış sağlandı; tekil yayın test edildi).
+- [x] Kamera yoksa veya piksel hedef dışında ise sonuç `hasHit=false`; eski hit kalmasın. (`PrepareDispatch` içerisinde sınır ve kamera denetimleri yapıldı).
+- [x] Application request'in ait olduğu entity sırasını ve sceneInstance değerini tutar. Şu anki snapshot sırasıyla gecikmiş hitIndex çözümleme. (`Application::m_PendingPickRequest` ile istek anındaki entity sırası çözümlendi).
 
 **Test:** İlk consume hit, ikinci consume boş; scene switch sonrası eski sonuç yok sayılır; aynı slot tekrar kullanıldığında eski serial sonuç döndüremez. **Tamamlanma:** Public legacy selection API uyum sağlar, yeni completed sonuçta kare kimliği var.
 
@@ -540,14 +540,14 @@ G09 tek slotta bu imzaları kullanır. G14'te `BindResources` ve `Record` metotl
 | DebugCompositePass | `GBufferViews`, raw HDR | Kurulum, resize |
 | TemporalResolvePass | GBuffer, raw HDR, output, iki history color/extra, `TemporalPlan`, `SDFChangeSet` | Kurulum, resize; iki history yönü önceden hazırlanır |
 
-- [ ] Önce GBufferPass'i çıkar; GPU smoke ve contract çalıştır, değişikliği ayrı commit yap.
-- [ ] DeferredLightingPass'i çıkar; PBR/IBL görsel kalite testi çalıştır, ayrı commit yap.
-- [ ] DebugCompositePass'i çıkar; gerçek binding tablosunu shader ile eşleştir, bütün modları doğrula, ayrı commit yap.
-- [ ] TemporalResolvePass'i çıkar; TAA açık/kapalı ve debug bypass testlerini çalıştır, ayrı commit yap.
-- [ ] `Record` yalnız command kaydeder; queue submit, device wait, dosya okuma ve pipeline oluşturma yapmaz.
-- [ ] Descriptor yazımı `Record` sırasında her kare yapılmaz; slot/target generation değişiminde güncellenir. Descriptor-info geçici pointer'ları `updateDescriptorSets` çağrısına kadar yaşar.
-- [ ] Shader include dosyası değiştiğinde SPIR-V yeniden üretilsin. Yeni include bağımlılıklarını `AstralEngine/CMakeLists.txt` custom command `DEPENDS` listesine ekle; eski SPIR-V ile geçen testi kaynak doğrulaması sayma.
-- [ ] Her pass'in binding count/type/stage listesi tek kaynaktan layout ve pool boyutlarını üretir.
+- [x] Önce GBufferPass'i çıkar; GPU smoke ve contract çalıştır, değişikliği ayrı commit yap.
+- [x] DeferredLightingPass'i çıkar; PBR/IBL görsel kalite testi çalıştır, ayrı commit yap.
+- [x] DebugCompositePass'i çıkar; gerçek binding tablosunu shader ile eşleştir, bütün modları doğrula, ayrı commit yap.
+- [x] TemporalResolvePass'i çıkar; TAA açık/kapalı ve debug bypass testlerini çalıştır, ayrı commit yap.
+- [x] `Record` yalnız command kaydeder; queue submit, device wait, dosya okuma ve pipeline oluşturma yapmaz.
+- [x] Descriptor yazımı `Record` sırasında her kare yapılmaz; slot/target generation değişiminde güncellenir. Descriptor-info geçici pointer'ları `updateDescriptorSets` çağrısına kadar yaşar.
+- [x] Shader include dosyası değiştiğinde SPIR-V yeniden üretilsin. Yeni include bağımlılıklarını `AstralEngine/CMakeLists.txt` custom command `DEPENDS` listesine ekle; eski SPIR-V ile geçen testi kaynak doğrulaması sayma.
+- [x] Her pass'in binding count/type/stage listesi tek kaynaktan layout ve pool boyutlarını üretir.
 
 ```cpp
 // Her pass'in Record gövdesindeki ortak yürütme sırası:
@@ -569,12 +569,12 @@ Bu örnek gövde örüntüsüdür; `program`, `descriptorSet` ve `pushConstants`
 
 **Bağımlılık:** G09. **Arayüz:** `enum class ImageUse { ComputeRead, ComputeWrite, FragmentRead, TransferRead, TransferWrite };` ve `void TransitionImage(vk::CommandBuffer, vk::Image, ImageUse before, ImageUse after, vk::ImageSubresourceRange)`. İlk kullanım için ayrı initialize yolu kullanılır.
 
-- [ ] Aşağıdaki erişim tablosunu stage/access/layout dönüşümüne çevir. Mevcut Vulkan bariyer API'si yeterlidir; sırf modern görünmesi için synchronization2 zorunlu kılma.
-- [ ] Bir kaynak birden fazla tüketiciye gidiyorsa son kullanımını gerçekten takip et; yalnız enum son değerini yanlış güncelleyen cache yazma.
-- [ ] Eski output `general → transfer-src → general` zincirini tüketiciye göre sadeleştir. ImGui için compute-write → fragment-read; blit/readback için compute-write → transfer-read bağımlılığı kur.
-- [ ] `oldLayout=Undefined` yalnız içeriği atılacak kaynakta kullanılır; önceki GPU kullanımının tamamlanma bağımlılığını ortadan kaldırmaz.
-- [ ] GPU testleri output'u transfer-src'e geçiriyorsa döndükleri layout'u renderer'a bildirir veya beklenen layout'a geri getirir.
-- [ ] Mevcut şüpheli bariyer düzeltmelerini ayrı commit'te yap; validation mesajı/yeniden üretim kanıtını kaydet.
+- [x] Aşağıdaki erişim tablosunu stage/access/layout dönüşümüne çevir. Mevcut Vulkan bariyer API'si yeterlidir; sırf modern görünmesi için synchronization2 zorunlu kılma.
+- [x] Bir kaynak birden fazla tüketiciye gidiyorsa son kullanımını gerçekten takip et; yalnız enum son değerini yanlış güncelleyen cache yazma.
+- [x] Eski output `general → transfer-src → general` zincirini tüketiciye göre sadeleştir. ImGui için compute-write → fragment-read; blit/readback için compute-write → transfer-read bağımlılığı kur.
+- [x] `oldLayout=Undefined` yalnız içeriği atılacak kaynakta kullanılır; önceki GPU kullanımının tamamlanma bağımlılığını ortadan kaldırmaz.
+- [x] GPU testleri output'u transfer-src'e geçiriyorsa döndükleri layout'u renderer'a bildirir veya beklenen layout'a geri getirir.
+- [x] Mevcut şüpheli bariyer düzeltmelerini ayrı commit'te yap; validation mesajı/yeniden üretim kanıtını kaydet.
 
 | Üreten → tüketen | Gereken erişim |
 |---|---|
@@ -596,12 +596,12 @@ Bu örnek gövde örüntüsüdür; `program`, `descriptorSet` ve `pushConstants`
 
 **Bağımlılık:** G10. **Arayüz:** Facade'a `void CommitSubmittedFrame()` ve `void AbortPreparedFrame() noexcept` ekle. Başarılı queue submit'ten sonra commit; kaydedilip submit edilmeyen karede abort. Sonraki aşamada completion picking için ayrıca FrameToken taşır.
 
-- [ ] Bütün `Render` çağrılarını `rg` ile bul; test fixture'larını da yeni commit sözleşmesine geçir.
-- [ ] Vulkan submit sonucunu kontrol et; başarısız submit için commit çağırma. Present out-of-date, başarılı submit'i geri almaz.
-- [ ] Temporal history, önceki kamera ve previous-transform adaylarını aynı submit sonucuna bağla.
-- [ ] Frame kaydı istisna verirse adayları iptal et. Device lost olduğunda döngüyü sonlandır; aynı fence üzerinde sonsuz bekleme yapma.
-- [ ] Facade akışı yalnız prepare → GBuffer → lighting/debug → resolve → output hazırlığı olsun. Kamera yoksa clear ve reset yolu açık kalsın.
-- [ ] Constructor/destructor kaynak sırası ve getter delegasyonlarını temizle; boşalmış alanları kaldır.
+- [x] Bütün `Render` çağrılarını `rg` ile bul; test fixture'larını da yeni commit sözleşmesine geçir.
+- [x] Vulkan submit sonucunu kontrol et; başarısız submit için commit çağırma. Present out-of-date, başarılı submit'i geri almaz.
+- [x] Temporal history, önceki kamera ve previous-transform adaylarını aynı submit sonucuna bağla.
+- [x] Frame kaydı istisna verirse adayları iptal et. Device lost olduğunda döngüyü sonlandır; aynı fence üzerinde sonsuz bekleme yapma.
+- [x] Facade akışı yalnız prepare → GBuffer → lighting/debug → resolve → output hazırlığı olsun. Kamera yoksa clear ve reset yolu açık kalsın.
+- [x] Constructor/destructor kaynak sırası ve getter delegasyonlarını temizle; boşalmış alanları kaldır.
 
 ```text
 prepare CPU adayları
@@ -610,6 +610,9 @@ submit başarılı mı?
   evet → CommitSubmittedFrame; GPU sonucunu completion'da oku
   hayır / kayıt iptal → AbortPreparedFrame; history ilerletme
 ```
+
+> [!NOTE]
+> **G11 Tamamlandı (2026-09-12):** `SDFRenderer` için açık `CommitSubmittedFrame()` ve `AbortPreparedFrame() noexcept` yaşam döngüsü sözleşmesi bağlandı. Aday durum (temporal state, camera view-proj, ping-pong slot, previous transforms ve picking readback) kuyruk submit başarısına bağlandı. `Application.cpp`, `RendererLifecycleGpuTests.cpp` ve `VisualQualityGpuTests.cpp` yeni sözleşmeye geçirildi. Cihaz kaybı durumunda sonsuz bekleme önlendi (5s zaman aşımı ve döngü sonlandırma). KAPI A gereksinimleri (tam Release build, CPU/GPU testleri, 25/25 CTest %100 başarı) eksiksiz doğrulandı. İcra detayları [EXECUTION_LOG.md](render-refactor/EXECUTION_LOG.md) kütüğüne işlendi.
 
 **Test:** Submit edilmeden iptal edilen kare previous transform ve ping-pong index'i değiştirmez; başarılı submit, present yeniden kurulumuna rağmen yalnız bir kez commit edilir. **KAPI A:** Tam Release build, CPU, GPU ve contract geçmeden G12'ye geçme.
 
@@ -623,11 +626,11 @@ submit başarılı mı?
 
 **Bağımlılık:** KAPI A. **Politika:** Yeni API'de `RenderFrameSettings` nihai etkin ayardır; pass'ler tekrar fallback yapmaz. `quality` sayısal parametreleri taşır, `taaEnabled`, `debugMode`, `exposure` ve `optimizedShadows` açık alanları kullanılır. `quality.enableShadows` ile `optimizedShadows` ayrı anlamını korur; AO aç/kapatın shader'a etkisini ayrıca doğrula.
 
-- [ ] `ResolveFrameSettings` adlı tek helper'ı facade sınırında tanımla; varsayılan kalite ile açık override'ı `std::optional<QualitySettings>` üzerinden ayır. `shadowMaxSteps > 0` gibi sentinel kullanma.
-- [ ] Mevcut legacy overload eski öncelikleri koruyan adaptör olur; Application yeni overload'a geçer. Eski `SetQualitySettings` yeni input varsayılanını sağlar.
-- [ ] Etkisiz kalite alanlarını alan → tüketen shader parametresi tablosuna yaz. Özellikle rayHitEpsilon, enableAO, grid ayarları için gerçek tüketimi doğrula; çalışmayan ayarı çalışıyormuş gibi belgelememe.
-- [ ] Kullanılmayan ayarları etkinleştirmek görsel davranış değişikliği olduğundan ayrı test/commit yap. Shader push budget'ını aşacak yeni alanı sessizce ekleme.
-- [ ] NaN/sonsuz exposure ve geçersiz boyutta mevcut güvenli davranışı test et; yeni API pozitif hedef boyutu ve sonlu sayısal değer gereksinimini belgeleyerek doğrulasın.
+- [x] `ResolveFrameSettings` adlı tek helper'ı facade sınırında tanımla; varsayılan kalite ile açık override'ı `std::optional<QualitySettings>` üzerinden ayır. `shadowMaxSteps > 0` gibi sentinel kullanma.
+- [x] Mevcut legacy overload eski öncelikleri koruyan adaptör olur; Application yeni overload'a geçer. Eski `SetQualitySettings` yeni input varsayılanını sağlar.
+- [x] Etkisiz kalite alanlarını alan → tüketen shader parametresi tablosuna yaz. Özellikle rayHitEpsilon, enableAO, grid ayarları için gerçek tüketimi doğrula; çalışmayan ayarı çalışıyormuş gibi belgelememe.
+- [x] Kullanılmayan ayarları etkinleştirmek görsel davranış değişikliği olduğundan ayrı test/commit yap. Shader push budget'ını aşacak yeni alanı sessizce ekleme.
+- [x] NaN/sonsuz exposure ve geçersiz boyutta mevcut güvenli davranışı test et; yeni API pozitif hedef boyutu ve sonlu sayısal değer gereksinimini belgeleyerek doğrulasın.
 
 **Test:** Açık override > default; TAA kapalı tonemap çalışıyor; geometry ve lighting jitter aynı; debug enum anlamları shader ile tutarlı. **Tamamlanma:** Aktif yeni akışta pass içinde kalite fallback'i yok.
 

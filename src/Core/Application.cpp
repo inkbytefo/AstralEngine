@@ -6,6 +6,7 @@
 #include "Astral/Renderer/SDFRenderer.hpp"
 #include "Astral/Renderer/RenderContext.hpp"
 #include "Astral/Renderer/QualitySettings.hpp"
+#include "Astral/Renderer/RenderFrameSettings.hpp"
 #include "Astral/Core/RenderExtractionSystem.hpp"
 #include "Astral/Core/Systems/InputSubsystem.hpp"
 #include "Astral/Core/Systems/PhysicsSubsystem.hpp"
@@ -40,7 +41,13 @@ std::shared_ptr<Scene> Application::CreateInitialScene() {
 
 void Application::RequestPick(int screenX, int screenY) {
     if (m_SDFRenderer) {
-        m_SDFRenderer->SetPickingRequest(screenX, screenY);
+        auto activeScene = m_SceneManager.GetActiveScene();
+        uint64_t sceneInstance = activeScene ? activeScene->GetInstanceId() : 0;
+        if (m_SDFRenderer->GetPickingReadback()) {
+            m_SDFRenderer->GetPickingReadback()->RequestPick(screenX, screenY, sceneInstance);
+        } else {
+            m_SDFRenderer->SetPickingRequest(screenX, screenY);
+        }
     }
 }
 
@@ -120,6 +127,7 @@ void Application::Run(int maxFrames) {
             );
             m_SDFRenderer->SetUseGBuffer(true);
             m_SDFRenderer->SetDebugMode(m_Config.debugMode);
+            m_SDFRenderer->SetQualitySettings(m_Config.qualitySettings);
         } else {
             std::cout << "[Astral::Application] GPU'suz Headless CPU simulasyon modu aktif (Pencere ve Vulkan olusturulmadi).\n";
         }
@@ -195,7 +203,7 @@ void Application::Run(int maxFrames) {
             // Spiral of death onleyici: Uzun takilmalarda (hitch/breakpoint) delta time sinirlandirilir
             const float clampedDeltaTime = std::min(rawDeltaTime, m_Config.maxFrameDelta);
             const float effectiveDeltaTime = m_Config.isPaused ? 0.0f : clampedDeltaTime;
-            float timeSec = static_cast<float>(frameIndex) * m_Config.fixedTimeStep;
+            [[maybe_unused]] float timeSec = static_cast<float>(frameIndex) * m_Config.fixedTimeStep;
 
             // 1. Asama: Input
             FrameContext inputContext{
@@ -276,6 +284,19 @@ void Application::Run(int maxFrames) {
             const auto& snapshot = m_RenderExtractionSubsystem->GetLastExtractedSnapshot();
             const auto& sceneEntities = m_RenderExtractionSubsystem->GetLastExtractedEntities();
 
+            // G08: İstek anındaki sahne kimliğini ve entity snapshot sırasını kaydet
+            if (m_SDFRenderer && m_SDFRenderer->GetPickingReadback() &&
+                m_SDFRenderer->GetPickingReadback()->GetState() == PickingState::Requested) {
+                const auto& activeReq = m_SDFRenderer->GetPickingReadback()->GetActiveRequest();
+                if (activeReq.has_value()) {
+                    m_PendingPickRequest = PendingPickRequest{
+                        .requestId = activeReq->requestId,
+                        .sceneInstance = activeReq->sceneInstance,
+                        .entities = sceneEntities
+                    };
+                }
+            }
+
             // Yalnizca GPU ve Renderer aktif ise render islemleri calistirilir
             if (m_SDFRenderer && m_VulkanContext) {
                 // Kamera matrislerini besle (Motion Vectors, Deferred G-Buffer & SDFChangeSet senkronizasyonu)
@@ -311,68 +332,116 @@ void Application::Run(int maxFrames) {
                 // GPU Komut Tamponu & Timestamp Olcumu
                 auto cmd = m_VulkanContext->BeginFrameCommand();
 
-                // 1. 3D SDF Compute Raymarching
-                m_SDFRenderer->Render(
-                    cmd,
-                    timeSec,
-                    m_Config.normalMode,
-                    m_SDFRenderer->GetWidth(),
-                    m_SDFRenderer->GetHeight(),
-                    m_Config.useGrid,
-                    m_Config.optShadow,
-                    m_Config.enableTAA,
-                    frameIndex,
-                    m_Config.qualitySettings
-                );
+                bool submitted = false;
+                try {
+                    // 1. 3D SDF Compute Raymarching (G12: Acik RenderFrameSettings yapisi ile tek kalite politikasi)
+                    RenderFrameSettings frameSettings{};
+                    frameSettings.camera = camera;
+                    frameSettings.jitter = jitter;
+                    frameSettings.qualityOverride = m_Config.qualitySettings;
+                    frameSettings.frameId = frameIndex;
+                    frameSettings.width = static_cast<uint32_t>(m_SDFRenderer->GetWidth());
+                    frameSettings.height = static_cast<uint32_t>(m_SDFRenderer->GetHeight());
+                    frameSettings.normalMode = m_Config.normalMode;
+                    frameSettings.debugMode = m_SDFRenderer->GetDebugMode();
+                    frameSettings.selectedHitIndex = selectedHitIndex;
+                    frameSettings.useGrid = m_Config.useGrid;
+                    frameSettings.optimizedShadows = m_Config.optShadow;
+                    frameSettings.taaEnabled = m_Config.enableTAA;
+                    frameSettings.exposure = m_Config.qualitySettings.tonemapExposure;
 
-                if (hasSwapchainImage) {
-                    if (m_SystemManager.HasRenderSubsystem()) {
-                        m_VulkanContext->PrepareSwapchainImage();
+                    m_SDFRenderer->Render(cmd, frameSettings);
+
+                    if (hasSwapchainImage) {
+                        if (m_SystemManager.HasRenderSubsystem()) {
+                            m_VulkanContext->PrepareSwapchainImage();
+                        } else {
+                            m_VulkanContext->EndFrameBlit(
+                                m_SDFRenderer->GetStorageImage(),
+                                m_SDFRenderer->GetWidth(),
+                                m_SDFRenderer->GetHeight()
+                            );
+                        }
+
+                        RenderContext renderCtx{
+                            cmd,
+                            m_VulkanContext->GetSwapchain()->GetImageViews()[m_VulkanContext->GetCurrentImageIndex()],
+                            m_VulkanContext->GetSwapchain()->GetExtent(),
+                            activeScene.get(),
+                            static_cast<float>(gpuTotalMs),
+                            static_cast<float>(cpuFrameMs),
+                            m_Config.qualitySettings
+                        };
+                        m_SystemManager.RenderAll(renderCtx);
+
+                        submitted = m_VulkanContext->EndFramePresent();
                     } else {
-                        m_VulkanContext->EndFrameBlit(
-                            m_SDFRenderer->GetStorageImage(),
-                            m_SDFRenderer->GetWidth(),
-                            m_SDFRenderer->GetHeight()
-                        );
+                        submitted = m_VulkanContext->EndAndSubmitFrameCommand();
                     }
-
-                    RenderContext renderCtx{
-                        cmd,
-                        m_VulkanContext->GetSwapchain()->GetImageViews()[m_VulkanContext->GetCurrentImageIndex()],
-                        m_VulkanContext->GetSwapchain()->GetExtent(),
-                        activeScene.get(),
-                        static_cast<float>(gpuTotalMs),
-                        static_cast<float>(cpuFrameMs),
-                        m_Config.qualitySettings
-                    };
-                    m_SystemManager.RenderAll(renderCtx);
-
-                    m_VulkanContext->EndFramePresent();
-                } else {
-                    m_VulkanContext->EndAndSubmitFrameCommand();
+                } catch (const vk::DeviceLostError& e) {
+                    std::cerr << "[Astral::Application] GPU Device Lost: " << e.what() << "\n";
+                    m_SDFRenderer->AbortPreparedFrame();
+                    m_Running = false;
+                    break;
+                } catch (const std::exception& e) {
+                    std::cerr << "[Astral::Application] Frame recording/submission error: " << e.what() << "\n";
+                    m_SDFRenderer->AbortPreparedFrame();
                 }
 
-                // PR-9: Fence sonrasi donanımsal guvenli secim okumasi (tek seferlik tuketim)
-                if (m_SDFRenderer->HasPendingSelection()) {
-                    auto pickResult = m_SDFRenderer->ConsumeSelectionResult();
-                    RuntimePickResult runtimeResult{};
-                    runtimeResult.hasHit = pickResult.hasHit;
-                    runtimeResult.hitIndex = pickResult.hitIndex;
-                    runtimeResult.hitPoint = glm::vec3(pickResult.hitPoint);
-                    runtimeResult.hitDistance = pickResult.hitDistance;
-                    if (pickResult.hasHit && pickResult.hitIndex >= 0 && static_cast<size_t>(pickResult.hitIndex) < sceneEntities.size()) {
-                        runtimeResult.hitEntity = sceneEntities[pickResult.hitIndex];
+                // G11: Submit basarili ise committed duruma gecir; basarisiz/iptal ise abort yap
+                if (submitted) {
+                    m_SDFRenderer->CommitSubmittedFrame();
+                } else {
+                    m_SDFRenderer->AbortPreparedFrame();
+                    if (m_VulkanContext->IsDeviceLost()) {
+                        std::cerr << "[Astral::Application] Stopping main loop due to device lost.\n";
+                        m_Running = false;
+                        break;
                     }
-                    m_LastPickResult = runtimeResult;
-                    m_EventBus.Publish(RuntimePickEvent{ runtimeResult, activeScene.get() });
+                }
 
-                    if (runtimeResult.hasHit) {
-                        std::cout << "[Astral::Picking] ISABET: hitIndex = " << pickResult.hitIndex 
-                                  << " -> Entity (handle: " << GetEntityIndex(runtimeResult.hitEntity) << ")"
-                                  << " | Nokta: (" << pickResult.hitPoint.x << ", " << pickResult.hitPoint.y << ", " << pickResult.hitPoint.z << ")"
-                                  << " | Mesafe: " << pickResult.hitDistance << "m\n";
-                    } else {
-                        std::cout << "[Astral::Picking] ISABET YOK (Gokyuzu/Bosluk)\n";
+                // G08: Fence sonrasi donanımsal guvenli secim okumasi (tek seferlik tuketim) ve dogru snapshot eslemesi
+                if (m_SDFRenderer && m_SDFRenderer->HasPendingSelection()) {
+                    auto completedPick = m_SDFRenderer->ConsumeCompletedPick();
+                    if (completedPick.has_value()) {
+                        const auto& pick = *completedPick;
+                        uint64_t currentSceneInstance = activeScene ? activeScene->GetInstanceId() : 0;
+                        if (pick.sceneInstance == currentSceneInstance) {
+                            RuntimePickResult runtimeResult{};
+                            runtimeResult.hasHit = (pick.data.hitIndex >= 0);
+                            runtimeResult.hitIndex = pick.data.hitIndex;
+                            runtimeResult.hitPoint = glm::vec3(pick.data.hitPoint.x, pick.data.hitPoint.y, pick.data.hitPoint.z);
+                            runtimeResult.hitDistance = pick.data.hitPoint.w;
+
+                            // Snapshot sirasiyla gecikmis hitIndex cozümleme
+                            const std::vector<EntityHandle>* pEntities = &sceneEntities;
+                            if (m_PendingPickRequest.has_value() &&
+                                m_PendingPickRequest->requestId == pick.requestId &&
+                                m_PendingPickRequest->sceneInstance == currentSceneInstance) {
+                                pEntities = &m_PendingPickRequest->entities;
+                            }
+
+                            if (runtimeResult.hasHit && runtimeResult.hitIndex >= 0 &&
+                                static_cast<size_t>(runtimeResult.hitIndex) < pEntities->size()) {
+                                runtimeResult.hitEntity = (*pEntities)[runtimeResult.hitIndex];
+                            }
+
+                            m_LastPickResult = runtimeResult;
+                            m_EventBus.Publish(RuntimePickEvent{ runtimeResult, activeScene.get() });
+
+                            if (runtimeResult.hasHit) {
+                                std::cout << "[Astral::Picking] ISABET: hitIndex = " << runtimeResult.hitIndex 
+                                          << " -> Entity (handle: " << GetEntityIndex(runtimeResult.hitEntity) << ")"
+                                          << " | Nokta: (" << runtimeResult.hitPoint.x << ", " << runtimeResult.hitPoint.y << ", " << runtimeResult.hitPoint.z << ")"
+                                          << " | Mesafe: " << runtimeResult.hitDistance << "m\n";
+                            } else {
+                                std::cout << "[Astral::Picking] ISABET YOK (Gokyuzu/Bosluk)\n";
+                            }
+                        } else {
+                            std::cout << "[Astral::Picking] Sahne degisimi nedeniyle eski sonuc yoksayildi (Req Scene: "
+                                      << pick.sceneInstance << " != Current Scene: " << currentSceneInstance << ")\n";
+                        }
+                        m_PendingPickRequest = std::nullopt;
                     }
                 }
 
@@ -445,6 +514,13 @@ void Application::SetDebugMode(int mode) noexcept {
     m_Config.qualitySettings.debugMode = mode;
     if (m_SDFRenderer) {
         m_SDFRenderer->SetDebugMode(mode);
+    }
+}
+
+void Application::SetQualitySettings(const QualitySettings& qs) noexcept {
+    m_Config.qualitySettings = qs;
+    if (m_SDFRenderer) {
+        m_SDFRenderer->SetQualitySettings(qs);
     }
 }
 

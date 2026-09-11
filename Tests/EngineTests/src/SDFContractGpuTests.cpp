@@ -118,16 +118,8 @@ void RunSDFContractGpuTests() {
                                  vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
 
             context->ExecuteImmediate([&](vk::CommandBuffer cmd) {
-                vk::ImageMemoryBarrier barrier{};
-                barrier.oldLayout = vk::ImageLayout::eGeneral;
-                barrier.newLayout = vk::ImageLayout::eTransferSrcOptimal;
-                barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                barrier.image = renderer->GetGBufferDepth();
-                barrier.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
-                barrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
-                barrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
-                cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader, vk::PipelineStageFlagBits::eTransfer,
-                                    {}, {}, {}, barrier);
+                Astral::TransitionImage(cmd, renderer->GetGBufferDepth(),
+                    Astral::ImageUse::ComputeRead, Astral::ImageUse::TransferRead);
 
                 vk::BufferImageCopy region{};
                 region.imageSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1};
@@ -135,11 +127,8 @@ void RunSDFContractGpuTests() {
                 cmd.copyImageToBuffer(renderer->GetGBufferDepth(), vk::ImageLayout::eTransferSrcOptimal,
                                       readbackBuffer.GetBuffer(), region);
 
-                std::swap(barrier.oldLayout, barrier.newLayout);
-                barrier.srcAccessMask = vk::AccessFlagBits::eTransferRead;
-                barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite;
-                cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eComputeShader,
-                                    {}, {}, {}, barrier);
+                Astral::TransitionImage(cmd, renderer->GetGBufferDepth(),
+                    Astral::ImageUse::TransferRead, Astral::ImageUse::ComputeRead);
             });
 
             const float* gpuDepths = static_cast<const float*>(readbackBuffer.GetMappedData());

@@ -149,7 +149,7 @@ public:
     void SetMaxSubSteps(uint32_t steps) noexcept { m_Config.maxSubSteps = steps; }
     [[nodiscard]] uint32_t GetMaxSubSteps() const noexcept { return m_Config.maxSubSteps; }
 
-    void SetQualitySettings(const QualitySettings& qs) noexcept { m_Config.qualitySettings = qs; }
+    void SetQualitySettings(const QualitySettings& qs) noexcept;
     [[nodiscard]] const QualitySettings& GetQualitySettings() const noexcept { return m_Config.qualitySettings; }
     [[nodiscard]] QualitySettings& GetQualitySettings() noexcept { return m_Config.qualitySettings; }
 
@@ -192,6 +192,12 @@ private:
     std::unique_ptr<BenchmarkLogger> m_BenchmarkLogger;
     PhysicsSubsystem* m_PhysicsSubsystem = nullptr;
     RenderExtractionSubsystem* m_RenderExtractionSubsystem = nullptr;
+    struct PendingPickRequest {
+        uint64_t requestId = 0;
+        uint64_t sceneInstance = 0;
+        std::vector<EntityHandle> entities;
+    };
+    std::optional<PendingPickRequest> m_PendingPickRequest;
     RuntimePickResult m_LastPickResult{};
     EntityHandle m_HighlightEntity = NullEntityHandle;
     InputSystem m_HeadlessInput;

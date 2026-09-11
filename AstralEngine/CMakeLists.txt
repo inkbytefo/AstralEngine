@@ -91,9 +91,16 @@ add_library(AstralEngine STATIC
     ${CMAKE_SOURCE_DIR}/src/Renderer/ComputeProgram.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/RenderTargets.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/SceneGpuData.cpp
+    ${CMAKE_SOURCE_DIR}/src/Renderer/TemporalState.cpp
+    ${CMAKE_SOURCE_DIR}/src/Renderer/PickingReadback.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/Buffer.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/BrickGrid.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/IBLManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/Renderer/Passes/GBufferPass.cpp
+    ${CMAKE_SOURCE_DIR}/src/Renderer/Passes/DeferredLightingPass.cpp
+    ${CMAKE_SOURCE_DIR}/src/Renderer/Passes/DebugCompositePass.cpp
+    ${CMAKE_SOURCE_DIR}/src/Renderer/Passes/TemporalResolvePass.cpp
+    ${CMAKE_SOURCE_DIR}/src/Renderer/ImageTransitions.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/SDFRenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/Renderer/Swapchain.cpp
     ${CMAKE_SOURCE_DIR}/src/Core/CommandStack.cpp

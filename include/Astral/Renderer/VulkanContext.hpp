@@ -71,8 +71,9 @@ public:
     // Frame Command & GPU Profiling
     vk::CommandBuffer BeginFrameCommand();
     void WriteTimestamp(vk::CommandBuffer cmd, vk::PipelineStageFlagBits stage, uint32_t queryIndex);
-    void EndAndSubmitFrameCommand();
+    bool EndAndSubmitFrameCommand();
     double GetLastGpuTimeMs();
+    [[nodiscard]] bool IsDeviceLost() const noexcept { return m_DeviceLost; }
 
     /// Tek seferlik GPU komutlarini senkron yurutur (staging, doku yukleme vb.)
     void ExecuteImmediate(std::function<void(vk::CommandBuffer)> func);
@@ -89,13 +90,14 @@ public:
     bool AcquireNextImage();
     void PrepareSwapchainImage();
     void EndFrameBlit(vk::Image sourceImage, uint32_t srcWidth, uint32_t srcHeight);
-    void EndFramePresent();
+    bool EndFramePresent();
 
     void WaitIdle();
 
 private:
     Window& m_Window;
     bool m_EnableValidation = true;
+    bool m_DeviceLost = false;
 
     vk::UniqueInstance m_Instance;
     VkDebugUtilsMessengerEXT m_DebugMessenger = VK_NULL_HANDLE;

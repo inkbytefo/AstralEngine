@@ -35,6 +35,16 @@ public:
     [[nodiscard]] vk::Image GetIrradianceImage() const noexcept { return m_IrradianceImage.get(); }
     [[nodiscard]] vk::Image GetBRDFLutImage() const noexcept { return m_BrdfLutImage.get(); }
 
+    [[nodiscard]] vk::DescriptorImageInfo GetIrradianceDescriptor() const noexcept {
+        return vk::DescriptorImageInfo(m_CubemapSampler.get(), m_IrradianceView.get(), vk::ImageLayout::eShaderReadOnlyOptimal);
+    }
+    [[nodiscard]] vk::DescriptorImageInfo GetPrefilteredDescriptor() const noexcept {
+        return vk::DescriptorImageInfo(m_CubemapSampler.get(), m_PrefilteredView.get(), vk::ImageLayout::eShaderReadOnlyOptimal);
+    }
+    [[nodiscard]] vk::DescriptorImageInfo GetBRDFLUTDescriptor() const noexcept {
+        return vk::DescriptorImageInfo(m_BrdfLutSampler.get(), m_BrdfLutView.get(), vk::ImageLayout::eShaderReadOnlyOptimal);
+    }
+
 private:
     VulkanContext& m_Context;
     EnvironmentImage m_Environment;

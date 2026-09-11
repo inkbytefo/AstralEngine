@@ -19,26 +19,17 @@ std::vector<unsigned char> Readback(VulkanContext& context, const SDFRenderer& r
                   vk::BufferUsageFlagBits::eTransferDst,
                   vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
     context.ExecuteImmediate([&](vk::CommandBuffer cmd) {
-        vk::ImageMemoryBarrier barrier{};
-        barrier.oldLayout = vk::ImageLayout::eGeneral;
-        barrier.newLayout = vk::ImageLayout::eTransferSrcOptimal;
-        barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = renderer.GetStorageImage();
-        barrier.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
-        barrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
-        barrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eTransfer,
-                            {}, {}, {}, barrier);
+        TransitionImage(cmd, renderer.GetStorageImage(),
+            ImageUse::FragmentRead, ImageUse::TransferRead);
+
         vk::BufferImageCopy region{};
         region.imageSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1};
         region.imageExtent = vk::Extent3D(renderer.GetWidth(), renderer.GetHeight(), 1);
         cmd.copyImageToBuffer(renderer.GetStorageImage(), vk::ImageLayout::eTransferSrcOptimal,
                               buffer.GetBuffer(), region);
-        std::swap(barrier.oldLayout, barrier.newLayout);
-        barrier.srcAccessMask = vk::AccessFlagBits::eTransferRead;
-        barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite;
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eAllCommands,
-                            {}, {}, {}, barrier);
+
+        TransitionImage(cmd, renderer.GetStorageImage(),
+            ImageUse::TransferRead, ImageUse::FragmentRead);
     });
     const auto* data = static_cast<const unsigned char*>(buffer.GetMappedData());
     return {data, data + bytes};
@@ -51,6 +42,7 @@ void RenderFrame(VulkanContext& context, SDFRenderer& renderer, uint32_t frameIn
                         renderer.GetWidth(), renderer.GetHeight(),
                         useGrid, true, enableTAA, frameIndex);
     });
+    renderer.CommitSubmittedFrame();
 }
 
 RenderCamera CreateCamera(int width, int height, const glm::vec3& pos = {0.0f, 0.0f, 4.0f}) {
@@ -321,6 +313,7 @@ void RunLifecycleTests() {
             renderer.Render(cmd, 1.0f, 0, renderer.GetWidth(), renderer.GetHeight(),
                             true, true, false, 50);
         });
+        renderer.CommitSubmittedFrame();
         auto legacyPixels = Readback(context, renderer);
 
         // Sahneyi ve gecmisi sifirla, ayni durumu yeniden kur
@@ -345,6 +338,7 @@ void RunLifecycleTests() {
         context.ExecuteImmediate([&](vk::CommandBuffer cmd) {
             renderer.Render(cmd, settings);
         });
+        renderer.CommitSubmittedFrame();
         auto explicitPixels = Readback(context, renderer);
 
         TEST_CHECK_MSG(suite, "LegacyExplicitPixelSizeMatch", legacyPixels.size() == explicitPixels.size(),
@@ -527,6 +521,7 @@ void RunLifecycleTests() {
         const auto* prevMatMapped = static_cast<const glm::mat4*>(sceneData.GetPrevTransformBuffer()->GetMappedData());
         TEST_CHECK_MSG(suite, "SceneGpuData_MovingPrim_Frame1", prevMatMapped != nullptr && prevMatMapped[0] == t1,
                        "Kare 1'de onceki transform mevcut konum (t1) ile baslatilmalidir.");
+        sceneData.CommitSubmitted();
 
         // Kare 2: surfaceId=42, P2=(20, 0, 0)
         glm::mat4 t2 = glm::translate(glm::mat4(1.0f), glm::vec3(20.0f, 0.0f, 0.0f));
@@ -536,6 +531,7 @@ void RunLifecycleTests() {
         // Frame 2'de GPU prevTransform tamponuna t1 yazilmis olmali
         TEST_CHECK_MSG(suite, "SceneGpuData_MovingPrim_Frame2", prevMatMapped[0] == t1,
                        "Kare 2'de onceki transform Kare 1'in konumu (t1) olmalidir.");
+        sceneData.CommitSubmitted();
 
         // Kare 3: surfaceId=42, P3=(30, 0, 0)
         glm::mat4 t3 = glm::translate(glm::mat4(1.0f), glm::vec3(30.0f, 0.0f, 0.0f));
@@ -545,12 +541,14 @@ void RunLifecycleTests() {
         // Frame 3'te GPU prevTransform tamponuna t2 yazilmis olmali
         TEST_CHECK_MSG(suite, "SceneGpuData_MovingPrim_Frame3", prevMatMapped[0] == t2,
                        "Kare 3'te onceki transform Kare 2'nin konumu (t2) olmalidir.");
+        sceneData.CommitSubmitted();
 
         // 12.3. Silinen ve yeniden eklenen kimlik (Empty sahne gecisiyle reset)
         // Kare 4: Bos sahne yukle (surfaceId=42 silindi)
         sceneData.Upload(std::span<const SDFPrimitiveRecord>(), emptyChangeSet);
         TEST_CHECK_MSG(suite, "SceneGpuData_ClearedHistoryOnEmpty", sceneData.GetActiveEditCount() == 0,
                        "Bos sahne yuklendiginde activeEditCount 0 olmalidir.");
+        sceneData.CommitSubmitted();
 
         // Kare 5: surfaceId=42 tekrar P5=(50, 0, 0) olarak eklenir
         glm::mat4 t5 = glm::translate(glm::mat4(1.0f), glm::vec3(50.0f, 0.0f, 0.0f));
@@ -560,6 +558,7 @@ void RunLifecycleTests() {
         // Gecmis temizlendigi icin eski t2/t3 degil, yeni konumu t5 olmalidir
         TEST_CHECK_MSG(suite, "SceneGpuData_DeletedAndReaddedIdentity", prevMatMapped[0] == t5,
                        "Silinip yeniden eklenen nesne bayat gecmis yerine yeni konumunu (t5) almali.");
+        sceneData.CommitSubmitted();
 
         // 12.4. Legacy map vs persistent map GPU esdegerligi
         SceneGpuData legacyData(context, false);
@@ -623,6 +622,73 @@ void RunLifecycleTests() {
         TEST_CHECK_MSG(suite, "SceneGpuData_SetLights_DataValid",
                        lightArrayMapped != nullptr && lightArrayMapped[0].color == customLight.color,
                        "SetLights sonrasi yuklenen isik verisi dogru olmalidir.");
+    }
+
+    // =========================================================================
+    // 13. G11 Submit / Commit ve Abort Sozlesmesi GPU Testi
+    // =========================================================================
+    {
+        std::cout << "[Test 13] G11 Submit / Commit ve Abort Sozlesmesi..." << std::endl;
+        SDFRenderer renderer(context, "", 320, 240);
+        auto cam = CreateCamera(320, 240);
+
+        // Aday yokken CommitSubmittedFrame cagrisi std::logic_error firlatmali
+        bool caughtCommitWithoutCandidate = false;
+        try {
+            renderer.CommitSubmittedFrame();
+        } catch (const std::logic_error&) {
+            caughtCommitWithoutCandidate = true;
+        }
+        TEST_CHECK_MSG(suite, "G11_Facade_CommitWithoutCandidateThrows", caughtCommitWithoutCandidate,
+                       "Aday yokken CommitSubmittedFrame std::logic_error firlatmalidir.");
+
+        // Aday yokken AbortPreparedFrame no-op (noexcept) olmali
+        renderer.AbortPreparedFrame();
+        TEST_CHECK_MSG(suite, "G11_Facade_AbortWithoutCandidateSafe", !renderer.HasPreparedCandidate(),
+                       "Aday yokken AbortPreparedFrame guvenli no-op olmalidir.");
+
+        // 1. Kare: Sahne kurulumu, Render komut kaydi
+        LegacySDFEdit edit1;
+        edit1.position = glm::vec3(0.0f, 0.0f, 0.0f);
+        edit1.scale = glm::vec3(1.0f);
+        edit1.albedo = glm::vec3(0.5f);
+        renderer.UpdateEdits({edit1});
+        renderer.SetCamera(cam, glm::vec2(0.0f));
+
+        context.ExecuteImmediate([&](vk::CommandBuffer cmd) {
+            renderer.Render(cmd, 0.0f, 0, 320, 240, true, true, false, 1);
+        });
+        TEST_CHECK_MSG(suite, "G11_Facade_CandidatePreparedAfterRender", renderer.HasPreparedCandidate(),
+                       "Render sonrasi HasPreparedCandidate true olmalidir.");
+
+        // Kare 1: Abort senaryosu (simule edilmis submit basarisizligi)
+        renderer.AbortPreparedFrame();
+        TEST_CHECK_MSG(suite, "G11_Facade_CandidateClearedOnAbort", !renderer.HasPreparedCandidate(),
+                       "AbortPreparedFrame sonrasi HasPreparedCandidate false olmalidir.");
+        TEST_CHECK_MSG(suite, "G11_Facade_HistoryNotValidAfterAbort",
+                       renderer.GetTemporalState() && !renderer.GetTemporalState()->HasValidHistory(),
+                       "Iptal edilen kare sonrasinda history gecerli olmamalidir.");
+
+        // 2. Kare: Basarili kayit ve Commit
+        context.ExecuteImmediate([&](vk::CommandBuffer cmd) {
+            renderer.Render(cmd, 0.0f, 0, 320, 240, true, true, false, 2);
+        });
+        renderer.CommitSubmittedFrame();
+        TEST_CHECK_MSG(suite, "G11_Facade_CandidateClearedOnCommit", !renderer.HasPreparedCandidate(),
+                       "Commit sonrasi HasPreparedCandidate false olmalidir.");
+        TEST_CHECK_MSG(suite, "G11_Facade_HistoryValidAfterCommit",
+                       renderer.GetTemporalState() && renderer.GetTemporalState()->HasValidHistory(),
+                       "Commit edilmis gecerli kare sonrasinda history aktiflesmelidir.");
+
+        // Ikinci kez Commit cagrilmasi std::logic_error firlatmali
+        bool caughtDoubleCommit = false;
+        try {
+            renderer.CommitSubmittedFrame();
+        } catch (const std::logic_error&) {
+            caughtDoubleCommit = true;
+        }
+        TEST_CHECK_MSG(suite, "G11_Facade_DoubleCommitThrows", caughtDoubleCommit,
+                       "Ayni kare uzerinde ikinci kez CommitSubmittedFrame std::logic_error firlatmalidir.");
     }
 }
 } // namespace

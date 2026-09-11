@@ -93,6 +93,8 @@ void SceneGpuData::Upload(std::span<const SDFPrimitiveRecord> records, const SDF
 
         if (m_PrevTransformBuffer) {
             std::vector<glm::mat4> prevMatrices(m_ActiveEditCount);
+            m_CandidateWorldTransforms.clear();
+            m_CandidateWorldTransforms.reserve(m_ActiveEditCount);
 
             for (size_t i = 0; i < m_ActiveEditCount; ++i) {
                 const auto& rec = records[i];
@@ -105,7 +107,7 @@ void SceneGpuData::Upload(std::span<const SDFPrimitiveRecord> records, const SDF
                 } else {
                     prevMatrices[i] = currWorldTransform;
                 }
-                m_PrevWorldTransforms[key] = currWorldTransform;
+                m_CandidateWorldTransforms[key] = currWorldTransform;
             }
 
             size_t prevUploadBytes = m_ActiveEditCount * sizeof(glm::mat4);
@@ -117,6 +119,7 @@ void SceneGpuData::Upload(std::span<const SDFPrimitiveRecord> records, const SDF
         }
     } else {
         m_PrevWorldTransforms.clear();
+        m_CandidateWorldTransforms.clear();
     }
 
     if (m_BrickGrid) {
@@ -163,8 +166,20 @@ vk::DescriptorBufferInfo SceneGpuData::GetCameraDescriptor() const {
     return m_CameraUBO ? m_CameraUBO->GetDescriptorInfo() : vk::DescriptorBufferInfo{};
 }
 
+void SceneGpuData::CommitSubmitted() noexcept {
+    if (!m_CandidateWorldTransforms.empty()) {
+        m_PrevWorldTransforms = std::move(m_CandidateWorldTransforms);
+        m_CandidateWorldTransforms.clear();
+    }
+}
+
+void SceneGpuData::AbortPrepared() noexcept {
+    m_CandidateWorldTransforms.clear();
+}
+
 void SceneGpuData::ResetTransformHistory() noexcept {
     m_PrevWorldTransforms.clear();
+    m_CandidateWorldTransforms.clear();
 }
 
 } // namespace Astral

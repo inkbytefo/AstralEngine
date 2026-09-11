@@ -1,6 +1,7 @@
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 #include "Astral/Renderer/VulkanContext.hpp"
 #include "Astral/Renderer/Swapchain.hpp"
+#include "Astral/Renderer/ImageTransitions.hpp"
 #include "Astral/Core/Window.hpp"
 
 #include <iostream>
@@ -154,9 +155,28 @@ void VulkanContext::CreateInstance() {
     createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
     createInfo.ppEnabledExtensionNames = extensions.data();
 
+    vk::ValidationFeatureEnableEXT enabledValidationFeatures[] = {
+        vk::ValidationFeatureEnableEXT::eSynchronizationValidation
+    };
+    vk::ValidationFeaturesEXT validationFeatures{};
+
     if (m_EnableValidation) {
         createInfo.enabledLayerCount = static_cast<uint32_t>(s_ValidationLayers.size());
         createInfo.ppEnabledLayerNames = s_ValidationLayers.data();
+
+        bool hasValidationFeatures = false;
+        for (const char* ext : extensions) {
+            if (std::strcmp(ext, VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME) == 0) {
+                hasValidationFeatures = true;
+                break;
+            }
+        }
+        if (hasValidationFeatures) {
+            validationFeatures.enabledValidationFeatureCount = 1;
+            validationFeatures.pEnabledValidationFeatures = enabledValidationFeatures;
+            createInfo.pNext = &validationFeatures;
+            std::cout << "[Astral::VulkanContext] Synchronization Validation (VK_EXT_validation_features) basariyla etkinlestirildi.\n";
+        }
     } else {
         createInfo.enabledLayerCount = 0;
     }
@@ -360,7 +380,7 @@ void VulkanContext::WriteTimestamp(vk::CommandBuffer cmd, vk::PipelineStageFlagB
     cmd.writeTimestamp(stage, m_TimestampQueryPool.get(), queryIndex);
 }
 
-void VulkanContext::EndAndSubmitFrameCommand() {
+bool VulkanContext::EndAndSubmitFrameCommand() {
     m_CommandBuffer->writeTimestamp(vk::PipelineStageFlagBits::eBottomOfPipe, m_TimestampQueryPool.get(), QUERY_FRAME_END);
     m_CommandBuffer->end();
 
@@ -369,12 +389,43 @@ void VulkanContext::EndAndSubmitFrameCommand() {
     vk::CommandBuffer rawCmd = m_CommandBuffer.get();
     submitInfo.pCommandBuffers = &rawCmd;
 
-    auto resSubmit = m_GraphicsQueue.submit(1, &submitInfo, m_FrameFence.get());
-    (void)resSubmit;
+    try {
+        auto resSubmit = m_GraphicsQueue.submit(1, &submitInfo, m_FrameFence.get());
+        (void)resSubmit;
+    } catch (const vk::DeviceLostError& e) {
+        std::cerr << "[Astral::VulkanContext] Device lost during queue submit: " << e.what() << "\n";
+        m_DeviceLost = true;
+        return false;
+    } catch (const vk::SystemError& e) {
+        if (e.code() == vk::Result::eErrorDeviceLost) {
+            std::cerr << "[Astral::VulkanContext] Device lost during queue submit: " << e.what() << "\n";
+            m_DeviceLost = true;
+        }
+        return false;
+    } catch (const std::exception& e) {
+        std::cerr << "[Astral::VulkanContext] Exception during queue submit: " << e.what() << "\n";
+        return false;
+    }
 
-    // Fence bekle ve GPU surelerini oku
-    auto res = m_Device->waitForFences(1, &m_FrameFence.get(), VK_TRUE, UINT64_MAX);
-    (void)res;
+    // Fence bekle ve GPU surelerini oku (5 saniye zaman asimi ile sonsuz beklemeyi onle)
+    constexpr uint64_t FENCE_TIMEOUT_NS = 5000000000ULL;
+    try {
+        auto res = m_Device->waitForFences(1, &m_FrameFence.get(), VK_TRUE, FENCE_TIMEOUT_NS);
+        if (res == vk::Result::eTimeout) {
+            std::cerr << "[Astral::VulkanContext] WARNING: Fence wait timed out after 5s!\n";
+            return false;
+        }
+    } catch (const vk::DeviceLostError& e) {
+        std::cerr << "[Astral::VulkanContext] Device lost while waiting for fence: " << e.what() << "\n";
+        m_DeviceLost = true;
+        return false;
+    } catch (const vk::SystemError& e) {
+        if (e.code() == vk::Result::eErrorDeviceLost) {
+            std::cerr << "[Astral::VulkanContext] Device lost while waiting for fence: " << e.what() << "\n";
+            m_DeviceLost = true;
+        }
+        return false;
+    }
 
     uint64_t timestamps[2] = {0, 0};
     auto qr = m_Device->getQueryPoolResults(
@@ -392,6 +443,8 @@ void VulkanContext::EndAndSubmitFrameCommand() {
         m_LastGpuTimeMs = (static_cast<double>(deltaTicks) * static_cast<double>(m_TimestampPeriod)) / 1e6;
         m_HasValidGpuTime = true;
     }
+
+    return true;
 }
 
 double VulkanContext::GetLastGpuTimeMs() {
@@ -452,6 +505,14 @@ std::vector<const char*> VulkanContext::GetRequiredExtensions() {
     auto extensions = Window::GetRequiredExtensions();
     if (m_EnableValidation) {
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+
+        auto availableExtensions = vk::enumerateInstanceExtensionProperties();
+        for (const auto& ext : availableExtensions) {
+            if (std::strcmp(ext.extensionName, VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME) == 0) {
+                extensions.push_back(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
+                break;
+            }
+        }
     }
     return extensions;
 }
@@ -564,25 +625,16 @@ void VulkanContext::EndFrameBlit(vk::Image sourceImage, uint32_t srcWidth, uint3
     toTransferDst.srcAccessMask = {};
     toTransferDst.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
 
-    // sourceImage eGeneral duzeninde transfer okumasina hazirlanir
-    vk::ImageMemoryBarrier srcBarrier{};
-    srcBarrier.oldLayout = vk::ImageLayout::eGeneral;
-    srcBarrier.newLayout = vk::ImageLayout::eGeneral;
-    srcBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    srcBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    srcBarrier.image = sourceImage;
-    srcBarrier.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
-    srcBarrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite | vk::AccessFlagBits::eShaderRead;
-    srcBarrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
-
-    std::array<vk::ImageMemoryBarrier, 2> barriers = { toTransferDst, srcBarrier };
     cmd.pipelineBarrier(
-        vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eComputeShader | vk::PipelineStageFlagBits::eTransfer,
+        vk::PipelineStageFlagBits::eTopOfPipe,
         vk::PipelineStageFlagBits::eTransfer,
-        {}, nullptr, nullptr, barriers
+        {}, nullptr, nullptr, toTransferDst
     );
 
-    // 2. Blit sourceImage (m_StorageImage, eGeneral) -> swapImage (eTransferDstOptimal)
+    // sourceImage FragmentRead (eGeneral) -> TransferRead (eTransferSrcOptimal)
+    TransitionImage(cmd, sourceImage, ImageUse::FragmentRead, ImageUse::TransferRead);
+
+    // 2. Blit sourceImage (eTransferSrcOptimal) -> swapImage (eTransferDstOptimal)
     vk::ImageBlit blitRegion{};
     blitRegion.srcSubresource = { vk::ImageAspectFlagBits::eColor, 0, 0, 1 };
     blitRegion.srcOffsets[0] = vk::Offset3D{ 0, 0, 0 };
@@ -592,10 +644,13 @@ void VulkanContext::EndFrameBlit(vk::Image sourceImage, uint32_t srcWidth, uint3
     blitRegion.dstOffsets[1] = vk::Offset3D{ static_cast<int32_t>(extent.width), static_cast<int32_t>(extent.height), 1 };
 
     cmd.blitImage(
-        sourceImage, vk::ImageLayout::eGeneral,
+        sourceImage, vk::ImageLayout::eTransferSrcOptimal,
         swapImage, vk::ImageLayout::eTransferDstOptimal,
         1, &blitRegion, vk::Filter::eLinear
     );
+
+    // sourceImage'i TransferRead -> FragmentRead (eGeneral) duzenine geri dondur
+    TransitionImage(cmd, sourceImage, ImageUse::TransferRead, ImageUse::FragmentRead);
 
     // 3. Swapchain image'i Present oncesi ColorAttachmentOptimal yap
     vk::ImageMemoryBarrier toColorAttachment{};
@@ -615,8 +670,8 @@ void VulkanContext::EndFrameBlit(vk::Image sourceImage, uint32_t srcWidth, uint3
     );
 }
 
-void VulkanContext::EndFramePresent() {
-    if (!m_Swapchain) return;
+bool VulkanContext::EndFramePresent() {
+    if (!m_Swapchain) return false;
 
     auto cmd = m_CommandBuffer.get();
     vk::Image swapImage = m_Swapchain->GetImages()[m_CurrentImageIndex];
@@ -653,10 +708,26 @@ void VulkanContext::EndFramePresent() {
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = &m_RenderFinishedSemaphores[m_CurrentImageIndex].get();
 
-    auto resSubmit = m_GraphicsQueue.submit(1, &submitInfo, m_FrameFence.get());
-    (void)resSubmit;
+    try {
+        auto resSubmit = m_GraphicsQueue.submit(1, &submitInfo, m_FrameFence.get());
+        (void)resSubmit;
+    } catch (const vk::DeviceLostError& e) {
+        std::cerr << "[Astral::VulkanContext] Device lost during queue submit: " << e.what() << "\n";
+        m_DeviceLost = true;
+        return false;
+    } catch (const vk::SystemError& e) {
+        if (e.code() == vk::Result::eErrorDeviceLost) {
+            std::cerr << "[Astral::VulkanContext] Device lost during queue submit: " << e.what() << "\n";
+            m_DeviceLost = true;
+        }
+        return false;
+    } catch (const std::exception& e) {
+        std::cerr << "[Astral::VulkanContext] Exception during queue submit: " << e.what() << "\n";
+        return false;
+    }
 
     // 3. Present
+    // G11: Vulkan submit sonucunu kontrol et. Present out-of-date, basarili submit'i geri almaz!
     vk::PresentInfoKHR presentInfo{};
     presentInfo.waitSemaphoreCount = 1;
     presentInfo.pWaitSemaphores = &m_RenderFinishedSemaphores[m_CurrentImageIndex].get();
@@ -673,12 +744,40 @@ void VulkanContext::EndFramePresent() {
             RecreateSwapchain();
         }
     } catch (const vk::OutOfDateKHRError&) {
+        // Present out-of-date, basarili kuyruk gonderimini geri almaz!
+        RecreateSwapchain();
+    } catch (const vk::DeviceLostError& e) {
+        std::cerr << "[Astral::VulkanContext] Device lost during present: " << e.what() << "\n";
+        m_DeviceLost = true;
+        return false;
+    } catch (const vk::SystemError& e) {
+        if (e.code() == vk::Result::eErrorDeviceLost) {
+            std::cerr << "[Astral::VulkanContext] Device lost during present: " << e.what() << "\n";
+            m_DeviceLost = true;
+            return false;
+        }
         RecreateSwapchain();
     }
 
-    // 4. Fence bekle ve GPU zamanini oku
-    auto res = m_Device->waitForFences(1, &m_FrameFence.get(), VK_TRUE, UINT64_MAX);
-    (void)res;
+    // 4. Fence bekle ve GPU zamanini oku (5 saniye zaman asimi ile sonsuz beklemeyi onle)
+    constexpr uint64_t FENCE_TIMEOUT_NS = 5000000000ULL;
+    try {
+        auto res = m_Device->waitForFences(1, &m_FrameFence.get(), VK_TRUE, FENCE_TIMEOUT_NS);
+        if (res == vk::Result::eTimeout) {
+            std::cerr << "[Astral::VulkanContext] WARNING: Fence wait timed out after 5s!\n";
+            return false;
+        }
+    } catch (const vk::DeviceLostError& e) {
+        std::cerr << "[Astral::VulkanContext] Device lost while waiting for fence: " << e.what() << "\n";
+        m_DeviceLost = true;
+        return false;
+    } catch (const vk::SystemError& e) {
+        if (e.code() == vk::Result::eErrorDeviceLost) {
+            std::cerr << "[Astral::VulkanContext] Device lost while waiting for fence: " << e.what() << "\n";
+            m_DeviceLost = true;
+        }
+        return false;
+    }
 
     uint64_t timestamps[2] = {0, 0};
     auto qr = m_Device->getQueryPoolResults(
@@ -696,6 +795,8 @@ void VulkanContext::EndFramePresent() {
         m_LastGpuTimeMs = (static_cast<double>(deltaTicks) * static_cast<double>(m_TimestampPeriod)) / 1e6;
         m_HasValidGpuTime = true;
     }
+
+    return true;
 }
 
 void VulkanContext::CreateAllocator() {

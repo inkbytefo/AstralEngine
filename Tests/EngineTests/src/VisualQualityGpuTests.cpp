@@ -21,26 +21,17 @@ Pixels Readback(VulkanContext& context, const SDFRenderer& renderer) {
                   vk::BufferUsageFlagBits::eTransferDst,
                   vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
     context.ExecuteImmediate([&](vk::CommandBuffer cmd) {
-        vk::ImageMemoryBarrier barrier{};
-        barrier.oldLayout = vk::ImageLayout::eGeneral;
-        barrier.newLayout = vk::ImageLayout::eTransferSrcOptimal;
-        barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = renderer.GetStorageImage();
-        barrier.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
-        barrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
-        barrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eTransfer,
-                            {}, {}, {}, barrier);
+        TransitionImage(cmd, renderer.GetStorageImage(),
+            ImageUse::FragmentRead, ImageUse::TransferRead);
+
         vk::BufferImageCopy region{};
         region.imageSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1};
         region.imageExtent = vk::Extent3D(renderer.GetWidth(), renderer.GetHeight(), 1);
         cmd.copyImageToBuffer(renderer.GetStorageImage(), vk::ImageLayout::eTransferSrcOptimal,
                               buffer.GetBuffer(), region);
-        std::swap(barrier.oldLayout, barrier.newLayout);
-        barrier.srcAccessMask = vk::AccessFlagBits::eTransferRead;
-        barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite;
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eAllCommands,
-                            {}, {}, {}, barrier);
+
+        TransitionImage(cmd, renderer.GetStorageImage(),
+            ImageUse::TransferRead, ImageUse::FragmentRead);
     });
     const auto* data = static_cast<const unsigned char*>(buffer.GetMappedData());
     return {data, data + bytes};
@@ -62,25 +53,16 @@ void CheckStationaryMotion(VulkanContext& context, const SDFRenderer& renderer) 
                   vk::BufferUsageFlagBits::eTransferDst,
                   vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
     context.ExecuteImmediate([&](vk::CommandBuffer cmd) {
-        vk::ImageMemoryBarrier barrier{};
-        barrier.oldLayout = vk::ImageLayout::eGeneral;
-        barrier.newLayout = vk::ImageLayout::eTransferSrcOptimal;
-        barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = renderer.GetGBufferMotion();
-        barrier.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
-        barrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
-        barrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eTransfer,
-                            {}, {}, {}, barrier);
+        TransitionImage(cmd, renderer.GetGBufferMotion(),
+            ImageUse::ComputeRead, ImageUse::TransferRead);
+
         vk::BufferImageCopy region{};
         region.imageSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1};
         region.imageExtent = vk::Extent3D(renderer.GetWidth(), renderer.GetHeight(), 1);
-        cmd.copyImageToBuffer(barrier.image, barrier.newLayout, buffer.GetBuffer(), region);
-        std::swap(barrier.oldLayout, barrier.newLayout);
-        barrier.srcAccessMask = vk::AccessFlagBits::eTransferRead;
-        barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite;
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eAllCommands,
-                            {}, {}, {}, barrier);
+        cmd.copyImageToBuffer(renderer.GetGBufferMotion(), vk::ImageLayout::eTransferSrcOptimal, buffer.GetBuffer(), region);
+
+        TransitionImage(cmd, renderer.GetGBufferMotion(),
+            ImageUse::TransferRead, ImageUse::ComputeRead);
     });
     const auto* packed = static_cast<const uint32_t*>(buffer.GetMappedData());
     for (size_t i = 0; i < count; ++i) {
@@ -144,6 +126,7 @@ public:
         m_Context.ExecuteImmediate([&](vk::CommandBuffer cmd) {
             m_Renderer.Render(cmd, frame / 60.0f, 0, m_Renderer.GetWidth(), m_Renderer.GetHeight(), grid, true, taa, frame);
         });
+        m_Renderer.CommitSubmittedFrame();
         return Readback(m_Context, m_Renderer);
     }
 

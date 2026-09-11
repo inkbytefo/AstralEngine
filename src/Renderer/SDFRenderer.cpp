@@ -44,26 +44,13 @@ SDFRenderer::SDFRenderer(VulkanContext& context, const std::string& spvPath, int
     m_RenderTargets = std::make_unique<RenderTargets>(m_Context, static_cast<uint32_t>(m_Width), static_cast<uint32_t>(m_Height));
     m_SceneGpuData = std::make_unique<SceneGpuData>(m_Context, persistentMap);
 
-    // PR-9: Selection Buffer (32 bayt, persistent mapped, host-visible & coherent)
-    m_SelectionBuffer = std::make_unique<Buffer>(
-        m_Context.GetAllocator(),
-        m_Device,
-        m_PhysicalDevice,
-        sizeof(SelectionDataGPU),
-        vk::BufferUsageFlagBits::eStorageBuffer,
-        vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-        true
-    );
-    if (m_SelectionBuffer->GetMappedData()) {
-        SelectionDataGPU initData{};
-        initData.hitIndex = -1;
-        std::memcpy(m_SelectionBuffer->GetMappedData(), &initData, sizeof(SelectionDataGPU));
-    }
+    // PR-9 / G08: PickingReadback (Selection Buffer ve İstek/Sonuç Yaşam Döngüsü)
+    m_PickingReadback = std::make_unique<PickingReadback>(m_Context);
 
     // Faz 2: IBL kurulumu (Isik tamponu SceneGpuData tarafindan yonetilir)
     m_IBLManager = std::make_unique<IBLManager>(m_Context);
 
-    m_TemporalHistory = std::make_unique<SDFTemporalHistory>();
+    m_TemporalState = std::make_unique<TemporalState>();
 
     // 1. ImGui Viewport Sampler ve TAA Linear Clamp Sampler
     vk::SamplerCreateInfo samplerInfo{};
@@ -81,11 +68,11 @@ SDFRenderer::SDFRenderer(VulkanContext& context, const std::string& spvPath, int
     m_ViewportSampler = m_Device.createSamplerUnique(samplerInfo);
     m_LinearClampSampler = m_Device.createSamplerUnique(samplerInfo);
 
-    CreateTAAPipeline();
-    CreateGBufferPipeline();
-    CreateDebugCompositePipeline();
-    CreateDeferredLightingPipeline();
-    CreateDescriptorPoolAndSets();
+    m_GBufferPass = std::make_unique<GBufferPass>(m_Device, m_GBufferSpvPath);
+    m_DeferredLightingPass = std::make_unique<DeferredLightingPass>(m_Device, m_DeferredLightingSpvPath);
+    m_DebugCompositePass = std::make_unique<DebugCompositePass>(m_Device, m_DebugCompositeSpvPath);
+    m_TemporalResolvePass = std::make_unique<TemporalResolvePass>(m_Device, m_TaaSpvPath);
+    UpdatePassResources();
 
     std::cout << "[Astral::SDFRenderer] SDF Renderer baslatildi (" << m_Width << "x" << m_Height 
               << ", EditBuffer: " << (MAX_EDITS * sizeof(SDFPrimitiveRecord)) / 1024 << " KB"
@@ -97,14 +84,14 @@ SDFRenderer::~SDFRenderer() {
     m_ViewportSampler.reset();
     m_LinearClampSampler.reset();
 
-    m_DescriptorPool.reset();
-    m_DeferredLightingProgram.reset();
-    m_DebugCompositeProgram.reset();
-    m_GBufferProgram.reset();
-    m_TaaProgram.reset();
+    m_TemporalResolvePass.reset();
+    m_DeferredLightingPass.reset();
+    m_DebugCompositePass.reset();
+    m_GBufferPass.reset();
 
+    m_TemporalState.reset();
     m_IBLManager.reset();
-    m_SelectionBuffer.reset();
+    m_PickingReadback.reset();
     m_SceneGpuData.reset();
     m_RenderTargets.reset();
 }
@@ -115,445 +102,66 @@ void SDFRenderer::SetLights(const std::vector<LightGPU>& lights) {
     }
 }
 
-void SDFRenderer::CreateTAAPipeline() {
-    ComputeProgramDesc desc;
-    desc.shaderPath = m_TaaSpvPath;
-    desc.pushConstantBytes = sizeof(TAAPushConstants);
-    desc.bindings.resize(11);
+void SDFRenderer::UpdatePassResources() {
+    if (!m_RenderTargets || !m_SceneGpuData) return;
 
-    desc.bindings[0] = {0, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute};
-    desc.bindings[1] = {1, vk::DescriptorType::eCombinedImageSampler, 1, vk::ShaderStageFlagBits::eCompute};
-    desc.bindings[2] = {2, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute};
-    desc.bindings[3] = {3, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute};
-    for (uint32_t i = 4; i < 11; ++i) {
-        desc.bindings[i] = {i, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute};
-    }
-
-    m_TaaProgram = std::make_unique<ComputeProgram>(m_Device, desc);
-}
-
-void SDFRenderer::CreateGBufferPipeline() {
-    ComputeProgramDesc desc;
-    desc.shaderPath = m_GBufferSpvPath;
-    desc.pushConstantBytes = sizeof(SDFPushConstants);
-    desc.bindings.resize(10);
-    for (uint32_t i = 0; i < 5; ++i) {
-        desc.bindings[i] = {i, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute};
-    }
-    for (uint32_t i = 5; i < 8; ++i) {
-        desc.bindings[i] = {i, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eCompute};
-    }
-    desc.bindings[8] = {8, vk::DescriptorType::eUniformBuffer, 1, vk::ShaderStageFlagBits::eCompute};
-    desc.bindings[9] = {9, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eCompute};
-
-    m_GBufferProgram = std::make_unique<ComputeProgram>(m_Device, desc);
-}
-
-void SDFRenderer::CreateDebugCompositePipeline() {
-    ComputeProgramDesc desc;
-    desc.shaderPath = m_DebugCompositeSpvPath;
-    desc.pushConstantBytes = sizeof(DebugCompositePushConstants);
-    desc.bindings.resize(6);
-    for (uint32_t i = 0; i < 6; ++i) {
-        desc.bindings[i] = {i, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute};
-    }
-
-    m_DebugCompositeProgram = std::make_unique<ComputeProgram>(m_Device, desc);
-}
-
-void SDFRenderer::CreateDeferredLightingPipeline() {
-    ComputeProgramDesc desc;
-    desc.shaderPath = m_DeferredLightingSpvPath;
-    desc.pushConstantBytes = sizeof(DeferredLightingPushConstants);
-    desc.bindings.resize(11);
-
-    for (uint32_t i = 0; i < 5; ++i) {
-        desc.bindings[i] = {i, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute};
-    }
-    for (uint32_t i = 5; i < 8; ++i) {
-        desc.bindings[i] = {i, vk::DescriptorType::eCombinedImageSampler, 1, vk::ShaderStageFlagBits::eCompute};
-    }
-    for (uint32_t i = 8; i < 11; ++i) {
-        desc.bindings[i] = {i, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eCompute};
-    }
-
-    m_DeferredLightingProgram = std::make_unique<ComputeProgram>(m_Device, desc);
-}
-
-void SDFRenderer::CreateDescriptorPoolAndSets() {
-    std::array<vk::DescriptorPoolSize, 4> poolSizes{};
-    poolSizes[0].type = vk::DescriptorType::eStorageImage;
-    poolSizes[0].descriptorCount = 64;
-    poolSizes[1].type = vk::DescriptorType::eStorageBuffer;
-    poolSizes[1].descriptorCount = 48;
-    poolSizes[2].type = vk::DescriptorType::eUniformBuffer;
-    poolSizes[2].descriptorCount = 8;
-    poolSizes[3].type = vk::DescriptorType::eCombinedImageSampler;
-    poolSizes[3].descriptorCount = 16;
-
-    vk::DescriptorPoolCreateInfo poolInfo(
-        vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-        16,
-        static_cast<uint32_t>(poolSizes.size()),
-        poolSizes.data()
-    );
-    m_DescriptorPool = m_Device.createDescriptorPoolUnique(poolInfo);
-
-    // 1. TAA Descriptor Sets (Ping-Pong 0 & 1)
-    auto taaLayout = m_TaaProgram->GetSetLayout();
-    for (uint32_t i = 0; i < 2; ++i) {
-        vk::DescriptorSetAllocateInfo taaAllocInfo(m_DescriptorPool.get(), 1, &taaLayout);
-        auto taaSets = m_Device.allocateDescriptorSets(taaAllocInfo);
-        m_TaaDescriptorSet[i] = taaSets[0];
-    }
-
-    // 2. G-Buffer Descriptor Set
-    auto gbufLayout = m_GBufferProgram->GetSetLayout();
-    vk::DescriptorSetAllocateInfo gbufAllocInfo(m_DescriptorPool.get(), 1, &gbufLayout);
-    auto gbufSets = m_Device.allocateDescriptorSets(gbufAllocInfo);
-    m_GBufferDescriptorSet = gbufSets[0];
-
-    // 3. DebugComposite Descriptor Set
-    auto debugLayout = m_DebugCompositeProgram->GetSetLayout();
-    vk::DescriptorSetAllocateInfo debugAllocInfo(m_DescriptorPool.get(), 1, &debugLayout);
-    auto debugSets = m_Device.allocateDescriptorSets(debugAllocInfo);
-    m_DebugCompositeDescriptorSet = debugSets[0];
-
-    // 4. DeferredLighting Descriptor Set
-    auto defLayout = m_DeferredLightingProgram->GetSetLayout();
-    vk::DescriptorSetAllocateInfo defAllocInfo(m_DescriptorPool.get(), 1, &defLayout);
-    auto defSets = m_Device.allocateDescriptorSets(defAllocInfo);
-    m_DeferredLightingDescriptorSet = defSets[0];
-
-    UpdateTAADescriptorSets();
-    UpdateGBufferDescriptorSets();
-    UpdateDebugCompositeDescriptorSets();
-    UpdateDeferredLightingDescriptorSets();
-}
-
-void SDFRenderer::UpdateTAADescriptorSets() {
-    if (!m_RenderTargets) return;
     auto gbuf = m_RenderTargets->GetGBuffer();
     auto rawColor = m_RenderTargets->GetRawColor();
-    auto storage = m_RenderTargets->GetOutput();
+    auto output = m_RenderTargets->GetOutput();
+    auto sceneViews = m_SceneGpuData->GetViews();
+    auto camDesc = m_SceneGpuData->GetCameraDescriptor();
+    auto selDesc = m_PickingReadback ? m_PickingReadback->GetDescriptorInfo() : vk::DescriptorBufferInfo{};
 
-    // TAA Setleri Guncelleme (Ping-Pong 0 ve 1)
-    // TAA Set 0: curr=RawColor, hist=History[0] (Sampler), out=Storage, outHist=History[1], motion=GBufMotion
-    // TAA Set 1: curr=RawColor, hist=History[1] (Sampler), out=Storage, outHist=History[0], motion=GBufMotion
-    for (uint32_t i = 0; i < 2; ++i) {
-        uint32_t readIdx = i;
-        uint32_t writeIdx = 1 - i;
-
-        vk::DescriptorImageInfo taaCurrInfo(nullptr, rawColor.view, vk::ImageLayout::eGeneral);
-        vk::DescriptorImageInfo taaHistInfo(m_LinearClampSampler.get(), m_RenderTargets->GetHistoryColor(readIdx).view, vk::ImageLayout::eGeneral);
-        vk::DescriptorImageInfo taaOutInfo(nullptr, storage.view, vk::ImageLayout::eGeneral);
-        vk::DescriptorImageInfo taaOutHistInfo(nullptr, m_RenderTargets->GetHistoryColor(writeIdx).view, vk::ImageLayout::eGeneral);
-        vk::DescriptorImageInfo taaMotionInfo(nullptr, gbuf.motion.view, vk::ImageLayout::eGeneral);
-
-        vk::DescriptorImageInfo depthInfo(nullptr, gbuf.depth.view, vk::ImageLayout::eGeneral);
-        vk::DescriptorImageInfo normalInfo(nullptr, gbuf.normal.view, vk::ImageLayout::eGeneral);
-        vk::DescriptorImageInfo materialInfo(nullptr, gbuf.material.view, vk::ImageLayout::eGeneral);
-        vk::DescriptorImageInfo albedoInfo(nullptr, gbuf.albedo.view, vk::ImageLayout::eGeneral);
-        vk::DescriptorImageInfo histExtraReadInfo(nullptr, m_RenderTargets->GetHistoryExtra(readIdx).view, vk::ImageLayout::eGeneral);
-        vk::DescriptorImageInfo histExtraWriteInfo(nullptr, m_RenderTargets->GetHistoryExtra(writeIdx).view, vk::ImageLayout::eGeneral);
-
-        std::array<vk::WriteDescriptorSet, 11> taaWriteSets{};
-        taaWriteSets[0].dstSet = m_TaaDescriptorSet[i];
-        taaWriteSets[0].dstBinding = 0;
-        taaWriteSets[0].dstArrayElement = 0;
-        taaWriteSets[0].descriptorCount = 1;
-        taaWriteSets[0].descriptorType = vk::DescriptorType::eStorageImage;
-        taaWriteSets[0].pImageInfo = &taaCurrInfo;
-
-        taaWriteSets[1].dstSet = m_TaaDescriptorSet[i];
-        taaWriteSets[1].dstBinding = 1;
-        taaWriteSets[1].dstArrayElement = 0;
-        taaWriteSets[1].descriptorCount = 1;
-        taaWriteSets[1].descriptorType = vk::DescriptorType::eCombinedImageSampler;
-        taaWriteSets[1].pImageInfo = &taaHistInfo;
-
-        taaWriteSets[2].dstSet = m_TaaDescriptorSet[i];
-        taaWriteSets[2].dstBinding = 2;
-        taaWriteSets[2].dstArrayElement = 0;
-        taaWriteSets[2].descriptorCount = 1;
-        taaWriteSets[2].descriptorType = vk::DescriptorType::eStorageImage;
-        taaWriteSets[2].pImageInfo = &taaOutInfo;
-
-        taaWriteSets[3].dstSet = m_TaaDescriptorSet[i];
-        taaWriteSets[3].dstBinding = 3;
-        taaWriteSets[3].dstArrayElement = 0;
-        taaWriteSets[3].descriptorCount = 1;
-        taaWriteSets[3].descriptorType = vk::DescriptorType::eStorageImage;
-        taaWriteSets[3].pImageInfo = &taaOutHistInfo;
-
-        taaWriteSets[4].dstSet = m_TaaDescriptorSet[i];
-        taaWriteSets[4].dstBinding = 4;
-        taaWriteSets[4].dstArrayElement = 0;
-        taaWriteSets[4].descriptorCount = 1;
-        taaWriteSets[4].descriptorType = vk::DescriptorType::eStorageImage;
-        taaWriteSets[4].pImageInfo = &taaMotionInfo;
-
-        taaWriteSets[5] = taaWriteSets[4];
-        taaWriteSets[5].dstBinding = 5;
-        taaWriteSets[5].pImageInfo = &depthInfo;
-
-        taaWriteSets[6] = taaWriteSets[4];
-        taaWriteSets[6].dstBinding = 6;
-        taaWriteSets[6].pImageInfo = &normalInfo;
-
-        taaWriteSets[7] = taaWriteSets[4];
-        taaWriteSets[7].dstBinding = 7;
-        taaWriteSets[7].pImageInfo = &materialInfo;
-
-        taaWriteSets[8] = taaWriteSets[4];
-        taaWriteSets[8].dstBinding = 8;
-        taaWriteSets[8].pImageInfo = &albedoInfo;
-
-        taaWriteSets[9] = taaWriteSets[4];
-        taaWriteSets[9].dstBinding = 9;
-        taaWriteSets[9].pImageInfo = &histExtraReadInfo;
-
-        taaWriteSets[10] = taaWriteSets[4];
-        taaWriteSets[10].dstBinding = 10;
-        taaWriteSets[10].pImageInfo = &histExtraWriteInfo;
-
-        m_Device.updateDescriptorSets(static_cast<uint32_t>(taaWriteSets.size()), taaWriteSets.data(), 0, nullptr);
+    if (m_GBufferPass) {
+        GBufferInputs gbufInputs{
+            .targets = gbuf,
+            .scene = sceneViews,
+            .camera = camDesc,
+            .selection = selDesc
+        };
+        m_GBufferPass->BindResources(gbufInputs);
     }
-}
 
-void SDFRenderer::UpdateGBufferDescriptorSets() {
-    if (!m_RenderTargets || !m_SceneGpuData) return;
-    auto gbuf = m_RenderTargets->GetGBuffer();
-    auto sceneViews = m_SceneGpuData->GetViews();
+    if (m_DeferredLightingPass && m_IBLManager) {
+        LightingInputs lightInputs{
+            .gbuffer = gbuf,
+            .output = rawColor,
+            .scene = sceneViews,
+            .irradiance = m_IBLManager->GetIrradianceDescriptor(),
+            .prefiltered = m_IBLManager->GetPrefilteredDescriptor(),
+            .brdf = m_IBLManager->GetBRDFLUTDescriptor(),
+            .prefilteredMipLevels = m_IBLManager->GetPrefilteredMipLevels()
+        };
+        m_DeferredLightingPass->BindResources(lightInputs);
+    }
 
-    vk::DescriptorImageInfo albedoInfo(nullptr, gbuf.albedo.view, vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo normalInfo(nullptr, gbuf.normal.view, vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo materialInfo(nullptr, gbuf.material.view, vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo depthInfo(nullptr, gbuf.depth.view, vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo motionInfo(nullptr, gbuf.motion.view, vk::ImageLayout::eGeneral);
+    if (m_DebugCompositePass) {
+        DebugInputs debugInputs{
+            .gbuffer = gbuf,
+            .output = rawColor
+        };
+        m_DebugCompositePass->BindResources(debugInputs);
+    }
 
-    auto editBufInfo = sceneViews.primitives;
-    auto gridBufInfo = sceneViews.grid;
-    auto selBufInfo = m_SelectionBuffer->GetDescriptorInfo();
-    auto camBufInfo = m_SceneGpuData->GetCameraDescriptor();
-    auto histBufInfo = sceneViews.previousTransforms;
-
-    std::array<vk::WriteDescriptorSet, 10> writeSets{};
-    writeSets[0].dstSet = m_GBufferDescriptorSet;
-    writeSets[0].dstBinding = 0;
-    writeSets[0].descriptorCount = 1;
-    writeSets[0].descriptorType = vk::DescriptorType::eStorageImage;
-    writeSets[0].pImageInfo = &albedoInfo;
-
-    writeSets[1].dstSet = m_GBufferDescriptorSet;
-    writeSets[1].dstBinding = 1;
-    writeSets[1].descriptorCount = 1;
-    writeSets[1].descriptorType = vk::DescriptorType::eStorageImage;
-    writeSets[1].pImageInfo = &normalInfo;
-
-    writeSets[2].dstSet = m_GBufferDescriptorSet;
-    writeSets[2].dstBinding = 2;
-    writeSets[2].descriptorCount = 1;
-    writeSets[2].descriptorType = vk::DescriptorType::eStorageImage;
-    writeSets[2].pImageInfo = &materialInfo;
-
-    writeSets[3].dstSet = m_GBufferDescriptorSet;
-    writeSets[3].dstBinding = 3;
-    writeSets[3].descriptorCount = 1;
-    writeSets[3].descriptorType = vk::DescriptorType::eStorageImage;
-    writeSets[3].pImageInfo = &depthInfo;
-
-    writeSets[4].dstSet = m_GBufferDescriptorSet;
-    writeSets[4].dstBinding = 4;
-    writeSets[4].descriptorCount = 1;
-    writeSets[4].descriptorType = vk::DescriptorType::eStorageImage;
-    writeSets[4].pImageInfo = &motionInfo;
-
-    writeSets[5].dstSet = m_GBufferDescriptorSet;
-    writeSets[5].dstBinding = 5;
-    writeSets[5].descriptorCount = 1;
-    writeSets[5].descriptorType = vk::DescriptorType::eStorageBuffer;
-    writeSets[5].pBufferInfo = &editBufInfo;
-
-    writeSets[6].dstSet = m_GBufferDescriptorSet;
-    writeSets[6].dstBinding = 6;
-    writeSets[6].descriptorCount = 1;
-    writeSets[6].descriptorType = vk::DescriptorType::eStorageBuffer;
-    writeSets[6].pBufferInfo = &gridBufInfo;
-
-    writeSets[7].dstSet = m_GBufferDescriptorSet;
-    writeSets[7].dstBinding = 7;
-    writeSets[7].descriptorCount = 1;
-    writeSets[7].descriptorType = vk::DescriptorType::eStorageBuffer;
-    writeSets[7].pBufferInfo = &selBufInfo;
-
-    writeSets[8].dstSet = m_GBufferDescriptorSet;
-    writeSets[8].dstBinding = 8;
-    writeSets[8].descriptorCount = 1;
-    writeSets[8].descriptorType = vk::DescriptorType::eUniformBuffer;
-    writeSets[8].pBufferInfo = &camBufInfo;
-
-    writeSets[9].dstSet = m_GBufferDescriptorSet;
-    writeSets[9].dstBinding = 9;
-    writeSets[9].descriptorCount = 1;
-    writeSets[9].descriptorType = vk::DescriptorType::eStorageBuffer;
-    writeSets[9].pBufferInfo = &histBufInfo;
-
-    m_Device.updateDescriptorSets(static_cast<uint32_t>(writeSets.size()), writeSets.data(), 0, nullptr);
-}
-
-void SDFRenderer::UpdateDebugCompositeDescriptorSets() {
-    if (!m_RenderTargets) return;
-    auto gbuf = m_RenderTargets->GetGBuffer();
-
-    vk::DescriptorImageInfo albedoInfo(nullptr, gbuf.albedo.view, vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo normalInfo(nullptr, gbuf.normal.view, vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo materialInfo(nullptr, gbuf.material.view, vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo depthInfo(nullptr, gbuf.depth.view, vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo motionInfo(nullptr, gbuf.motion.view, vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo outInfo(nullptr, m_RenderTargets->GetRawColor().view, vk::ImageLayout::eGeneral);
-
-    std::array<vk::WriteDescriptorSet, 6> writeSets{};
-    writeSets[0].dstSet = m_DebugCompositeDescriptorSet;
-    writeSets[0].dstBinding = 0;
-    writeSets[0].descriptorCount = 1;
-    writeSets[0].descriptorType = vk::DescriptorType::eStorageImage;
-    writeSets[0].pImageInfo = &albedoInfo;
-
-    writeSets[1].dstSet = m_DebugCompositeDescriptorSet;
-    writeSets[1].dstBinding = 1;
-    writeSets[1].descriptorCount = 1;
-    writeSets[1].descriptorType = vk::DescriptorType::eStorageImage;
-    writeSets[1].pImageInfo = &normalInfo;
-
-    writeSets[2].dstSet = m_DebugCompositeDescriptorSet;
-    writeSets[2].dstBinding = 2;
-    writeSets[2].descriptorCount = 1;
-    writeSets[2].descriptorType = vk::DescriptorType::eStorageImage;
-    writeSets[2].pImageInfo = &materialInfo;
-
-    writeSets[3].dstSet = m_DebugCompositeDescriptorSet;
-    writeSets[3].dstBinding = 3;
-    writeSets[3].descriptorCount = 1;
-    writeSets[3].descriptorType = vk::DescriptorType::eStorageImage;
-    writeSets[3].pImageInfo = &depthInfo;
-
-    writeSets[4].dstSet = m_DebugCompositeDescriptorSet;
-    writeSets[4].dstBinding = 4;
-    writeSets[4].descriptorCount = 1;
-    writeSets[4].descriptorType = vk::DescriptorType::eStorageImage;
-    writeSets[4].pImageInfo = &motionInfo;
-
-    writeSets[5].dstSet = m_DebugCompositeDescriptorSet;
-    writeSets[5].dstBinding = 5;
-    writeSets[5].descriptorCount = 1;
-    writeSets[5].descriptorType = vk::DescriptorType::eStorageImage;
-    writeSets[5].pImageInfo = &outInfo;
-
-    m_Device.updateDescriptorSets(static_cast<uint32_t>(writeSets.size()), writeSets.data(), 0, nullptr);
-}
-
-void SDFRenderer::UpdateDeferredLightingDescriptorSets() {
-    if (!m_DeferredLightingDescriptorSet || !m_RenderTargets) return;
-    auto gbuf = m_RenderTargets->GetGBuffer();
-
-    vk::DescriptorImageInfo albedoInfo(nullptr, gbuf.albedo.view, vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo normalInfo(nullptr, gbuf.normal.view, vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo materialInfo(nullptr, gbuf.material.view, vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo depthInfo(nullptr, gbuf.depth.view, vk::ImageLayout::eGeneral);
-    vk::DescriptorImageInfo outColorInfo(nullptr, m_RenderTargets->GetRawColor().view, vk::ImageLayout::eGeneral);
-
-    vk::DescriptorImageInfo irradianceInfo(
-        m_IBLManager->GetCubemapSampler(),
-        m_IBLManager->GetIrradianceView(),
-        vk::ImageLayout::eShaderReadOnlyOptimal
-    );
-    vk::DescriptorImageInfo prefilteredInfo(
-        m_IBLManager->GetCubemapSampler(),
-        m_IBLManager->GetPrefilteredView(),
-        vk::ImageLayout::eShaderReadOnlyOptimal
-    );
-    vk::DescriptorImageInfo brdfLutInfo(
-        m_IBLManager->GetBRDFLutSampler(),
-        m_IBLManager->GetBRDFLutView(),
-        vk::ImageLayout::eShaderReadOnlyOptimal
-    );
-
-    if (!m_RenderTargets || !m_SceneGpuData) return;
-    auto sceneViews = m_SceneGpuData->GetViews();
-    auto lightBufInfo = sceneViews.lights;
-    auto editBufInfo = sceneViews.primitives;
-    auto gridBufInfo = sceneViews.grid;
-
-    std::array<vk::WriteDescriptorSet, 11> writeSets{};
-
-    writeSets[0].dstSet = m_DeferredLightingDescriptorSet;
-    writeSets[0].dstBinding = 0;
-    writeSets[0].descriptorCount = 1;
-    writeSets[0].descriptorType = vk::DescriptorType::eStorageImage;
-    writeSets[0].pImageInfo = &albedoInfo;
-
-    writeSets[1].dstSet = m_DeferredLightingDescriptorSet;
-    writeSets[1].dstBinding = 1;
-    writeSets[1].descriptorCount = 1;
-    writeSets[1].descriptorType = vk::DescriptorType::eStorageImage;
-    writeSets[1].pImageInfo = &normalInfo;
-
-    writeSets[2].dstSet = m_DeferredLightingDescriptorSet;
-    writeSets[2].dstBinding = 2;
-    writeSets[2].descriptorCount = 1;
-    writeSets[2].descriptorType = vk::DescriptorType::eStorageImage;
-    writeSets[2].pImageInfo = &materialInfo;
-
-    writeSets[3].dstSet = m_DeferredLightingDescriptorSet;
-    writeSets[3].dstBinding = 3;
-    writeSets[3].descriptorCount = 1;
-    writeSets[3].descriptorType = vk::DescriptorType::eStorageImage;
-    writeSets[3].pImageInfo = &depthInfo;
-
-    writeSets[4].dstSet = m_DeferredLightingDescriptorSet;
-    writeSets[4].dstBinding = 4;
-    writeSets[4].descriptorCount = 1;
-    writeSets[4].descriptorType = vk::DescriptorType::eStorageImage;
-    writeSets[4].pImageInfo = &outColorInfo;
-
-    writeSets[5].dstSet = m_DeferredLightingDescriptorSet;
-    writeSets[5].dstBinding = 5;
-    writeSets[5].descriptorCount = 1;
-    writeSets[5].descriptorType = vk::DescriptorType::eCombinedImageSampler;
-    writeSets[5].pImageInfo = &irradianceInfo;
-
-    writeSets[6].dstSet = m_DeferredLightingDescriptorSet;
-    writeSets[6].dstBinding = 6;
-    writeSets[6].descriptorCount = 1;
-    writeSets[6].descriptorType = vk::DescriptorType::eCombinedImageSampler;
-    writeSets[6].pImageInfo = &prefilteredInfo;
-
-    writeSets[7].dstSet = m_DeferredLightingDescriptorSet;
-    writeSets[7].dstBinding = 7;
-    writeSets[7].descriptorCount = 1;
-    writeSets[7].descriptorType = vk::DescriptorType::eCombinedImageSampler;
-    writeSets[7].pImageInfo = &brdfLutInfo;
-
-    writeSets[8].dstSet = m_DeferredLightingDescriptorSet;
-    writeSets[8].dstBinding = 8;
-    writeSets[8].descriptorCount = 1;
-    writeSets[8].descriptorType = vk::DescriptorType::eStorageBuffer;
-    writeSets[8].pBufferInfo = &lightBufInfo;
-
-    writeSets[9].dstSet = m_DeferredLightingDescriptorSet;
-    writeSets[9].dstBinding = 9;
-    writeSets[9].descriptorCount = 1;
-    writeSets[9].descriptorType = vk::DescriptorType::eStorageBuffer;
-    writeSets[9].pBufferInfo = &editBufInfo;
-
-    writeSets[10].dstSet = m_DeferredLightingDescriptorSet;
-    writeSets[10].dstBinding = 10;
-    writeSets[10].descriptorCount = 1;
-    writeSets[10].descriptorType = vk::DescriptorType::eStorageBuffer;
-    writeSets[10].pBufferInfo = &gridBufInfo;
-
-    m_Device.updateDescriptorSets(static_cast<uint32_t>(writeSets.size()), writeSets.data(), 0, nullptr);
+    if (m_TemporalResolvePass) {
+        std::array<ImageViewRef, 2> histColors = {
+            m_RenderTargets->GetHistoryColor(0),
+            m_RenderTargets->GetHistoryColor(1)
+        };
+        std::array<ImageViewRef, 2> histExtras = {
+            m_RenderTargets->GetHistoryExtra(0),
+            m_RenderTargets->GetHistoryExtra(1)
+        };
+        ResolveInputs resolveInputs{
+            .gbuffer = gbuf,
+            .rawColor = rawColor,
+            .output = output,
+            .historyColor = histColors,
+            .historyExtra = histExtras,
+            .historySampler = m_LinearClampSampler.get()
+        };
+        m_TemporalResolvePass->BindResources(resolveInputs);
+    }
 }
 
 void SDFRenderer::UpdateEdits(const std::vector<LegacySDFEdit>& edits, bool useLegacyMapUnmap) {
@@ -580,10 +188,11 @@ void SDFRenderer::UpdateEdits(const SDFSceneSnapshot& snapshot, bool useLegacyMa
                            (m_RenderCamera ? m_RenderCamera->projection * m_RenderCamera->view : prevVP);
         m_CurrentChangeSet = SDFChangeSet::Compare(m_PreviousSnapshot, snapshot, prevVP, currVP);
     }
-    m_PreviousSnapshot = snapshot;
+    m_CandidateSnapshot = snapshot;
+    m_HasCandidateSnapshot = true;
     if (m_RenderCamera) {
-        m_PrevCameraViewProj = m_CameraMatricesInitialized ? m_CurrViewProj : (m_RenderCamera->projection * m_RenderCamera->view);
-        m_HasPrevCameraViewProj = true;
+        m_CandidatePrevCameraViewProj = m_CameraMatricesInitialized ? m_CurrViewProj : (m_RenderCamera->projection * m_RenderCamera->view);
+        m_HasCandidateCameraViewProj = true;
     }
     UpdateEdits(std::span<const SDFPrimitiveRecord>(snapshot.GetRecords().data(), snapshot.GetRecordCount()), useLegacyMapUnmap);
 }
@@ -600,20 +209,92 @@ void SDFRenderer::Resize(int width, int height) {
     m_Height = height;
     m_RenderTargets = std::move(candidateTargets);
 
-    UpdateTAADescriptorSets();
-    UpdateGBufferDescriptorSets();
-    UpdateDebugCompositeDescriptorSets();
-    UpdateDeferredLightingDescriptorSets();
+    UpdatePassResources();
     m_HistoryInitialized = false;
     m_HasPrevCameraViewProj = false;
+    m_HasCandidateCameraViewProj = false;
+    m_HasCandidateSnapshot = false;
+    m_CandidateSnapshot = SDFSceneSnapshot{};
     m_PreviousSnapshot = SDFSceneSnapshot{};
-    if (m_TemporalHistory) m_TemporalHistory->Reset();
+    m_HasPreparedCandidate = false;
+    if (m_TemporalState) m_TemporalState->Reset(TemporalResetReason::Resize);
+    if (m_SceneGpuData) m_SceneGpuData->ResetTransformHistory();
+    if (m_PickingReadback) m_PickingReadback->AbortPrepared();
     m_CurrentChangeSet = SDFChangeSet{};
+}
+
+RenderFrameSettings SDFRenderer::ResolveFrameSettings(const RenderFrameSettings& input) const {
+    return ResolveFrameSettings(
+        input,
+        m_QualitySettings,
+        m_Exposure,
+        m_SelectedHitIndex,
+        m_DebugMode,
+        static_cast<uint32_t>(m_Width),
+        static_cast<uint32_t>(m_Height)
+    );
+}
+
+RenderFrameSettings SDFRenderer::ResolveFrameSettings(
+    const RenderFrameSettings& input,
+    const QualitySettings& defaultQuality,
+    float defaultExposure,
+    int defaultHitIndex,
+    int defaultDebugMode,
+    uint32_t allocatedWidth,
+    uint32_t allocatedHeight
+) {
+    RenderFrameSettings resolved = input;
+
+    // 1. Target dimensions resolution & safe fallback
+    if (input.width > 0 && input.height > 0) {
+        if (allocatedWidth > 0 && allocatedHeight > 0 &&
+            (input.width != allocatedWidth || input.height != allocatedHeight)) {
+            // Mismatch with allocated render targets: fallback/clamp to allocated dimensions safely
+            resolved.width = allocatedWidth;
+            resolved.height = allocatedHeight;
+        } else {
+            resolved.width = input.width;
+            resolved.height = input.height;
+        }
+    } else {
+        resolved.width = (allocatedWidth > 0) ? allocatedWidth : input.width;
+        resolved.height = (allocatedHeight > 0) ? allocatedHeight : input.height;
+    }
+
+    // 2. Quality resolution: explicit qualityOverride > defaultQuality (no sentinels)
+    if (input.qualityOverride.has_value()) {
+        resolved.quality = *input.qualityOverride;
+        resolved.qualityOverride = input.qualityOverride;
+    } else {
+        resolved.quality = defaultQuality;
+        resolved.qualityOverride = std::nullopt;
+    }
+
+    // 3. Exposure resolution: positive finite requirement; fallback safely on NaN/Inf/<=0
+    if (std::isfinite(input.exposure) && input.exposure > 0.0f) {
+        resolved.exposure = input.exposure;
+    } else {
+        resolved.exposure = (std::isfinite(defaultExposure) && defaultExposure >= 0.0f) ? defaultExposure : 1.0f;
+    }
+
+    // 4. Debug mode precedence
+    resolved.debugMode = (input.debugMode != 0) ? input.debugMode : defaultDebugMode;
+
+    // 5. Selected hit index precedence
+    resolved.selectedHitIndex = (input.selectedHitIndex != -1) ? input.selectedHitIndex : defaultHitIndex;
+
+    // 6. Jitter synchronization: when TAA is disabled, jitter MUST be (0, 0)
+    if (!input.taaEnabled) {
+        resolved.jitter = glm::vec2(0.0f);
+    }
+
+    return resolved;
 }
 
 void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode, int width, int height,
                          bool useGrid, bool optShadow, bool enableTAA, uint32_t frameIndex,
-                         const QualitySettings& qualitySettings) {
+                         std::optional<QualitySettings> qualitySettings) {
     (void)time;
     (void)width;
     (void)height;
@@ -621,7 +302,7 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
     RenderFrameSettings settings;
     settings.camera = m_RenderCamera;
     settings.jitter = m_CurrJitter;
-    settings.quality = qualitySettings;
+    settings.qualityOverride = qualitySettings;
     settings.frameId = frameIndex;
     settings.width = static_cast<uint32_t>(m_Width);
     settings.height = static_cast<uint32_t>(m_Height);
@@ -637,8 +318,8 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, float time, uint32_t normalMode,
 }
 
 void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& settings) {
-    uint32_t renderWidth = (settings.width > 0) ? settings.width : static_cast<uint32_t>(m_Width);
-    uint32_t renderHeight = (settings.height > 0) ? settings.height : static_cast<uint32_t>(m_Height);
+    // G12: Resolve inputs at facade boundary; passes do not perform fallback.
+    RenderFrameSettings effectiveSettings = ResolveFrameSettings(settings);
 
     if (settings.width > 0 && settings.height > 0 &&
         (settings.width != static_cast<uint32_t>(m_Width) || settings.height != static_cast<uint32_t>(m_Height))) {
@@ -646,76 +327,94 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
                   << settings.width << "x" << settings.height
                   << ") do not match allocated render target dimensions ("
                   << m_Width << "x" << m_Height << "). Using allocated dimensions. Call Resize() before Render() to change resolution.\n";
-        renderWidth = static_cast<uint32_t>(m_Width);
-        renderHeight = static_cast<uint32_t>(m_Height);
     }
-
-    uint32_t groupX = static_cast<uint32_t>(std::ceil(static_cast<float>(renderWidth) / 8.0f));
-    uint32_t groupY = static_cast<uint32_t>(std::ceil(static_cast<float>(renderHeight) / 8.0f));
 
     // Determine effective camera: settings.camera takes precedence over m_RenderCamera
-    std::optional<RenderCamera> effectiveCamera = settings.camera ? settings.camera : m_RenderCamera;
+    std::optional<RenderCamera> effectiveCamera = effectiveSettings.camera ? effectiveSettings.camera : m_RenderCamera;
 
-    if (settings.camera.has_value() && (!m_RenderCamera || settings.camera->entity != m_RenderCamera->entity ||
-        settings.camera->sceneInstance != m_RenderCamera->sceneInstance ||
-        settings.camera->projection != m_RenderCamera->projection ||
-        settings.camera->view != m_RenderCamera->view ||
-        settings.jitter != m_CurrJitter)) {
-        SetCamera(settings.camera, settings.jitter);
+    if (effectiveSettings.camera.has_value() && (!m_RenderCamera || effectiveSettings.camera->entity != m_RenderCamera->entity ||
+        effectiveSettings.camera->sceneInstance != m_RenderCamera->sceneInstance ||
+        effectiveSettings.camera->projection != m_RenderCamera->projection ||
+        effectiveSettings.camera->view != m_RenderCamera->view ||
+        effectiveSettings.jitter != m_CurrJitter)) {
+        SetCamera(effectiveSettings.camera, effectiveSettings.jitter);
         effectiveCamera = m_RenderCamera;
     }
+    effectiveSettings.camera = effectiveCamera;
 
     if (!effectiveCamera) {
         // No implicit camera: discard the previous frame and produce opaque black.
-        vk::ImageMemoryBarrier barrier{};
-        barrier.oldLayout = vk::ImageLayout::eUndefined;
-        barrier.newLayout = vk::ImageLayout::eTransferDstOptimal;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = m_RenderTargets->GetOutput().image;
-        barrier.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
-        barrier.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands,
-            vk::PipelineStageFlagBits::eTransfer, {}, {}, {}, barrier);
+        DiscardAndTransitionImage(cmd, m_RenderTargets->GetOutput().image,
+            m_OutputLastUse, ImageUse::TransferWrite);
+
         cmd.clearColorImage(m_RenderTargets->GetOutput().image, vk::ImageLayout::eTransferDstOptimal,
-            vk::ClearColorValue(std::array<float, 4>{0, 0, 0, 1}), barrier.subresourceRange);
-        barrier.oldLayout = vk::ImageLayout::eTransferDstOptimal;
-        barrier.newLayout = vk::ImageLayout::eGeneral;
-        barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
-        barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eTransferRead;
-        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
-            vk::PipelineStageFlagBits::eAllCommands, {}, {}, {}, barrier);
+            vk::ClearColorValue(std::array<float, 4>{0, 0, 0, 1}),
+            vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
+
+        TransitionImage(cmd, m_RenderTargets->GetOutput().image,
+            ImageUse::TransferWrite, ImageUse::FragmentRead);
+        m_OutputLastUse = ImageUse::FragmentRead;
+
         m_HistoryInitialized = false;
-        if (m_TemporalHistory) m_TemporalHistory->Reset();
-        m_PickingRequested = false;
-        m_PickPendingRead = false;
+        RenderFrameSettings noCamSettings = effectiveSettings;
+        noCamSettings.camera = std::nullopt;
+        if (m_TemporalState) {
+            m_TemporalState->Prepare(noCamSettings);
+        }
         ClearSelectionResult();
+        m_CandidatePingPongWriteIndex = m_HistoryPingPong;
+        m_CandidateFrameId = effectiveSettings.frameId;
+        m_HasPreparedCandidate = true;
         return;
     }
 
-    if (m_PreviousTAAEnabled != settings.taaEnabled) m_HistoryInitialized = false;
-    m_PreviousTAAEnabled = settings.taaEnabled;
-    const auto& camera = *effectiveCamera;
-
-    // Quality settings fallback rule: shadowMaxSteps > 0 selects settings.quality, otherwise fallback to m_QualitySettings
-    const auto& qs = (settings.quality.shadowMaxSteps > 0) ? settings.quality : m_QualitySettings;
-
-    // Debug mode precedence
-    int effectiveDebugMode = settings.debugMode;
-    if (settings.debugMode != m_DebugMode) {
-        ResetTemporalHistory();
-        m_DebugMode = settings.debugMode;
+    if (m_PreviousTAAEnabled != effectiveSettings.taaEnabled) {
+        m_HistoryInitialized = false;
+        if (m_TemporalState) m_TemporalState->Reset(TemporalResetReason::TaaChanged);
     }
-    bool isDebugActive = (effectiveDebugMode != 0);
+    m_PreviousTAAEnabled = effectiveSettings.taaEnabled;
 
-    // Selected hit index precedence
-    int effectiveHitIndex = (settings.selectedHitIndex != -1) ? settings.selectedHitIndex : m_SelectedHitIndex;
+    if (effectiveSettings.debugMode != m_DebugMode) {
+        ResetTemporalHistory(TemporalResetReason::DebugChanged);
+        m_DebugMode = effectiveSettings.debugMode;
+    }
+    bool isDebugActive = (effectiveSettings.debugMode != 0);
 
-    // Exposure precedence
-    float effectiveExposure = (settings.exposure > 0.0f) ? settings.exposure : m_Exposure;
+    // Jitter: if input jitter was default (0,0) and TAA is enabled, use current sequence jitter
+    if (effectiveSettings.taaEnabled && effectiveSettings.jitter == glm::vec2(0.0f)) {
+        effectiveSettings.jitter = m_CurrJitter;
+    }
 
-    // Jitter precedence
-    glm::vec2 jitter = settings.taaEnabled ? ((settings.jitter != glm::vec2(0.0f)) ? settings.jitter : m_CurrJitter) : glm::vec2(0.0f);
+    // Prepare effective frame settings for TemporalState and Passes
+    int pickMouseX = -1;
+    int pickMouseY = -1;
+    float pickFlag = 0.0f;
+    if (m_PickingReadback) {
+        m_PickingReadback->PrepareDispatch(effectiveSettings.width, effectiveSettings.height, effectiveCamera.has_value(),
+                                           pickMouseX, pickMouseY, pickFlag);
+    }
+
+    auto sceneViews = m_SceneGpuData ? m_SceneGpuData->GetViews() : SceneBufferViews{};
+    uint32_t activeCount = (effectiveSettings.activePrimitiveCount > 0)
+        ? effectiveSettings.activePrimitiveCount
+        : (m_SceneGpuData ? m_SceneGpuData->GetActiveEditCount() : 0);
+    glm::vec4 gridParams = (effectiveSettings.gridParams != glm::vec4(0.0f))
+        ? effectiveSettings.gridParams
+        : sceneViews.gridParams;
+
+    effectiveSettings.activePrimitiveCount = activeCount;
+    effectiveSettings.gridParams = gridParams;
+    effectiveSettings.pickMouseX = pickMouseX;
+    effectiveSettings.pickMouseY = pickMouseY;
+    effectiveSettings.pickFlag = pickFlag;
+
+    TemporalPlan temporalPlan{};
+    if (m_TemporalState) {
+        temporalPlan = m_TemporalState->Prepare(effectiveSettings);
+        if (m_SceneGpuData) {
+            m_SceneGpuData->UploadCamera(m_TemporalState->GetCameraUBOData());
+        }
+    }
     
     // =========================================================================
     // 1. G-Buffer Compute Pass (SDFGBuffer.glsl)
@@ -724,426 +423,191 @@ void SDFRenderer::Render(vk::CommandBuffer cmd, const RenderFrameSettings& setti
     auto rawColor = m_RenderTargets->GetRawColor();
     auto outputImg = m_RenderTargets->GetOutput();
 
-    auto makeGBufBarrier = [](VkImage img) {
-        vk::ImageMemoryBarrier b{};
-        b.oldLayout = vk::ImageLayout::eUndefined;
-        b.newLayout = vk::ImageLayout::eGeneral;
-        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.image = img;
-        b.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
-        b.srcAccessMask = {};
-        b.dstAccessMask = vk::AccessFlagBits::eShaderWrite;
-        return b;
+    // =========================================================================
+    // 1. G-Buffer Targets -> ComputeWrite Barrier
+    // =========================================================================
+    const std::array<ImageTransitionItem, 5> gbufBarriers = {
+        ImageTransitionItem{ gbuf.albedo.image, ImageUse::ComputeRead, ImageUse::ComputeWrite },
+        ImageTransitionItem{ gbuf.normal.image, ImageUse::ComputeRead, ImageUse::ComputeWrite },
+        ImageTransitionItem{ gbuf.material.image, ImageUse::ComputeRead, ImageUse::ComputeWrite },
+        ImageTransitionItem{ gbuf.depth.image, ImageUse::ComputeRead, ImageUse::ComputeWrite },
+        ImageTransitionItem{ gbuf.motion.image, ImageUse::ComputeRead, ImageUse::ComputeWrite }
     };
+    TransitionImages(cmd, gbufBarriers);
 
-    std::array<vk::ImageMemoryBarrier, 5> gbufBarriers = {
-        makeGBufBarrier(gbuf.albedo.image),
-        makeGBufBarrier(gbuf.normal.image),
-        makeGBufBarrier(gbuf.material.image),
-        makeGBufBarrier(gbuf.depth.image),
-        makeGBufBarrier(gbuf.motion.image)
-    };
-
-    cmd.pipelineBarrier(
-        vk::PipelineStageFlagBits::eTopOfPipe,
-        vk::PipelineStageFlagBits::eComputeShader,
-        {},
-        0, nullptr,
-        0, nullptr,
-        static_cast<uint32_t>(gbufBarriers.size()), gbufBarriers.data()
-    );
-
-    cmd.bindPipeline(vk::PipelineBindPoint::eCompute, m_GBufferProgram->GetPipeline());
-    cmd.bindDescriptorSets(
-        vk::PipelineBindPoint::eCompute,
-        m_GBufferProgram->GetLayout(),
-        0,
-        1, &m_GBufferDescriptorSet,
-        0, nullptr
-    );
-
-    SDFPushConstants pushConstants{};
-    pushConstants.camPos = glm::vec4(camera.position, camera.nearClip);
-    pushConstants.camDir = glm::vec4(camera.forward, static_cast<float>(settings.normalMode));
-    pushConstants.cameraRight = glm::vec4(camera.right, camera.projection[1][1] * 0.5f);
-    pushConstants.cameraUp = glm::vec4(camera.up, camera.farClip);
-    uint32_t activeCount = m_SceneGpuData ? m_SceneGpuData->GetActiveEditCount() : 0;
-    auto sceneViews = m_SceneGpuData ? m_SceneGpuData->GetViews() : SceneBufferViews{};
-
-    pushConstants.screenRes = glm::vec4(
-        static_cast<float>(renderWidth),
-        static_cast<float>(renderHeight),
-        static_cast<float>(activeCount),
-        settings.useGrid ? 1.0f : 0.0f
-    );
-    pushConstants.gridParams = sceneViews.gridParams;
-    pushConstants.gridParams.z = static_cast<float>(qs.primaryRayMaxSteps);
-
-    pushConstants.taaParams = glm::vec4(jitter.x, jitter.y, settings.taaEnabled ? 1.0f : 0.0f, qs.taaBlendAlpha);
-
-    pushConstants.mouseParams = glm::vec4(
-        static_cast<float>(m_PickingMouseX),
-        static_cast<float>(m_PickingMouseY),
-        m_PickingRequested ? 1.0f : 0.0f,
-        static_cast<float>(effectiveHitIndex)
-    );
-
-    if (m_PickingRequested && m_SelectionBuffer && m_SelectionBuffer->GetMappedData()) {
-        auto* data = static_cast<SelectionDataGPU*>(m_SelectionBuffer->GetMappedData());
-        data->hitIndex = -1;
+    if (m_GBufferPass) {
+        m_GBufferPass->Record(cmd, effectiveSettings);
     }
 
-    cmd.pushConstants(
-        m_GBufferProgram->GetLayout(),
-        vk::ShaderStageFlagBits::eCompute,
-        0,
-        sizeof(SDFPushConstants),
-        &pushConstants
-    );
-
-    cmd.dispatch(groupX, groupY, 1);
-
-    if (m_PickingRequested) {
-        vk::BufferMemoryBarrier barrier{};
-        barrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
-        barrier.dstAccessMask = vk::AccessFlagBits::eHostRead;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.buffer = m_SelectionBuffer->GetBuffer();
-        barrier.offset = 0;
-        barrier.size = sizeof(SelectionDataGPU);
-
-        cmd.pipelineBarrier(
-            vk::PipelineStageFlagBits::eComputeShader,
-            vk::PipelineStageFlagBits::eHost,
-            {},
-            0, nullptr,
-            1, &barrier,
-            0, nullptr
-        );
-
-        m_PickingRequested = false;
-        m_PickPendingRead = true;
+    if (m_PickingReadback && pickFlag > 0.0f) {
+        m_PickingReadback->RecordBarrier(cmd);
     }
 
     // =========================================================================
     // 2. G-Buffer -> Composite/Lighting Barriers
     // =========================================================================
-    auto makeGBufReadBarrier = [](VkImage img) {
-        vk::ImageMemoryBarrier b{};
-        b.oldLayout = vk::ImageLayout::eGeneral;
-        b.newLayout = vk::ImageLayout::eGeneral;
-        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.image = img;
-        b.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
-        b.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
-        b.dstAccessMask = vk::AccessFlagBits::eShaderRead;
-        return b;
+    const std::array<ImageTransitionItem, 6> toCompositeBarriers = {
+        ImageTransitionItem{ gbuf.albedo.image, ImageUse::ComputeWrite, ImageUse::ComputeRead },
+        ImageTransitionItem{ gbuf.normal.image, ImageUse::ComputeWrite, ImageUse::ComputeRead },
+        ImageTransitionItem{ gbuf.material.image, ImageUse::ComputeWrite, ImageUse::ComputeRead },
+        ImageTransitionItem{ gbuf.depth.image, ImageUse::ComputeWrite, ImageUse::ComputeRead },
+        ImageTransitionItem{ gbuf.motion.image, ImageUse::ComputeWrite, ImageUse::ComputeRead },
+        ImageTransitionItem{ rawColor.image, ImageUse::ComputeRead, ImageUse::ComputeWrite }
     };
-
-    vk::ImageMemoryBarrier rawColorWriteBarrier{};
-    rawColorWriteBarrier.oldLayout = vk::ImageLayout::eUndefined;
-    rawColorWriteBarrier.newLayout = vk::ImageLayout::eGeneral;
-    rawColorWriteBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    rawColorWriteBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    rawColorWriteBarrier.image = rawColor.image;
-    rawColorWriteBarrier.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
-    rawColorWriteBarrier.srcAccessMask = {};
-    rawColorWriteBarrier.dstAccessMask = vk::AccessFlagBits::eShaderWrite;
-
-    std::array<vk::ImageMemoryBarrier, 6> toCompositeBarriers = {
-        makeGBufReadBarrier(gbuf.albedo.image),
-        makeGBufReadBarrier(gbuf.normal.image),
-        makeGBufReadBarrier(gbuf.material.image),
-        makeGBufReadBarrier(gbuf.depth.image),
-        makeGBufReadBarrier(gbuf.motion.image),
-        rawColorWriteBarrier
-    };
-
-    cmd.pipelineBarrier(
-        vk::PipelineStageFlagBits::eComputeShader,
-        vk::PipelineStageFlagBits::eComputeShader,
-        {},
-        0, nullptr,
-        0, nullptr,
-        static_cast<uint32_t>(toCompositeBarriers.size()), toCompositeBarriers.data()
-    );
+    TransitionImages(cmd, toCompositeBarriers);
 
     if (isDebugActive) {
         // =========================================================================
         // 3a. Debug Composite Pass (SDFDebugComposite.glsl -> m_RawColorImage)
         // =========================================================================
-        cmd.bindPipeline(vk::PipelineBindPoint::eCompute, m_DebugCompositeProgram->GetPipeline());
-        cmd.bindDescriptorSets(
-            vk::PipelineBindPoint::eCompute,
-            m_DebugCompositeProgram->GetLayout(),
-            0,
-            1, &m_DebugCompositeDescriptorSet,
-            0, nullptr
-        );
-
-        DebugCompositePushConstants debugPush{};
-        debugPush.screenRes = glm::vec4(
-            static_cast<float>(renderWidth),
-            static_cast<float>(renderHeight),
-            static_cast<float>(effectiveDebugMode),
-            0.0f
-        );
-
-        cmd.pushConstants(
-            m_DebugCompositeProgram->GetLayout(),
-            vk::ShaderStageFlagBits::eCompute,
-            0,
-            sizeof(DebugCompositePushConstants),
-            &debugPush
-        );
-
-        cmd.dispatch(groupX, groupY, 1);
+        if (m_DebugCompositePass) {
+            m_DebugCompositePass->Record(cmd, effectiveSettings);
+        }
     } else {
         // =========================================================================
         // 3b. Deferred PBR & IBL Pass (DeferredLighting.glsl -> m_RawColorImage Linear HDR)
         // =========================================================================
-        cmd.bindPipeline(vk::PipelineBindPoint::eCompute, m_DeferredLightingProgram->GetPipeline());
-        cmd.bindDescriptorSets(
-            vk::PipelineBindPoint::eCompute,
-            m_DeferredLightingProgram->GetLayout(),
-            0,
-            1, &m_DeferredLightingDescriptorSet,
-            0, nullptr
-        );
-
-        DeferredLightingPushConstants defPush{};
-        defPush.cameraRight = glm::vec4(camera.right, camera.projection[1][1] * 0.5f);
-        defPush.cameraUp = glm::vec4(camera.up, settings.useGrid ? 1.0f : 0.0f);
-        const glm::vec3 camPos = camera.position;
-        const glm::vec3 camDir = camera.forward;
-        defPush.camPos = glm::vec4(camPos, static_cast<float>(m_IBLManager->GetPrefilteredMipLevels()));
-        defPush.camDir = glm::vec4(camDir, 1.0f); // xyz: dir, w: exposure = 1.0
-        defPush.screenRes = glm::vec4(
-            static_cast<float>(renderWidth),
-            static_cast<float>(renderHeight),
-            1.0f, // z: iblIntensity = 1.0
-            static_cast<float>(m_SceneGpuData ? m_SceneGpuData->GetActiveEditCount() : 0) // w: editCount
-        );
-        defPush.rayParams = glm::vec4(jitter.x, jitter.y, qs.shadowMaxDistance, qs.surfaceBias); // Match GBuffer jitter, including TAA disabled.
-        defPush.shadowAOParams = glm::vec4(
-            static_cast<float>(qs.shadowMaxSteps),
-            qs.shadowK,
-            static_cast<float>(qs.aoSamples),
-            qs.aoRadius
-        ); // x: shadowMaxSteps, y: shadowK, z: aoSamples, w: aoRadius
-        auto gridParams = m_SceneGpuData ? m_SceneGpuData->GetViews().gridParams : glm::vec4(0.0f);
-        float shadowFlag = (settings.optimizedShadows && qs.enableShadows) ? 1.0f : 0.0f;
-        defPush.qualityParams = glm::vec4(shadowFlag, gridParams.x, gridParams.y, gridParams.w);
-
-        cmd.pushConstants(
-            m_DeferredLightingProgram->GetLayout(),
-            vk::ShaderStageFlagBits::eCompute,
-            0,
-            sizeof(DeferredLightingPushConstants),
-            &defPush
-        );
-
-        cmd.dispatch(groupX, groupY, 1);
+        if (m_DeferredLightingPass) {
+            m_DeferredLightingPass->Record(cmd, effectiveSettings);
+        }
     }
 
     // =========================================================================
     // 4. TAA Resolve & ACES Tonemapping Pass (Dogrusal HDR -> sRGB)
     // =========================================================================
-    uint32_t readIdx = m_HistoryPingPong;
-    uint32_t writeIdx = 1 - m_HistoryPingPong;
+    uint32_t readIdx = m_TemporalState ? temporalPlan.readIndex : m_HistoryPingPong;
+    uint32_t writeIdx = m_TemporalState ? temporalPlan.writeIndex : (1 - m_HistoryPingPong);
 
-    // Barrier: m_RawColorImage ShaderWrite -> ShaderRead
-    vk::ImageMemoryBarrier toTaaBarrier{};
-    toTaaBarrier.oldLayout = vk::ImageLayout::eGeneral;
-    toTaaBarrier.newLayout = vk::ImageLayout::eGeneral;
-    toTaaBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    toTaaBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    toTaaBarrier.image = rawColor.image;
-    toTaaBarrier.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
-    toTaaBarrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
-    toTaaBarrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
-
-    // m_StorageImage yazmaya hazirla
-    vk::ImageMemoryBarrier storageBarrier = toTaaBarrier;
-    storageBarrier.image = outputImg.image;
-    storageBarrier.oldLayout = vk::ImageLayout::eGeneral;
-    storageBarrier.newLayout = vk::ImageLayout::eGeneral;
-    storageBarrier.srcAccessMask = {};
-    storageBarrier.dstAccessMask = vk::AccessFlagBits::eShaderWrite;
-
-    // Tarihce okuma (readIdx)
-    vk::ImageMemoryBarrier histReadBarrier = toTaaBarrier;
-    histReadBarrier.image = m_RenderTargets->GetHistoryColor(readIdx).image;
-    histReadBarrier.oldLayout = vk::ImageLayout::eGeneral;
-    histReadBarrier.newLayout = vk::ImageLayout::eGeneral;
-    histReadBarrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
-    histReadBarrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
-
-    // Tarihce yazma (writeIdx)
-    bool isFirstHistory = !m_HistoryInitialized || (settings.frameId == 0);
-    vk::ImageMemoryBarrier histWriteBarrier = toTaaBarrier;
-    histWriteBarrier.image = m_RenderTargets->GetHistoryColor(writeIdx).image;
-    histWriteBarrier.oldLayout = vk::ImageLayout::eGeneral;
-    histWriteBarrier.newLayout = vk::ImageLayout::eGeneral;
-    histWriteBarrier.srcAccessMask = vk::AccessFlagBits::eShaderRead;
-    histWriteBarrier.dstAccessMask = vk::AccessFlagBits::eShaderWrite;
-
-    // Tarihce ekstra okuma (readIdx)
-    vk::ImageMemoryBarrier histExtraReadBarrier = toTaaBarrier;
-    histExtraReadBarrier.image = m_RenderTargets->GetHistoryExtra(readIdx).image;
-    histExtraReadBarrier.oldLayout = vk::ImageLayout::eGeneral;
-    histExtraReadBarrier.newLayout = vk::ImageLayout::eGeneral;
-    histExtraReadBarrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
-    histExtraReadBarrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
-
-    // Tarihce ekstra yazma (writeIdx)
-    vk::ImageMemoryBarrier histExtraWriteBarrier = toTaaBarrier;
-    histExtraWriteBarrier.image = m_RenderTargets->GetHistoryExtra(writeIdx).image;
-    histExtraWriteBarrier.oldLayout = vk::ImageLayout::eGeneral;
-    histExtraWriteBarrier.newLayout = vk::ImageLayout::eGeneral;
-    histExtraWriteBarrier.srcAccessMask = vk::AccessFlagBits::eShaderRead;
-    histExtraWriteBarrier.dstAccessMask = vk::AccessFlagBits::eShaderWrite;
+    // Barrier: Composite/Lighting -> TemporalResolve
+    const std::array<ImageTransitionItem, 6> taaBarriers = {
+        ImageTransitionItem{ rawColor.image, ImageUse::ComputeWrite, ImageUse::ComputeRead },
+        ImageTransitionItem{ outputImg.image, m_OutputLastUse, ImageUse::ComputeWrite },
+        ImageTransitionItem{ m_RenderTargets->GetHistoryColor(readIdx).image, ImageUse::ComputeWrite, ImageUse::ComputeRead },
+        ImageTransitionItem{ m_RenderTargets->GetHistoryColor(writeIdx).image, ImageUse::ComputeRead, ImageUse::ComputeWrite },
+        ImageTransitionItem{ m_RenderTargets->GetHistoryExtra(readIdx).image, ImageUse::ComputeWrite, ImageUse::ComputeRead },
+        ImageTransitionItem{ m_RenderTargets->GetHistoryExtra(writeIdx).image, ImageUse::ComputeRead, ImageUse::ComputeWrite }
+    };
+    TransitionImages(cmd, taaBarriers);
     m_HistoryInitialized = true;
 
-    std::array<vk::ImageMemoryBarrier, 6> taaBarriers = {
-        toTaaBarrier, storageBarrier, histReadBarrier, histWriteBarrier,
-        histExtraReadBarrier, histExtraWriteBarrier
-    };
-    cmd.pipelineBarrier(
-        vk::PipelineStageFlagBits::eComputeShader,
-        vk::PipelineStageFlagBits::eComputeShader,
-        {},
-        0, nullptr,
-        0, nullptr,
-        static_cast<uint32_t>(taaBarriers.size()), taaBarriers.data()
-    );
-
-    // TAA Pipeline bagla ve calistir
-    cmd.bindPipeline(vk::PipelineBindPoint::eCompute, m_TaaProgram->GetPipeline());
-    cmd.bindDescriptorSets(
-        vk::PipelineBindPoint::eCompute,
-        m_TaaProgram->GetLayout(),
-        0,
-        1, &m_TaaDescriptorSet[readIdx],
-        0, nullptr
-    );
-
-    TAAPushConstants taaPush{};
-    taaPush.colorParams.x = effectiveExposure;
-    uint32_t numChangedRects = 0;
-    std::array<glm::vec4, 4> packedChangedRects{};
-    m_CurrentChangeSet.GetPackedRects(packedChangedRects, numChangedRects);
-    taaPush.colorParams.y = static_cast<float>(numChangedRects);
-    taaPush.colorParams.z = m_CurrentChangeSet.IsGlobalChange() ? 1.0f : 0.0f;
-    taaPush.changedRect0 = packedChangedRects[0];
-    taaPush.changedRect1 = packedChangedRects[1];
-    taaPush.changedRect2 = packedChangedRects[2];
-    taaPush.changedRect3 = packedChangedRects[3];
-
-    float blendAlpha = qs.taaBlendAlpha;
-    if (isDebugActive) {
-        blendAlpha = -1.0f; // Debug bypass modu: tonemap ve gamma uygulamadan ham veri aktarimi
-    } else if (!settings.taaEnabled) {
-        blendAlpha = 1.0f;  // TAA kapali: tarihcesiz ACES tonemap ve sRGB gamma
+    if (m_TemporalResolvePass) {
+        m_TemporalResolvePass->Record(cmd, effectiveSettings, temporalPlan, m_CurrentChangeSet);
     }
 
-    taaPush.screenRes = glm::vec4(
-        static_cast<float>(renderWidth),
-        static_cast<float>(renderHeight),
-        (isFirstHistory || !settings.taaEnabled || isDebugActive) ? 0.0f : static_cast<float>(settings.frameId),
-        blendAlpha
-    );
+    // Output: ComputeWrite -> FragmentRead (for ImGui viewport sampling)
+    // Layout remains eGeneral without redundant transfer-src roundtrips.
+    TransitionImage(cmd, outputImg.image, ImageUse::ComputeWrite, ImageUse::FragmentRead);
+    m_OutputLastUse = ImageUse::FragmentRead;
 
-    cmd.pushConstants(
-        m_TaaProgram->GetLayout(),
-        vk::ShaderStageFlagBits::eCompute,
-        0,
-        sizeof(TAAPushConstants),
-        &taaPush
-    );
+    // G11: Aday durumunu kaydet; basarili submit sonrasi CommitSubmittedFrame ile committed yapilacak
+    m_CandidatePingPongWriteIndex = writeIdx;
+    m_CandidateFrameId = settings.frameId;
+    m_HasPreparedCandidate = true;
+}
 
-    cmd.dispatch(groupX, groupY, 1);
-
-    // m_StorageImage'i Swapchain blit veya ImGui icin hazirla (eGeneral -> eTransferSrcOptimal)
-    vk::ImageMemoryBarrier storageReadyBarrier{};
-    storageReadyBarrier.oldLayout = vk::ImageLayout::eGeneral;
-    storageReadyBarrier.newLayout = vk::ImageLayout::eTransferSrcOptimal;
-    storageReadyBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    storageReadyBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    storageReadyBarrier.image = outputImg.image;
-    storageReadyBarrier.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
-    storageReadyBarrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
-    storageReadyBarrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
-
-    cmd.pipelineBarrier(
-        vk::PipelineStageFlagBits::eComputeShader,
-        vk::PipelineStageFlagBits::eTransfer,
-        {},
-        0, nullptr,
-        0, nullptr,
-        1, &storageReadyBarrier
-    );
-
-    // Tarihce ping-pong indeksini guncelle
-    m_HistoryPingPong = writeIdx;
-
-    // m_StorageImage'i ImGui Viewport sampling icin eGeneral duzenine gecir (Shader Read)
-    vk::ImageMemoryBarrier toGeneral{};
-    toGeneral.oldLayout = vk::ImageLayout::eTransferSrcOptimal;
-    toGeneral.newLayout = vk::ImageLayout::eGeneral;
-    toGeneral.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    toGeneral.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    toGeneral.image = outputImg.image;
-    toGeneral.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
-    toGeneral.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
-    toGeneral.dstAccessMask = vk::AccessFlagBits::eShaderRead;
-
-    cmd.pipelineBarrier(
-        vk::PipelineStageFlagBits::eTransfer,
-        vk::PipelineStageFlagBits::eFragmentShader,
-        {},
-        0, nullptr,
-        0, nullptr,
-        1, &toGeneral
-    );
-
-    if (m_TemporalHistory) {
-        m_TemporalHistory->CommitRender();
+void SDFRenderer::CommitSubmittedFrame() {
+    if (!m_HasPreparedCandidate) {
+        throw std::logic_error("[Astral::SDFRenderer] CommitSubmittedFrame called with no prepared candidate!");
     }
+
+    if (m_TemporalState) {
+        m_TemporalState->CommitSubmitted();
+    }
+    if (m_SceneGpuData) {
+        m_SceneGpuData->CommitSubmitted();
+    }
+    if (m_PickingReadback) {
+        m_PickingReadback->OnFrameSubmitted(m_CandidateFrameId);
+    }
+
+    if (m_HasCandidateSnapshot) {
+        m_PreviousSnapshot = std::move(m_CandidateSnapshot);
+        m_CandidateSnapshot = SDFSceneSnapshot{};
+        m_HasCandidateSnapshot = false;
+    }
+    if (m_HasCandidateCameraViewProj) {
+        m_PrevCameraViewProj = m_CandidatePrevCameraViewProj;
+        m_HasPrevCameraViewProj = true;
+        m_HasCandidateCameraViewProj = false;
+    }
+
+    m_HistoryPingPong = m_CandidatePingPongWriteIndex;
+    m_HasPreparedCandidate = false;
+}
+
+void SDFRenderer::AbortPreparedFrame() noexcept {
+    if (!m_HasPreparedCandidate) {
+        return;
+    }
+
+    if (m_TemporalState) {
+        m_TemporalState->AbortPrepared();
+    }
+    if (m_SceneGpuData) {
+        m_SceneGpuData->AbortPrepared();
+    }
+    if (m_PickingReadback) {
+        m_PickingReadback->AbortPrepared();
+    }
+
+    m_CandidateSnapshot = SDFSceneSnapshot{};
+    m_HasCandidateSnapshot = false;
+    m_HasCandidateCameraViewProj = false;
+    m_HasPreparedCandidate = false;
 }
 
 void SDFRenderer::SetPickingRequest(int mouseX, int mouseY) {
-    m_PickingRequested = true;
-    m_PickingMouseX = mouseX;
-    m_PickingMouseY = mouseY;
+    if (m_PickingReadback) {
+        uint64_t sceneInstance = m_RenderCamera ? m_RenderCamera->sceneInstance : 0;
+        m_PickingReadback->RequestPick(mouseX, mouseY, sceneInstance);
+    }
+}
+
+bool SDFRenderer::HasPendingSelection() const noexcept {
+    return m_PickingReadback ? m_PickingReadback->HasPendingRead() : false;
 }
 
 SDFRenderer::SelectionResult SDFRenderer::GetSelectionResult() const {
     SelectionResult result{};
-    if (m_SelectionBuffer && m_SelectionBuffer->GetMappedData()) {
-        auto* data = static_cast<const SelectionDataGPU*>(m_SelectionBuffer->GetMappedData());
-        result.hitIndex = data->hitIndex;
-        result.hasHit = (data->hitIndex >= 0);
-        result.hitPoint = glm::vec3(data->hitPoint.x, data->hitPoint.y, data->hitPoint.z);
-        result.hitDistance = data->hitPoint.w;
+    if (m_PickingReadback) {
+        auto completed = m_PickingReadback->PeekCompleted();
+        if (completed.has_value()) {
+            result.hitIndex = completed->data.hitIndex;
+            result.hasHit = (completed->data.hitIndex >= 0);
+            result.hitPoint = glm::vec3(completed->data.hitPoint.x, completed->data.hitPoint.y, completed->data.hitPoint.z);
+            result.hitDistance = completed->data.hitPoint.w;
+        }
     }
     return result;
 }
 
 SDFRenderer::SelectionResult SDFRenderer::ConsumeSelectionResult() {
-    SelectionResult result = GetSelectionResult();
-    ClearSelectionResult();
+    SelectionResult result{};
+    if (m_PickingReadback) {
+        auto completed = m_PickingReadback->ConsumeCompleted();
+        if (completed.has_value()) {
+            result.hitIndex = completed->data.hitIndex;
+            result.hasHit = (completed->data.hitIndex >= 0);
+            result.hitPoint = glm::vec3(completed->data.hitPoint.x, completed->data.hitPoint.y, completed->data.hitPoint.z);
+            result.hitDistance = completed->data.hitPoint.w;
+        }
+    }
     return result;
 }
 
+std::optional<CompletedPick> SDFRenderer::ConsumeCompletedPick() {
+    return m_PickingReadback ? m_PickingReadback->ConsumeCompleted() : std::nullopt;
+}
+
 void SDFRenderer::ClearSelectionResult() {
-    m_PickPendingRead = false;
-    if (m_SelectionBuffer && m_SelectionBuffer->GetMappedData()) {
-        auto* data = static_cast<SelectionDataGPU*>(m_SelectionBuffer->GetMappedData());
-        data->hitIndex = -1;
+    if (m_PickingReadback) {
+        m_PickingReadback->Clear();
+    }
+}
+
+void SDFRenderer::OnFrameCompleted(uint64_t frameSerial) {
+    if (m_PickingReadback) {
+        m_PickingReadback->OnFrameCompleted(frameSerial);
     }
 }
 
@@ -1151,7 +615,7 @@ void SDFRenderer::LoadEnvironment(const std::filesystem::path& path) {
     auto replacement = std::make_unique<IBLManager>(m_Context, path);
     m_Device.waitIdle();
     m_IBLManager.swap(replacement);
-    UpdateDeferredLightingDescriptorSets();
+    UpdatePassResources();
     ResetTemporalHistory();
 }
 
@@ -1167,8 +631,8 @@ void SDFRenderer::SetCamera(const std::optional<RenderCamera>& camera, const glm
         camera->projection != m_RenderCamera->projection) {
         m_CameraMatricesInitialized = false;
         m_HistoryInitialized = false;
-        if (m_TemporalHistory) {
-            m_TemporalHistory->SetCameraCut(true);
+        if (m_TemporalState) {
+            m_TemporalState->Reset(camera ? TemporalResetReason::CameraCut : TemporalResetReason::MissingCamera);
         }
     }
     m_PreviousCameraPosition = (m_CameraMatricesInitialized && m_RenderCamera)
@@ -1176,9 +640,6 @@ void SDFRenderer::SetCamera(const std::optional<RenderCamera>& camera, const glm
     m_RenderCamera = camera;
     if (camera) {
         SetCameraMatrices(camera->view, camera->projection, jitter);
-        if (m_TemporalHistory) {
-            m_TemporalHistory->BeginFrame(camera->view, camera->projection, camera->position, jitter, camera->sceneInstance);
-        }
     }
 }
 void SDFRenderer::SetCameraMatrices(const glm::mat4& view, const glm::mat4& proj, const glm::vec2& jitter) {
