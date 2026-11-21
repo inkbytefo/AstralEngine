@@ -33,6 +33,29 @@ struct JobSystem::Impl {
         return job;
     }
 
+    /// Pops the first queued job that belongs to `counter`. A waiter only helps its own
+    /// group: running an unrelated job on top of a suspended one can make that job wait
+    /// on the suspended one's group, which then never finishes (stack inversion).
+    std::optional<QueuedJob> try_pop_for_locked(const JobCounter& counter) {
+        for (auto it = queue.begin(); it != queue.end(); ++it) {
+            if (it->counter == &counter) {
+                QueuedJob job = std::move(*it);
+                queue.erase(it);
+                return job;
+            }
+        }
+        return std::nullopt;
+    }
+
+    bool has_job_for_locked(const JobCounter& counter) const {
+        for (const auto& job : queue) {
+            if (job.counter == &counter) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     void execute(QueuedJob& job) {
         try {
             job.fn();
@@ -113,11 +136,12 @@ void JobSystem::wait(JobCounter& counter) {
         std::optional<QueuedJob> job;
         {
             std::unique_lock lock(impl_->mutex);
-            impl_->cv.wait(lock, [&] { return counter.done() || !impl_->queue.empty(); });
+            impl_->cv.wait(lock,
+                           [&] { return counter.done() || impl_->has_job_for_locked(counter); });
             if (counter.done()) {
                 break;
             }
-            job = impl_->try_pop_locked();
+            job = impl_->try_pop_for_locked(counter);
         }
         if (job) {
             impl_->execute(*job);

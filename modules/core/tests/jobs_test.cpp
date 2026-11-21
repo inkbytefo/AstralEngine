@@ -95,3 +95,28 @@ TEST_CASE("destroying the system runs all pending jobs") {
     }
     CHECK(ran->load() == 1000);
 }
+
+TEST_CASE("a job waiting on another group's counter does not deadlock") {
+    // Regression: R waits on its children while a job (PP) that waits on R's group sits
+    // earlier in the queue. If R helps by running PP, PP waits on R's group, which can
+    // never finish because R is suspended underneath PP on the same stack.
+    JobSystem jobs(1);
+    auto done = std::async(std::launch::async, [&jobs] {
+        JobCounter f;
+        JobCounter p;
+        std::atomic<int> children{0};
+        jobs.submit(f, [&jobs, &children] {
+            JobCounter c;
+            for (int i = 0; i < 4; ++i) {
+                jobs.submit(c, [&children] { children.fetch_add(1); });
+            }
+            jobs.wait(c);
+        });
+        jobs.submit(p, [&jobs, &f] { jobs.wait(f); });
+        jobs.wait(p);
+        jobs.wait(f);
+        return children.load();
+    });
+    REQUIRE(done.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
+    CHECK(done.get() == 4);
+}

@@ -27,8 +27,9 @@ private:
 };
 
 /// Fixed pool of worker threads executing short jobs.
-/// wait() never just blocks: while its counter is pending it executes queued jobs
-/// itself, so waiting from inside a job cannot deadlock the pool.
+/// wait() helps: while its counter is pending it executes that counter's own queued
+/// jobs itself, so waiting from inside a job — on its own children or on another
+/// group — cannot deadlock the pool. A counter must only be used with one JobSystem.
 class JobSystem {
 public:
     using Job = std::function<void()>;
