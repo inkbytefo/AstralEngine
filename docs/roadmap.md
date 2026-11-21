@@ -9,10 +9,16 @@ Durum: ✅ bitti · 🚧 sürüyor · 🔜 sıradaki · ⬜ planlı
 | M2 | `Astral::World` (kendi ECS'imiz), `Astral::App` (Game + System), basit mesh render | ✅ |
 | M3 | `Astral::Render`: render graph, deferred/hibrit mesh + SDF (eski v2'den taşıma) | ✅ |
 | M4 | `Astral::Physics` (Jolt) | ✅ |
+| M3.5 | Fotogerçekçi render: RT (ray query), DDGI, RT yansıma/gölge, alan ışıkları, denoise, TAA, bloom | 🚧 |
 | M5 | `Astral::Assets`: glTF, PBR materyal, async yükleme, hot-reload | 🔜 |
 | M6 | İlk oyun dikey dilimi (kılıç arenası prototipi) | ⬜ |
 
 Oyun nasıl yazılır: [ADR-0006](decisions/0006-app-layer-for-games.md).
+
+**RAGE araştırmasından gelen sistemler** ([research/rage.md](research/rage.md)) — sıra: render (M3.5) →
+asset'ler (M5) → kılıç arenası + kendi aktif ragdoll'umuz (M6) → atmosfer (dünya ölçekli bulut/sis/hava
+haritaları, fiziksel gökyüzü) → animasyon (parça havuzu / motion matching) → AI (node navigasyonu, rutinler,
+hafıza) → dünya streaming + görünmez LOD.
 
 ## M0 — İskelet ve Core ✅
 
