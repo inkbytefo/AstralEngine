@@ -15,10 +15,10 @@ Durum: ✅ bitti · 🚧 sürüyor · 🔜 sıradaki · ⬜ planlı
 
 ## Plan (2026-11-21)
 
-Hedef: shader/materyal, fizik, su ve hava sistemlerini **ortak altyapıların üstüne** kurmak. Su ve hava
+Hedef: shader/materyal, fizik, arazi, su ve hava sistemlerini **ortak altyapıların üstüne** kurmak. Su ve hava
 tek başına özellik değil; dört temel mekanizmanın birleşimi: materyal/shader sistemi, şeffaf geçiş,
 fizikte alanlar (fields) ve kuvvetler, GPU partikülleri. Bu yüzden önce temeller (M8–M11), sonra
-özellikler (M12–M19).
+özellikler (M12–M21).
 
 | Faz | Kapsam | Bağımlı | Durum |
 |---|---|---|---|
@@ -28,13 +28,15 @@ fizikte alanlar (fields) ve kuvvetler, GPU partikülleri. Bu yüzden önce temel
 | M11 | Oyun mantığı ve scripting: Luau, oyun çatısı ([ADR-0017](decisions/0017-gameplay-scripting.md)) | M8 | ⬜ |
 | M12 | Gelişmiş PBR: clearcoat, sheen, anizotropi, transmission, subsurface, decal, path tracer referansı | M9 | ⬜ |
 | M13 | Atmosfer ve partiküller: fiziksel gökyüzü, IBL, hacimsel sis, GPU partikülleri | M9, M10 | ⬜ |
-| M14 | Su I: okyanus ve göller (FFT dalga, kırılma, köpük, su altı) + dalgayı izleyen kaldırma kuvveti | M9, M10, M13 | ⬜ |
-| M15 | Hava II: hacimsel bulutlar, hava durumu (yağmur, ıslaklık), ileri aerodinamik | M12, M13 | ⬜ |
-| M16 | Su II: etkileşimli su (GPU sığ su simülasyonu, iz, sıçrama, nehir akışı) | M14 | ⬜ |
-| M17 | Animasyon: iskelet, GPU skinning, blend, root motion, skinned RT | M9 | ⬜ |
-| M18 | Fizik II: ragdoll + aktif ragdoll, araçlar, kumaş/soft body (rüzgârla), yıkım | M10, M17 | ⬜ |
-| M19 | Dünya ölçeği: arazi, bitki örtüsü, streaming, HLOD, GPU culling | M10, M13 | ⬜ |
-| — | Kılıç arenası (yer tutucu): animasyon ve aktif ragdoll olgunlaşınca | M17, M18 | ⬜ |
+| M14 | Arazi I: Terrain3D benzeri heightfield (clipmap, bölgeler, 32 katman boyama, sculpt fırçaları, delikler, fizik, yerleştirme) ([ADR-0018](decisions/0018-terrain-and-sdf-world.md)) | M8, M9, M10 | ⬜ |
+| M15 | Su I: okyanus ve göller (FFT dalga, kırılma, köpük, su altı, kıyılar) + dalgayı izleyen kaldırma kuvveti | M13, M14 | ⬜ |
+| M16 | Hava II: hacimsel bulutlar, hava durumu (yağmur, ıslaklık), ileri aerodinamik | M12, M13 | ⬜ |
+| M17 | Su II: etkileşimli su (GPU sığ su simülasyonu, iz, sıçrama, nehir akışı) | M15 | ⬜ |
+| M18 | SDF dünya ve yıkım: seyrek SDF hacimleri (mağara, kemer), çalışma anında CSG (krater, kazma), yıkılabilir nesneler | M10, M14 | ⬜ |
+| M19 | Animasyon: iskelet, GPU skinning, blend, root motion, skinned RT | M9 | ⬜ |
+| M20 | Fizik II: ragdoll + aktif ragdoll, araçlar, kumaş/soft body, kopan parçalar ve önceden kırılmış mesh'ler | M10, M18, M19 | ⬜ |
+| M21 | Dünya ölçeği: bölge streaming, HLOD, büyük ölçekli bitki örtüsü, GPU culling, meshlet LOD | M14, M18 | ⬜ |
+| — | Kılıç arenası (yer tutucu): animasyon ve aktif ragdoll olgunlaşınca | M19, M20 | ⬜ |
 
 ### İlkeler
 
@@ -114,35 +116,58 @@ fizikte alanlar (fields) ve kuvvetler, GPU partikülleri. Bu yüzden önce temel
   aydınlatma, şeffaf geçişte çizim.
 - *Çıkış:* günün saati döngüsü; rüzgârda savrulan toz ve duman.
 
-**M14 — Su I: okyanus ve göller.**
+**M14 — Arazi I: heightfield (Terrain3D benzeri).** Karar: [ADR-0018](decisions/0018-terrain-and-sdf-world.md).
+- Bölgelere ayrılmış veri: yükseklik (R32F), kontrol (temel/üst doku, karışım, UV döndürme/ölçek, delik),
+  renk haritaları; `.aterrain` dosyaları, cook'lanır.
+- GPU geometry clipmap ile raster çizim; RT için bölge başına kaba BLAS mesh'i (gölge, DDGI, yansıma).
+- 32 katmanlı materyal: yüksekliğe dayalı karışım, eğime göre otomatik doku, tekrar kırma, makro varyasyon.
+- Fizik: bölge başına heightfield şekli; delikler fizikte de delik.
+- Motor içi düzenleme: yükselt, alçalt, düzleştir, yumuşat, rampa, boya, delik, renk fırçaları (GPU'da,
+  geri alınabilir), debug arayüzünde.
+- Yerleştirme: boya katmanlarına bağlı bitki/kaya örnekleyici, rüzgârla sallanma.
+- *Çıkış:* motor içinde boyanıp şekillendirilmiş 2×2 km arazi; üstünde fizik ve karakter.
+
+**M15 — Su I: okyanus ve göller.**
 - Su hacmi (M10 alanı) + materyal: FFT okyanus (kademeli), göl/havuz yüzeyleri, kırılma, RT yansıma,
-  derinliğe göre emilim ve renk, köpük, su altı (sis, huzme, kostik yaklaşımı).
+  derinliğe göre emilim ve renk, köpük, su altı (sis, huzme, kostik yaklaşımı). Kıyı köpüğü ve sığlık
+  arazinin yüksekliğinden (M14).
 - Fizik: kaldırma kuvveti dalga yüksekliğini CPU'da aynı fonksiyondan örnekler; görünen dalga ile
   hissedilen dalga aynı.
-- *Çıkış:* dalgalı denizde sallanan tekne ve yüzen kasalar.
+- *Çıkış:* kıyıya vuran dalgalı denizde sallanan tekne ve yüzen kasalar.
 
-**M15 — Hava II: bulutlar ve hava durumu.**
+**M16 — Hava II: bulutlar ve hava durumu.**
 - Hacimsel bulutlar (hava durumu haritası), bulut gölgeleri, rüzgârla sürüklenme.
 - Hava durumu sistemi: bulutluluk, yağış, rüzgâr ve ıslaklık zamanla değişir; bunlar bulutları, sisi,
-  yağmur partiküllerini, ıslak yüzeyleri ve su birikintilerini sürer.
+  yağmur partiküllerini, ıslak yüzeyleri ve su birikintilerini (arazi çukurlarında) sürer.
 - İleri aerodinamik: balistik (mermi, ok), kanat kaldırma kuvveti (planör).
-- *Çıkış:* açık havadan fırtınaya geçiş; ıslanan yüzeyler.
+- *Çıkış:* açık havadan fırtınaya geçiş; ıslanan arazi.
 
-**M16 — Su II: etkileşimli su.**
-- GPU sığ su simülasyonu (yerel ızgara): nesne izleri ve dalgalar, sıçrama partikülleri, nehir akış
-  haritaları, kıyı dalgaları; akış fizikte kuvvete dönüşür.
+**M17 — Su II: etkileşimli su.**
+- GPU sığ su simülasyonu (yerel ızgara): nesne izleri ve dalgalar, sıçrama partikülleri, arazideki
+  nehirler (akış haritaları), kıyı dalgaları; akış fizikte kuvvete dönüşür.
 - Araştırma: yerel 3D akışkan efektleri (FLIP/SPH).
 - *Çıkış:* suya düşen nesne dalga yapıyor; nehirde sürüklenen kütükler.
 
-**M17 — Animasyon.** İskelet, GPU skinning, glTF animasyonları, blend ağaçları, root motion, morph
+**M18 — SDF dünya ve yıkım.** Karar: [ADR-0018](decisions/0018-terrain-and-sdf-world.md).
+- Seyrek tuğla SDF hacimleri: mağara, sarkan kaya, kemer; araziye delik açıp orada yüzeyi tanımlar.
+- GPU'da mesh'e çevirme (surface nets / dual contouring) → normal mesh yolu (raster, RT, materyal);
+  triplanar materyal, araziyle aynı katmanlar.
+- Çalışma anında CSG: krater, kazma, tünel; yalnızca etkilenen parçalar yeniden mesh'lenir, BLAS ve çarpışma
+  şekli güncellenir.
+- Yıkılabilir nesneler: cook adımında mesh → SDF; çalışma anında çıkarma işlemleri; kopan parçaların
+  bulunması (fiziğe M20'de geçer).
+- *Çıkış:* arazide patlama kraterleri ve kazılan tünel; delinen ve parçalanan duvar.
+
+**M19 — Animasyon.** İskelet, GPU skinning, glTF animasyonları, blend ağaçları, root motion, morph
 target, skinned mesh için BLAS güncelleme. *Çıkış:* animasyonlu karakter RT gölge ve yansımada doğru.
 
-**M18 — Fizik II.** Ragdoll ve aktif ragdoll (animasyon hedefli motorlar), araçlar (tekerlek,
-süspansiyon), kumaş ve soft body (rüzgâr alanıyla), önceden kırılmış parçalarla yıkım. *Çıkış:* rüzgârda
-dalgalanan bayrak, düşerek tepki veren karakter, sürülebilir araç.
+**M20 — Fizik II.** Ragdoll ve aktif ragdoll (animasyon hedefli motorlar), araçlar (tekerlek,
+süspansiyon), kumaş ve soft body (rüzgâr alanıyla), yıkım parçaları dinamik body olarak (M18) ve önceden
+kırılmış (Voronoi) mesh'ler. *Çıkış:* rüzgârda dalgalanan bayrak, düşerek tepki veren karakter,
+sürülebilir araç, parçaları yere dökülen duvar.
 
-**M19 — Dünya ölçeği.** Arazi (fizikle aynı heightfield + materyal karışımı), rüzgârla sallanan bitki
-örtüsü, hücre tabanlı streaming, HLOD, GPU culling ve meshlet LOD. *Çıkış:* birkaç km² açık dünya.
+**M21 — Dünya ölçeği.** Arazi bölgeleri ve SDF hacimleri için hücre tabanlı streaming, HLOD, büyük ölçekli
+bitki örtüsü, GPU culling ve meshlet LOD. *Çıkış:* birkaç km² açık dünya, akıcı streaming.
 
 ### Neden bu sıra
 
@@ -152,8 +177,11 @@ dalgalanan bayrak, düşerek tepki veren karakter, sürülebilir araç.
   tarafının her yeni özelliği alanlar + kuvvetlere dayanıyor.
 - **M11 temellerin hemen ardından:** su ve hava demoları script'le hızlı kurulur ve yapay zekâyla
   yazılır; component'ler reflect edildiği için yeni her özellik script'e kendiliğinden açılır.
-- **Su ve hava iki dalgada:** önce render ve kuvvet (M14, M15), sonra etkileşim ve simülasyon (M16).
+- **Arazi sudan önce:** kıyılar, sığlıklar, nehirler ve su birikintileri arazinin yükseklik verisini okur.
+- **Su ve hava iki dalgada:** önce render ve kuvvet (M15, M16), sonra etkileşim ve simülasyon (M17).
   İlk dalga ortak temelleri sınar; ikinci dalga onların üstüne kurulur.
+- **SDF ve yıkım araziden sonra:** SDF hacimleri araziye delik açıp onun materyal katmanlarını kullanır;
+  mesh çarpışma şekilleri (M10) ve mesh'e çevirme hazır olmalı.
 - **Animasyon ve ragdoll sonra:** karakter içeriği gerektiriyor, kılıç arenası bunlara bağlı.
 
 ## Tamamlanan fazlar
