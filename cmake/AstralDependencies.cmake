@@ -54,6 +54,16 @@ if(TARGET Jolt AND NOT MSVC)
     target_compile_options(Jolt PRIVATE -w)
 endif()
 
+# Treat third-party headers as system headers so their warnings do not drown ours.
+foreach(dep Jolt glm glfw)
+    if(TARGET ${dep})
+        get_target_property(dep_includes ${dep} INTERFACE_INCLUDE_DIRECTORIES)
+        if(dep_includes)
+            set_target_properties(${dep} PROPERTIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${dep_includes}")
+        endif()
+    endif()
+endforeach()
+
 add_library(astral_cgltf INTERFACE)
 target_include_directories(astral_cgltf SYSTEM INTERFACE ${cgltf_SOURCE_DIR})
 add_library(astral_stb INTERFACE)

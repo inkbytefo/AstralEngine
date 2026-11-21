@@ -100,7 +100,8 @@ SdfVolume::SdfVolume(Vk::Device& device, const SdfVolumeSettings& settings) : m_
     MarkAllDirty();
     const double mb = (double(atlasDesc.extent.width) * atlasDesc.extent.height * atlasDesc.extent.depth * 2 +
                        double(settings.cells.x) * settings.cells.y * settings.cells.z * 4) / (1024.0 * 1024.0);
-    Log::Info("render", "SDF volume: {}x{}x{} cells of {:.2f} m, {} bricks, {:.0f} MB", settings.cells.x, settings.cells.y,
+    if (m_Capacity > 1)
+        Log::Info("render", "SDF volume: {}x{}x{} cells of {:.2f} m, {} bricks, {:.0f} MB", settings.cells.x, settings.cells.y,
               settings.cells.z, cell, m_Capacity, mb);
 }
 
@@ -191,7 +192,10 @@ void SdfVolume::RecordBake(RenderGraph& graph, vk::CommandBuffer cmd, uint32_t f
 
     graph.Pass(cmd, "SdfBake.Classify",
         [&](RenderGraph::PassBuilder& b) {
+            // Every bake pass binds the whole layout (map and atlas as storage images), so the
+            // atlas has to be in GENERAL from the first dispatch on, not only when Fill writes it.
             b.Image(m_Map, Use::StorageReadWrite)
+             .Image(m_Atlas, Use::StorageWrite)
              .Buffer(m_StateSync, Use::StorageReadWrite)
              .Buffer(m_AllocSync, Use::StorageWrite)
              .Buffer(m_WorkSync, Use::StorageReadWrite);
@@ -205,6 +209,7 @@ void SdfVolume::RecordBake(RenderGraph& graph, vk::CommandBuffer cmd, uint32_t f
     graph.Pass(cmd, "SdfBake.Allocate",
         [&](RenderGraph::PassBuilder& b) {
             b.Image(m_Map, Use::StorageReadWrite)
+             .Image(m_Atlas, Use::StorageWrite)
              .Buffer(m_StateSync, Use::StorageReadWrite)
              .Buffer(m_AllocSync, Use::StorageRead)
              .Buffer(m_WorkSync, Use::StorageReadWrite);

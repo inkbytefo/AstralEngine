@@ -236,6 +236,9 @@ void UploadImage(Device& device, Image& image, const void* pixels, size_t size, 
             back.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, mips - 1, 0, 1};
             cmd.pipelineBarrier2(vk::DependencyInfo({}, {}, {}, back));
         }
+        // The copy (and the last blit) wrote the image: the final transition must wait for that.
+        image.State().writeStages = vk::PipelineStageFlagBits2::eTransfer;
+        image.State().writeAccess = vk::AccessFlagBits2::eTransferWrite;
         TransitionImage(cmd, image, vk::ImageLayout::eShaderReadOnlyOptimal,
                         vk::PipelineStageFlagBits2::eFragmentShader | vk::PipelineStageFlagBits2::eComputeShader,
                         vk::AccessFlagBits2::eShaderSampledRead);

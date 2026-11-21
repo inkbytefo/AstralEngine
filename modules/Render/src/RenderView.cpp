@@ -150,6 +150,10 @@ void Renderer::Impl::UploadWorld(vk::CommandBuffer cmd) {
 
     // SDF shapes, in evaluation order.
     const auto& sorted = w.SortedShapes();
+    if (!sorted.empty() && !sdfVolumeAllocated) {
+        sdfVolume = std::make_unique<SdfVolume>(*device, desc.sdfVolume); // old one is retired safely
+        sdfVolumeAllocated = true;
+    }
     std::vector<Detail::GpuSdfShape> shapes;
     shapes.reserve(std::min<size_t>(sorted.size(), SdfVolume::kMaxShapes));
     for (const SdfShapeDesc& s : sorted) {
@@ -168,6 +172,16 @@ void Renderer::Impl::UploadWorld(vk::CommandBuffer cmd) {
         clamped.size = g.size;
         g.boundRadius = Sdf::BoundRadius(clamped);
         shapes.push_back(g);
+    }
+    // A smooth union/subtract blends with everything evaluated before it, so it extends the
+    // reach of every earlier shape by its blend radius. Culling and dirty regions use the
+    // bound radius, so it has to include the blends of all later smooth operations.
+    float laterBlend = 0.0f;
+    for (size_t i = shapes.size(); i-- > 0;) {
+        shapes[i].boundRadius += laterBlend;
+        const uint32_t op = shapes[i].operation;
+        if (op == uint32_t(SdfOperation::SmoothUnion) || op == uint32_t(SdfOperation::SmoothSubtract))
+            laterBlend += shapes[i].positionBlend.w;
     }
     sdfVolume->SetShapes(shapes);
     EnsureCapacity(f.sdfShapes, sizeof(Detail::GpuSdfShape) * std::max<size_t>(1, shapes.size()),

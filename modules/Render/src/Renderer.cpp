@@ -31,7 +31,12 @@ Renderer::Impl::Impl(const RendererDesc& d) : desc(d) {
     auto worldImpl = std::make_unique<World::Impl>();
     worldImpl->volume = desc.sdfVolume;
     world.reset(new World(std::move(worldImpl)));
-    sdfVolume = std::make_unique<SdfVolume>(*device, desc.sdfVolume);
+    // SDFs are optional: start with a 1-cell placeholder volume and allocate the real
+    // one (tens of MB) only when the first SDF shape appears.
+    SdfVolumeSettings placeholder = desc.sdfVolume;
+    placeholder.cells = glm::uvec3(1);
+    placeholder.atlasBricks = glm::uvec3(1);
+    sdfVolume = std::make_unique<SdfVolume>(*device, placeholder);
 
     vk::Device dev = device->Get();
     vk::SamplerCreateInfo sampler;

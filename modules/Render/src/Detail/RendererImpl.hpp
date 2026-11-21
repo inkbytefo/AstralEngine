@@ -116,6 +116,7 @@ struct Renderer::Impl {
     std::unique_ptr<Vk::Swapchain> swapchain;
     std::unique_ptr<World> world;
     std::unique_ptr<SdfVolume> sdfVolume;
+    bool sdfVolumeAllocated = false; // false while only the placeholder exists
     RenderGraph graph{false};
 
     HandlePool<MeshTag, std::unique_ptr<MeshData>> meshes;
