@@ -54,6 +54,23 @@ programa gömülür; `#include <shaders/a.vert.hpp>` → `astral::shaders::a_ver
 `#include <astral/bindless.glsl>` ile ortak tabloyu ve `ASTRAL_BUFFER(Ad, Tip)` makrosunu alır.
 Push constant sınırı 128 byte.
 
+## Ray tracing ([ADR-0011](../decisions/0011-hybrid-ray-traced-lighting.md))
+
+`supports(Feature::RayTracing)` ise (`VK_KHR_acceleration_structure` + `VK_KHR_ray_query`; lavapipe dahil):
+
+```cpp
+auto blas = device->create_blas({.vertices = vb, .vertex_count = n, .vertex_stride = 32,
+                                 .indices = ib, .index_count = m});      // bir kez, bloklayan
+auto tlas = device->create_tlas({.max_instances = 1024});
+cmd.build_tlas(tlas, instances);   // her kare; öncesi/sonrası bariyer otomatik
+push.tlas = device->acceleration_structure_address(tlas);
+```
+
+Shader'da TLAS'a **adresle** ulaşılır, descriptor yok:
+`rayQueryInitializeEXT(q, accelerationStructureEXT(pc.tlas), ...)`. Ray tracing pipeline'ı (SBT) yok;
+ışınlar compute/fragment içinde ray query ile atılır. `TlasInstance::custom_index` (24 bit) shader'da
+`rayQueryGetIntersectionInstanceCustomIndexEXT` ile okunur (ör. materyal indeksi).
+
 ## Senkronizasyon ve yaşam süresi
 
 - Tek **timeline semaphore**; her `submit` değeri bir artırır.
@@ -83,4 +100,5 @@ atlanır. Offscreen üçgen render edilip piksel okunarak doğrulanır; validati
 
 - API tek thread'den kullanılmalı (çok thread'li komut kaydı sonraki fazda).
 - Mip zinciri üretimi, cube/3D texture, MSAA, sorgu (timestamp) yok.
-- Ray tracing / mesh shader sadece `supports()` ile sorgulanabiliyor, kullanılmıyor.
+- Mesh shader sadece `supports()` ile sorgulanabiliyor, kullanılmıyor.
+- BLAS'lar statik (refit/compaction yok); skinned mesh'ler için güncellenebilir BLAS sonraki iş.

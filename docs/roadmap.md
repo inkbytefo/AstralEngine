@@ -9,7 +9,7 @@ Durum: ✅ bitti · 🚧 sürüyor · 🔜 sıradaki · ⬜ planlı
 | M2 | `Astral::World` (kendi ECS'imiz), `Astral::App` (Game + System), basit mesh render | ✅ |
 | M3 | `Astral::Render`: render graph, deferred/hibrit mesh + SDF (eski v2'den taşıma) | ✅ |
 | M4 | `Astral::Physics` (Jolt) | ✅ |
-| M3.5 | Fotogerçekçi render: RT (ray query), DDGI, RT yansıma/gölge, alan ışıkları, denoise, TAA, bloom | 🚧 |
+| M3.5 | Fotogerçekçi render: RT (ray query), DDGI, RT yansıma/gölge, alan ışıkları, denoise, TAA, bloom | ✅ |
 | M5 | `Astral::Assets`: glTF, PBR materyal, async yükleme, hot-reload | 🔜 |
 | M6 | İlk oyun dikey dilimi (kılıç arenası prototipi) | ⬜ |
 
@@ -69,6 +69,19 @@ karakter kontrolcüsü); App'te `RigidBody`/`CharacterController`, sabit 60 Hz a
 Ayrıntı: [physics.md](modules/physics.md).
 
 **Bitiş kriterleri (karşılandı):** `physics_demo` (düşen kutular, raycast); fizik renderer olmadan test edilir.
+
+## M3.5 — Fotogerçekçi render ✅
+
+**Sonuç:** RHI'de ray tracing (BLAS/TLAS, adresle ray query); renderer'da ray-traced yol: RT gölgeli doğrudan
+ışık + alan ışıkları, DDGI + yakın alan RTGI, GGX yansımalar, SVGF tarzı denoiser, TAA, bloom
+([ADR-0011](decisions/0011-hybrid-ray-traced-lighting.md)). `examples/rt_showcase`. Raster yolu yedek olarak
+korunuyor. Shader include bağımlılık hatası bulundu ve düzeltildi.
+**Bağımsız inceleme bu fazda henüz yapılmadı** — sonraki adımlardan biri.
+
+![RT showcase](images/m3.5-rt-showcase.png)
+
+**Bitiş kriterleri (karşılandı):** RT destekli cihazda (lavapipe dahil) gölge, alan ışığı, ayna yansıması,
+renk taşması ve SDF katılımı testlerle doğrulanır; validation temiz; RT yoksa raster yoluna düşer.
 
 ## M5 — Asset'ler
 

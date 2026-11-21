@@ -401,7 +401,12 @@ vec3 shade_secondary(Frame f, LightingInputs li, Surface s, vec3 v, uint irr_tex
     vec3 d, sp;
     direct_light(f, li, s, v, seed, d, sp);
     vec3 indirect = ddgi_irradiance(f, irr_tex, dist_tex, s.p, s.n, v);
-    return s.albedo * (d + indirect * (1.0 - s.metallic)) + sp + s.emissive;
+    // Environment specular at secondary hits: probe light seen in the mirror direction is a
+    // blurry stand-in for a second reflection ray (keeps metals from going black in reflections).
+    vec3 f0 = mix(vec3(0.04), s.albedo, s.metallic);
+    vec3 dfg = env_brdf(f0, s.roughness, max(dot(s.n, v), 1e-4));
+    vec3 mirror = ddgi_irradiance(f, irr_tex, dist_tex, s.p, reflect(-v, s.n), v);
+    return s.albedo * (d + indirect * (1.0 - dfg) * (1.0 - s.metallic)) + sp + mirror * dfg + s.emissive;
 }
 
 #endif

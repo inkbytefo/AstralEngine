@@ -38,6 +38,9 @@ module (core, gpu, platform, world, render) is also usable directly as a plain l
 | `Astral::World` (own ECS), `Astral::Render` (forward), `Astral::App` | ✅ M2 |
 | `RenderGraph`, hybrid deferred renderer (meshes + SDF, PBR, shadows) | ✅ M3 |
 | `Astral::Physics` (Jolt: bodies, raycast, contacts, character controller) | ✅ M4 |
+| Ray-traced lighting: RT shadows, area lights, DDGI + near-field RTGI, RT reflections, denoiser, TAA, bloom | ✅ M3.5 |
+
+![RT showcase](docs/images/m3.5-rt-showcase.png)
 | `Astral::Assets` (glTF) | M5 |
 
 ## Build

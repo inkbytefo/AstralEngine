@@ -18,6 +18,7 @@ Swapchain, Renderer, hazır mesh'ler. `Game` + `System`'ler bunlara `Context` ü
 | `worker_threads` | 0 | 0 = çekirdek sayısı − 1 |
 | `physics_rate` | 60 | fizik adımı / saniye |
 | `max_physics_steps` | 4 | kare başına en fazla adım |
+| `render` | `{}` | `RenderSettings`: ray tracing, GI, denoiser, TAA, bloom ([render.md](render.md)) |
 
 ## Kare
 
@@ -28,7 +29,8 @@ Fizik component'leri: `RigidBody`, `CharacterController` ([physics.md](physics.m
 Kamera: ilk aktif `Camera` component'li entity'nin `WorldTransform`'u (−Z'ye bakar); yoksa varsayılan.
 
 Render component'leri: `MeshRenderer` (mesh + PBR materyal), `Sdf` (SDF şekli + sıra; konum/dönüş
-entity'den), `PointLight` (konum entity'den). Güneş ve ortam: `ctx.sun`, `ctx.environment`.
+entity'den), `PointLight` (konum entity'den), `RectLight` (alan ışığı; konum entity'den, eksenleri
+entity'nin dönüşü/ölçeğiyle döner — yalnız ray-traced yolda). Güneş ve ortam: `ctx.sun`, `ctx.environment`.
 
 ## Yaşam süresi
 

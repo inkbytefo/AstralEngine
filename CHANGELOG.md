@@ -4,6 +4,29 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-11-21 — M3.5 (fotogerçekçi render)
+
+### Added
+- GPU: ray tracing — `create_blas`, `create_tlas`, `CommandList::build_tlas`,
+  `acceleration_structure_address`; shader'lar TLAS'a adresle ulaşır (ray query).
+- Render: ray-traced yol ([ADR-0011](docs/decisions/0011-hybrid-ray-traced-lighting.md)) — RT gölgeli
+  doğrudan ışık (güneş konisi, ampul yarıçapı, `RectLight` alan ışıkları), DDGI prob ızgarası (sonsuz sekme),
+  yakın alan RTGI (temas gölgesi + renk taşması), GGX yansıma ışınları (aynadan pürüzlüye), SVGF tarzı
+  denoiser (zamansal + varyans güdümlü à-trous), TAA (Halton jitter, YCoCg kırpma), bloom (CoD:AW/RDR2
+  yöntemi), `DebugView`, `Renderer::reset_history()`.
+- `RenderSettings`: `ray_tracing`, `gi`, `denoise_iterations`, `max_history`, `taa_blend`, `bloom_strength`,
+  `near_gi_radius`, `max_ray_distance`, `debug_view`. `PointLight::source_radius`,
+  `DirectionalLight::angular_radius`, `RenderScene::rect_lights`.
+- App: `RectLight` component'i, `AppDesc::render`.
+- `examples/rt_showcase` (RGB oda; pencere veya `--capture` ile headless görüntü), `docs/research/rage.md`.
+
+### Changed
+- RT destekli cihazlarda varsayılan yol ray-traced; `RenderSettings::ray_tracing = false` raster yolu verir.
+
+### Fixed
+- Build: modüllerin kendi GLSL include'ları (`scene.glsl` vb.) bağımlılık olarak izlenmiyordu; değişince
+  shader'lar yeniden derlenmiyor, C++/GPU veri düzeni sessizce ayrışıyordu. Artık glslc depfile ile izleniyor.
+
 ## [0.5.0] — 2026-11-21 — M4
 
 ### Added
