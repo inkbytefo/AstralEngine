@@ -28,14 +28,30 @@ struct App::Impl {
     std::unique_ptr<gpu::Swapchain> swapchain;
     std::unique_ptr<Renderer> renderer;
 
+    std::unique_ptr<PhysicsWorld> physics;
+    float physics_accumulator = 0.0f;
+    std::vector<ContactEvent> frame_contacts;
+    struct BodyLink {
+        Entity entity;
+        BodyHandle body;
+    };
+    struct CharacterLink {
+        Entity entity;
+        CharacterHandle character;
+    };
+    std::vector<BodyLink> body_links;
+    std::vector<CharacterLink> character_links;
+
     std::unique_ptr<Context> context;
-    std::array<std::vector<std::unique_ptr<System>>, 3> systems;
+    std::array<std::vector<std::unique_ptr<System>>, 4> systems;
     std::vector<DrawItem> draw_items; // scratch, reused every frame
     std::vector<std::pair<std::int32_t, SdfShape>> sdf_sorted;
     std::vector<SdfShape> sdf_shapes;
     std::vector<PointLight> point_lights;
 
     bool started = false;
+    void sync_physics_bodies();
+    void step_physics(Game& game, float delta);
 
     explicit Impl(const AppDesc& d) : desc(d), jobs(d.worker_threads) {}
     bool start(Game& game);
@@ -50,6 +66,9 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
     auto& m = *impl_;
     m.log.add_sink(std::make_shared<ConsoleSink>());
     m.context.reset(new Context(m.world, m.input, m.time, m.log, m.jobs, *this));
+    m.physics = std::make_unique<PhysicsWorld>();
+    m.context->physics = m.physics.get();
+    m.time.fixed_delta = 1.0f / std::max(desc.physics_rate, 1.0f);
 
     if (!desc.headless) {
         m.window = Window::create({.title = desc.title, .width = desc.width, .height = desc.height});
@@ -83,12 +102,16 @@ App::~App() {
     // Systems may release GPU resources in their destructors: they go first, while the
     // renderer and device still exist. Then the services, device last, window after it.
     for (auto& phase : m.systems) phase.clear();
+    m.context->physics = nullptr;
+    m.physics.reset();
     m.renderer.reset();
     m.swapchain.reset();
     m.device.reset();
 }
 
 Context& App::context() noexcept { return *impl_->context; }
+
+std::span<const ContactEvent> Context::contacts() const noexcept { return app_.impl_->frame_contacts; }
 World& App::world() noexcept { return impl_->world; }
 const Time& App::time() const noexcept { return impl_->time; }
 
@@ -158,6 +181,80 @@ int App::run(Game& game) {
     return 0;
 }
 
+/// Creates bodies/characters for new components, destroys those whose entity or component is gone.
+void App::Impl::sync_physics_bodies() {
+    std::erase_if(body_links, [&](const BodyLink& link) {
+        const RigidBody* rb = world.get<RigidBody>(link.entity);
+        if (rb && rb->handle == link.body) return false;
+        physics->destroy(link.body);
+        return true;
+    });
+    std::erase_if(character_links, [&](const CharacterLink& link) {
+        const CharacterController* cc = world.get<CharacterController>(link.entity);
+        if (cc && cc->handle == link.character) return false;
+        physics->destroy(link.character);
+        return true;
+    });
+    world.each<RigidBody, const Transform>([&](Entity e, RigidBody& rb, const Transform& t) {
+        if (physics->valid(rb.handle)) return;
+        BodyDesc body_desc = rb.desc;
+        body_desc.position = t.position;
+        body_desc.rotation = t.rotation;
+        body_desc.user_data = to_user_data(e);
+        rb.handle = physics->create_body(body_desc);
+        if (rb.handle.valid()) body_links.push_back({e, rb.handle});
+    });
+    world.each<CharacterController, const Transform>([&](Entity e, CharacterController& cc, const Transform& t) {
+        if (cc.handle.valid()) return;
+        CharacterDesc character_desc = cc.desc;
+        character_desc.position = t.position;
+        character_desc.user_data = to_user_data(e);
+        cc.handle = physics->create_character(character_desc);
+        if (cc.handle.valid()) character_links.push_back({e, cc.handle});
+    });
+}
+
+/// Fixed-rate physics: FixedUpdate systems, kinematic targets, characters, step; then the
+/// simulated poses go back into Transforms.
+void App::Impl::step_physics(Game&, float delta) {
+    Context& ctx = *context;
+    frame_contacts.clear();
+    sync_physics_bodies();
+    const float fixed = time.fixed_delta;
+    physics_accumulator += delta;
+    std::uint32_t steps = 0;
+    while (physics_accumulator >= fixed && steps < desc.max_physics_steps) {
+        run_phase(systems[static_cast<std::size_t>(Phase::FixedUpdate)], ctx);
+        world.apply_commands();
+        sync_physics_bodies(); // FixedUpdate systems may have spawned or removed bodies
+        world.each<const RigidBody, const Transform>([&](const RigidBody& rb, const Transform& t) {
+            if (rb.desc.motion == MotionType::Kinematic) physics->move_kinematic(rb.handle, t.position, t.rotation, fixed);
+        });
+        world.each<CharacterController>([&](CharacterController& cc) {
+            physics->update_character(cc.handle, cc.move, cc.jump, fixed, cc.jump_speed);
+            cc.jump = false; // one jump per press
+        });
+        physics->step(fixed);
+        frame_contacts.insert(frame_contacts.end(), physics->contacts().begin(), physics->contacts().end());
+        physics_accumulator -= fixed;
+        ++steps;
+    }
+    if (steps == desc.max_physics_steps) physics_accumulator = std::min(physics_accumulator, fixed); // drop the backlog
+
+    world.each<const RigidBody, Transform>([&](const RigidBody& rb, Transform& t) {
+        if (rb.desc.motion != MotionType::Dynamic || !physics->valid(rb.handle)) return;
+        t.position = physics->position(rb.handle);
+        t.rotation = physics->rotation(rb.handle);
+    });
+    world.each<CharacterController, Transform>([&](CharacterController& cc, Transform& t) {
+        const CharacterState state = physics->character_state(cc.handle);
+        if (!cc.handle.valid()) return;
+        t.position = state.position;
+        cc.on_ground = state.on_ground;
+        cc.velocity = state.velocity;
+    });
+}
+
 void App::Impl::frame(Game& game, float delta) {
     Impl& m = *this;
     Context& ctx = *m.context;
@@ -168,6 +265,8 @@ void App::Impl::frame(Game& game, float delta) {
     game.on_update(ctx);
     m.world.apply_commands();
     run_phase(m.systems[static_cast<std::size_t>(Phase::Update)], ctx);
+    m.world.apply_commands();
+    m.step_physics(game, delta);
     m.world.apply_commands();
     run_phase(m.systems[static_cast<std::size_t>(Phase::PostUpdate)], ctx);
     m.world.apply_commands();

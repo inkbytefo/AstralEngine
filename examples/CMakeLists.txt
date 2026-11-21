@@ -14,3 +14,7 @@ astral_set_warnings(spinning_cubes)
 add_executable(sdf_scene sdf_scene/main.cpp)
 target_link_libraries(sdf_scene PRIVATE Astral::App)
 astral_set_warnings(sdf_scene)
+
+add_executable(physics_demo physics_demo/main.cpp)
+target_link_libraries(physics_demo PRIVATE Astral::App)
+astral_set_warnings(physics_demo)

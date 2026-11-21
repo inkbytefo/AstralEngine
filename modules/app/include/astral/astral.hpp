@@ -3,6 +3,7 @@
 
 #include <astral/app/app.hpp>
 #include <astral/app/components.hpp>
+#include <astral/physics/physics.hpp>
 #include <astral/core/log.hpp>
 #include <astral/core/math.hpp>
 #include <astral/platform/input.hpp>

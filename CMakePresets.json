@@ -90,7 +90,8 @@
         "outputOnFailure": true
       },
       "environment": {
-        "LSAN_OPTIONS": "suppressions=${sourceDir}/cmake/lsan.supp:print_suppressions=0"
+        "LSAN_OPTIONS": "suppressions=${sourceDir}/cmake/lsan.supp:print_suppressions=0",
+        "UBSAN_OPTIONS": "suppressions=${sourceDir}/cmake/ubsan.supp:print_stacktrace=1"
       }
     }
   ]

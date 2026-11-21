@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -22,9 +23,9 @@ class Device;
 class Context;
 
 /// When a system runs inside a frame:
-/// input → PreUpdate → Game::on_update → Update → (commands applied) → PostUpdate →
-/// transforms → render.
-enum class Phase : std::uint8_t { PreUpdate, Update, PostUpdate };
+/// input → PreUpdate → Game::on_update → Update → physics (FixedUpdate systems + step, 0..n
+/// times at a fixed rate) → PostUpdate → transforms → render. Commands are applied after each.
+enum class Phase : std::uint8_t { PreUpdate, Update, FixedUpdate, PostUpdate };
 
 /// Game logic that runs every frame. Read and write components through ctx.world.
 class System {
@@ -60,6 +61,7 @@ public:
     Window* window = nullptr;
     gpu::Device* device = nullptr;
     Renderer* renderer = nullptr;
+    PhysicsWorld* physics = nullptr; ///< Always available (also headless).
     BuiltinMeshes meshes{};
     DirectionalLight sun{};   ///< The sun (direction, color, shadows).
     Environment environment{}; ///< Sky/ground ambient and exposure.
@@ -70,6 +72,9 @@ public:
         register_system(phase, std::move(system));
         return ref;
     }
+    /// Contacts that began or ended during this frame's physics steps.
+    [[nodiscard]] std::span<const ContactEvent> contacts() const noexcept;
+
     /// Ends the run loop after the current frame.
     void quit() noexcept { quit_requested_ = true; }
     [[nodiscard]] bool quit_requested() const noexcept { return quit_requested_; }
@@ -92,6 +97,8 @@ struct AppDesc {
     bool validation = false;      ///< Vulkan validation layer (slow; for debugging).
     float fixed_timestep = 0.0f;  ///< > 0: every frame advances exactly this much time.
     unsigned worker_threads = 0;  ///< 0 = hardware threads - 1.
+    float physics_rate = 60.0f;   ///< Fixed physics steps per second.
+    std::uint32_t max_physics_steps = 4; ///< Per frame; slower frames drop time instead of stalling.
 };
 
 /// Owns the main loop and every engine service; your Game plugs into it.

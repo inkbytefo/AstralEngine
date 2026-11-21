@@ -5,6 +5,7 @@ find_dependency(Threads)
 # Static modules carry their private dependencies into the link line.
 find_dependency(Vulkan 1.3)
 find_dependency(SDL3 CONFIG)
+find_dependency(Jolt CONFIG)
 
 include("${CMAKE_CURRENT_LIST_DIR}/AstralTargets.cmake")
 

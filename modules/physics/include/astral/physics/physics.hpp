@@ -41,7 +41,7 @@ struct ShapeDesc {
 };
 
 struct BodyDesc {
-    ShapeDesc shape;
+    ShapeDesc shape{};
     MotionType motion = MotionType::Dynamic;
     Vec3 position{};
     Quat rotation{};
@@ -58,9 +58,9 @@ struct BodyDesc {
 };
 
 struct RayHit {
-    BodyHandle body;
-    Vec3 position;
-    Vec3 normal;
+    BodyHandle body{};
+    Vec3 position{};
+    Vec3 normal{};
     float distance = 0.0f;
     std::uint64_t user_data = 0;
 };
@@ -68,8 +68,8 @@ struct RayHit {
 struct ContactEvent {
     enum class Type : std::uint8_t { Begin, End };
     Type type = Type::Begin;
-    BodyHandle a;
-    BodyHandle b;
+    BodyHandle a{};
+    BodyHandle b{};
     Vec3 point{};   ///< Begin only.
     Vec3 normal{};  ///< Begin only: from a to b.
     std::uint64_t user_data_a = 0;

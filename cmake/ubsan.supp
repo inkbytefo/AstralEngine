@@ -1,0 +1,4 @@
+# Third-party UBSan findings outside AstralEngine code.
+# Jolt reinterprets a stack buffer as SimShapeFilterWrapper (vptr check false positive).
+vptr:SimShapeFilterWrapper.h
+vptr:PhysicsSystem.cpp
