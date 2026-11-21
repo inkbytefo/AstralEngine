@@ -16,10 +16,12 @@ install(EXPORT AstralTargets NAMESPACE Astral:: DESTINATION ${astral_cmake_dir})
 
 configure_package_config_file(${CMAKE_CURRENT_LIST_DIR}/AstralConfig.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/AstralConfig.cmake
-    INSTALL_DESTINATION ${astral_cmake_dir})
+    INSTALL_DESTINATION ${astral_cmake_dir}
+    PATH_VARS CMAKE_INSTALL_DATADIR)
 write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/AstralConfigVersion.cmake
     COMPATIBILITY SameMinorVersion)
 install(FILES
+    ${CMAKE_CURRENT_LIST_DIR}/AstralShaders.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/AstralConfig.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/AstralConfigVersion.cmake
     DESTINATION ${astral_cmake_dir})

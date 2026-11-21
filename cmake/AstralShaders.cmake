@@ -3,8 +3,10 @@
 #   can `#include <shaders/triangle.vert.hpp>` and use `astral::shaders::triangle_vert`
 #   (a std::span<const std::uint32_t>). Stage comes from the extension (.vert/.frag/.comp).
 find_program(ASTRAL_GLSLC glslc HINTS $ENV{VULKAN_SDK}/Bin $ENV{VULKAN_SDK}/bin)
-set(ASTRAL_GPU_SHADER_INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR}/../modules/gpu/shaders/include
-    CACHE INTERNAL "Astral GLSL include directory")
+if(NOT ASTRAL_GPU_SHADER_INCLUDE_DIR)
+    # In-tree build; an installed package sets this to <prefix>/share/astral/shaders first.
+    set(ASTRAL_GPU_SHADER_INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR}/../modules/gpu/shaders/include)
+endif()
 
 function(astral_add_shaders target)
     cmake_parse_arguments(ARG "" "" "SOURCES;INCLUDE_DIRS" ${ARGN})

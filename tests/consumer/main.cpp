@@ -3,6 +3,8 @@
 #include <astral/gpu/device.hpp>
 #include <astral/platform/input.hpp>
 
+#include <shaders/fill.comp.hpp> // compiled by the installed astral_add_shaders
+
 #include <atomic>
 #include <cstdio>
 
@@ -18,6 +20,6 @@ int main() {
                 astral::version().data(), sum.load());
     astral::Input input; // links Astral::Platform
     auto device = astral::gpu::Device::create({}); // links Astral::Gpu (may be null without a GPU)
-    std::printf("gpu: %s\n", device ? "yes" : "no");
+    std::printf("gpu: %s, shader words: %zu\n", device ? "yes" : "no", astral::shaders::fill_comp.size());
     return sum.load() == 100 ? 0 : 1;
 }

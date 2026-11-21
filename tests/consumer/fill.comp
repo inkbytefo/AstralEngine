@@ -1,0 +1,6 @@
+#version 460
+#include <astral/bindless.glsl>
+ASTRAL_BUFFER(UintBuffer, uint);
+layout(push_constant, scalar) uniform Push { UintBuffer out_buffer; } pc;
+layout(local_size_x = 1) in;
+void main() { pc.out_buffer.data[0] = 42u; }

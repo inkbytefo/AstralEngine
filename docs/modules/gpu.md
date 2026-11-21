@@ -86,4 +86,3 @@ atlanır. Offscreen üçgen render edilip piksel okunarak doğrulanır; validati
 - Mip zinciri üretimi, cube/3D texture, MSAA, sorgu (timestamp) yok.
 - Ray tracing / mesh shader sadece `supports()` ile sorgulanabiliyor, kullanılmıyor.
 - Derinlik texture'larını shader'da örneklemek (gölge) için descriptor layout'u henüz doğru değil.
-- `astral_add_shaders` kurulan pakete dahil değil (tüketici projeler shader derleme yardımcısını kopyalamalı).
