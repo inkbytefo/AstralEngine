@@ -7,7 +7,7 @@ Durum: ✅ bitti · 🚧 sürüyor · 🔜 sıradaki · ⬜ planlı
 | M0 | İskelet, `Astral::Core` (log, handle, clock, jobs), kurulum, CI | ✅ |
 | M1 | `Astral::Platform` (SDL3 pencere/input), `Astral::Gpu` (Vulkan RHI) | 🔜 |
 | M2 | `Astral::Render`: render graph, kamera, temel mesh çizimi, SDF pass | ⬜ |
-| M3 | `Astral::World` (ECS, transform hiyerarşisi), `Astral::Physics` (Jolt) | ⬜ |
+| M3 | `Astral::World` (kendi archetype ECS'imiz, transform hiyerarşisi), `Astral::Physics` (Jolt) | ⬜ |
 | M4 | `Astral::Assets`: glTF, PBR materyal, async yükleme, hot-reload | ⬜ |
 | M5 | İlk oyun dikey dilimi (kılıç arenası prototipi) | ⬜ |
 

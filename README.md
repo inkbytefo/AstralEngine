@@ -21,7 +21,7 @@ while (running) {
 | `Astral::Core` — log, handles, clock, jobs | ✅ M0 |
 | `Astral::Platform`, `Astral::Gpu` (Vulkan RHI) | M1 |
 | `Astral::Render` (render graph) | M2 |
-| `Astral::World`, `Astral::Physics` (Jolt) | M3 |
+| `Astral::World` (own ECS), `Astral::Physics` (Jolt) | M3 |
 | `Astral::Assets` (glTF) | M4 |
 
 ## Build
@@ -66,6 +66,10 @@ cmake/                                  build helpers
 - No singletons, no global mutable state — pass dependencies in.
 - No third-party types in public headers.
 - Resources are referenced by generational `Handle<T>`, not raw pointers.
+
+## Docs
+
+See [docs/](docs/README.md) (Turkish): architecture, roadmap, module docs, decision records.
 
 ## License
 

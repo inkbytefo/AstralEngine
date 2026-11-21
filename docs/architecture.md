@@ -42,7 +42,8 @@ zorlar: bir modül, linklemediği modülün header'ını bulamaz.
 ## Değişmez kurallar
 
 - Global değiştirilebilir state yok. (Durumsuz sabitler serbest — örn. `default_time_source()`.)
-- Public header'larda üçüncü parti tip yok (Vulkan, SDL, Jolt, EnTT `src/` içinde kalır).
+- Public header'larda üçüncü parti tip yok (Vulkan, SDL, Jolt `src/` içinde kalır).
+- ECS ve çekirdek veri yapıları bizim: hazır ECS kütüphanesi (EnTT vb.) kullanılmaz ([ADR-0005](decisions/0005-own-ecs.md)).
 - Kaynaklara ham pointer ile değil `Handle<T>` ile erişilir.
 - Sıcak veri data-oriented (SoA/ECS); OOP arayüzler sadece modül sınırlarında.
 - Her modül tek başına derlenir ve test edilir; renderer olmadan headless çalışma desteklenir.
