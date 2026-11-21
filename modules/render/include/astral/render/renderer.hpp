@@ -11,24 +11,41 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <vector>
 
 namespace astral {
 
 class RenderGraph;
 struct MeshTag;
 struct MaterialTag;
+struct RenderTextureTag;
 /// GPU geometry owned by the Renderer (Renderer::create_mesh).
 using MeshHandle = Handle<MeshTag>;
 /// A surface description owned by the Renderer (Renderer::create_material). Shared by any number of
 /// instances; editing it with update_material changes all of them.
 using MaterialHandle = Handle<MaterialTag>;
+/// An image the Renderer owns (Renderer::create_texture), used by materials. Not a gpu::TextureHandle.
+using TextureHandle = Handle<RenderTextureTag>;
 
-/// Metallic-roughness PBR, the glTF model (textures arrive with the asset system, M5).
+/// 8-bit RGBA pixels, rows top to bottom. The Renderer builds the mip chain.
+struct ImageData {
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    std::vector<std::uint8_t> rgba; ///< width * height * 4 bytes
+    bool srgb = true;               ///< Colour (base colour, emissive) = true; data (normals, roughness) = false.
+};
+
+/// Metallic-roughness PBR, the glTF model. Texture values multiply the factors; invalid = none.
 struct MaterialDesc {
     Vec4 base_color{1, 1, 1, 1};
     float roughness = 0.6f;
     float metallic = 0.0f;
     Vec3 emissive{};       ///< Emitted radiance (rgb). Lights the scene in the ray-traced path.
+    TextureHandle base_color_texture{};
+    TextureHandle metallic_roughness_texture{}; ///< glTF layout: G = roughness, B = metallic.
+    TextureHandle normal_texture{};             ///< Tangent space; no vertex tangents needed.
+    TextureHandle emissive_texture{};
+    float normal_scale = 1.0f;
 };
 
 /// One mesh to draw this frame. An invalid material means Renderer::default_material().
@@ -171,7 +188,15 @@ public:
 
     /// Uploads a mesh (blocking). Invalid handle on failure, e.g. while a CommandList records.
     MeshHandle create_mesh(const MeshData& data);
+    /// Replaces the geometry behind a handle (hot reload): instances keep drawing the same handle.
+    bool update_mesh(MeshHandle mesh, const MeshData& data);
     void destroy(MeshHandle mesh);
+
+    /// Uploads an image with a full mip chain (blocking). Invalid handle on bad data.
+    TextureHandle create_texture(const ImageData& image);
+    /// Replaces the image behind a handle (hot reload); materials using it see the new one.
+    bool update_texture(TextureHandle texture, const ImageData& image);
+    void destroy(TextureHandle texture);
 
     MaterialHandle create_material(const MaterialDesc& desc);
     /// False for a dead handle. Takes effect from the next render().
@@ -209,4 +234,4 @@ ASTRAL_REFLECT(astral::PointLight, position, color, intensity, radius, source_ra
 ASTRAL_REFLECT(astral::RectLight, position, right, up, color, intensity, two_sided)
 ASTRAL_REFLECT(astral::DirectionalLight, direction, color, intensity, shadows, angular_radius)
 ASTRAL_REFLECT(astral::Environment, sky, ground, ambient, exposure)
-ASTRAL_REFLECT(astral::MaterialDesc, base_color, roughness, metallic, emissive)
+ASTRAL_REFLECT(astral::MaterialDesc, base_color, roughness, metallic, emissive, normal_scale)

@@ -77,9 +77,10 @@ public:
     /// Copies buffer contents to the CPU. Waits for pending GPU work first. GPU-only buffers
     /// need a staged copy, refused while a CommandList is being recorded.
     bool read_buffer(BufferHandle buffer, void* out, std::uint64_t size, std::uint64_t offset = 0);
-    /// Uploads tightly packed texels to mip 0 and leaves the texture in ShaderRead state.
-    /// Blocking; refused while a CommandList is being recorded.
-    bool write_texture(TextureHandle texture, const void* data, std::uint64_t size);
+    /// Uploads tightly packed texels to one mip level (size = max(1, w >> mip) x max(1, h >> mip))
+    /// and leaves the texture in ShaderRead state. Upload mip 0 first. Blocking; refused while a
+    /// CommandList is being recorded.
+    bool write_texture(TextureHandle texture, const void* data, std::uint64_t size, std::uint32_t mip = 0);
 
     /// GPU virtual address for shaders (0 for an invalid handle).
     [[nodiscard]] std::uint64_t buffer_address(BufferHandle buffer) const noexcept;

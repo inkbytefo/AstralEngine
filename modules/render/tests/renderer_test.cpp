@@ -468,3 +468,74 @@ TEST_CASE("moving meshes get per-object motion vectors") {
     CHECK(rgb(f.at(pixels, {-1, 0, 0.5f})).r > 40); // moved right on screen
     CHECK(rgb(f.at(pixels, {1, 0, 0.5f})).r < 10);  // did not move
 }
+
+// --- Textures --------------------------------------------------------------------------------
+
+namespace {
+ImageData solid_halves(std::array<std::uint8_t, 4> left, std::array<std::uint8_t, 4> right, bool srgb = true) {
+    ImageData img{.width = 16, .height = 16, .rgba = {}, .srgb = srgb};
+    for (std::uint32_t y = 0; y < 16; ++y) {
+        for (std::uint32_t x = 0; x < 16; ++x) {
+            const auto& c = x < 8 ? left : right;
+            img.rgba.insert(img.rgba.end(), c.begin(), c.end());
+        }
+    }
+    return img;
+}
+} // namespace
+
+TEST_CASE("base colour textures are sampled with the mesh uvs, and can be replaced in place") {
+    Fixture f;
+    if (!f.device) return;
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const TextureHandle tex = f.renderer->create_texture(solid_halves({255, 0, 0, 255}, {0, 0, 255, 255}));
+    REQUIRE(tex.valid());
+    const MaterialHandle mat = f.renderer->create_material({.roughness = 1.0f, .base_color_texture = tex});
+    const MeshInstance inst{.mesh = cube, .material = mat, .transform = scale({2, 2, 2})};
+    const RenderScene scene{.meshes = std::span(&inst, 1), .sun = front_sun};
+    auto pixels = f.draw(scene);
+    const Rgb left = rgb(f.at(pixels, {-0.5f, 0, 1})), right = rgb(f.at(pixels, {0.5f, 0, 1}));
+    CHECK(left.r > left.b + 80); // red half (the sky adds a little blue ambient everywhere)
+    CHECK(right.b > right.r + 80);
+    REQUIRE(f.renderer->update_texture(tex, solid_halves({0, 255, 0, 255}, {0, 255, 0, 255})));
+    pixels = f.draw(scene);
+    CHECK(rgb(f.at(pixels, {-0.5f, 0, 1})).g > 120);
+    CHECK(rgb(f.at(pixels, {0.5f, 0, 1})).g > 120);
+    // Bad images are refused; destroying a texture used by a material just drops the texture.
+    CHECK_FALSE(f.renderer->create_texture({.width = 4, .height = 4, .rgba = {1, 2, 3}, .srgb = true}).valid());
+    f.renderer->destroy(tex);
+    CHECK(rgb(Fixture::center(f.draw(scene))).g > 120); // material colour (white) under the sun: bright
+}
+
+TEST_CASE("normal maps tilt the shading normal") {
+    Fixture f;
+    if (!f.device) return;
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    // Flat map (0.5, 0.5, 1) vs a map tilted strongly along +u: lit from the front, the tilt darkens.
+    const TextureHandle flat = f.renderer->create_texture(solid_halves({128, 128, 255, 255}, {128, 128, 255, 255}, false));
+    const TextureHandle tilted = f.renderer->create_texture(solid_halves({250, 128, 60, 255}, {250, 128, 60, 255}, false));
+    const MaterialHandle a = f.renderer->create_material({.roughness = 1.0f, .normal_texture = flat});
+    const MaterialHandle b = f.renderer->create_material({.roughness = 1.0f, .normal_texture = tilted});
+    const DirectionalLight sun{.direction = {0, 0, -1}, .intensity = 1.0f, .shadows = false};
+    const Environment dark{.sky = {}, .ground = {}, .ambient = 0};
+    const MeshInstance ia{.mesh = cube, .material = a};
+    const MeshInstance ib{.mesh = cube, .material = b};
+    const int lit_flat = luminance(Fixture::center(f.draw({.meshes = std::span(&ia, 1), .sun = sun, .environment = dark})));
+    const int lit_tilted = luminance(Fixture::center(f.draw({.meshes = std::span(&ib, 1), .sun = sun, .environment = dark})));
+    CHECK(lit_tilted < lit_flat - 60);
+}
+
+TEST_CASE("update_mesh swaps geometry behind the same handle") {
+    Fixture f;
+    if (!f.device) return;
+    const MeshHandle mesh = f.renderer->create_mesh(make_cube());
+    const MeshInstance inst{.mesh = mesh, .material = f.renderer->create_material({.base_color = {1, 0, 0, 1}, .roughness = 1.0f}),
+                            .transform = translate({1.5f, 0, 0})};
+    const RenderScene scene{.meshes = std::span(&inst, 1), .sun = front_sun};
+    CHECK(rgb(Fixture::center(f.draw(scene))).b > rgb(Fixture::center(f.draw(scene))).r); // centre: sky
+    MeshData wide = make_cube();
+    for (auto& v : wide.vertices) v.position.x *= 6.0f; // now reaches the screen centre
+    REQUIRE(f.renderer->update_mesh(mesh, wide));
+    CHECK(rgb(Fixture::center(f.draw(scene))).r > 120);
+    CHECK_FALSE(f.renderer->update_mesh(MeshHandle{}, wide));
+}

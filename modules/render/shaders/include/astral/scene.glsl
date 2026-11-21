@@ -14,8 +14,10 @@ struct Instance {
 struct Material {
     vec4 base_color;
     vec4 emissive_roughness; // rgb emitted radiance, a roughness
-    vec4 params;             // x metallic
+    vec4 params;             // x metallic, y normal scale
+    uvec4 textures;          // bindless: base colour, metallic-roughness (G rough, B metal), normal, emissive; ~0u none
 };
+const uint NO_TEXTURE = 0xFFFFFFFFu;
 struct Frame {
     mat4 view_projection;
     mat4 inv_view_projection;

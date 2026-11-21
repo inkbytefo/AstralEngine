@@ -80,3 +80,17 @@ TEST_CASE("invalid descriptions are refused") {
     CHECK_FALSE(device->create_buffer({.size = 0}).valid());
     CHECK_FALSE(device->create_texture({.width = 0, .height = 4}).valid());
 }
+
+TEST_CASE("textures take uploads per mip level") {
+    auto device = astral::test::make_device();
+    if (!device) return;
+    auto t = device->create_texture({.width = 8, .height = 4, .format = astral::gpu::Format::RGBA8Unorm,
+                                     .usage = astral::gpu::TextureUsage::Sampled, .mip_levels = 4});
+    std::vector<std::uint32_t> mip0(8 * 4, 0xFF0000FF), mip1(4 * 2), mip2(2 * 1), mip3(1);
+    CHECK(device->write_texture(t, mip0.data(), mip0.size() * 4, 0));
+    CHECK(device->write_texture(t, mip1.data(), mip1.size() * 4, 1));
+    CHECK(device->write_texture(t, mip2.data(), mip2.size() * 4, 2));
+    CHECK(device->write_texture(t, mip3.data(), mip3.size() * 4, 3));
+    CHECK_FALSE(device->write_texture(t, mip3.data(), mip3.size() * 4, 4));  // no such mip
+    CHECK_FALSE(device->write_texture(t, mip0.data(), mip0.size() * 4, 1));  // wrong size for mip 1
+}

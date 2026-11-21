@@ -59,6 +59,7 @@ struct Device::Impl {
     std::string adapter;
     bool validation = false;
     bool presentation = false;
+    bool anisotropy = false;
     bool debug_utils = false;
     VkSurfaceKHR surface = VK_NULL_HANDLE; ///< Created from DeviceDesc::surface, owned here.
 

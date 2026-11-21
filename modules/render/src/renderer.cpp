@@ -46,8 +46,50 @@ static_assert(sizeof(GpuInstance) == 148);
 struct GpuMaterial {
     Vec4 base_color;
     Vec4 emissive_roughness;
-    Vec4 params;
+    Vec4 params;                  // x metallic, y normal scale
+    std::uint32_t textures[4];    // bindless: base colour, metallic-roughness, normal, emissive (~0 = none)
 };
+constexpr std::uint32_t no_texture = 0xFFFFFFFFu;
+
+struct GpuTexture {
+    gpu::TextureHandle texture;
+    std::uint32_t width = 0, height = 0;
+};
+
+float srgb_to_linear(float c) { return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f); }
+float linear_to_srgb(float c) { return c <= 0.0031308f ? c * 12.92f : 1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f; }
+
+/// Box-filtered mip chain (colour images are averaged in linear space, then re-encoded).
+std::vector<std::vector<std::uint8_t>> build_mips(const ImageData& image) {
+    std::vector<std::vector<std::uint8_t>> mips{image.rgba};
+    std::uint32_t w = image.width, h = image.height;
+    while (w > 1 || h > 1) {
+        const std::uint32_t nw = std::max(1u, w / 2), nh = std::max(1u, h / 2);
+        const std::vector<std::uint8_t>& src = mips.back();
+        std::vector<std::uint8_t> dst(std::size_t{nw} * nh * 4);
+        for (std::uint32_t y = 0; y < nh; ++y) {
+            for (std::uint32_t x = 0; x < nw; ++x) {
+                for (std::uint32_t c = 0; c < 4; ++c) {
+                    float sum = 0;
+                    for (std::uint32_t dy = 0; dy < 2; ++dy) {
+                        for (std::uint32_t dx = 0; dx < 2; ++dx) {
+                            const std::uint32_t sx = std::min(w - 1, x * 2 + dx), sy = std::min(h - 1, y * 2 + dy);
+                            const float v = src[(std::size_t{sy} * w + sx) * 4 + c] / 255.0f;
+                            sum += (image.srgb && c < 3) ? srgb_to_linear(v) : v;
+                        }
+                    }
+                    float avg = sum * 0.25f;
+                    if (image.srgb && c < 3) avg = linear_to_srgb(avg);
+                    dst[(std::size_t{y} * nw + x) * 4 + c] = static_cast<std::uint8_t>(std::clamp(avg, 0.0f, 1.0f) * 255.0f + 0.5f);
+                }
+            }
+        }
+        mips.push_back(std::move(dst));
+        w = nw;
+        h = nh;
+    }
+    return mips;
+}
 struct GpuFrame {
     Mat4 view_projection;
     Mat4 inv_view_projection;
@@ -277,6 +319,7 @@ struct Renderer::Impl {
     RenderGraph graph;
     HandlePool<GpuMesh, MeshTag> meshes;
     HandlePool<MaterialDesc, MaterialTag> materials;
+    HandlePool<GpuTexture, RenderTextureTag> textures;
     MaterialHandle default_material;
     std::uint32_t material_slots = 0; ///< Highest material index + 1 (size of the GPU table).
     std::vector<GpuMaterial> material_table;
@@ -307,6 +350,9 @@ struct Renderer::Impl {
 
     /// Sorted instance list (+ TLAS instances when `rt`) and the material table, into `slot`.
     void prepare_instances(const RenderScene& scene, FrameSlot& slot, bool with_tlas);
+    GpuMaterial gpu_material(const MaterialDesc& d);
+    gpu::TextureHandle upload_texture(const ImageData& image);
+    bool upload_mesh(const MeshData& data, GpuMesh& mesh);
     bool create_rt_pipelines();
     void destroy_rt_pipelines();
 
@@ -353,6 +399,34 @@ Renderer::Renderer(gpu::Device& device, gpu::Format target_format, const RenderS
     m.rt = settings.ray_tracing && device.supports(gpu::Feature::RayTracing) && m.create_rt_pipelines();
 }
 
+GpuMaterial Renderer::Impl::gpu_material(const MaterialDesc& d) {
+    auto index = [&](TextureHandle t) {
+        const GpuTexture* tex = textures.get(t);
+        return tex ? device.bindless_index(tex->texture) : no_texture;
+    };
+    return {d.base_color,
+            {d.emissive.x, d.emissive.y, d.emissive.z, d.roughness},
+            {d.metallic, d.normal_scale, 0, 0},
+            {index(d.base_color_texture), index(d.metallic_roughness_texture), index(d.normal_texture), index(d.emissive_texture)}};
+}
+
+gpu::TextureHandle Renderer::Impl::upload_texture(const ImageData& image) {
+    if (image.width == 0 || image.height == 0 || image.rgba.size() != std::size_t{image.width} * image.height * 4) return {};
+    const auto mips = build_mips(image);
+    const gpu::TextureHandle t = device.create_texture({.width = image.width, .height = image.height,
+                                                        .format = image.srgb ? gpu::Format::RGBA8Srgb : gpu::Format::RGBA8Unorm,
+                                                        .usage = gpu::TextureUsage::Sampled,
+                                                        .mip_levels = static_cast<std::uint32_t>(mips.size()),
+                                                        .debug_name = "astral.material_texture"});
+    for (std::uint32_t m = 0; m < mips.size(); ++m) {
+        if (!device.write_texture(t, mips[m].data(), mips[m].size(), m)) {
+            device.destroy(t);
+            return {};
+        }
+    }
+    return t;
+}
+
 bool Renderer::Impl::create_rt_pipelines() {
     if (rt_lighting.valid()) return true;
     auto compute = [&](std::span<const std::uint32_t> spirv, const char* name) {
@@ -387,13 +461,9 @@ void Renderer::Impl::prepare_instances(const RenderScene& scene, FrameSlot& slot
     // Material table indexed by handle slot; dead slots keep the default material's values.
     material_table.assign(material_slots, {});
     const MaterialDesc* fallback = materials.get(default_material);
-    for (auto& entry : material_table) {
-        entry = {fallback->base_color, {fallback->emissive.x, fallback->emissive.y, fallback->emissive.z, fallback->roughness},
-                 {fallback->metallic, 0, 0, 0}};
-    }
-    materials.for_each([&](MaterialHandle h, MaterialDesc& d) {
-        material_table[h.index] = {d.base_color, {d.emissive.x, d.emissive.y, d.emissive.z, d.roughness}, {d.metallic, 0, 0, 0}};
-    });
+    const GpuMaterial fallback_gpu = gpu_material(*fallback);
+    for (auto& entry : material_table) entry = fallback_gpu;
+    materials.for_each([&](MaterialHandle h, MaterialDesc& d) { material_table[h.index] = gpu_material(d); });
     slot.materials.write(device, material_table.data(), material_table.size() * sizeof(GpuMaterial));
 
     order.clear();
@@ -441,16 +511,62 @@ Renderer::~Renderer() {
                    m.temporal, m.atrous, m.composite, m.taa, m.bloom_down, m.bloom_up}) {
         m.device.destroy(p);
     }
+    m.textures.for_each([&](TextureHandle, GpuTexture& t) { m.device.destroy(t.texture); });
     m.device.destroy(m.shadow_map);
     m.device.destroy(m.tlas);
     m.history.destroy(m.device);
     m.ddgi.destroy(m.device);
 }
 
+TextureHandle Renderer::create_texture(const ImageData& image) {
+    auto& m = *impl_;
+    const gpu::TextureHandle t = m.upload_texture(image);
+    if (!t.valid()) return {};
+    return m.textures.create({t, image.width, image.height});
+}
+
+bool Renderer::update_texture(TextureHandle texture, const ImageData& image) {
+    auto& m = *impl_;
+    GpuTexture* tex = m.textures.get(texture);
+    if (!tex) return false;
+    const gpu::TextureHandle t = m.upload_texture(image);
+    if (!t.valid()) return false;
+    m.device.destroy(tex->texture); // deferred until the GPU is done with it
+    *tex = {t, image.width, image.height};
+    return true;
+}
+
+void Renderer::destroy(TextureHandle texture) {
+    auto& m = *impl_;
+    if (const GpuTexture* tex = m.textures.get(texture)) {
+        m.device.destroy(tex->texture);
+        m.textures.destroy(texture);
+    }
+}
+
+bool Renderer::update_mesh(MeshHandle handle, const MeshData& data) {
+    auto& m = *impl_;
+    GpuMesh* mesh = m.meshes.get(handle);
+    if (!mesh) return false;
+    GpuMesh fresh;
+    if (!m.upload_mesh(data, fresh)) return false;
+    m.device.destroy(mesh->vertices);
+    m.device.destroy(mesh->indices);
+    m.device.destroy(mesh->blas);
+    *mesh = fresh;
+    return true;
+}
+
 MeshHandle Renderer::create_mesh(const MeshData& data) {
     auto& m = *impl_;
-    if (data.vertices.empty() || data.indices.empty()) return {};
     GpuMesh mesh;
+    if (!m.upload_mesh(data, mesh)) return {};
+    return m.meshes.create(mesh);
+}
+
+bool Renderer::Impl::upload_mesh(const MeshData& data, GpuMesh& mesh) {
+    auto& m = *this;
+    if (data.vertices.empty() || data.indices.empty()) return false;
     const std::uint64_t vbytes = data.vertices.size() * sizeof(Vertex);
     const std::uint64_t ibytes = data.indices.size() * sizeof(std::uint32_t);
     mesh.vertices = m.device.create_buffer({.size = vbytes, .usage = gpu::BufferUsage::Storage});
@@ -459,7 +575,7 @@ MeshHandle Renderer::create_mesh(const MeshData& data) {
         !m.device.write_buffer(mesh.indices, data.indices.data(), ibytes)) {
         m.device.destroy(mesh.vertices);
         m.device.destroy(mesh.indices);
-        return {};
+        return false;
     }
     mesh.index_count = static_cast<std::uint32_t>(data.indices.size());
     mesh.bounds_min = mesh.bounds_max = data.vertices[0].position;
@@ -477,7 +593,7 @@ MeshHandle Renderer::create_mesh(const MeshData& data) {
                                           .index_count = mesh.index_count,
                                           .debug_name = "astral.mesh_blas"});
     }
-    return m.meshes.create(mesh);
+    return true;
 }
 
 void Renderer::destroy(MeshHandle handle) {

@@ -127,9 +127,21 @@ Surface triangle_surface(Instances instances, Materials materials, uint instance
     s.backface = dot(ng, dir) > 0.0;
     s.n = dot(n, dir) > 0.0 ? -n : n;
     s.albedo = mat.base_color.rgb;
-    s.roughness = clamp(mat.emissive_roughness.a, 0.02, 1.0);
+    float roughness = mat.emissive_roughness.a;
     s.metallic = mat.params.x;
     s.emissive = mat.emissive_roughness.rgb;
+    // Textures at a fixed coarse mip: secondary hits are lit blurrily anyway, and compute shaders
+    // have no derivatives (normal maps are skipped here for the same reason).
+    vec2 uv = v0.uv * b0 + v1.uv * bary.x + v2.uv * bary.y;
+    const float lod = 2.0;
+    if (mat.textures.x != NO_TEXTURE) s.albedo *= textureLod(sampler2D(astral_textures[nonuniformEXT(mat.textures.x)], astral_samplers[ASTRAL_SAMPLER_LINEAR_REPEAT]), uv, lod).rgb;
+    if (mat.textures.y != NO_TEXTURE) {
+        vec4 mr = textureLod(sampler2D(astral_textures[nonuniformEXT(mat.textures.y)], astral_samplers[ASTRAL_SAMPLER_LINEAR_REPEAT]), uv, lod);
+        roughness *= mr.g;
+        s.metallic *= mr.b;
+    }
+    if (mat.textures.w != NO_TEXTURE) s.emissive *= textureLod(sampler2D(astral_textures[nonuniformEXT(mat.textures.w)], astral_samplers[ASTRAL_SAMPLER_LINEAR_REPEAT]), uv, lod).rgb;
+    s.roughness = clamp(roughness, 0.02, 1.0);
     return s;
 }
 

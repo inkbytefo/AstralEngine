@@ -1,5 +1,6 @@
 #include "vk_device.hpp"
 
+#include <algorithm>
 #include <cstring>
 
 namespace astral::gpu {
@@ -257,7 +258,8 @@ namespace {
 
 VkImageUsageFlags image_usage(TextureUsage usage) {
     VkImageUsageFlags flags = 0;
-    if (has_flag(usage, TextureUsage::Sampled)) flags |= VK_IMAGE_USAGE_SAMPLED_BIT;
+    // Sampled textures can always be filled with write_texture (asset uploads).
+    if (has_flag(usage, TextureUsage::Sampled)) flags |= VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     if (has_flag(usage, TextureUsage::Storage)) flags |= VK_IMAGE_USAGE_STORAGE_BIT;
     if (has_flag(usage, TextureUsage::ColorTarget)) flags |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     if (has_flag(usage, TextureUsage::DepthTarget)) flags |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
@@ -348,12 +350,12 @@ TextureDesc Device::texture_desc(TextureHandle texture) const noexcept {
     return r ? r->desc : TextureDesc{};
 }
 
-bool Device::write_texture(TextureHandle texture, const void* data, std::uint64_t size) {
+bool Device::write_texture(TextureHandle texture, const void* data, std::uint64_t size, std::uint32_t mip) {
     auto& s = *impl_;
     TextureRecord* r = s.textures.get(texture);
-    if (!r || !data) return false;
-    const std::uint64_t expected =
-        std::uint64_t{r->desc.width} * r->desc.height * format_size(r->desc.format);
+    if (!r || !data || mip >= r->desc.mip_levels) return false;
+    const std::uint32_t mw = std::max(1u, r->desc.width >> mip), mh = std::max(1u, r->desc.height >> mip);
+    const std::uint64_t expected = std::uint64_t{mw} * mh * format_size(r->desc.format);
     if (size != expected) return false;
     if (!s.can_run_immediate("write_texture")) return false;
 
@@ -367,8 +369,10 @@ bool Device::write_texture(TextureHandle texture, const void* data, std::uint64_
     const StateInfo dst = state_info(ResourceState::TransferDst, depth);
     const StateInfo read = state_info(ResourceState::ShaderRead, depth);
     const VkImage image = r->image;
-    const VkExtent3D extent{r->desc.width, r->desc.height, 1};
+    const VkExtent3D extent{mw, mh, 1};
     const VkImageAspectFlags aspect = depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+    // The whole image moves TransferDst -> ShaderRead; mips not written yet keep undefined contents
+    // only on the very first upload (from Undefined), later uploads preserve them.
     s.immediate([&](VkCommandBuffer cmd) {
         VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
         b.srcStageMask = from.stages;
@@ -385,7 +389,7 @@ bool Device::write_texture(TextureHandle texture, const void* data, std::uint64_
         vkCmdPipelineBarrier2(cmd, &dep);
 
         VkBufferImageCopy region{};
-        region.imageSubresource = {aspect, 0, 0, 1};
+        region.imageSubresource = {aspect, mip, 0, 1};
         region.imageExtent = extent;
         vkCmdCopyBufferToImage(cmd, staging.buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 

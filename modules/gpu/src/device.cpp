@@ -373,6 +373,10 @@ bool create_logical_device(Device::Impl& s) {
     f12.scalarBlockLayout = VK_TRUE;
     VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f12};
     f2.features.shaderInt64 = VK_TRUE;
+    VkPhysicalDeviceFeatures supported{};
+    vkGetPhysicalDeviceFeatures(s.physical, &supported);
+    s.anisotropy = supported.samplerAnisotropy == VK_TRUE;
+    f2.features.samplerAnisotropy = s.anisotropy ? VK_TRUE : VK_FALSE;
     f2.features.shaderStorageImageWriteWithoutFormat = VK_TRUE;
 
     std::vector<const char*> extensions;
@@ -505,6 +509,10 @@ bool create_bindless(Device::Impl& s) {
                                                          : VK_SAMPLER_MIPMAP_MODE_NEAREST;
         info.addressModeU = info.addressModeV = info.addressModeW = modes[i];
         info.maxLod = VK_LOD_CLAMP_NONE;
+        if (i == static_cast<int>(Sampler::LinearRepeat) && s.anisotropy) { // material textures
+            info.anisotropyEnable = VK_TRUE;
+            info.maxAnisotropy = 8.0f;
+        }
         if (vkCreateSampler(s.device, &info, nullptr, &s.samplers[i]) != VK_SUCCESS) return false;
         sampler_infos[i].sampler = s.samplers[i];
     }
