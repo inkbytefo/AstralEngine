@@ -36,7 +36,16 @@ device->wait(device->submit(cmd));
 
 ## Örnek: pencereye çizim
 
-`examples/hello_triangle/main.cpp` — Window + Device + Swapchain + pipeline, ~60 satır.
+```cpp
+auto image = swapchain->acquire();          // geçersizse bu kare çizme (küçültülmüş pencere)
+auto cmd = device->begin_commands();
+cmd.transition(image, gpu::ResourceState::ColorTarget);
+// ... çizim ...
+cmd.transition(image, gpu::ResourceState::Present);
+swapchain->present(cmd);                    // gönderir (görüntüyü bekleyerek) ve gösterir
+```
+
+Tam örnek: `examples/hello_triangle/main.cpp`. Swapchain, Device'tan önce yok edilmeli.
 
 ## Shader'lar
 
@@ -56,9 +65,17 @@ Push constant sınırı 128 byte.
 - `write_buffer` / `read_buffer` kolaylık içindir: staging gerekiyorsa bekler (her karede değil,
   yükleme sırasında kullan).
 
+## Hatalı kullanım
+
+Geçersiz handle, bağlı pipeline olmadan draw/dispatch, sınır dışı kopya, gönderilmiş listeyi
+tekrar kullanma: **loglanır ve atlanır**, çökme yok. Gönderilmeden bırakılan liste, kaydettiği
+durum değişikliklerini geri alır. Kayıt sürerken bloklayan yükleme (`write_texture`, GPU-only
+`write_buffer`/`read_buffer`) reddedilir.
+
 ## Test
 
-GPU testleri gerçek Vulkan ile koşar; makinede GPU yoksa Mesa **lavapipe** (yazılımsal Vulkan) yeter:
+GPU testleri gerçek Vulkan ile koşar ve **validation hatası testi başarısız yapar**; makinede GPU
+yoksa Mesa **lavapipe** (yazılımsal Vulkan) yeter:
 `VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json ctest --preset debug`. Cihaz yoksa testler
 atlanır. Offscreen üçgen render edilip piksel okunarak doğrulanır; validation katmanı açık.
 
@@ -68,4 +85,5 @@ atlanır. Offscreen üçgen render edilip piksel okunarak doğrulanır; validati
 - Storage image'lar shader'da şimdilik `rgba8` olarak tanımlı.
 - Mip zinciri üretimi, cube/3D texture, MSAA, sorgu (timestamp) yok.
 - Ray tracing / mesh shader sadece `supports()` ile sorgulanabiliyor, kullanılmıyor.
-- `acquire()` sonrası `submit()` yapılmazsa bekleyen semaphore'lar sonraki submit'e kalır.
+- Derinlik texture'larını shader'da örneklemek (gölge) için descriptor layout'u henüz doğru değil.
+- `astral_add_shaders` kurulan pakete dahil değil (tüketici projeler shader derleme yardımcısını kopyalamalı).

@@ -2,7 +2,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(AstralConsumer LANGUAGES CXX)
 
-find_package(Astral 0.2 CONFIG REQUIRED COMPONENTS Core Gpu Platform)
+find_package(Astral 0.3 CONFIG REQUIRED COMPONENTS Core Gpu Platform)
 
 add_executable(astral_consumer main.cpp)
 target_link_libraries(astral_consumer PRIVATE Astral::Core Astral::Gpu Astral::Platform)

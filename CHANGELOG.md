@@ -4,6 +4,25 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-11-21 — M2
+
+### Added
+- `Astral::World`: archetype ECS — `create/destroy/add/remove/get/has`, `each`, `parallel_each`,
+  `Commands`, kaynaklar, `EntityRef`; `Transform`/`Parent`/`WorldTransform` hiyerarşisi.
+- `Astral::Render`: instanced forward renderer (vertex pulling), derinlik, yönlü ışık; küp/düzlem/küre.
+- `Astral::App`: `App`, `Game`, `System`, `Context`, fazlar, headless mod, sabit zaman adımı,
+  `MeshRenderer`, `Camera`, `Time`; `<astral/astral.hpp>`.
+- `examples/spinning_cubes`, oyun yazma rehberi, `ASTRAL_ASSERT`, asan preset.
+
+### Changed
+- `Swapchain::present()` artık komut listesini alıp gönderiyor: `swapchain.present(cmd)`.
+
+### Fixed
+- GPU (M1 incelemesi): gönderilmemiş listedeki kaynağın erken silinmesi (use-after-free); pipeline
+  olmadan draw/dispatch çökmesi; sınır dışı kopyalar; bırakılan listenin durum izini bozması;
+  acquire/present kilitlenmeleri; WSI geçiş senkronizasyonu; Wayland'de yeniden boyutlama;
+  anında gönderimlerde bariyer eksikliği; submit hatasında kilitlenme.
+
 ## [0.2.0] — 2026-11-21 — M1
 
 ### Added

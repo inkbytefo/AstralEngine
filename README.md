@@ -1,18 +1,33 @@
 # AstralEngine
 
-A modular C++20 game engine **library**. Your game owns the main loop and calls
-the engine; the engine never calls your game.
+A modular C++20 game engine built as a set of libraries, with an App layer on top for writing games.
 
 ```cpp
-astral::Logger log;
-astral::JobSystem jobs;
-astral::Clock clock;
+#include <astral/astral.hpp>
+using namespace astral;
 
-while (running) {
-    float dt = clock.tick();
-    game.update(dt);          // your code
-}
+struct Spin { float speed = 1.0f; };
+
+class SpinSystem final : public System {
+    void update(Context& ctx) override {
+        ctx.world.each<Transform, const Spin>([&](Transform& t, const Spin& s) {
+            t.rotation = Quat::from_axis_angle({0, 1, 0}, s.speed * ctx.time.delta) * t.rotation;
+        });
+    }
+};
+
+class MyGame final : public Game {
+    void on_start(Context& ctx) override {
+        ctx.world.create(Transform{}, MeshRenderer{ctx.meshes.cube}, Spin{2.0f});
+        ctx.add_system<SpinSystem>(Phase::Update);
+    }
+};
+
+int main() { return App({.title = "My Game"}).run<MyGame>(); }
 ```
+
+Games are written with components (data) and systems (logic) on top of `Astral::App`; every lower
+module (core, gpu, platform, world, render) is also usable directly as a plain library.
 
 ## Status
 
@@ -20,8 +35,8 @@ while (running) {
 |---|---|
 | `Astral::Core` — log, handles, clock, jobs | ✅ M0 |
 | `Astral::Gpu` (Vulkan 1.3 RHI), `Astral::Platform` (SDL3) | ✅ M1 |
-| `Astral::World` (own ECS), `Astral::App` | M2 |
-| `Astral::Render` (render graph, deferred + SDF) | M3 |
+| `Astral::World` (own ECS), `Astral::Render` (forward), `Astral::App` | ✅ M2 |
+| Render graph, deferred + SDF | M3 |
 | `Astral::Physics` (Jolt) | M4 |
 | `Astral::Assets` (glTF) | M5 |
 
@@ -45,7 +60,7 @@ cmake --install build/release --prefix <install-dir>
 ```
 
 ```cmake
-find_package(Astral 0.2 CONFIG REQUIRED COMPONENTS Core)
+find_package(Astral 0.3 CONFIG REQUIRED COMPONENTS Core)
 target_link_libraries(MyGame PRIVATE Astral::Core)
 ```
 
