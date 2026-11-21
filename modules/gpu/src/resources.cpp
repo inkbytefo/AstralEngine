@@ -295,7 +295,10 @@ TextureHandle Device::create_texture(const TextureDesc& desc) {
         s.log_error("create_texture: allocation failed");
         return {};
     }
-    record.view = create_view(s, record.image, info.format, is_depth(desc.format), desc.mip_levels);
+    // Views only exist for usages that need one (transfer-only images must not have a view).
+    const bool needs_view = has_flag(desc.usage, TextureUsage::Sampled) || has_flag(desc.usage, TextureUsage::Storage) ||
+                            has_flag(desc.usage, TextureUsage::ColorTarget) || has_flag(desc.usage, TextureUsage::DepthTarget);
+    if (needs_view) record.view = create_view(s, record.image, info.format, is_depth(desc.format), desc.mip_levels);
     if (has_flag(desc.usage, TextureUsage::Sampled) || has_flag(desc.usage, TextureUsage::Storage)) {
         record.bindless = s.allocate_bindless();
         if (record.bindless == UINT32_MAX) {
