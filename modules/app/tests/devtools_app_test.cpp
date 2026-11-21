@@ -53,3 +53,28 @@ TEST_CASE("the App profiles its phases and every system by name") {
     CHECK(custom_depth == 2);       // inside the system
     CHECK(p.scope_ms("Update") >= p.scope_ms("devtools_test::SlowSystem"));
 }
+
+TEST_CASE("ctx.debug: one-frame and timed shapes; overlays draw in headless mode too") {
+    App app({.headless = true, .fixed_timestep = 0.1f});
+    struct G final : Game {
+        std::vector<std::size_t> seen;
+        void on_start(Context& ctx) override {
+            ctx.debug_show.physics = true;
+            ctx.debug_show.lights = true;
+            ctx.world.create(Transform{}, RigidBody{.desc = {.shape = ShapeDesc::capsule(0.3f, 0.5f)}});
+            ctx.world.create(Transform{}, PointLight{});
+            ctx.debug.line({0, 0, 0}, {1, 0, 0}, {1, 1, 1, 1}, {.seconds = 0.25f}); // three frames of 0.1 s
+        }
+        void on_update(Context& ctx) override {
+            seen.push_back(ctx.debug.lines().size()); // what is left from earlier frames
+            ctx.debug.cross({0, 0, 0}, 1, {1, 0, 0, 1}); // this frame only
+        }
+    } game;
+    app.run_frames(game, 5);
+    REQUIRE(game.seen.size() == 5);
+    CHECK(game.seen[0] == 1); // the timed line
+    CHECK(game.seen[1] == 1);
+    CHECK(game.seen[2] == 1);
+    CHECK(game.seen[3] == 0); // 0.25 s are over; one-frame shapes never carry over
+    CHECK(game.seen[4] == 0);
+}

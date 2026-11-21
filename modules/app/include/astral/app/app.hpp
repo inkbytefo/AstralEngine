@@ -90,6 +90,13 @@ public:
     /// Transform, Parent, Camera, PointLight, RectLight, Sdf, PrimitiveMesh, ModelRef) are registered;
     /// add your ASTRAL_REFLECT'ed ones with types.add<T>().
     TypeRegistry types;
+    /// Debug lines for this frame (or longer: DebugStyle::seconds); drawn over the image.
+    DebugDraw debug;
+    /// What the App draws into `debug` by itself every frame.
+    struct DebugShow {
+        bool physics = false; ///< RigidBody shapes (green: dynamic, blue: kinematic, grey: static) and characters.
+        bool lights = false;  ///< Point light ranges, rect light panels.
+    } debug_show;
     DirectionalLight sun{};   ///< The sun (direction, color, shadows).
     Environment environment{}; ///< Sky/ground ambient and exposure.
 

@@ -3,6 +3,7 @@ astral_add_module(NAME render
         src/mesh.cpp
         src/renderer.cpp
         src/render_graph.cpp
+        src/debug_draw.cpp
     DEPS
         Astral::Core
         Astral::Gpu)
@@ -14,6 +15,7 @@ astral_add_shaders(astral_render
         shaders/rt_lighting.comp shaders/ddgi_trace.comp shaders/ddgi_update.comp
         shaders/denoise_temporal.comp shaders/denoise_atrous.comp shaders/composite.comp
         shaders/taa.comp shaders/bloom_down.comp shaders/bloom_up.comp
+        shaders/debug_line.vert shaders/debug_line.frag
     INCLUDE_DIRS
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include)
 

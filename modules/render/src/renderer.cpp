@@ -16,6 +16,8 @@
 #include <shaders/shadow.vert.hpp>
 #include <shaders/taa.comp.hpp>
 #include <shaders/tonemap.frag.hpp>
+#include <shaders/debug_line.vert.hpp>
+#include <shaders/debug_line.frag.hpp>
 #include <shaders/tonemap.vert.hpp>
 
 #include <algorithm>
@@ -229,7 +231,7 @@ struct GrowBuffer {
 };
 
 struct FrameSlot {
-    GrowBuffer instances, lights, shapes, frame, rects, materials;
+    GrowBuffer instances, lights, shapes, frame, rects, materials, debug_lines;
     std::shared_ptr<std::uint64_t> last_use = std::make_shared<std::uint64_t>(0);
 };
 
@@ -327,7 +329,12 @@ struct Renderer::Impl {
     MaterialHandle default_material;
     std::uint32_t material_slots = 0; ///< Highest material index + 1 (size of the GPU table).
     std::vector<GpuMaterial> material_table;
-    gpu::PipelineHandle gbuffer, shadow, sdf, lighting, tonemap;
+    gpu::PipelineHandle gbuffer, shadow, sdf, lighting, tonemap, debug_depth, debug_top;
+    std::vector<float> debug_vertices; // scratch: position.xyzw, color per vertex
+
+    /// Debug lines over the final image: depth-tested ones against the scene depth, then the rest.
+    void add_debug_lines(RenderGraph& g, FrameSlot& slot, RGTexture output, RGTexture depth, const Mat4& view_projection,
+                         std::span<const DebugLine> lines);
     gpu::PipelineHandle rt_lighting, ddgi_trace, ddgi_update, temporal, atrous, composite, taa, bloom_down, bloom_up;
     gpu::TextureHandle shadow_map;
     std::array<FrameSlot, ring_size> ring{};
@@ -394,6 +401,17 @@ Renderer::Renderer(gpu::Device& device, gpu::Format target_format, const RenderS
         .depth = {.format = gpu::Format::Undefined, .test = false, .write = false},
         .debug_name = "astral.tonemap",
     });
+    for (const bool on_top : {false, true}) {
+        (on_top ? m.debug_top : m.debug_depth) = device.create_graphics_pipeline({
+            .vertex = {shaders::debug_line_vert},
+            .fragment = {shaders::debug_line_frag},
+            .color_formats = {target_format},
+            .depth = {.format = gpu::Format::D32Float, .test = !on_top, .write = false, .compare = gpu::CompareOp::LessEqual},
+            .topology = gpu::Topology::LineList,
+            .alpha_blend = true,
+            .debug_name = on_top ? "astral.debug_lines_top" : "astral.debug_lines",
+        });
+    }
     m.shadow_map = device.create_texture({.width = settings.shadow_map_size, .height = settings.shadow_map_size,
                                           .format = gpu::Format::D32Float,
                                           .usage = gpu::TextureUsage::DepthTarget | gpu::TextureUsage::Sampled,
@@ -472,6 +490,45 @@ void Renderer::Impl::destroy_rt_pipelines() {
     }
 }
 
+void Renderer::Impl::add_debug_lines(RenderGraph& g, FrameSlot& slot, RGTexture output, RGTexture depth,
+                                     const Mat4& view_projection, std::span<const DebugLine> lines) {
+    if (lines.empty()) return;
+    debug_vertices.clear();
+    std::uint32_t tested = 0;
+    for (const bool on_top : {false, true}) { // depth-tested lines first, then the rest
+        for (const DebugLine& l : lines) {
+            if (l.on_top != on_top) continue;
+            for (const Vec3& p : {l.a, l.b}) {
+                debug_vertices.insert(debug_vertices.end(), {p.x, p.y, p.z, 1.0f, l.color.x, l.color.y, l.color.z, l.color.w});
+            }
+            if (!on_top) tested += 2;
+        }
+    }
+    const auto total = static_cast<std::uint32_t>(debug_vertices.size() / 8);
+    slot.debug_lines.write(device, debug_vertices.data(), debug_vertices.size() * sizeof(float));
+    struct Push {
+        Mat4 view_projection;
+        std::uint64_t vertices;
+    };
+    const Push push{view_projection, device.buffer_address(slot.debug_lines.buffer)};
+    const gpu::PipelineHandle depth_pipeline = debug_depth, top_pipeline = debug_top;
+    g.add_pass("debug.lines", [&](PassBuilder& b) {
+        b.color(output, gpu::LoadOp::Load);
+        b.depth(depth, gpu::LoadOp::Load);
+    }, [=](PassContext& ctx) {
+        if (tested) {
+            ctx.cmd.bind_pipeline(depth_pipeline);
+            ctx.cmd.push_constants(&push, sizeof(push));
+            ctx.cmd.draw(tested);
+        }
+        if (total > tested) {
+            ctx.cmd.bind_pipeline(top_pipeline);
+            ctx.cmd.push_constants(&push, sizeof(push));
+            ctx.cmd.draw(total - tested, 1, tested);
+        }
+    });
+}
+
 void Renderer::Impl::prepare_instances(const RenderScene& scene, FrameSlot& slot, bool with_tlas) {
     // Material table indexed by handle slot; dead slots keep the default material's values.
     material_table.assign(material_slots, {});
@@ -518,11 +575,11 @@ Renderer::~Renderer() {
         m.device.destroy(mesh.blas);
     });
     for (auto& slot : m.ring) {
-        for (GrowBuffer* b : {&slot.instances, &slot.lights, &slot.shapes, &slot.frame, &slot.rects, &slot.materials}) {
+        for (GrowBuffer* b : {&slot.instances, &slot.lights, &slot.shapes, &slot.frame, &slot.rects, &slot.materials, &slot.debug_lines}) {
             m.device.destroy(b->buffer);
         }
     }
-    for (auto p : {m.gbuffer, m.shadow, m.sdf, m.lighting, m.tonemap, m.rt_lighting, m.ddgi_trace, m.ddgi_update,
+    for (auto p : {m.gbuffer, m.shadow, m.sdf, m.lighting, m.tonemap, m.debug_depth, m.debug_top, m.rt_lighting, m.ddgi_trace, m.ddgi_update,
                    m.temporal, m.atrous, m.composite, m.taa, m.bloom_down, m.bloom_up}) {
         m.device.destroy(p);
     }
@@ -861,6 +918,7 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
         ctx.cmd.push_constants(&push, sizeof(push));
         ctx.cmd.draw(3);
     });
+    m.add_debug_lines(g, slot, output, depth, camera.projection * camera.view, scene.debug_lines);
     g.execute(cmd);
 
     m.stats.sdf_shapes = counts_sdf;
@@ -1311,6 +1369,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
         ctx.cmd.push_constants(&push, sizeof(push));
         ctx.cmd.draw(3);
     });
+    m.add_debug_lines(g, slot, output, depth, unjittered, scene.debug_lines);
     g.execute(cmd);
 
     m.prev_view_projection = unjittered;

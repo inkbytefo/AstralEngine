@@ -602,3 +602,46 @@ TEST_CASE("the renderer reports GPU time per pass a few frames later") {
     CHECK(f.renderer->gpu_frame_ms() > 0.0f);
     CHECK(f.renderer->gpu_frame_ms() == doctest::Approx(sum).epsilon(0.05));
 }
+
+TEST_CASE("debug lines: depth-tested ones hide behind meshes, on-top ones do not (raster and ray-traced)") {
+    for (const bool rt : {false, true}) {
+        CAPTURE(rt);
+        Fixture f(RenderSettings{.shadow_map_size = 512, .ray_tracing = rt});
+        if (!f.device) return;
+        if (rt && !f.renderer->ray_tracing()) continue;
+        const MeshHandle cube = f.renderer->create_mesh(make_cube());
+        const MeshInstance wall{.mesh = cube, .material = {}, .transform = translate({0, 0, 1}) * scale({1.0f, 1.0f, 0.2f})};
+        // A vertical line through the centre, behind the wall (z = -1), and one through x = 0.2 on top.
+        DebugDraw debug;
+        debug.line({0, -2, -1}, {0, 2, -1}, {1, 0, 0, 1});
+        debug.line({0.2f, -2, -1}, {0.2f, 2, -1}, {0, 1, 0, 1}, {.on_top = true});
+        debug.line({0, 1.6f, -1}, {0, 1.9f, -1}, {0, 0, 1, 1}); // tested, but nothing in front of it
+        const RenderScene scene{.meshes = std::span(&wall, 1), .sun = front_sun, .debug_lines = debug.lines()};
+        const auto pixels = f.draw(scene);
+        const Rgb hidden = rgb(f.at(pixels, {0, 0, -1}));
+        const Rgb on_top = rgb(f.at(pixels, {0.2f, 0, -1}));
+        const Rgb free = rgb(f.at(pixels, {0, 1.75f, -1}));
+        CHECK_FALSE((hidden.r > 200 && hidden.g < 60)); // the wall covers the red line
+        CHECK(on_top.g > 200);
+        CHECK(on_top.r < 80);
+        CHECK(free.b > 200);
+    }
+}
+
+TEST_CASE("DebugDraw shapes and lifetimes") {
+    DebugDraw d;
+    d.box({0, 0, 0}, {1, 1, 1}, Quat{}, {1, 1, 1, 1});
+    CHECK(d.lines().size() == 12);
+    d.sphere({0, 0, 0}, 1, {1, 1, 1, 1}, {.seconds = 1.0f}, 16);
+    CHECK(d.lines().size() == 12 + 48);
+    for (const DebugLine& l : d.lines().subspan(12)) CHECK(length(l.a) == doctest::Approx(1.0f).epsilon(1e-4));
+    d.advance(0.016f); // the box was for one frame; the sphere stays
+    CHECK(d.lines().size() == 48);
+    d.advance(2.0f);
+    CHECK(d.lines().empty());
+    d.arrow({0, 0, 0}, {0, 0, 0}, {1, 1, 1, 1}); // degenerate: just the shaft
+    CHECK(d.lines().size() == 1);
+    d.clear();
+    d.capsule({0, 0, 0}, Quat{}, 0.5f, 1.0f, {1, 1, 1, 1});
+    CHECK(d.lines().size() > 40);
+}

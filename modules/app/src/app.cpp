@@ -92,6 +92,7 @@ struct App::Impl {
     void log_problems(std::string_view what, const std::vector<std::string>& problems);
     void step_physics(Game& game, float delta);
     void end_frame_profile();
+    void draw_debug_overlays();
 
     explicit Impl(const AppDesc& d) : desc(d), jobs(d.worker_threads) {}
     bool start(Game& game);
@@ -604,6 +605,7 @@ void App::Impl::frame(Game& game, float delta) {
         m.sync_primitives();
     }
     ASTRAL_PROFILE_SCOPE(prof, "render");
+    m.draw_debug_overlays();
 
     const bool offscreen = m.offscreen_target.valid();
     if (m.renderer && (offscreen || (m.swapchain && !(m.window && m.window->minimized())))) {
@@ -664,7 +666,8 @@ void App::Impl::frame(Game& game, float delta) {
             auto cmd = m.device->begin_commands();
             m.renderer->render(cmd, image, camera,
                                {.meshes = m.draw_items, .sdf = m.sdf_shapes, .lights = m.point_lights,
-                                .rect_lights = m.rect_lights, .sun = ctx.sun, .environment = ctx.environment});
+                                .rect_lights = m.rect_lights, .sun = ctx.sun, .environment = ctx.environment,
+                                .debug_lines = ctx.debug.lines()});
             if (offscreen) {
                 cmd.transition(image, gpu::ResourceState::TransferSrc);
                 cmd.copy_texture_to_buffer(image, m.offscreen_readback);
@@ -676,8 +679,59 @@ void App::Impl::frame(Game& game, float delta) {
         }
     }
 
+    ctx.debug.advance(delta); // this frame's shapes go; timed ones count down
     m.time.elapsed += delta;
     ++m.time.frame;
+}
+
+void App::Impl::draw_debug_overlays() {
+    Context& ctx = *context;
+    if (ctx.debug_show.physics) {
+        world.each<const RigidBody, const WorldTransform>([&](const RigidBody& rb, const WorldTransform& w) {
+            const Vec3 p{w.matrix[3].x, w.matrix[3].y, w.matrix[3].z};
+            const Quat q = rotation_of(w.matrix);
+            const Vec4 color = rb.desc.motion == MotionType::Dynamic   ? Vec4{0.3f, 1.0f, 0.4f, 1}
+                               : rb.desc.motion == MotionType::Kinematic ? Vec4{0.3f, 0.6f, 1.0f, 1}
+                                                                        : Vec4{0.6f, 0.6f, 0.6f, 1};
+            const ShapeDesc& s = rb.desc.shape;
+            switch (s.type) {
+            case ShapeType::Box: ctx.debug.box(p, s.half_extents, q, color); break;
+            case ShapeType::Sphere: ctx.debug.sphere(p, s.radius, color); break;
+            case ShapeType::Capsule: ctx.debug.capsule(p, q, s.radius, s.half_height, color); break;
+            case ShapeType::Cylinder: ctx.debug.cylinder(p, q, s.radius, s.half_height, color); break;
+            }
+        });
+        world.each<const CharacterController, const WorldTransform>([&](const CharacterController& cc, const WorldTransform& w) {
+            const float half = cc.desc.height * 0.5f; // feet at the entity position
+            ctx.debug.capsule({w.matrix[3].x, w.matrix[3].y + half, w.matrix[3].z}, Quat{}, cc.desc.radius,
+                              std::max(0.0f, half - cc.desc.radius), cc.on_ground ? Vec4{1, 0.85f, 0.2f, 1} : Vec4{1, 0.4f, 0.2f, 1});
+        });
+    }
+    if (ctx.debug_show.lights) {
+        world.each<const PointLight>([&](Entity e, const PointLight& l) {
+            Vec3 p = l.position;
+            if (const WorldTransform* w = world.get<WorldTransform>(e)) p = {w->matrix[3].x, w->matrix[3].y, w->matrix[3].z};
+            const Vec4 c{l.color.x, l.color.y, l.color.z, 1};
+            ctx.debug.cross(p, 0.15f, c, {.on_top = true});
+            ctx.debug.sphere(p, l.radius, {c.x, c.y, c.z, 0.35f});
+        });
+        world.each<const RectLight>([&](Entity e, const RectLight& l) {
+            Vec3 p = l.position, r = l.right, u = l.up;
+            if (const WorldTransform* w = world.get<WorldTransform>(e)) {
+                p = {w->matrix[3].x, w->matrix[3].y, w->matrix[3].z};
+                const Vec4 rr = w->matrix * Vec4{r.x, r.y, r.z, 0}, uu = w->matrix * Vec4{u.x, u.y, u.z, 0};
+                r = {rr.x, rr.y, rr.z};
+                u = {uu.x, uu.y, uu.z};
+            }
+            const Vec4 c{l.color.x, l.color.y, l.color.z, 1};
+            const Vec3 a = p - r - u, b = p + r - u, cc = p + r + u, d = p - r + u;
+            ctx.debug.line(a, b, c, {.on_top = true});
+            ctx.debug.line(b, cc, c, {.on_top = true});
+            ctx.debug.line(cc, d, c, {.on_top = true});
+            ctx.debug.line(d, a, c, {.on_top = true});
+            ctx.debug.arrow(p, p + normalize(cross(r, u)) * 0.5f, c, {.on_top = true});
+        });
+    }
 }
 
 void App::Impl::end_frame_profile() { profiler.end_frame(); }

@@ -5,6 +5,7 @@
 #include <astral/core/reflect.hpp>
 #include <astral/gpu/command_list.hpp>
 #include <astral/gpu/device.hpp>
+#include <astral/render/debug_draw.hpp>
 #include <astral/render/mesh.hpp>
 #include <astral/render/render_graph.hpp>
 
@@ -137,6 +138,8 @@ struct RenderScene {
     std::span<const RectLight> rect_lights = {};
     DirectionalLight sun = {};
     Environment environment = {};
+    /// Drawn over the final image (see DebugDraw): hidden behind meshes unless `on_top`.
+    std::span<const DebugLine> debug_lines = {};
 };
 
 /// Dynamic diffuse global illumination: a grid of probes that trace rays every frame.
