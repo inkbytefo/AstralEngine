@@ -29,6 +29,7 @@ endif()
 # Modules — order follows the dependency layers (lower first).
 add_subdirectory(modules/core)
 add_subdirectory(modules/gpu)
+add_subdirectory(modules/platform)
 
 if(ASTRAL_BUILD_EXAMPLES)
     add_subdirectory(examples)

@@ -1,0 +1,56 @@
+#pragma once
+
+#include <astral/gpu/device.hpp>
+
+#include <cstdint>
+#include <memory>
+#include <string_view>
+
+namespace astral {
+
+class Input;
+
+struct WindowDesc {
+    std::string_view title = "Astral";
+    std::uint32_t width = 1280;
+    std::uint32_t height = 720;
+    bool resizable = true;
+    bool hidden = false;
+};
+
+/// An OS window. Pump it once per frame with poll(), which also feeds an Input.
+class Window {
+public:
+    /// Returns nullptr if no video driver is available.
+    static std::unique_ptr<Window> create(const WindowDesc& desc);
+    ~Window();
+    Window(const Window&) = delete;
+    Window& operator=(const Window&) = delete;
+
+    /// Processes pending OS events into `input`. Returns false once closing was requested.
+    bool poll(Input& input);
+    void request_close() noexcept { close_requested_ = true; }
+    [[nodiscard]] bool close_requested() const noexcept { return close_requested_; }
+
+    /// Drawable size in pixels (may differ from the logical size on high-DPI screens).
+    [[nodiscard]] gpu::Extent2D size() const;
+    [[nodiscard]] bool minimized() const;
+    void set_title(std::string_view title);
+    /// Hides the cursor and reports relative motion (FPS camera style).
+    void set_mouse_captured(bool captured);
+
+    /// False under drivers without Vulkan support (e.g. SDL's headless "dummy" driver).
+    [[nodiscard]] bool supports_vulkan() const noexcept;
+
+    /// Lets gpu::Device and gpu::Swapchain render into this window. Without Vulkan support
+    /// only drawable_size is set.
+    [[nodiscard]] gpu::SurfaceSource surface_source() const;
+
+private:
+    struct Impl;
+    explicit Window(std::unique_ptr<Impl> impl);
+    std::unique_ptr<Impl> impl_;
+    bool close_requested_ = false;
+};
+
+} // namespace astral
