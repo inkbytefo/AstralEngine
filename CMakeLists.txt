@@ -31,6 +31,10 @@ add_subdirectory(modules/core)
 add_subdirectory(modules/gpu)
 add_subdirectory(modules/platform)
 
+if(ASTRAL_BUILD_TESTS)
+    add_subdirectory(tests/integration)
+endif()
+
 if(ASTRAL_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
