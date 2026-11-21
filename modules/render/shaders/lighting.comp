@@ -1,0 +1,115 @@
+#version 460
+#include <astral/sdf.glsl>
+// Deferred PBR lighting. Picks the nearer of the mesh and SDF surfaces per pixel.
+layout(push_constant, scalar) uniform Push {
+    FrameRef frame; PointLights lights; SdfShapes shapes;
+    uint albedo; uint normal; uint emissive; uint depth;
+    uint sdf_albedo; uint sdf_normal; uint sdf_depth; uint out_hdr;
+} pc;
+layout(local_size_x = 8, local_size_y = 8) in;
+
+vec4 fetch(uint index, ivec2 p) {
+    return texelFetch(sampler2D(astral_textures[index], astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]), p, 0);
+}
+
+// GGX / Smith / Schlick microfacet BRDF. Light radiance is pre-multiplied by PI (engine
+// convention: a white surface facing a light of intensity 1 reflects exactly 1).
+vec3 brdf(vec3 n, vec3 v, vec3 l, vec3 albedo, float roughness, float metallic) {
+    vec3 h = normalize(v + l);
+    float nl = max(dot(n, l), 0.0), nv = max(dot(n, v), 1e-4), nh = max(dot(n, h), 0.0), vh = max(dot(v, h), 0.0);
+    float a = max(roughness * roughness, 0.002);
+    float a2 = a * a;
+    float denom = nh * nh * (a2 - 1.0) + 1.0;
+    float D = a2 / (PI * denom * denom);
+    float k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
+    float G = (nv / (nv * (1.0 - k) + k)) * (nl / (nl * (1.0 - k) + k));
+    vec3 F0 = mix(vec3(0.04), albedo, metallic);
+    vec3 F = F0 + (1.0 - F0) * pow(1.0 - vh, 5.0);
+    vec3 specular = D * G * F / (4.0 * nv * nl + 1e-4);
+    vec3 diffuse = (1.0 - F) * (1.0 - metallic) * albedo / PI;
+    return (diffuse + specular) * nl * PI;
+}
+
+float shadow_map(Frame f, vec3 world, vec3 n, vec3 to_light) {
+    if (f.counts.z == 0xFFFFFFFFu) return 1.0;
+    vec3 biased = world + n * 0.02 + to_light * 0.02;
+    vec4 clip = f.light_view_projection * vec4(biased, 1.0);
+    vec3 ndc = clip.xyz / clip.w;
+    vec2 uv = ndc.xy * 0.5 + 0.5;
+    if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0))) || ndc.z > 1.0) return 1.0;
+    ivec2 size = textureSize(sampler2D(astral_textures[f.counts.z], astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]), 0);
+    vec2 texel = uv * vec2(size);
+    float lit = 0.0;
+    for (int y = -1; y <= 1; ++y)
+        for (int x = -1; x <= 1; ++x) {
+            float stored = fetch(f.counts.z, clamp(ivec2(texel) + ivec2(x, y), ivec2(0), size - 1)).r;
+            lit += ndc.z - 0.0015 <= stored ? 1.0 : 0.0;
+        }
+    return lit / 9.0;
+}
+
+vec3 sky(Frame f, vec3 dir) {
+    return mix(f.ground_color.rgb, f.sky_color.rgb, smoothstep(-0.2, 0.4, dir.y));
+}
+
+void main() {
+    Frame f = pc.frame.f;
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= int(f.screen.x) || pixel.y >= int(f.screen.y)) return;
+    vec2 uv = (vec2(pixel) + 0.5) * f.screen.zw;
+
+    float depth = fetch(pc.depth, pixel).r;
+    vec4 albedo_r = fetch(pc.albedo, pixel);
+    vec4 normal_m = fetch(pc.normal, pixel);
+    vec3 emissive = fetch(pc.emissive, pixel).rgb;
+    uint sdf_count = f.counts.y;
+    if (sdf_count > 0u) {
+        float sd = fetch(pc.sdf_depth, pixel).r;
+        if (sd < depth) {
+            depth = sd;
+            albedo_r = fetch(pc.sdf_albedo, pixel);
+            normal_m = fetch(pc.sdf_normal, pixel);
+            emissive = vec3(0.0);
+        }
+    }
+
+    vec3 color;
+    if (depth >= 1.0) {
+        vec3 dir = normalize(reconstruct_world(f, uv, 1.0) - f.camera_position.xyz);
+        color = sky(f, dir);
+    } else {
+        vec3 p = reconstruct_world(f, uv, depth);
+        vec3 n = normalize(normal_m.xyz);
+        vec3 v = normalize(f.camera_position.xyz - p);
+        vec3 albedo = albedo_r.rgb;
+        float roughness = clamp(albedo_r.a, 0.04, 1.0), metallic = normal_m.w;
+
+        vec3 l = -normalize(f.sun_direction.xyz);
+        float shade = shadow_map(f, p, n, l);
+        if (sdf_count > 0u && shade > 0.0 && dot(n, l) > 0.0) {
+            shade *= sdf_soft_shadow(pc.shapes, sdf_count, p + n * 0.01, l, 50.0);
+        }
+        color = brdf(n, v, l, albedo, roughness, metallic) * f.sun_color.rgb * shade;
+
+        for (uint i = 0u; i < f.counts.x; ++i) {
+            PointLight light = pc.lights.data[i];
+            vec3 to = light.position_radius.xyz - p;
+            float dist = length(to);
+            float radius = light.position_radius.w;
+            float falloff = clamp(1.0 - pow(dist / radius, 4.0), 0.0, 1.0);
+            falloff = falloff * falloff / (dist * dist + 1.0);
+            color += brdf(n, v, to / dist, albedo, roughness, metallic) * light.color_intensity.rgb *
+                     light.color_intensity.a * falloff;
+        }
+        // Ambient: diffuse from the sky/ground hemisphere, specular from the sky in the reflected
+        // direction (a cheap stand-in for image-based lighting, so metals are not black).
+        float nv = max(dot(n, v), 0.0);
+        vec3 F0 = mix(vec3(0.04), albedo, metallic);
+        vec3 F = F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(1.0 - nv, 5.0);
+        vec3 diffuse_ambient = mix(f.ground_color.rgb, f.sky_color.rgb, n.y * 0.5 + 0.5) * albedo * (1.0 - metallic);
+        vec3 reflected = sky(f, reflect(-v, n));
+        vec3 specular_ambient = mix(reflected, mix(f.ground_color.rgb, f.sky_color.rgb, 0.5), roughness) * F;
+        color += (diffuse_ambient * (1.0 - F) + specular_ambient) * f.sky_color.a + emissive;
+    }
+    imageStore(astral_storage_images[pc.out_hdr], pixel, vec4(color, 1.0));
+}

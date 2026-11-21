@@ -10,3 +10,7 @@ astral_add_shaders(hello_triangle SOURCES hello_triangle/triangle.vert hello_tri
 add_executable(spinning_cubes spinning_cubes/main.cpp)
 target_link_libraries(spinning_cubes PRIVATE Astral::App)
 astral_set_warnings(spinning_cubes)
+
+add_executable(sdf_scene sdf_scene/main.cpp)
+target_link_libraries(sdf_scene PRIVATE Astral::App)
+astral_set_warnings(sdf_scene)

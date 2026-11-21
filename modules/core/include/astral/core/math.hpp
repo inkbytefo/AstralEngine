@@ -155,6 +155,9 @@ constexpr Mat4 transpose(const Mat4& m) noexcept {
     return r;
 }
 
+/// Rotation part of an affine transform (scale removed). Shear is not supported.
+Quat rotation_of(const Mat4& m) noexcept;
+
 /// General 4x4 inverse (cofactor expansion). Returns identity for a singular matrix.
 Mat4 inverse(const Mat4& m) noexcept;
 

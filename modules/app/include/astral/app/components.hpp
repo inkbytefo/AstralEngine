@@ -5,11 +5,25 @@
 
 namespace astral {
 
-/// Draws a mesh at the entity's WorldTransform.
+/// Draws a mesh at the entity's WorldTransform with a simple PBR material.
 struct MeshRenderer {
     MeshHandle mesh;
     Vec4 color{1, 1, 1, 1};
+    float roughness = 0.6f;
+    float metallic = 0.0f;
+    float emissive = 0.0f;
 };
+
+/// A signed-distance-field shape at the entity's WorldTransform (position and rotation; use
+/// `shape.size` for dimensions). Shapes combine in ascending `order` (ties: any order), so a
+/// SmoothUnion melts into earlier shapes and a Subtract carves them.
+struct Sdf {
+    SdfShape shape;
+    std::int32_t order = 0;
+};
+
+// PointLight (from the renderer) is also a component: its position follows the entity's
+// WorldTransform when the entity has one.
 
 /// Turns the entity into the camera (its WorldTransform is the camera pose; looks down -Z).
 /// The first active camera found is used.

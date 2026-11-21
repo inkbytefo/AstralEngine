@@ -12,14 +12,44 @@
 
 namespace astral {
 
+class RenderGraph;
 struct MeshTag;
 using MeshHandle = Handle<MeshTag>;
 
-/// One object to draw this frame.
+/// One mesh instance to draw this frame, with a simple PBR material.
 struct DrawItem {
     MeshHandle mesh;
     Mat4 transform = Mat4::identity();
     Vec4 color{1, 1, 1, 1};
+    float roughness = 0.6f;
+    float metallic = 0.0f;
+    float emissive = 0.0f; ///< Glow strength (multiplies color).
+};
+
+enum class SdfPrimitive : std::uint32_t { Sphere, Box, Torus, Capsule, Cylinder };
+enum class SdfOperation : std::uint32_t { Union, Subtract, Intersect, SmoothUnion, SmoothSubtract };
+
+/// A signed-distance-field shape. Shapes are combined in list order with their operation, so
+/// smooth unions melt into each other and subtractions carve the shapes before them.
+/// `size`: Sphere x=radius · Box xyz=half extents, w=rounding · Torus x=ring, y=tube ·
+/// Capsule x=radius, y=half length · Cylinder x=radius, y=half height, w=rounding.
+struct SdfShape {
+    SdfPrimitive primitive = SdfPrimitive::Sphere;
+    SdfOperation operation = SdfOperation::SmoothUnion;
+    Vec3 position{};
+    Quat rotation{};
+    Vec4 size{0.5f, 0.5f, 0.5f, 0.0f};
+    float blend = 0.3f; ///< Smoothing radius for the smooth operations.
+    Vec4 color{1, 1, 1, 1};
+    float roughness = 0.4f;
+    float metallic = 0.0f;
+};
+
+struct PointLight {
+    Vec3 position{};
+    Vec3 color{1, 1, 1};
+    float intensity = 10.0f;
+    float radius = 10.0f; ///< No light beyond this distance.
 };
 
 struct CameraData {
@@ -28,41 +58,65 @@ struct CameraData {
     Vec3 position{};
 };
 
+/// The sun.
 struct DirectionalLight {
     Vec3 direction{-0.4f, -1.0f, -0.3f}; ///< Direction the light travels.
     Vec3 color{1, 1, 1};
-    float intensity = 1.0f;
-    float ambient = 0.15f;
+    float intensity = 3.0f;
+    bool shadows = true;
+};
+
+struct Environment {
+    Vec3 sky{0.45f, 0.6f, 0.85f};
+    Vec3 ground{0.18f, 0.16f, 0.14f};
+    float ambient = 0.35f; ///< Strength of the sky/ground light on surfaces.
+    float exposure = 1.0f;
+};
+
+/// Everything to draw in one frame. Spans must stay valid until render() returns.
+struct RenderScene {
+    std::span<const DrawItem> meshes = {};
+    std::span<const SdfShape> sdf = {};
+    std::span<const PointLight> lights = {};
+    DirectionalLight sun = {};
+    Environment environment = {};
+};
+
+struct RenderSettings {
+    std::uint32_t shadow_map_size = 2048;
 };
 
 struct RenderStats {
-    std::uint32_t draw_calls = 0;
+    std::uint32_t draw_calls = 0;        ///< G-buffer draws (one per distinct mesh).
     std::uint32_t instances = 0;
+    std::uint32_t shadow_draw_calls = 0;
+    std::uint32_t sdf_shapes = 0;
+    std::uint32_t point_lights = 0;
+    std::uint32_t passes = 0;            ///< Render graph passes executed.
 };
 
-/// Forward renderer: lit, depth-tested, instanced meshes. It knows nothing about the ECS —
-/// it draws a list of DrawItems (Astral::App builds that list from the world).
-/// The render graph, deferred lighting and SDF passes replace its internals in M3; this API
-/// is what games and the App layer program against.
+/// Hybrid deferred renderer built on RenderGraph:
+/// shadow map → mesh G-buffer → SDF raymarch → PBR lighting (mesh/SDF composite, sun shadows,
+/// SDF soft shadows, point lights, sky ambient) → ACES tonemap into the target.
+/// It knows nothing about the ECS; Astral::App fills RenderScene from components.
 class Renderer {
 public:
-    Renderer(gpu::Device& device, gpu::Format color_format);
+    Renderer(gpu::Device& device, gpu::Format target_format, const RenderSettings& settings = {});
     ~Renderer();
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
 
-    /// Uploads a mesh (blocking). Returns an invalid handle on failure, e.g. while a
-    /// CommandList is being recorded.
+    /// Uploads a mesh (blocking). Invalid handle on failure, e.g. while a CommandList records.
     MeshHandle create_mesh(const MeshData& data);
     void destroy(MeshHandle mesh);
 
-    /// Records the frame into `cmd`. `target` ends in ColorTarget state.
-    /// Per-frame data lives in a small ring of buffers; a slot is reused only after the GPU
-    /// finished the submission that last read it (several render() calls per frame are fine).
+    /// Records the frame into `cmd`; `target` ends in ColorTarget state.
+    /// Per-frame data is ring-buffered and synchronised with the GPU automatically.
     void render(gpu::CommandList& cmd, gpu::TextureHandle target, const CameraData& camera,
-                std::span<const DrawItem> items, const DirectionalLight& light,
-                Vec4 clear_color = {0.02f, 0.02f, 0.03f, 1.0f});
+                const RenderScene& scene);
 
+    /// The graph used internally — add custom passes before render() records it (advanced).
+    [[nodiscard]] RenderGraph& graph() noexcept;
     [[nodiscard]] const RenderStats& stats() const noexcept;
 
 private:

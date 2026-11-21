@@ -79,3 +79,11 @@ TEST_CASE("perspective maps near to depth 0 and far to depth 1 (Vulkan clip spac
     Vec4 up = p * Vec4{0, 1, -1, 1};
     CHECK(up.y / up.w < 0.0f);
 }
+
+TEST_CASE("rotation is recovered from a transform matrix") {
+    const Quat q = Quat::from_axis_angle(normalize(Vec3{1, 2, 3}), 1.1f);
+    const Mat4 m = compose({4, 5, 6}, q, {2, 3, 4});
+    const Quat r = rotation_of(m);
+    const Vec3 v{0.3f, -0.7f, 0.2f};
+    CHECK(near(r * v, q * v, 1e-4f));
+}

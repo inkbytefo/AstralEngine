@@ -31,6 +31,9 @@ struct App::Impl {
     std::unique_ptr<Context> context;
     std::array<std::vector<std::unique_ptr<System>>, 3> systems;
     std::vector<DrawItem> draw_items; // scratch, reused every frame
+    std::vector<std::pair<std::int32_t, SdfShape>> sdf_sorted;
+    std::vector<SdfShape> sdf_shapes;
+    std::vector<PointLight> point_lights;
 
     bool started = false;
 
@@ -176,13 +179,36 @@ void App::Impl::frame(Game& game, float delta) {
             m.draw_items.clear();
             m.world.each<const MeshRenderer, const WorldTransform>(
                 [&](const MeshRenderer& r, const WorldTransform& w) {
-                    m.draw_items.push_back({r.mesh, w.matrix, r.color});
+                    m.draw_items.push_back({r.mesh, w.matrix, r.color, r.roughness, r.metallic, r.emissive});
                 });
+            m.sdf_sorted.clear();
+            m.world.each<const Sdf>([&](Entity e, const Sdf& s) {
+                SdfShape shape = s.shape;
+                if (const WorldTransform* w = m.world.get<WorldTransform>(e)) {
+                    shape.position = {w->matrix[3].x, w->matrix[3].y, w->matrix[3].z};
+                    shape.rotation = rotation_of(w->matrix);
+                }
+                m.sdf_sorted.emplace_back(s.order, shape);
+            });
+            std::stable_sort(m.sdf_sorted.begin(), m.sdf_sorted.end(),
+                             [](const auto& a, const auto& b) { return a.first < b.first; });
+            m.sdf_shapes.clear();
+            for (const auto& [order, shape] : m.sdf_sorted) m.sdf_shapes.push_back(shape);
+            m.point_lights.clear();
+            m.world.each<const PointLight>([&](Entity e, const PointLight& l) {
+                PointLight light = l;
+                if (const WorldTransform* w = m.world.get<WorldTransform>(e)) {
+                    light.position = {w->matrix[3].x, w->matrix[3].y, w->matrix[3].z};
+                }
+                m.point_lights.push_back(light);
+            });
             const gpu::Extent2D extent = m.swapchain->extent();
             const float aspect = extent.height ? static_cast<float>(extent.width) / static_cast<float>(extent.height) : 1.0f;
             const CameraData camera = find_camera(m.world, aspect);
             auto cmd = m.device->begin_commands();
-            m.renderer->render(cmd, image, camera, m.draw_items, ctx.light);
+            m.renderer->render(cmd, image, camera,
+                               {.meshes = m.draw_items, .sdf = m.sdf_shapes, .lights = m.point_lights,
+                                .sun = ctx.sun, .environment = ctx.environment});
             cmd.transition(image, gpu::ResourceState::Present);
             m.swapchain->present(cmd);
         }

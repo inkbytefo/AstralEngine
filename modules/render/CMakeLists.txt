@@ -6,7 +6,13 @@ astral_add_module(NAME render
     DEPS
         Astral::Core
         Astral::Gpu)
-astral_add_shaders(astral_render SOURCES shaders/mesh.vert shaders/mesh.frag)
+astral_add_shaders(astral_render
+    SOURCES
+        shaders/gbuffer.vert shaders/gbuffer.frag shaders/shadow.vert
+        shaders/sdf.comp shaders/lighting.comp
+        shaders/tonemap.vert shaders/tonemap.frag
+    INCLUDE_DIRS
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include)
 
 astral_add_tests(MODULE render
     SOURCES

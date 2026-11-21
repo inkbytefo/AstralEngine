@@ -58,6 +58,28 @@ Mat4 inverse(const Mat4& mat) noexcept {
     return out;
 }
 
+Quat rotation_of(const Mat4& m) noexcept {
+    auto axis = [&](int c) { return normalize(Vec3{m[c].x, m[c].y, m[c].z}); };
+    const Vec3 x = axis(0), y = axis(1), z = axis(2);
+    // Shepperd's method on the orthonormal basis (columns x, y, z).
+    const float trace = x.x + y.y + z.z;
+    Quat q;
+    if (trace > 0) {
+        const float s = std::sqrt(trace + 1.0f) * 2.0f;
+        q = {(y.z - z.y) / s, (z.x - x.z) / s, (x.y - y.x) / s, 0.25f * s};
+    } else if (x.x > y.y && x.x > z.z) {
+        const float s = std::sqrt(1.0f + x.x - y.y - z.z) * 2.0f;
+        q = {0.25f * s, (y.x + x.y) / s, (z.x + x.z) / s, (y.z - z.y) / s};
+    } else if (y.y > z.z) {
+        const float s = std::sqrt(1.0f + y.y - x.x - z.z) * 2.0f;
+        q = {(y.x + x.y) / s, 0.25f * s, (z.y + y.z) / s, (z.x - x.z) / s};
+    } else {
+        const float s = std::sqrt(1.0f + z.z - x.x - y.y) * 2.0f;
+        q = {(z.x + x.z) / s, (z.y + y.z) / s, 0.25f * s, (x.y - y.x) / s};
+    }
+    return normalize(q);
+}
+
 Mat4 look_at(Vec3 eye, Vec3 target, Vec3 up) noexcept {
     const Vec3 f = normalize(target - eye); // forward
     const Vec3 s = normalize(cross(f, up)); // right

@@ -61,7 +61,8 @@ public:
     gpu::Device* device = nullptr;
     Renderer* renderer = nullptr;
     BuiltinMeshes meshes{};
-    DirectionalLight light{};
+    DirectionalLight sun{};   ///< The sun (direction, color, shadows).
+    Environment environment{}; ///< Sky/ground ambient and exposure.
 
     template <class S, class... Args> S& add_system(Phase phase, Args&&... args) {
         auto system = std::make_unique<S>(std::forward<Args>(args)...);
