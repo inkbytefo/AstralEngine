@@ -1,0 +1,8 @@
+/build/
+/out/
+/.superpowers/
+.vscode/
+.idea/
+*.user
+compile_commands.json
+.cache/
