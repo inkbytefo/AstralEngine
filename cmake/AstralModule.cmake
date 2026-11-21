@@ -1,3 +1,5 @@
+include(GNUInstallDirs)
+
 # astral_add_module(NAME <name> SOURCES <src...> [DEPS <Astral::X...>] [PRIVATE_DEPS <...>])
 #   Creates static library astral_<name> with alias Astral::<Name>.
 #   Public headers live in modules/<name>/include/astral/<name>/.
@@ -16,7 +18,7 @@ function(astral_add_module)
     target_compile_features(${target} PUBLIC cxx_std_20)
     target_include_directories(${target}
         PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-                $<INSTALL_INTERFACE:include>
+                $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
         PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     if(ARG_DEPS)
         target_link_libraries(${target} PUBLIC ${ARG_DEPS})
@@ -27,7 +29,7 @@ function(astral_add_module)
     astral_set_warnings(${target})
     set_property(GLOBAL APPEND PROPERTY ASTRAL_MODULES ${target})
     if(ASTRAL_INSTALL)
-        install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/ DESTINATION include)
+        install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
     endif()
 endfunction()
 

@@ -23,21 +23,15 @@ void Logger::add_sink(std::shared_ptr<ILogSink> sink) {
     sinks_.push_back(std::move(sink));
 }
 
-void Logger::set_level(LogLevel level) noexcept {
-    std::scoped_lock lock(mutex_);
-    level_ = level;
-}
+void Logger::set_level(LogLevel level) noexcept { level_.store(level, std::memory_order_relaxed); }
 
-LogLevel Logger::level() const noexcept {
-    std::scoped_lock lock(mutex_);
-    return level_;
-}
+LogLevel Logger::level() const noexcept { return level_.load(std::memory_order_relaxed); }
 
 bool Logger::enabled(LogLevel level) const noexcept { return level >= this->level(); }
 
 void Logger::log(LogLevel level, std::string_view message, std::source_location where) {
     std::scoped_lock lock(mutex_);
-    if (level < level_) {
+    if (level < level_.load(std::memory_order_relaxed)) {
         return;
     }
     const LogRecord record{level, message, where};

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <format>
 #include <memory>
@@ -30,6 +31,7 @@ public:
 };
 
 /// Thread-safe logger. Owns no global state: create one and pass it to whoever needs it.
+/// Sinks must not log back into the same logger (the dispatch lock is not re-entrant).
 class Logger {
 public:
     void add_sink(std::shared_ptr<ILogSink> sink);
@@ -77,7 +79,7 @@ private:
 
     mutable std::mutex mutex_;
     std::vector<std::shared_ptr<ILogSink>> sinks_;
-    LogLevel level_ = LogLevel::Info;
+    std::atomic<LogLevel> level_{LogLevel::Info};
 };
 
 /// Writes "[LEVEL] message (file:line)" to stdout (Info and below) or stderr (Warn, Error).

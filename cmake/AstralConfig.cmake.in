@@ -1,5 +1,8 @@
 @PACKAGE_INIT@
 
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+
 include("${CMAKE_CURRENT_LIST_DIR}/AstralTargets.cmake")
 
 # Every requested component must map to an installed Astral::<Component> target.

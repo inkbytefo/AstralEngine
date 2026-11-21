@@ -21,6 +21,8 @@ template <class Tag> struct Handle {
 /// Dense slot storage addressed by Handle<T>. Freed slots are reused; each reuse
 /// bumps the slot's generation so outstanding handles to the old object fail to resolve.
 /// Not thread-safe: synchronize externally if shared.
+/// Pointers returned by get() are invalidated by a later create() (storage may grow).
+/// Generations are 32-bit: a slot reused 2^32-1 times wraps (practically never).
 template <class T> class HandlePool {
 public:
     using HandleType = Handle<T>;

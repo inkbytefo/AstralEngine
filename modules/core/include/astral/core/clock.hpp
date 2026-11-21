@@ -25,7 +25,9 @@ const ITimeSource& default_time_source() noexcept;
 /// clamped to max_delta so a breakpoint or hitch does not explode the simulation.
 class Clock {
 public:
+    /// `source` is referenced, not copied: it must outlive the clock.
     explicit Clock(const ITimeSource& source = default_time_source()) noexcept;
+    Clock(ITimeSource&&) = delete; // a temporary source would dangle
 
     float tick() noexcept;
     [[nodiscard]] double elapsed() const noexcept; ///< Unclamped seconds since the first tick.

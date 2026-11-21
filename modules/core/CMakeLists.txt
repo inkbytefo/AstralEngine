@@ -1,9 +1,15 @@
+configure_file(src/version.cpp.in ${CMAKE_CURRENT_BINARY_DIR}/version.cpp @ONLY)
+
+find_package(Threads REQUIRED)
+
 astral_add_module(NAME core
     SOURCES
-        src/version.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/version.cpp
         src/log.cpp
         src/clock.cpp
-        src/jobs.cpp)
+        src/jobs.cpp
+    DEPS
+        Threads::Threads)
 
 astral_add_tests(MODULE core
     SOURCES
