@@ -15,3 +15,4 @@ ADR eskisini "yerini aldı" diye işaretler.
 | [0008](0008-bindless-bda-glsl.md) | Bindless texture, buffer adresleri, GLSL | Kabul |
 | [0009](0009-render-graph-hybrid-deferred.md) | Render graph üzerinde hibrit deferred renderer | Kabul |
 | [0010](0010-jolt-physics.md) | Fizik Jolt üzerine, ECS'ten bağımsız modül | Kabul |
+| [0011](0011-hybrid-ray-traced-lighting.md) | Donanımsal ray query ile hibrit fotogerçekçi aydınlatma | Kabul |
