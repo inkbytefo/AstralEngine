@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-gcc,   os: ubuntu-24.04,  cxx: g++-13 }
+          - { name: linux-clang, os: ubuntu-24.04,  cxx: clang++-18 }
+          - { name: windows-msvc, os: windows-2022, cxx: cl }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+
+      - name: Install Ninja (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DASTRAL_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Install
+        run: cmake --install build --prefix ${{ github.workspace }}/astral-install
+
+      - name: Consumer (find_package)
+        run: |
+          cmake -S tests/consumer -B consumer-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_PREFIX_PATH=${{ github.workspace }}/astral-install
+          cmake --build consumer-build
+          ctest --test-dir consumer-build || true
+          ./consumer-build/astral_consumer
+
+  tsan:
+    name: linux-tsan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - run: cmake --preset tsan
+      - run: cmake --build --preset tsan
+      - run: ctest --preset tsan
