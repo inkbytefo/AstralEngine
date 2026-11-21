@@ -32,6 +32,7 @@ add_subdirectory(modules/gpu)
 add_subdirectory(modules/platform)
 add_subdirectory(modules/world)
 add_subdirectory(modules/render)
+add_subdirectory(modules/app)
 
 if(ASTRAL_BUILD_TESTS)
     add_subdirectory(tests/integration)
