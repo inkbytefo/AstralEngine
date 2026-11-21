@@ -36,6 +36,9 @@ kapsül, silindir. App'te `Sdf{shape, order}` component'i; `order` küçük olan
 Pass'ler texture'ları nasıl kullandığını bildirir (`read`, `write_storage`, `color`, `depth`, `copy_*`);
 graph bariyerleri, render pass açma/kapamayı, geçici texture havuzunu ve **sonucu kullanılmayan
 pass'leri ayıklamayı** kendisi yapar. Yeni bir teknik = yeni pass; mevcut pass'lere dokunulmaz.
+Bir pass bir texture'ı tek bir şekilde kullanır (okuma+yazma = iki pass veya ping-pong texture).
+`RenderGraph` tek başına kullanılabilir; Renderer'ın kendi karesine dışarıdan pass ekleme kancası
+henüz yok.
 
 ```cpp
 graph.add_pass("blur", [&](PassBuilder& b) { b.read(hdr); b.write_storage(blurred); },
@@ -44,7 +47,8 @@ graph.add_pass("blur", [&](PassBuilder& b) { b.read(hdr); b.write_storage(blurre
 
 ## Bilinen sınırlar
 
-- Tek gölge haritası tüm sahneyi kaplar (büyük sahnelerde bulanık/pikselli) → cascaded shadow maps.
+- Tek gölge haritası tüm sahneyi (ışık uzayında sıkıca) kaplar: çok büyük sahnelerde çözünürlük düşer → cascaded shadow maps.
+- Kamera bir SDF şeklinin içindeyse o şekil şeffaf görünür.
 - SDF'ler her pikselde tüm şekil listesini değerlendirir: onlarca şekle kadar uygun; daha fazlası için
   eski v2'deki seyrek brick bake + mesafe alanı önbelleği taşınacak.
 - Doku/materyal haritası, IBL (yalnız gökyüzü rengi yansıması), TAA, bloom, şeffaflık, frustum culling yok.

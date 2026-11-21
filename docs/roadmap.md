@@ -49,8 +49,8 @@ yazar; ECS sorguları JobSystem ile paralel; system'ler headless test edilir.
 
 **Sonuç:** Render graph (otomatik bariyer, havuz, ayıklama) ve üzerinde hibrit deferred renderer:
 gölge haritası, mesh G-buffer, SDF raymarch (CSG + yumuşak birleşim), PBR aydınlatma, SDF yumuşak
-gölgeleri, nokta ışıklar, ACES. `examples/sdf_scene`. Brick bake, TAA, IBL, cascaded gölgeler
-sonraki alt fazlara kaldı ([render.md](modules/render.md)).
+gölgeleri, nokta ışıklar, ACES. `examples/sdf_scene`. İncelemenin 6 önemli bulgusu testle düzeltildi. Brick bake, TAA, IBL,
+cascaded gölgeler sonraki alt fazlara kaldı ([render.md](modules/render.md)).
 
 **Bitiş kriterleri (karşılandı):** render graph pass ekleme/çıkarma mevcut pass'lere dokunmadan yapılır;
 eski v2'deki deferred + SDF teknikleri bu mimariye temiz yeniden yazılmış olur.

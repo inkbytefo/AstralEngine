@@ -18,9 +18,14 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ### Changed
 - `Renderer::render(cmd, target, camera, RenderScene)`; `DirectionalLight` artık ambient taşımıyor (`Environment`).
+- `Device::report_error()` (üst katmanlar cihazın logger'ını kullanır).
 
 ### Fixed
-- GPU: yalnızca transfer amaçlı texture'lar için geçersiz image view oluşturuluyordu.
+- GPU: yalnızca transfer amaçlı texture'lar için geçersiz image view oluşturuluyordu; aynı durumda art
+  arda yazmalar arasında bariyer eksikti.
+- Render (M3 incelemesi): kamera bir SDF şeklinin içine girince tüm kare NaN oluyordu; büyük mesh'lerin
+  gölge kutusunun dışında kalması; büyük sahnelerde gölgelerin nesneden kopması (texel ölçekli bias,
+  ışık uzayında sıkı sığdırma); bir pass'te aynı texture'ın hem okunup hem yazılması artık reddediliyor.
 
 ## [0.3.0] — 2026-11-21 — M2
 
