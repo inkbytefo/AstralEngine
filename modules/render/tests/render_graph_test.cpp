@@ -121,3 +121,23 @@ TEST_CASE("pass context exposes the attachment extent and bindless indices") {
     CHECK(extent.height == 8);
     CHECK(index != UINT32_MAX);
 }
+
+TEST_CASE("reading and writing the same texture in one pass is rejected") {
+    auto device = test::make_device();
+    if (!device) return;
+    device.expect_errors(1);
+    RenderGraph graph(*device);
+    auto output = device->create_texture({.width = 16, .height = 16, .format = gpu::Format::RGBA8Unorm,
+                                          .usage = gpu::TextureUsage::ColorTarget});
+    graph.begin_frame();
+    RGTexture out = graph.import(output, "output");
+    RGTexture t = graph.create("t", color_desc());
+    graph.add_pass("bad", [&](PassBuilder& b) {
+        b.read(t);
+        b.write_storage(t);
+        b.color(out);
+    }, [](PassContext&) {});
+    auto cmd = device->begin_commands();
+    graph.execute(cmd);
+    device->wait(device->submit(cmd));
+}

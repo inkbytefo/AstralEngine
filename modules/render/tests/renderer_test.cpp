@@ -197,3 +197,37 @@ TEST_CASE("the sun casts shadows from meshes") {
     CHECK(shadowed < lit - 60);
     CHECK(f.renderer->stats().shadow_draw_calls == 2);
 }
+
+TEST_CASE("a camera inside an SDF shape sees through it instead of producing NaNs") {
+    Fixture f;
+    if (!f.device) return;
+    MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const std::vector<DrawItem> items{{.mesh = cube, .transform = translate({0, 0, -3}), .color = {1, 0, 0, 1}, .roughness = 1.0f}};
+    const std::vector<SdfShape> shapes{{.position = {0, 0, 5}, .size = {1.5f, 0, 0, 0}, .color = {0, 1, 0, 1}}}; // camera at z=5
+    const Rgb c = rgb(Fixture::center(f.draw({.meshes = items, .sdf = shapes, .sun = front_sun})));
+    CHECK(c.r > 100); // the red cube behind, not a black/NaN frame
+}
+
+TEST_CASE("large user meshes still cast and receive shadows") {
+    Fixture f;
+    if (!f.device) return;
+    MeshHandle cube = f.renderer->create_mesh(make_cube());
+    MeshHandle ground = f.renderer->create_mesh(make_plane(20.0f)); // big mesh at identity
+    f.look_from({0, 8, 6}, {0, 0, 0});
+    const std::vector<DrawItem> items{{.mesh = ground}, {.mesh = cube, .transform = translate({0, 1, 0})}};
+    auto pixels = f.draw({.meshes = items, .sun = {.direction = {1, -1, 0}, .intensity = 3.0f}});
+    CHECK(luminance(f.at(pixels, {1.3f, 0, 0})) < luminance(f.at(pixels, {-2.5f, 0, 0})) - 60);
+}
+
+TEST_CASE("shadows stay attached to their casters in large scenes") {
+    Fixture f;
+    if (!f.device) return;
+    MeshHandle cube = f.renderer->create_mesh(make_cube());
+    MeshHandle plane = f.renderer->create_mesh(make_plane(1.0f));
+    f.look_from({0, 8, 6}, {0, 0, 0});
+    const std::vector<DrawItem> items{{.mesh = plane, .transform = scale({80, 1, 80})},
+                                      {.mesh = cube, .transform = translate({0, 0.5f, 0})}}; // resting on the ground
+    auto pixels = f.draw({.meshes = items, .sun = {.direction = {1, -1, 0}, .intensity = 3.0f}});
+    // Right next to the cube's base on the far side from the sun: must be in shadow.
+    CHECK(luminance(f.at(pixels, {0.75f, 0, 0})) < luminance(f.at(pixels, {-2.5f, 0, 0})) - 60);
+}

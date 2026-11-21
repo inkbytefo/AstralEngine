@@ -115,8 +115,6 @@ public:
     void render(gpu::CommandList& cmd, gpu::TextureHandle target, const CameraData& camera,
                 const RenderScene& scene);
 
-    /// The graph used internally — add custom passes before render() records it (advanced).
-    [[nodiscard]] RenderGraph& graph() noexcept;
     [[nodiscard]] const RenderStats& stats() const noexcept;
 
 private:

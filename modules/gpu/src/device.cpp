@@ -531,6 +531,8 @@ Device::~Device() {
 
 std::string_view Device::adapter_name() const noexcept { return impl_->adapter; }
 
+void Device::report_error(std::string_view message) const { impl_->log_error(message); }
+
 bool Device::supports(Feature feature) const noexcept {
     switch (feature) {
     case Feature::BufferDeviceAddress:

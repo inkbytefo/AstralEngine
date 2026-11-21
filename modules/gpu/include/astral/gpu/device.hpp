@@ -46,6 +46,8 @@ public:
 
     [[nodiscard]] std::string_view adapter_name() const noexcept;
     [[nodiscard]] bool supports(Feature feature) const noexcept;
+    /// Logs through the device's logger (for layers built on the device, e.g. the render graph).
+    void report_error(std::string_view message) const;
 
     // Resources ------------------------------------------------------------------------
     BufferHandle create_buffer(const BufferDesc& desc);

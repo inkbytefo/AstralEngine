@@ -17,23 +17,29 @@ void main() {
     vec3 origin = f.camera_position.xyz;
     vec3 far_point = reconstruct_world(f, uv, mesh_d < 1.0 ? mesh_d : 1.0);
     vec3 dir = normalize(far_point - origin);
-    float t_max = mesh_d < 1.0 ? length(far_point - origin) : 500.0;
+    float t_max = mesh_d < 1.0 ? length(far_point - origin) : 1000.0;
 
     uint count = f.counts.y;
+    // A camera inside the SDF would "hit" at distance 0 everywhere: treat the solid as
+    // transparent from inside instead (the player passing through a blob sees out).
+    bool inside = sdf_distance(pc.shapes, count, origin) < 0.0;
     float t = 0.0;
     bool hit = false;
-    for (int i = 0; i < 160 && t < t_max; ++i) {
-        float d = sdf_distance(pc.shapes, count, origin + dir * t);
+    float d = 1e9;
+    for (int i = 0; i < 160 && t < t_max && !inside; ++i) {
+        d = sdf_distance(pc.shapes, count, origin + dir * t);
         if (d < 0.0005 * max(t, 1.0)) { hit = true; break; }
         t += d;
     }
+    // Rays that ran out of steps while grazing a surface still count as hits (no silhouette holes).
+    if (!hit && !inside && t < t_max && d < 0.01 * max(t, 1.0)) hit = true;
     float depth = 1.0;
     if (hit && t < t_max) {
         vec3 p = origin + dir * t;
         SdfHit h = sdf_scene(pc.shapes, count, p);
         vec3 n = sdf_normal(pc.shapes, count, p, 0.001 * max(t, 1.0));
         vec4 clip = f.view_projection * vec4(p, 1.0);
-        depth = clip.z / clip.w;
+        depth = clamp(clip.z / clip.w, 0.0, 1.0);
         imageStore(astral_storage_images[pc.out_albedo], pixel, vec4(h.albedo, h.roughness));
         imageStore(astral_storage_images[pc.out_normal], pixel, vec4(n, h.metallic));
     }

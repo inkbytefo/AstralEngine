@@ -89,10 +89,21 @@ struct RenderGraph::Impl {
     explicit Impl(gpu::Device& d) : device(d) {}
     void add(void* pass, RGTexture t, Access a) {
         if (!t.valid() || t.index >= resources.size()) {
+            device.report_error("RenderGraph: invalid texture in pass setup");
             return;
         }
+        auto* p = static_cast<Pass*>(pass);
+        for (const Access& existing : p->accesses) {
+            if (existing.resource == t.index) {
+                // One state per texture per pass: read+write would put the image in a layout
+                // the other access does not expect. Use two passes (or a ping-pong texture).
+                device.report_error("RenderGraph: pass '" + p->name + "' uses texture '" +
+                                    resources[t.index].name + "' twice; access ignored");
+                return;
+            }
+        }
         a.resource = t.index;
-        static_cast<Pass*>(pass)->accesses.push_back(a);
+        p->accesses.push_back(a);
     }
     gpu::TextureHandle acquire(const Resource& r) {
         for (auto& e : pool) {
@@ -268,7 +279,14 @@ void RenderGraph::execute(gpu::CommandList& cmd) {
 
     // 4. Release pool textures unused for a while (destruction is deferred by the device).
     std::erase_if(m.pool, [&](const PoolEntry& e) {
-        if (m.frame - e.last_frame <= pool_keep_frames) return false;
+        // Entries not used this frame whose size matches nothing in it (e.g. while the window
+        // is being resized) go right away; others after a few idle frames.
+        bool size_in_use = false;
+        for (const auto& r : m.resources) {
+            size_in_use |= !r.imported && r.desc.width == e.desc.width && r.desc.height == e.desc.height;
+        }
+        const bool stale = e.last_frame != m.frame && !size_in_use;
+        if (!stale && m.frame - e.last_frame <= pool_keep_frames) return false;
         m.device.destroy(e.texture);
         return true;
     });

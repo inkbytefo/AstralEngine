@@ -23,6 +23,7 @@ struct GpuMesh {
     gpu::BufferHandle vertices;
     gpu::BufferHandle indices;
     std::uint32_t index_count = 0;
+    Vec3 bounds_min{}, bounds_max{}; // local-space AABB
 };
 struct GpuInstance {
     Mat4 model;
@@ -97,31 +98,43 @@ struct FrameSlot {
 
 bool is_srgb(gpu::Format f) { return f == gpu::Format::RGBA8Srgb || f == gpu::Format::BGRA8Srgb; }
 
-float max_scale(const Mat4& m) {
-    auto len = [](Vec4 c) { return std::sqrt(c.x * c.x + c.y * c.y + c.z * c.z); };
-    return std::max({len(m[0]), len(m[1]), len(m[2])});
-}
-
-/// Orthographic sun view covering every object (a bounding sphere around the scene).
-Mat4 light_view_projection(const RenderScene& scene, bool& valid) {
-    Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
-    auto grow = [&](Vec3 p, float r) {
-        lo = {std::min(lo.x, p.x - r), std::min(lo.y, p.y - r), std::min(lo.z, p.z - r)};
-        hi = {std::max(hi.x, p.x + r), std::max(hi.y, p.y + r), std::max(hi.z, p.z + r)};
-    };
+/// Orthographic sun view fitted tightly (in light space) around every mesh's transformed
+/// bounding box and every SDF shape. Also returns the world size of one shadow texel.
+template <class MeshLookup>
+Mat4 light_view_projection(const RenderScene& scene, MeshLookup&& mesh_of, std::uint32_t map_size,
+                           bool& valid, float& texel_world) {
+    std::vector<Vec3> points;
     for (const DrawItem& d : scene.meshes) {
-        grow({d.transform[3].x, d.transform[3].y, d.transform[3].z}, max_scale(d.transform) * 0.87f);
+        const GpuMesh* mesh = mesh_of(d.mesh);
+        if (!mesh) continue;
+        for (int i = 0; i < 8; ++i) {
+            const Vec3 c{(i & 1) ? mesh->bounds_max.x : mesh->bounds_min.x, (i & 2) ? mesh->bounds_max.y : mesh->bounds_min.y,
+                         (i & 4) ? mesh->bounds_max.z : mesh->bounds_min.z};
+            const Vec4 w = d.transform * Vec4{c.x, c.y, c.z, 1};
+            points.push_back({w.x, w.y, w.z});
+        }
     }
-    for (const SdfShape& s : scene.sdf) grow(s.position, std::max({s.size.x, s.size.y, s.size.z}) + s.blend);
-    valid = lo.x <= hi.x;
+    valid = !points.empty();
     if (!valid) return Mat4::identity();
-    const Vec3 center = (lo + hi) * 0.5f;
-    const float radius = std::clamp(length(hi - lo) * 0.5f, 1.0f, 500.0f);
+    Vec3 center{};
+    for (const Vec3& p : points) center += p;
+    center = center / static_cast<float>(points.size());
     const Vec3 dir = normalize(scene.sun.direction);
     const Vec3 up = std::abs(dir.y) > 0.99f ? Vec3{0, 0, 1} : Vec3{0, 1, 0};
-    const Mat4 view = look_at(center - dir * (radius * 2.0f), center, up);
-    // Shadow maps are sampled with plain UVs, so undo orthographic()'s Vulkan Y flip here.
-    return scale({1, -1, 1}) * orthographic(-radius, radius, -radius, radius, 0.01f, radius * 4.0f) * view;
+    const Mat4 view = look_at(center - dir * 1000.0f, center, up);
+    Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
+    for (const Vec3& p : points) {
+        const Vec4 v = view * Vec4{p.x, p.y, p.z, 1};
+        lo = {std::min(lo.x, v.x), std::min(lo.y, v.y), std::min(lo.z, v.z)};
+        hi = {std::max(hi.x, v.x), std::max(hi.y, v.y), std::max(hi.z, v.z)};
+    }
+    const float pad = 0.05f + 0.01f * std::max(hi.x - lo.x, hi.y - lo.y);
+    lo = lo - Vec3{pad, pad, pad};
+    hi = hi + Vec3{pad, pad, pad};
+    texel_world = std::max(hi.x - lo.x, hi.y - lo.y) / static_cast<float>(map_size);
+    // View space looks down -Z: near/far are the negated z bounds. Undo orthographic()'s
+    // Vulkan Y flip because the shadow map is sampled with plain UVs.
+    return scale({1, -1, 1}) * orthographic(lo.x, hi.x, lo.y, hi.y, -hi.z, -lo.z) * view;
 }
 
 } // namespace
@@ -207,6 +220,13 @@ MeshHandle Renderer::create_mesh(const MeshData& data) {
         return {};
     }
     mesh.index_count = static_cast<std::uint32_t>(data.indices.size());
+    mesh.bounds_min = mesh.bounds_max = data.vertices[0].position;
+    for (const Vertex& v : data.vertices) {
+        mesh.bounds_min = {std::min(mesh.bounds_min.x, v.position.x), std::min(mesh.bounds_min.y, v.position.y),
+                           std::min(mesh.bounds_min.z, v.position.z)};
+        mesh.bounds_max = {std::max(mesh.bounds_max.x, v.position.x), std::max(mesh.bounds_max.y, v.position.y),
+                           std::max(mesh.bounds_max.z, v.position.z)};
+    }
     return m.meshes.create(mesh);
 }
 
@@ -219,7 +239,6 @@ void Renderer::destroy(MeshHandle handle) {
     }
 }
 
-RenderGraph& Renderer::graph() noexcept { return impl_->graph; }
 const RenderStats& Renderer::stats() const noexcept { return impl_->stats; }
 
 void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const CameraData& camera,
@@ -264,7 +283,9 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
     slot.shapes.write(m.device, m.shapes.data(), m.shapes.size() * sizeof(GpuSdfShape));
 
     bool shadow_valid = false;
-    const Mat4 light_vp = light_view_projection(scene, shadow_valid);
+    float texel_world = 0.0f;
+    const Mat4 light_vp = light_view_projection(scene, [&](MeshHandle mesh) { return m.meshes.get(mesh); },
+                                                m.settings.shadow_map_size, shadow_valid, texel_world);
     const bool shadows = scene.sun.shadows && shadow_valid && !scene.meshes.empty();
     const Mat4 view_projection = camera.projection * camera.view;
     const Vec3 sun = normalize(scene.sun.direction);
@@ -273,7 +294,7 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
                    inverse(view_projection),
                    light_vp,
                    {camera.position.x, camera.position.y, camera.position.z, 1},
-                   {sun.x, sun.y, sun.z, 0},
+                   {sun.x, sun.y, sun.z, texel_world * 1.5f},
                    {scene.sun.color.x * scene.sun.intensity, scene.sun.color.y * scene.sun.intensity,
                     scene.sun.color.z * scene.sun.intensity, 0},
                    {scene.environment.sky.x, scene.environment.sky.y, scene.environment.sky.z, scene.environment.ambient},
@@ -289,7 +310,7 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
     const std::uint64_t shape_address = m.device.buffer_address(slot.shapes.buffer);
 
     // Draws every mesh run (one instanced call per mesh) with the bound pipeline.
-    auto draw_meshes = [&, instance_address, frame_address](gpu::CommandList& c, std::uint32_t& counter) {
+    auto draw_meshes = [&, instance_address, frame_address](gpu::CommandList& c, bool gbuffer) {
         std::uint32_t start = 0;
         while (start < m.order.size()) {
             const MeshHandle handle = scene.meshes[m.order[start]].mesh;
@@ -300,8 +321,12 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
                 c.push_constants(&push, sizeof(push));
                 c.bind_index_buffer(mesh->indices, gpu::IndexType::Uint32);
                 c.draw_indexed(mesh->index_count, end - start);
-                ++counter;
-                if (&counter == &m.stats.draw_calls) m.stats.instances += end - start;
+                if (gbuffer) {
+                    ++m.stats.draw_calls;
+                    m.stats.instances += end - start;
+                } else {
+                    ++m.stats.shadow_draw_calls;
+                }
             }
             start = end;
         }
@@ -325,7 +350,7 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
             b.side_effect(); // persistent texture read through the frame data, not the graph
         }, [&](PassContext& ctx) {
             ctx.cmd.bind_pipeline(m.shadow);
-            draw_meshes(ctx.cmd, m.stats.shadow_draw_calls);
+            draw_meshes(ctx.cmd, false);
         });
     }
     g.add_pass("gbuffer", [&](PassBuilder& b) {
@@ -335,7 +360,7 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
         b.depth(depth, gpu::LoadOp::Clear, 1.0f);
     }, [&](PassContext& ctx) {
         ctx.cmd.bind_pipeline(m.gbuffer);
-        draw_meshes(ctx.cmd, m.stats.draw_calls);
+        draw_meshes(ctx.cmd, true);
     });
     if (counts_sdf > 0) {
         sdf_albedo = g.create("sdf.albedo", {w, h, gpu::Format::RGBA8Unorm});

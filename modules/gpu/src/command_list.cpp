@@ -73,8 +73,11 @@ void CommandList::transition(TextureHandle texture, ResourceState state) {
         s.log_error("transition: invalid texture handle");
         return;
     }
-    // Same state is a no-op, except storage writes which still need ordering (write-after-write).
-    if (r->state == state && state != ResourceState::ShaderWrite) return;
+    // Same state is a no-op only for read-only states; writes in the same state still need a
+    // barrier between them (write-after-write across passes).
+    const bool read_only = state == ResourceState::ShaderRead || state == ResourceState::TransferSrc ||
+                           state == ResourceState::Present || state == ResourceState::Undefined;
+    if (r->state == state && read_only) return;
     const bool depth = is_depth(r->desc.format);
     const StateInfo from = state_info(r->state, depth);
     const StateInfo to = state_info(state, depth);
