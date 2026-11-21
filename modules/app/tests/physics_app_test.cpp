@@ -1,5 +1,6 @@
 #include <astral/astral.hpp>
 
+#include <algorithm>
 #include <functional>
 #include <doctest/doctest.h>
 
@@ -144,4 +145,111 @@ TEST_CASE("contacts of the frame are available to systems") {
     };
     app.run_frames(game, 60);
     CHECK(seen);
+}
+
+// --- M4 review regressions ----------------------------------------------------------------
+
+TEST_CASE("a copied RigidBody gets its own body") {
+    App app(headless());
+    Entity a{}, b{};
+    Scene game;
+    game.start = [&](Context& ctx) {
+        a = ctx.world.create(Transform{}, RigidBody{.desc = {.shape = ShapeDesc::sphere(0.5f), .gravity_factor = 0}});
+    };
+    class Cloner final : public System {
+    public:
+        Entity* a;
+        Entity* b;
+        int frame = 0;
+        void update(Context& ctx) override {
+            // Frame 2: `a` already owns a body, so the copy carries a live handle.
+            if (++frame == 2) *b = ctx.world.create(Transform{.position = {20, 0, 0}}, *ctx.world.get<RigidBody>(*a));
+        }
+    };
+    game.start = [&, inner = game.start](Context& ctx) {
+        inner(ctx);
+        auto& c = ctx.add_system<Cloner>(Phase::Update);
+        c.a = &a;
+        c.b = &b;
+    };
+    app.run_frames(game, 5);
+    CHECK(app.context().physics->body_count() == 2);
+    CHECK(app.world().get<Transform>(b)->position.x == doctest::Approx(20.0f));
+}
+
+TEST_CASE("a copied CharacterController gets its own character even after the original dies") {
+    App app(headless());
+    Entity a{}, b{};
+    class Cloner final : public System {
+    public:
+        Entity* a;
+        Entity* b;
+        int frame = 0;
+        void update(Context& ctx) override {
+            if (++frame == 2) {
+                *b = ctx.world.create(Transform{.position = {5, 1, 0}}, *ctx.world.get<CharacterController>(*a));
+                ctx.world.destroy(*a);
+            }
+        }
+    };
+    Scene game;
+    game.start = [&](Context& ctx) {
+        make_ground(ctx.world);
+        a = ctx.world.create(Transform{.position = {0, 0.1f, 0}}, CharacterController{});
+        auto& c = ctx.add_system<Cloner>(Phase::Update);
+        c.a = &a;
+        c.b = &b;
+    };
+    app.run_frames(game, 30);
+    CHECK(app.world().get<Transform>(b)->position.x == doctest::Approx(5.0f).epsilon(0.02));
+}
+
+TEST_CASE("fixed update systems see the contacts of the previous step") {
+    bool seen = false;
+    class Watch final : public System {
+    public:
+        bool* seen;
+        void update(Context& ctx) override { *seen |= !ctx.contacts().empty(); }
+    };
+    App app(headless());
+    Scene game;
+    game.start = [&](Context& ctx) {
+        make_ground(ctx.world);
+        ctx.world.create(Transform{.position = {0, 1, 0}}, RigidBody{.desc = {.shape = ShapeDesc::sphere(0.5f)}});
+        ctx.add_system<Watch>(Phase::FixedUpdate).seen = &seen;
+    };
+    app.run_frames(game, 60);
+    CHECK(seen);
+}
+
+TEST_CASE("kinematic bodies move smoothly when frames are slower than physics steps") {
+    class Mover final : public System {
+    public:
+        void update(Context& ctx) override {
+            ctx.world.each<Transform, const RigidBody>([&](Transform& t, const RigidBody&) { t.position.x += 1.0f * ctx.time.delta; });
+        }
+    };
+    class Probe final : public System {
+    public:
+        float min_v = 1e9f, max_v = 0;
+        void update(Context& ctx) override {
+            ctx.world.each<const RigidBody>([&](const RigidBody& rb) {
+                if (ctx.time.frame < 5) return;
+                const float v = ctx.physics->linear_velocity(rb.handle).x;
+                min_v = std::min(min_v, v);
+                max_v = std::max(max_v, v);
+            });
+        }
+    };
+    App app(headless(1.0f / 30.0f));
+    Probe* probe = nullptr;
+    Scene game;
+    game.start = [&](Context& ctx) {
+        ctx.world.create(Transform{}, RigidBody{.desc = {.shape = ShapeDesc::box({0.5f, 0.5f, 0.5f}), .motion = MotionType::Kinematic}});
+        ctx.add_system<Mover>(Phase::Update);
+        probe = &ctx.add_system<Probe>(Phase::FixedUpdate);
+    };
+    app.run_frames(game, 30);
+    CHECK(probe->min_v > 0.8f);
+    CHECK(probe->max_v < 1.2f);
 }

@@ -38,7 +38,9 @@ struct Camera {
 
 /// A physics body for this entity. Position/rotation come from the entity's Transform when the
 /// body is created; afterwards dynamic bodies drive the Transform, kinematic bodies follow it.
-/// Only root entities (no Parent) are supported. `handle` is filled in by the App.
+/// Only root entities (no Parent) are supported. `desc` is read once at creation (to change the
+/// shape or motion type, replace the component). `handle` is filled in by the App; copying the
+/// component to another entity gives that entity its own body.
 struct RigidBody {
     BodyDesc desc{};
     BodyHandle handle{};
@@ -64,7 +66,8 @@ inline std::uint64_t to_user_data(Entity e) noexcept {
 inline Entity entity_from_user_data(std::uint64_t data) noexcept {
     return {static_cast<std::uint32_t>(data & 0xFFFFFFFFu), static_cast<std::uint32_t>(data >> 32)};
 }
-/// The entity a raycast hit (invalid if the body was not created from an entity).
+/// The entity a raycast hit. Only meaningful for bodies created by the App (RigidBody,
+/// CharacterController); bodies you create directly carry whatever user_data you gave them.
 inline Entity entity_of(const RayHit& hit) noexcept { return entity_from_user_data(hit.user_data); }
 
 /// Frame timing, available to every system as ctx.time.

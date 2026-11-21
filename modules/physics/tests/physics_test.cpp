@@ -2,6 +2,8 @@
 #include <doctest/doctest.h>
 
 #include <cmath>
+#include <algorithm>
+#include <limits>
 
 using namespace astral;
 
@@ -154,4 +156,55 @@ TEST_CASE("a character jumps and lands") {
     }
     CHECK(peak > 1.0f);
     CHECK(world.character_state(hero).on_ground);
+}
+
+// --- M4 review regressions ----------------------------------------------------------------
+
+TEST_CASE("end events never name a body created after the destroyed one") {
+    PhysicsWorld world;
+    BodyHandle ground = make_ground(world);
+    BodyHandle ball = world.create_body({.shape = ShapeDesc::sphere(0.5f), .position = {0, 0.5f, 0}});
+    simulate(world, 0.5f);
+    world.destroy(ball);
+    BodyHandle fresh = world.create_body({.shape = ShapeDesc::sphere(0.5f), .position = {100, 50, 0}});
+    world.step(1.0f / 60.0f);
+    for (const ContactEvent& c : world.contacts()) {
+        CHECK(c.a != fresh);
+        CHECK(c.b != fresh);
+    }
+    (void)ground;
+}
+
+TEST_CASE("invalid shapes are refused instead of crashing") {
+    PhysicsWorld world;
+    CHECK_FALSE(world.create_body({.shape = ShapeDesc::box({0, 0, 0})}).valid());
+    CHECK_FALSE(world.create_body({.shape = ShapeDesc::sphere(-1.0f)}).valid());
+    CHECK_FALSE(world.create_body({.shape = ShapeDesc::sphere(std::nanf(""))}).valid());
+    CHECK_FALSE(world.create_character({.radius = 0.0f}).valid());
+}
+
+TEST_CASE("characters are visible to raycasts and sensors and block each other") {
+    PhysicsWorld world;
+    make_ground(world);
+    BodyHandle sensor = world.create_body({.shape = ShapeDesc::box({0.5f, 2, 2}), .motion = MotionType::Static,
+                                           .position = {2, 1, 0}, .sensor = true});
+    CharacterHandle a = world.create_character({.position = {0, 0, 0}, .user_data = 7});
+    CharacterHandle b = world.create_character({.position = {4, 0, 0}, .user_data = 8});
+    CHECK(world.valid(a));
+    const auto hit = world.raycast({0, 1, 5}, {0, 0, -1}, 10.0f);
+    REQUIRE(hit.has_value());
+    CHECK(hit->user_data == 7);
+    bool sensed = false;
+    float closest = 1e9f;
+    for (int i = 0; i < 120; ++i) {
+        world.update_character(a, {3, 0, 0}, false, 1.0f / 60.0f);  // walks through the sensor into b
+        world.update_character(b, {0, 0, 0}, false, 1.0f / 60.0f);
+        world.step(1.0f / 60.0f);
+        for (const ContactEvent& c : world.contacts()) sensed |= (c.a == sensor || c.b == sensor);
+        closest = std::min(closest, length(world.character_state(b).position - world.character_state(a).position));
+    }
+    CHECK(sensed);
+    CHECK(closest > 0.75f); // never overlap (radius 0.4 each): a pushes b instead of passing through
+    world.destroy(a);
+    CHECK_FALSE(world.valid(a));
 }

@@ -34,6 +34,8 @@ struct App::Impl {
     struct BodyLink {
         Entity entity;
         BodyHandle body;
+        Vec3 previous_position{}; // kinematic bodies: pose at the start of the frame
+        Quat previous_rotation{};
     };
     struct CharacterLink {
         Entity entity;
@@ -50,6 +52,7 @@ struct App::Impl {
     std::vector<PointLight> point_lights;
 
     bool started = false;
+    bool in_fixed_update = false;
     void sync_physics_bodies();
     void step_physics(Game& game, float delta);
 
@@ -66,7 +69,7 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
     auto& m = *impl_;
     m.log.add_sink(std::make_shared<ConsoleSink>());
     m.context.reset(new Context(m.world, m.input, m.time, m.log, m.jobs, *this));
-    m.physics = std::make_unique<PhysicsWorld>();
+    m.physics = std::make_unique<PhysicsWorld>(PhysicsDesc{.logger = &m.log});
     m.context->physics = m.physics.get();
     m.time.fixed_delta = 1.0f / std::max(desc.physics_rate, 1.0f);
 
@@ -111,7 +114,12 @@ App::~App() {
 
 Context& App::context() noexcept { return *impl_->context; }
 
-std::span<const ContactEvent> Context::contacts() const noexcept { return app_.impl_->frame_contacts; }
+std::span<const ContactEvent> Context::contacts() const noexcept {
+    // Inside FixedUpdate: the previous physics step (possibly last frame's final step);
+    // elsewhere: every step of this frame.
+    const auto& m = *app_.impl_;
+    return m.in_fixed_update ? m.physics->contacts() : std::span<const ContactEvent>(m.frame_contacts);
+}
 World& App::world() noexcept { return impl_->world; }
 const Time& App::time() const noexcept { return impl_->time; }
 
@@ -195,17 +203,19 @@ void App::Impl::sync_physics_bodies() {
         physics->destroy(link.character);
         return true;
     });
+    // A component copied from another entity carries that entity's handle: only a body whose
+    // user data names *this* entity counts as its own.
     world.each<RigidBody, const Transform>([&](Entity e, RigidBody& rb, const Transform& t) {
-        if (physics->valid(rb.handle)) return;
+        if (physics->valid(rb.handle) && physics->user_data(rb.handle) == to_user_data(e)) return;
         BodyDesc body_desc = rb.desc;
         body_desc.position = t.position;
         body_desc.rotation = t.rotation;
         body_desc.user_data = to_user_data(e);
         rb.handle = physics->create_body(body_desc);
-        if (rb.handle.valid()) body_links.push_back({e, rb.handle});
+        if (rb.handle.valid()) body_links.push_back({e, rb.handle, t.position, t.rotation});
     });
     world.each<CharacterController, const Transform>([&](Entity e, CharacterController& cc, const Transform& t) {
-        if (cc.handle.valid()) return;
+        if (physics->valid(cc.handle) && physics->user_data(cc.handle) == to_user_data(e)) return;
         CharacterDesc character_desc = cc.desc;
         character_desc.position = t.position;
         character_desc.user_data = to_user_data(e);
@@ -221,16 +231,32 @@ void App::Impl::step_physics(Game&, float delta) {
     frame_contacts.clear();
     sync_physics_bodies();
     const float fixed = time.fixed_delta;
+    const std::uint32_t max_steps = std::max(desc.max_physics_steps, 1u);
     physics_accumulator += delta;
+    // Kinematic targets are spread over this frame's steps (a 30 FPS frame = 2 even moves,
+    // not one jump and one stop).
+    const auto planned = static_cast<std::uint32_t>(std::min<float>(physics_accumulator / fixed, static_cast<float>(max_steps)));
     std::uint32_t steps = 0;
-    while (physics_accumulator >= fixed && steps < desc.max_physics_steps) {
+    while (physics_accumulator >= fixed && steps < max_steps) {
+        in_fixed_update = true;
         run_phase(systems[static_cast<std::size_t>(Phase::FixedUpdate)], ctx);
+        in_fixed_update = false;
         world.apply_commands();
         sync_physics_bodies(); // FixedUpdate systems may have spawned or removed bodies
-        world.each<const RigidBody, const Transform>([&](const RigidBody& rb, const Transform& t) {
-            if (rb.desc.motion == MotionType::Kinematic) physics->move_kinematic(rb.handle, t.position, t.rotation, fixed);
-        });
-        world.each<CharacterController>([&](CharacterController& cc) {
+        const float alpha = planned > 0 ? std::min(1.0f, static_cast<float>(steps + 1) / static_cast<float>(planned)) : 1.0f;
+        for (const BodyLink& link : body_links) {
+            const RigidBody* rb = world.get<RigidBody>(link.entity);
+            const Transform* t = world.get<Transform>(link.entity);
+            if (!rb || !t || rb->desc.motion != MotionType::Kinematic) continue;
+            const Vec3 target = lerp(link.previous_position, t->position, alpha);
+            const Quat from = link.previous_rotation, to = t->rotation;
+            const float sign = (from.x * to.x + from.y * to.y + from.z * to.z + from.w * to.w) < 0 ? -1.0f : 1.0f;
+            const Quat rotation = normalize(Quat{from.x + (to.x * sign - from.x) * alpha, from.y + (to.y * sign - from.y) * alpha,
+                                                 from.z + (to.z * sign - from.z) * alpha, from.w + (to.w * sign - from.w) * alpha});
+            physics->move_kinematic(rb->handle, target, rotation, fixed);
+        }
+        world.each<CharacterController>([&](Entity e, CharacterController& cc) {
+            if (physics->user_data(cc.handle) != to_user_data(e)) return;
             physics->update_character(cc.handle, cc.move, cc.jump, fixed, cc.jump_speed);
             cc.jump = false; // one jump per press
         });
@@ -239,16 +265,24 @@ void App::Impl::step_physics(Game&, float delta) {
         physics_accumulator -= fixed;
         ++steps;
     }
-    if (steps == desc.max_physics_steps) physics_accumulator = std::min(physics_accumulator, fixed); // drop the backlog
+    if (steps == max_steps) physics_accumulator = std::min(physics_accumulator, fixed); // drop the backlog
+    if (steps > 0) {
+        for (BodyLink& link : body_links) {
+            if (const Transform* t = world.get<Transform>(link.entity)) {
+                link.previous_position = t->position;
+                link.previous_rotation = t->rotation;
+            }
+        }
+    }
 
     world.each<const RigidBody, Transform>([&](const RigidBody& rb, Transform& t) {
         if (rb.desc.motion != MotionType::Dynamic || !physics->valid(rb.handle)) return;
         t.position = physics->position(rb.handle);
         t.rotation = physics->rotation(rb.handle);
     });
-    world.each<CharacterController, Transform>([&](CharacterController& cc, Transform& t) {
+    world.each<CharacterController, Transform>([&](Entity e, CharacterController& cc, Transform& t) {
+        if (!physics->valid(cc.handle) || physics->user_data(cc.handle) != to_user_data(e)) return;
         const CharacterState state = physics->character_state(cc.handle);
-        if (!cc.handle.valid()) return;
         t.position = state.position;
         cc.on_ground = state.on_ground;
         cc.velocity = state.velocity;

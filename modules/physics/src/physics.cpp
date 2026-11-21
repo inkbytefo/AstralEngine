@@ -1,3 +1,4 @@
+#include <astral/core/log.hpp>
 #include <astral/physics/physics.hpp>
 
 // Jolt is a private dependency: none of these types appear in public headers.
@@ -22,6 +23,9 @@
 #include <Jolt/RegisterTypes.h>
 
 #include <algorithm>
+#include <cmath>
+#include <cstdarg>
+#include <cstdio>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -34,9 +38,27 @@ namespace {
 std::mutex registry_mutex;
 int registry_users = 0;
 
+void jolt_trace(const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    std::fprintf(stderr, "[jolt] ");
+    std::vfprintf(stderr, format, args);
+    std::fprintf(stderr, "\n");
+    va_end(args);
+}
+
+#ifdef JPH_ENABLE_ASSERTS
+bool jolt_assert(const char* expression, const char* message, const char* file, JPH::uint line) {
+    std::fprintf(stderr, "[jolt] assertion failed: %s %s (%s:%u)\n", expression, message ? message : "", file, line);
+    return false; // log and continue instead of trapping
+}
+#endif
+
 void acquire_jolt() {
     std::scoped_lock lock(registry_mutex);
     if (registry_users++ == 0) {
+        JPH::Trace = jolt_trace;
+        JPH_IF_ENABLE_ASSERTS(JPH::AssertFailed = jolt_assert;)
         JPH::RegisterDefaultAllocator();
         JPH::Factory::sInstance = new JPH::Factory();
         JPH::RegisterTypes();
@@ -93,7 +115,20 @@ JPH::Quat to_jph(Quat q) { return JPH::Quat(q.x, q.y, q.z, q.w).Normalized(); }
 Vec3 from_jph(JPH::Vec3 v) { return {v.GetX(), v.GetY(), v.GetZ()}; }
 Quat from_jph(JPH::Quat q) { return {q.GetX(), q.GetY(), q.GetZ(), q.GetW()}; }
 
+bool positive(float v) { return std::isfinite(v) && v > 0.0f; }
+
+bool valid_shape(const ShapeDesc& d) {
+    switch (d.type) {
+    case ShapeType::Box: return positive(d.half_extents.x) && positive(d.half_extents.y) && positive(d.half_extents.z);
+    case ShapeType::Sphere: return positive(d.radius);
+    case ShapeType::Capsule:
+    case ShapeType::Cylinder: return positive(d.radius) && positive(d.half_height);
+    }
+    return false;
+}
+
 JPH::Ref<JPH::Shape> make_shape(const ShapeDesc& d) {
+    if (!valid_shape(d)) return nullptr;
     JPH::ShapeSettings::ShapeResult result;
     switch (d.type) {
     case ShapeType::Box: {
@@ -136,6 +171,12 @@ struct PhysicsWorld::Impl {
     struct CharacterRecord {
         JPH::Ref<JPH::CharacterVirtual> character;
     };
+    /// Jolt body index -> our handle plus the full Jolt id (index + sequence), so a recycled
+    /// index never resolves to a newer body.
+    struct IndexEntry {
+        BodyHandle handle;
+        JPH::BodyID id;
+    };
 
     /// Collects contacts from Jolt's worker threads.
     class Contacts final : public JPH::ContactListener {
@@ -159,7 +200,7 @@ struct PhysicsWorld::Impl {
             e.type = ContactEvent::Type::End;
             e.a = owner_.handle_of(pair.GetBody1ID());
             e.b = owner_.handle_of(pair.GetBody2ID());
-            e.user_data_a = owner_.user_data_of(e.a);
+            e.user_data_a = owner_.user_data_of(e.a); // 0 if that body is already gone
             e.user_data_b = owner_.user_data_of(e.b);
             std::scoped_lock lock(mutex_);
             owner_.contacts.push_back(e);
@@ -179,13 +220,20 @@ struct PhysicsWorld::Impl {
     std::unique_ptr<Contacts> listener;
 
     HandlePool<BodyRecord, BodyTag> bodies;
-    std::vector<BodyHandle> handle_by_index; // Jolt body index -> our handle (read during steps)
+    std::vector<IndexEntry> handle_by_index; // read during steps, written only between them
     HandlePool<CharacterRecord, CharacterTag> characters;
+    JPH::CharacterVsCharacterCollisionSimple character_collision;
     std::vector<ContactEvent> contacts;
+    Logger* logger = nullptr;
 
     BodyHandle handle_of(JPH::BodyID id) const {
         const JPH::uint32 index = id.GetIndex();
-        return index < handle_by_index.size() ? handle_by_index[index] : BodyHandle{};
+        if (index >= handle_by_index.size() || handle_by_index[index].id != id) return {};
+        return handle_by_index[index].handle;
+    }
+    void error(std::string_view message) const {
+        if (logger) logger->log(LogLevel::Error, message);
+        else std::fprintf(stderr, "[astral::physics] %.*s\n", static_cast<int>(message.size()), message.data());
     }
     std::uint64_t user_data_of(BodyHandle h) const {
         const BodyRecord* r = bodies.get(h);
@@ -199,6 +247,7 @@ struct PhysicsWorld::Impl {
 PhysicsWorld::PhysicsWorld(const PhysicsDesc& desc) : impl_(std::make_unique<Impl>()) {
     acquire_jolt();
     auto& m = *impl_;
+    m.logger = desc.logger;
     unsigned threads = desc.threads;
     if (threads == 0) {
         const unsigned hw = std::thread::hardware_concurrency();
@@ -217,7 +266,10 @@ PhysicsWorld::PhysicsWorld(const PhysicsDesc& desc) : impl_(std::make_unique<Imp
 
 PhysicsWorld::~PhysicsWorld() {
     auto& m = *impl_;
-    m.characters.for_each([](CharacterHandle, Impl::CharacterRecord& c) { c.character = nullptr; });
+    m.characters.for_each([&](CharacterHandle, Impl::CharacterRecord& c) {
+        m.character_collision.Remove(c.character);
+        c.character = nullptr; // also removes its inner body
+    });
     m.bodies.for_each([&](BodyHandle, Impl::BodyRecord& r) {
         m.bi().RemoveBody(r.id);
         m.bi().DestroyBody(r.id);
@@ -231,7 +283,10 @@ PhysicsWorld::~PhysicsWorld() {
 BodyHandle PhysicsWorld::create_body(const BodyDesc& desc) {
     auto& m = *impl_;
     JPH::Ref<JPH::Shape> shape = make_shape(desc.shape);
-    if (!shape) return {};
+    if (!shape) {
+        m.error("create_body: invalid shape dimensions");
+        return {};
+    }
     const bool is_static = desc.motion == MotionType::Static;
     const JPH::EMotionType motion = is_static ? JPH::EMotionType::Static
                                     : desc.motion == MotionType::Kinematic ? JPH::EMotionType::Kinematic
@@ -254,9 +309,12 @@ BodyHandle PhysicsWorld::create_body(const BodyDesc& desc) {
     }
     const JPH::BodyID id = m.bi().CreateAndAddBody(
         settings, is_static ? JPH::EActivation::DontActivate : JPH::EActivation::Activate);
-    if (id.IsInvalid()) return {}; // max_bodies reached
+    if (id.IsInvalid()) {
+        m.error("create_body: max_bodies reached");
+        return {};
+    }
     const BodyHandle handle = m.bodies.create({id, desc.user_data});
-    m.handle_by_index[id.GetIndex()] = handle;
+    m.handle_by_index[id.GetIndex()] = {handle, id};
     return handle;
 }
 
@@ -336,7 +394,11 @@ void PhysicsWorld::step(float dt, int collision_steps) {
     auto& m = *impl_;
     m.contacts.clear();
     if (dt <= 0.0f) return;
-    m.system->Update(dt, std::max(collision_steps, 1), m.temp.get(), m.jobs.get());
+    const JPH::EPhysicsUpdateError error = m.system->Update(dt, std::max(collision_steps, 1), m.temp.get(), m.jobs.get());
+    if (error != JPH::EPhysicsUpdateError::None) {
+        // Overflowing these buffers drops contacts: objects can fall through floors.
+        m.error("physics step overflow: raise PhysicsDesc::max_body_pairs / max_contact_constraints");
+    }
 }
 
 std::span<const ContactEvent> PhysicsWorld::contacts() const noexcept { return impl_->contacts; }
@@ -368,10 +430,17 @@ std::optional<RayHit> PhysicsWorld::raycast(Vec3 origin, Vec3 direction, float m
 
 CharacterHandle PhysicsWorld::create_character(const CharacterDesc& desc) {
     auto& m = *impl_;
+    if (!positive(desc.radius) || !positive(desc.height)) {
+        m.error("create_character: radius and height must be positive");
+        return {};
+    }
+    // The capsule is at least a sphere: height below 2 * radius is clamped.
     const float half_cylinder = std::max(0.01f, desc.height * 0.5f - desc.radius);
+    auto capsule_shape = JPH::CapsuleShapeSettings(half_cylinder, desc.radius).Create();
+    if (!capsule_shape.IsValid()) return {};
     // Capsule standing on the character's position (feet at the origin of the shape).
     JPH::RotatedTranslatedShapeSettings capsule(JPH::Vec3(0, half_cylinder + desc.radius, 0), JPH::Quat::sIdentity(),
-                                                new JPH::CapsuleShape(half_cylinder, desc.radius));
+                                                capsule_shape.Get());
     auto shape = capsule.Create();
     if (!shape.IsValid()) return {};
     JPH::Ref<JPH::CharacterVirtualSettings> settings = new JPH::CharacterVirtualSettings();
@@ -379,12 +448,30 @@ CharacterHandle PhysicsWorld::create_character(const CharacterDesc& desc) {
     settings->mMaxSlopeAngle = desc.max_slope;
     settings->mMass = desc.mass;
     settings->mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -desc.radius); // contacts below the sphere center support
+    // Inner body: lets raycasts and sensors see the character (user data = the character's).
+    settings->mInnerBodyShape = shape.Get();
+    settings->mInnerBodyLayer = layers::moving;
     JPH::Ref<JPH::CharacterVirtual> character =
         new JPH::CharacterVirtual(settings, JPH::RVec3(to_jph(desc.position)), JPH::Quat::sIdentity(), desc.user_data, m.system.get());
+    character->SetCharacterVsCharacterCollision(&m.character_collision);
+    m.character_collision.Add(character);
     return m.characters.create({character});
 }
 
-void PhysicsWorld::destroy(CharacterHandle character) { impl_->characters.destroy(character); }
+void PhysicsWorld::destroy(CharacterHandle character) {
+    auto& m = *impl_;
+    if (auto* r = m.characters.get(character)) {
+        m.character_collision.Remove(r->character);
+        m.characters.destroy(character);
+    }
+}
+
+bool PhysicsWorld::valid(CharacterHandle character) const noexcept { return impl_->characters.get(character) != nullptr; }
+
+std::uint64_t PhysicsWorld::user_data(CharacterHandle character) const {
+    const auto* r = impl_->characters.get(character);
+    return r ? r->character->GetUserData() : 0;
+}
 
 void PhysicsWorld::update_character(CharacterHandle handle, Vec3 velocity, bool jump, float dt, float jump_speed) {
     auto& m = *impl_;

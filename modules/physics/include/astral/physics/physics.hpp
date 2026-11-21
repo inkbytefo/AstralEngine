@@ -91,7 +91,10 @@ struct CharacterState {
     bool on_ground = false;
 };
 
+class Logger;
+
 struct PhysicsDesc {
+    Logger* logger = nullptr; ///< Receives physics errors (Jolt traces, overflows).
     Vec3 gravity{0, -9.81f, 0};
     std::uint32_t max_bodies = 65536;
     std::uint32_t max_body_pairs = 65536;         ///< Broad-phase pairs per step.
@@ -110,6 +113,8 @@ public:
     PhysicsWorld& operator=(const PhysicsWorld&) = delete;
 
     // Bodies ---------------------------------------------------------------------------
+    /// Returns an invalid handle for a bad shape (non-positive or non-finite sizes) or when
+    /// max_bodies is reached.
     BodyHandle create_body(const BodyDesc& desc);
     void destroy(BodyHandle body);
     [[nodiscard]] bool valid(BodyHandle body) const noexcept;
@@ -145,8 +150,13 @@ public:
     // Characters ---------------------------------------------------------------------------
     /// A capsule that walks: stands on ground, slides along walls, climbs gentle slopes and
     /// steps, is not pushed around by physics (it pushes dynamic bodies instead).
+    /// The character also owns an inner kinematic body, so raycasts and sensors see it (its
+    /// user_data is the character's), and characters block each other.
+    /// Returns an invalid handle for non-positive or non-finite dimensions.
     CharacterHandle create_character(const CharacterDesc& desc);
     void destroy(CharacterHandle character);
+    [[nodiscard]] bool valid(CharacterHandle character) const noexcept;
+    [[nodiscard]] std::uint64_t user_data(CharacterHandle character) const;
     /// Moves the character with a horizontal `velocity` (y ignored) for `dt`; `jump` launches it
     /// upward with `jump_speed` when on the ground. Gravity is applied in the air.
     void update_character(CharacterHandle character, Vec3 velocity, bool jump, float dt,
