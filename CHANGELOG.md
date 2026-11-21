@@ -4,6 +4,24 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-11-21 — M3
+
+### Added
+- `RenderGraph`: bildirilen erişimlerden otomatik bariyer ve render pass, geçici texture havuzu,
+  kullanılmayan pass ayıklama.
+- Hibrit deferred renderer: gölge haritası (PCF), mesh G-buffer, SDF raymarch (küre/kutu/torus/kapsül/
+  silindir; union/subtract/intersect/smooth), GGX PBR, SDF yumuşak gölgeleri, nokta ışıklar, gök/yer
+  ambient ve gökyüzü yansıması, ACES tonemap.
+- App: `Sdf` ve `PointLight` component'leri, `MeshRenderer` materyal alanları, `ctx.sun`, `ctx.environment`.
+- `rotation_of(Mat4)`, `examples/sdf_scene`.
+- GPU: formatsız storage image yazımı (HDR compute hedefleri), derinlik texture örnekleme.
+
+### Changed
+- `Renderer::render(cmd, target, camera, RenderScene)`; `DirectionalLight` artık ambient taşımıyor (`Environment`).
+
+### Fixed
+- GPU: yalnızca transfer amaçlı texture'lar için geçersiz image view oluşturuluyordu.
+
 ## [0.3.0] — 2026-11-21 — M2
 
 ### Added

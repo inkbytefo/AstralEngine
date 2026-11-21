@@ -66,6 +66,27 @@ public:
 };
 ```
 
+## Görünüm: materyal, SDF, ışık
+
+```cpp
+// PBR materyal
+ctx.world.create(Transform{}, MeshRenderer{ctx.meshes.sphere, {0.9f, 0.7f, 0.3f, 1}, /*roughness*/ 0.2f, /*metallic*/ 1.0f});
+
+// SDF: matematiksel şekiller, birbirine eriyerek birleşir (order küçük olan önce)
+ctx.world.create(Transform{.position = {0, 1, 0}},
+                 Sdf{.shape = {.primitive = SdfPrimitive::Sphere, .operation = SdfOperation::SmoothUnion,
+                               .size = {0.8f, 0, 0, 0}, .blend = 0.5f, .color = {1, 0.3f, 0.2f, 1}}});
+
+// Nokta ışık (entity'nin konumunda)
+ctx.world.create(Transform{.position = {2, 3, 0}}, PointLight{.color = {1, 0.5f, 0.2f}, .intensity = 20, .radius = 8});
+
+// Güneş ve ortam
+ctx.sun = {.direction = {-0.5f, -1, -0.3f}, .intensity = 2.0f};
+ctx.environment.ambient = 0.5f;
+```
+
+Tam örnek: `examples/sdf_scene/main.cpp`.
+
 ## Kare sırası
 
 `input → PreUpdate → Game::on_update → Update → PostUpdate → transform hiyerarşisi → render`
@@ -81,7 +102,7 @@ Her aşamadan sonra `commands()` uygulanır.
 | `jobs` | `parallel_each` için iş havuzu |
 | `log` | `ctx.log.info("skor: {}", skor)` |
 | `meshes` | hazır `cube`, `sphere`, `plane` |
-| `light` | yönlü ışık (yön, renk, ambient) |
+| `sun`, `environment` | güneş (yön, renk, gölge) ve gök/yer ambient, pozlama |
 | `renderer`, `window`, `device` | alt katman (headless'ta `nullptr`) |
 | `quit()` | oyundan çık |
 

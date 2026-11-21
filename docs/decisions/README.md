@@ -13,3 +13,4 @@ ADR eskisini "yerini aldı" diye işaretler.
 | [0006](0006-app-layer-for-games.md) | Oyunlar App + Game + System ile yazılır | Kabul |
 | [0007](0007-sdl3-platform.md) | Platform katmanı SDL3 | Kabul |
 | [0008](0008-bindless-bda-glsl.md) | Bindless texture, buffer adresleri, GLSL | Kabul |
+| [0009](0009-render-graph-hybrid-deferred.md) | Render graph üzerinde hibrit deferred renderer | Kabul |

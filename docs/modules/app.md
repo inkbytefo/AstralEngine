@@ -23,6 +23,9 @@ Swapchain, Renderer, hazır mesh'ler. `Game` + `System`'ler bunlara `Context` ü
 
 Kamera: ilk aktif `Camera` component'li entity'nin `WorldTransform`'u (−Z'ye bakar); yoksa varsayılan.
 
+Render component'leri: `MeshRenderer` (mesh + PBR materyal), `Sdf` (SDF şekli + sıra; konum/dönüş
+entity'den), `PointLight` (konum entity'den). Güneş ve ortam: `ctx.sun`, `ctx.environment`.
+
 ## Yaşam süresi
 
 `run()`/`run_frames()` App başına bir kez. Kapanışta önce system'ler yok edilir (destructor'larında

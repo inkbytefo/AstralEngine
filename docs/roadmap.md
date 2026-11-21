@@ -7,8 +7,8 @@ Durum: ✅ bitti · 🚧 sürüyor · 🔜 sıradaki · ⬜ planlı
 | M0 | İskelet, `Astral::Core` (log, handle, clock, jobs), kurulum, CI | ✅ |
 | M1 | `Astral::Platform` (SDL3 pencere/input), `Astral::Gpu` (Vulkan RHI), core math | ✅ |
 | M2 | `Astral::World` (kendi ECS'imiz), `Astral::App` (Game + System), basit mesh render | ✅ |
-| M3 | `Astral::Render`: render graph, deferred/hibrit mesh + SDF (eski v2'den taşıma) | 🔜 |
-| M4 | `Astral::Physics` (Jolt) | ⬜ |
+| M3 | `Astral::Render`: render graph, deferred/hibrit mesh + SDF (eski v2'den taşıma) | ✅ |
+| M4 | `Astral::Physics` (Jolt) | 🔜 |
 | M5 | `Astral::Assets`: glTF, PBR materyal, async yükleme, hot-reload | ⬜ |
 | M6 | İlk oyun dikey dilimi (kılıç arenası prototipi) | ⬜ |
 
@@ -45,9 +45,14 @@ Rehber: [writing-a-game.md](guides/writing-a-game.md).
 **Bitiş kriterleri (karşılandı):** `examples/spinning_cubes`: oyun kodu yalnızca `Game` + component + system
 yazar; ECS sorguları JobSystem ile paralel; system'ler headless test edilir.
 
-## M3 — Render
+## M3 — Render ✅
 
-**Bitiş kriterleri:** render graph pass ekleme/çıkarma mevcut pass'lere dokunmadan yapılır;
+**Sonuç:** Render graph (otomatik bariyer, havuz, ayıklama) ve üzerinde hibrit deferred renderer:
+gölge haritası, mesh G-buffer, SDF raymarch (CSG + yumuşak birleşim), PBR aydınlatma, SDF yumuşak
+gölgeleri, nokta ışıklar, ACES. `examples/sdf_scene`. Brick bake, TAA, IBL, cascaded gölgeler
+sonraki alt fazlara kaldı ([render.md](modules/render.md)).
+
+**Bitiş kriterleri (karşılandı):** render graph pass ekleme/çıkarma mevcut pass'lere dokunmadan yapılır;
 eski v2'deki deferred + SDF teknikleri bu mimariye temiz yeniden yazılmış olur.
 
 ## M4 — Fizik
