@@ -64,9 +64,9 @@ TEST_CASE("components can be added, read, replaced and removed") {
     Entity e = world.create();
     world.add(e, Position{1, 2});
     REQUIRE(world.has<Position>(e));
-    CHECK(world.get<Position>(e)->x == 1);
+    CHECK(world.get<Position>(e)->x == 1.0f);
     world.add(e, Position{5, 6}); // replace
-    CHECK(world.get<Position>(e)->x == 5);
+    CHECK(world.get<Position>(e)->x == 5.0f);
     CHECK(world.remove<Position>(e));
     CHECK_FALSE(world.has<Position>(e));
     CHECK_FALSE(world.remove<Position>(e));
@@ -76,11 +76,11 @@ TEST_CASE("moving between archetypes keeps other component values") {
     World world;
     Entity e = world.create(Position{3, 4}, Health{42});
     world.add(e, Velocity{1, 1});
-    CHECK(world.get<Position>(e)->y == 4);
+    CHECK(world.get<Position>(e)->y == 4.0f);
     CHECK(world.get<Health>(e)->value == 42);
     world.remove<Position>(e);
     CHECK(world.get<Health>(e)->value == 42);
-    CHECK(world.get<Velocity>(e)->x == 1);
+    CHECK(world.get<Velocity>(e)->x == 1.0f);
 }
 
 TEST_CASE("swap-remove keeps the moved entity addressable") {
@@ -99,9 +99,9 @@ TEST_CASE("non-trivial components are constructed and destroyed exactly once") {
         World world;
         std::vector<Entity> es;
         for (int i = 0; i < 100; ++i) es.push_back(world.create(Tracked{i}, Health{}));
-        for (int i = 0; i < 100; i += 2) world.add(es[i], Velocity{}); // archetype moves
-        for (int i = 0; i < 100; i += 3) world.destroy(es[i]);
-        CHECK(Tracked::alive == world.count());
+        for (std::size_t i = 0; i < 100; i += 2) world.add(es[i], Velocity{}); // archetype moves
+        for (std::size_t i = 0; i < 100; i += 3) world.destroy(es[i]);
+        CHECK(static_cast<std::size_t>(Tracked::alive) == world.count());
         CHECK(*world.get<Tracked>(es[1])->payload == 1);
     }
     CHECK(Tracked::alive == 0); // world destructor released the rest
