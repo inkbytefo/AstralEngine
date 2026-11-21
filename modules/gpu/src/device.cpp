@@ -70,7 +70,7 @@ bool meets_requirements(VkPhysicalDevice device) {
            f12.descriptorBindingPartiallyBound && f12.shaderSampledImageArrayNonUniformIndexing &&
            f12.descriptorBindingSampledImageUpdateAfterBind &&
            f12.descriptorBindingStorageImageUpdateAfterBind && f12.scalarBlockLayout &&
-           f2.features.shaderInt64;
+           f2.features.shaderInt64 && f2.features.shaderStorageImageWriteWithoutFormat;
 }
 
 int device_score(VkPhysicalDevice device) {
@@ -373,6 +373,7 @@ bool create_logical_device(Device::Impl& s) {
     f12.scalarBlockLayout = VK_TRUE;
     VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f12};
     f2.features.shaderInt64 = VK_TRUE;
+    f2.features.shaderStorageImageWriteWithoutFormat = VK_TRUE;
 
     std::vector<const char*> extensions;
     if (s.surface) extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);

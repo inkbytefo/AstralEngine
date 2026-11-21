@@ -40,7 +40,9 @@ if(TARGET astral_gpu_tests)
     astral_add_shaders(astral_gpu_tests SOURCES
         tests/shaders/fill.comp
         tests/shaders/triangle.vert
-        tests/shaders/solid.frag)
+        tests/shaders/solid.frag
+        tests/shaders/write_image.comp
+        tests/shaders/read_depth.comp)
 endif()
 
 # `VkFooInfo info{VK_STRUCTURE_TYPE_FOO}` (zero-initialise the rest) is the idiomatic Vulkan

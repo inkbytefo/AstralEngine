@@ -72,7 +72,9 @@ StateInfo state_info(ResourceState state, bool depth) noexcept {
                 VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
                     VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT};
     case ResourceState::ShaderRead:
-        return {depth ? VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        // SHADER_READ_ONLY_OPTIMAL is valid for depth too and matches the bindless descriptor.
+        (void)depth;
+        return {VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                 VK_ACCESS_2_SHADER_SAMPLED_READ_BIT};
     case ResourceState::ShaderWrite:

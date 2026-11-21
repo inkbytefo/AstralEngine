@@ -1,0 +1,6 @@
+#version 460
+#include <astral/bindless.glsl>
+ASTRAL_BUFFER(FloatBuffer, float);
+layout(push_constant, scalar) uniform Push { FloatBuffer out_buffer; uint depth; } pc;
+layout(local_size_x = 1) in;
+void main() { pc.out_buffer.data[0] = texelFetch(sampler2D(astral_textures[pc.depth], astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]), ivec2(0), 0).r; }

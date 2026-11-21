@@ -121,3 +121,55 @@ TEST_CASE("on_submitted reports the ticket of the submission, never for dropped 
     CHECK(dropped_calls == 0);
     device->wait(ticket);
 }
+
+#include <shaders/read_depth.comp.hpp>
+#include <shaders/write_image.comp.hpp>
+
+TEST_CASE("compute writes an HDR storage image without a declared format") {
+    auto device = test::make_device();
+    if (!device) return;
+    auto image = device->create_texture({.width = 8, .height = 8, .format = gpu::Format::RGBA16Float,
+                                         .usage = gpu::TextureUsage::Storage | gpu::TextureUsage::TransferSrc});
+    auto readback = device->create_buffer({.size = 8 * 8 * 8, .usage = gpu::BufferUsage::TransferDst,
+                                           .memory = gpu::MemoryUsage::GpuToCpu});
+    auto pipeline = device->create_compute_pipeline({.shader = {shaders::write_image_comp}});
+    REQUIRE(pipeline.valid());
+    const std::uint32_t index = device->bindless_index(image);
+    auto cmd = device->begin_commands();
+    cmd.transition(image, gpu::ResourceState::ShaderWrite);
+    cmd.bind_pipeline(pipeline);
+    cmd.push_constants(&index, sizeof(index));
+    cmd.dispatch(1, 1);
+    cmd.transition(image, gpu::ResourceState::TransferSrc);
+    cmd.copy_texture_to_buffer(image, readback);
+    device->wait(device->submit(cmd));
+    std::uint16_t half[4];
+    REQUIRE(device->read_buffer(readback, half, sizeof(half)));
+    CHECK(half[0] == 0x3400); // 0.25 as IEEE half
+    CHECK(half[2] == 0x3A00); // 0.75
+}
+
+TEST_CASE("a depth target can be sampled by a shader") {
+    auto device = test::make_device();
+    if (!device) return;
+    auto depth = device->create_texture({.width = 4, .height = 4, .format = gpu::Format::D32Float,
+                                         .usage = gpu::TextureUsage::DepthTarget | gpu::TextureUsage::Sampled});
+    auto out = device->create_buffer({.size = 4, .usage = gpu::BufferUsage::Storage, .memory = gpu::MemoryUsage::GpuToCpu});
+    auto pipeline = device->create_compute_pipeline({.shader = {shaders::read_depth_comp}});
+    struct Push {
+        std::uint64_t address;
+        std::uint32_t depth;
+    } push{device->buffer_address(out), device->bindless_index(depth)};
+    auto cmd = device->begin_commands();
+    cmd.transition(depth, gpu::ResourceState::DepthTarget);
+    cmd.begin_rendering({.depth = {.texture = depth, .load = gpu::LoadOp::Clear, .clear = 0.5f}});
+    cmd.end_rendering();
+    cmd.transition(depth, gpu::ResourceState::ShaderRead);
+    cmd.bind_pipeline(pipeline);
+    cmd.push_constants(&push, sizeof(push));
+    cmd.dispatch(1);
+    device->wait(device->submit(cmd));
+    float value = 0;
+    REQUIRE(device->read_buffer(out, &value, sizeof(value)));
+    CHECK(value == doctest::Approx(0.5f));
+}

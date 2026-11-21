@@ -82,7 +82,5 @@ atlanır. Offscreen üçgen render edilip piksel okunarak doğrulanır; validati
 ## Bilinen sınırlar
 
 - API tek thread'den kullanılmalı (çok thread'li komut kaydı sonraki fazda).
-- Storage image'lar shader'da şimdilik `rgba8` olarak tanımlı.
 - Mip zinciri üretimi, cube/3D texture, MSAA, sorgu (timestamp) yok.
 - Ray tracing / mesh shader sadece `supports()` ile sorgulanabiliyor, kullanılmıyor.
-- Derinlik texture'larını shader'da örneklemek (gölge) için descriptor layout'u henüz doğru değil.

@@ -16,7 +16,9 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
 layout(set = 0, binding = 0) uniform texture2D astral_textures[];
-layout(set = 0, binding = 1, rgba8) uniform image2D astral_storage_images[];
+// Storage images are declared without a format: any color format (rgba8, rgba16f, r32f, ...)
+// can be written (shaderStorageImageWriteWithoutFormat).
+layout(set = 0, binding = 1) writeonly uniform image2D astral_storage_images[];
 layout(set = 0, binding = 2) uniform sampler astral_samplers[];
 
 #define ASTRAL_SAMPLER_LINEAR_CLAMP 0
