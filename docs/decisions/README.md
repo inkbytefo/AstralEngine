@@ -11,3 +11,5 @@ ADR eskisini "yerini aldı" diye işaretler.
 | [0004](0004-helping-wait-own-group.md) | Yardımlı `wait()` sadece kendi grubunu çalıştırır | Kabul |
 | [0005](0005-own-ecs.md) | Kendi ECS'imiz; EnTT kullanılmaz | Kabul |
 | [0006](0006-app-layer-for-games.md) | Oyunlar App + Game + System ile yazılır | Kabul |
+| [0007](0007-sdl3-platform.md) | Platform katmanı SDL3 | Kabul |
+| [0008](0008-bindless-bda-glsl.md) | Bindless texture, buffer adresleri, GLSL | Kabul |

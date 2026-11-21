@@ -19,14 +19,16 @@ while (running) {
 | Module | Status |
 |---|---|
 | `Astral::Core` — log, handles, clock, jobs | ✅ M0 |
-| `Astral::Platform`, `Astral::Gpu` (Vulkan RHI) | M1 |
-| `Astral::Render` (render graph) | M2 |
-| `Astral::World` (own ECS), `Astral::Physics` (Jolt) | M3 |
-| `Astral::Assets` (glTF) | M4 |
+| `Astral::Gpu` (Vulkan 1.3 RHI), `Astral::Platform` (SDL3) | ✅ M1 |
+| `Astral::World` (own ECS), `Astral::App` | M2 |
+| `Astral::Render` (render graph, deferred + SDF) | M3 |
+| `Astral::Physics` (Jolt) | M4 |
+| `Astral::Assets` (glTF) | M5 |
 
 ## Build
 
-Requires CMake ≥ 3.24, Ninja and a C++20 compiler (GCC 13, Clang 18, MSVC 2022).
+Requires CMake ≥ 3.24, Ninja, a C++20 compiler (GCC 13, Clang 18, MSVC 2022) and the Vulkan SDK
+(headers, loader, `glslc`). SDL3 and VMA are fetched automatically.
 
 ```sh
 cmake --preset debug

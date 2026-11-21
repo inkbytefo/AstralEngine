@@ -15,6 +15,7 @@ target_link_libraries(MyGame PRIVATE Astral::Core)
 | `astral/core/handle.hpp` | `Handle<T>`, `HandlePool<T>` |
 | `astral/core/clock.hpp` | `Clock`, `ITimeSource`, `SteadyTimeSource` |
 | `astral/core/jobs.hpp` | `JobSystem`, `JobCounter` |
+| `astral/core/math.hpp` | `Vec2/3/4`, `Mat4`, `Quat`, `perspective`, `look_at`, `inverse`… |
 
 ## Logger
 
@@ -32,7 +33,7 @@ log.info("yüklendi: {} mesh", count);
 ## Handle ve HandlePool
 
 ```cpp
-astral::HandlePool<Mesh> meshes;
+astral::HandlePool<Mesh> meshes;          // veya HandlePool<KayıtTipi, PublicTag>
 auto h = meshes.create(Mesh{...});
 if (Mesh* m = meshes.get(h)) { ... }
 meshes.destroy(h);          // h artık hiçbir şeye çözülmez
@@ -40,6 +41,17 @@ meshes.destroy(h);          // h artık hiçbir şeye çözülmez
 
 Silinen slot yeniden kullanılınca `generation` artar; eski handle'lar yeni nesneye
 asla ulaşmaz. Thread-safe değil.
+
+## Math
+
+Bağımlılıksız 3D matematik. Kurallar: sağ el, +Y yukarı, kamera -Z'ye bakar; `Mat4` sütun-öncelikli
+(`m[sütun][satır]`), `v' = M * v`; `perspective` Vulkan clip uzayına (Y aşağı, derinlik 0..1).
+
+```cpp
+Mat4 model = compose(position, Quat::from_axis_angle({0, 1, 0}, radians(45)), {1, 1, 1});
+Mat4 view = look_at(eye, target, {0, 1, 0});
+Mat4 proj = perspective(radians(70), aspect, 0.1f, 1000.0f);
+```
 
 ## Clock
 
@@ -69,9 +81,8 @@ M0 incelemesinden devreden küçük maddeler (sonraki fazlarda kapatılacak):
   beklemede derinlik sınırı yok; `submit()` içinde bellek hatası olursa sayaç takılı kalır;
   bir `JobCounter` farklı bir `JobSystem` ile kullanılırsa `wait()` sessizce takılır.
 - `HandlePool::get()` ile alınan pointer, sonraki `create()` sonrası geçersiz olabilir
-  (vector büyür). 32-bit generation 2³²−1 yeniden kullanımdan sonra sarar.
-- `Clock` time source'u pointer olarak tutar — geçici nesne vermek dangling olur.
-- `Logger::enabled()` mutex alıyor (atomic olmalı); sink içinden aynı logger'a yazmak kilitlenir.
-- Kurulum: `Threads::Threads` linklenmiyor (eski glibc'de sorun); header'lar
-  `CMAKE_INSTALL_INCLUDEDIR` yerine sabit `include`'a kuruluyor; sürüm metni
-  `project(VERSION)`'dan üretilmiyor.
+  (dokümante edildi). 32-bit generation 2³²−1 yeniden kullanımdan sonra sarar.
+- Sink içinden aynı logger'a yazmak kilitlenir (dokümante edildi).
+
+M1'de kapatılanlar: Threads bağımlılığı, kurulum dizinleri, sürümün `project(VERSION)`'dan
+üretilmesi, atomic log seviyesi, `Clock`'a geçici kaynak verilmesinin derleme hatası olması.

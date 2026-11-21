@@ -5,8 +5,8 @@ Durum: ✅ bitti · 🚧 sürüyor · 🔜 sıradaki · ⬜ planlı
 | Faz | Kapsam | Durum |
 |---|---|---|
 | M0 | İskelet, `Astral::Core` (log, handle, clock, jobs), kurulum, CI | ✅ |
-| M1 | `Astral::Platform` (SDL3 pencere/input), `Astral::Gpu` (Vulkan RHI), core math | 🚧 |
-| M2 | `Astral::World` (kendi ECS'imiz), `Astral::App` (Game + System), basit mesh render | ⬜ |
+| M1 | `Astral::Platform` (SDL3 pencere/input), `Astral::Gpu` (Vulkan RHI), core math | ✅ |
+| M2 | `Astral::World` (kendi ECS'imiz), `Astral::App` (Game + System), basit mesh render | 🔜 |
 | M3 | `Astral::Render`: render graph, deferred/hibrit mesh + SDF (eski v2'den taşıma) | ⬜ |
 | M4 | `Astral::Physics` (Jolt) | ⬜ |
 | M5 | `Astral::Assets`: glTF, PBR materyal, async yükleme, hot-reload | ⬜ |
@@ -23,9 +23,14 @@ Ayrıntı: [modules/core.md](modules/core.md).
 
 **Devreden borç:** [core.md → Bilinen sınırlar](modules/core.md#bilinen-sınırlar).
 
-## M1 — Platform ve GPU 🔜
+## M1 — Platform ve GPU ✅
 
-**Bitiş kriterleri:** `examples/hello_triangle` pencerede üçgen çizer; GPU modülü
+**Sonuç:** Vulkan 1.3 RHI (handle, bindless, BDA, timeline, gecikmeli silme, swapchain), SDL3
+pencere/input, kendi matematik kütüphanemiz, `hello_triangle`. GPU testleri lavapipe ile
+headless, pencere+present testi Xvfb ile koşuyor; validation hatası yok. Public header kuralı
+artık otomatik test. Ayrıntı: [gpu.md](modules/gpu.md), [platform.md](modules/platform.md).
+
+**Bitiş kriterleri (karşılandı):** `examples/hello_triangle` pencerede üçgen çizer; GPU modülü
 pencere olmadan (headless/offscreen) da çalışır ve testleri CI'da yazılımsal Vulkan
 (lavapipe) ile koşar; public header'larda Vulkan/SDL tipi yok.
 

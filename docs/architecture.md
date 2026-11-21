@@ -24,11 +24,12 @@ Alt katman her zaman doğrudan kullanılabilir kalır.
 ```
 Katman 3  │ app                                   (opsiyonel)
 Katman 2  │ render · world · physics · assets · audio
-Katman 1  │ platform (pencere/input) · gpu (RHI)
+Katman 1  │ gpu (Vulkan RHI) ← platform (pencere/input, SDL3)
 Katman 0  │ core (log, handle, clock, jobs, math)
 ```
 
-**Kural:** bir modül yalnızca kendinden alttaki katmanlara bağımlı olabilir. CMake bunu
+**Kural:** bir modül yalnızca kendinden alttaki katmanlara (ve aynı katmanda ok yönünde) bağımlı
+olabilir. Platform GPU'yu bilir (pencere yüzeyi verir), GPU platformu bilmez. CMake bunu
 zorlar: bir modül, linklemediği modülün header'ını bulamaz.
 
 ## SOLID'in motordaki karşılığı
