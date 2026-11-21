@@ -1,5 +1,6 @@
 #include <astral/astral.hpp>
 #include <doctest/doctest.h>
+#include <imgui.h> // games get Dear ImGui through Astral::App
 
 #include <string>
 #include <thread>
@@ -77,4 +78,41 @@ TEST_CASE("ctx.debug: one-frame and timed shapes; overlays draw in headless mode
     CHECK(game.seen[2] == 1);
     CHECK(game.seen[3] == 0); // 0.25 s are over; one-frame shapes never carry over
     CHECK(game.seen[4] == 0);
+}
+
+TEST_CASE("the debug UI draws the engine's windows and the game's own panel over the image") {
+    struct G final : Game {
+        bool ui = false;
+        bool game_panel_built = false;
+        void on_start(Context& ctx) override {
+            ctx.show_debug_ui = ui;
+            ctx.world.create(Name{"some entity"}, Transform{});
+        }
+        void on_debug_ui(Context&) override {
+            ImGui::Begin("Game panel");
+            ImGui::Text("score: 3");
+            ImGui::End();
+            game_panel_built = true;
+        }
+    };
+    std::vector<std::uint8_t> with_ui, without_ui;
+    bool panel = false;
+    for (const bool ui : {true, false}) {
+        App app({.width = 320, .height = 200, .fixed_timestep = 1.0f / 60.0f, .offscreen = true});
+        if (!app.context().renderer) return; // no GPU
+        G game;
+        game.ui = ui;
+        app.run_frames(game, 3);
+        REQUIRE(app.read_frame(ui ? with_ui : without_ui));
+        if (ui) panel = game.game_panel_built;
+        else CHECK_FALSE(game.game_panel_built); // closed UI: no ImGui work at all
+    }
+    CHECK(panel);
+    // The menu bar covers the top rows: they differ from the plain image.
+    std::size_t different = 0;
+    for (std::size_t x = 0; x < 320; ++x) {
+        const std::size_t i = (5 * 320 + x) * 4;
+        different += std::abs(int(with_ui[i]) - int(without_ui[i])) > 8 ? 1 : 0;
+    }
+    CHECK(different > 200);
 }

@@ -8,6 +8,7 @@
 #include <astral/render/debug_draw.hpp>
 #include <astral/render/mesh.hpp>
 #include <astral/render/render_graph.hpp>
+#include <astral/render/ui.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -140,6 +141,8 @@ struct RenderScene {
     Environment environment = {};
     /// Drawn over the final image (see DebugDraw): hidden behind meshes unless `on_top`.
     std::span<const DebugLine> debug_lines = {};
+    /// 2D overlay (debug UI, HUD, sprites), drawn last, in order.
+    std::span<const UiLayer> ui = {};
 };
 
 /// Dynamic diffuse global illumination: a grid of probes that trace rays every frame.
@@ -256,3 +259,7 @@ ASTRAL_REFLECT(astral::RectLight, position, right, up, color, intensity, two_sid
 ASTRAL_REFLECT(astral::DirectionalLight, direction, color, intensity, shadows, angular_radius)
 ASTRAL_REFLECT(astral::Environment, sky, ground, ambient, exposure)
 ASTRAL_REFLECT(astral::MaterialDesc, base_color, roughness, metallic, emissive, normal_scale)
+ASTRAL_REFLECT_ENUM(astral::DebugView, None, Albedo, Normals, DiffuseLight, Specular, Motion)
+ASTRAL_REFLECT(astral::GiSettings, probes_x, probes_y, probes_z, rays_per_probe, hysteresis, volume_min, volume_max)
+ASTRAL_REFLECT(astral::RenderSettings, shadow_map_size, ray_tracing, gi, denoise_iterations, max_history, taa_blend,
+               bloom_strength, max_ray_distance, near_gi_radius, debug_view)

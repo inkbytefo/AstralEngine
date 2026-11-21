@@ -1,7 +1,8 @@
 // Opens a scene file (.scene) and shows it. Prefab and scene files reload while it runs: edit
 // assets/prefabs/box.prefab in a text editor and every box in the room changes.
 //
-//   scene_viewer [path/to/level.scene] [--debug]             window (--debug: light ranges, axes, grid)
+//   scene_viewer [path/to/level.scene] [--debug] [--ui]      window (--debug: light ranges, axes, grid;
+//                                                            --ui: debug UI open at start; F1 toggles it)
 //   scene_viewer [scene] --capture out.ppm [--frames 48] [--width 1280] [--height 720]
 //
 // Without a path it opens the RGB room (showcase.scene): from assets/ while developing, from
@@ -22,11 +23,12 @@ namespace {
 
 class SceneViewer final : public Game {
 public:
-    SceneViewer(std::string file, bool debug) : file_(std::move(file)), debug_(debug) {}
+    SceneViewer(std::string file, bool debug, bool ui) : file_(std::move(file)), debug_(debug), ui_(ui) {}
 
     void on_start(Context& ctx) override {
         ctx.debug_show.lights = debug_;
         ctx.debug_show.physics = debug_;
+        ctx.show_debug_ui = ui_; // F1 toggles it at any time
         load(ctx);
     }
 
@@ -54,6 +56,7 @@ private:
 
     std::string file_;
     bool debug_ = false;
+    bool ui_ = false;
     std::vector<Entity> loaded_;
     std::uint32_t version_ = 0;
 };
@@ -73,7 +76,7 @@ int main(int argc, char** argv) {
     std::filesystem::path scene;
     const char* out = nullptr;
     std::uint32_t frames = 48, width = 1280, height = 720;
-    bool debug = false;
+    bool debug = false, ui = false;
     for (int i = 1; i < argc; ++i) {
         auto next = [&] { return i + 1 < argc ? argv[++i] : "0"; };
         if (!std::strcmp(argv[i], "--capture")) out = next();
@@ -81,6 +84,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--width")) width = static_cast<std::uint32_t>(std::atoi(next()));
         else if (!std::strcmp(argv[i], "--height")) height = static_cast<std::uint32_t>(std::atoi(next()));
         else if (!std::strcmp(argv[i], "--debug")) debug = true;
+        else if (!std::strcmp(argv[i], "--ui")) ui = true;
         else scene = argv[i];
     }
     // A scene given on the command line is read from its folder; otherwise the game's own assets.
@@ -97,7 +101,7 @@ int main(int argc, char** argv) {
     render.bloom_strength = 0.05f;
     App app({.title = "Astral — scene viewer", .width = width, .height = height, .render = render,
              .asset_root = root, .pack = pack, .offscreen = out != nullptr});
-    SceneViewer viewer(file, debug);
+    SceneViewer viewer(file, debug, ui);
     if (!out) return app.run(viewer);
 
     app.run_frames(viewer, frames);

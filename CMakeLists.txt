@@ -14,6 +14,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(AstralWarnings)
 include(AstralModule)
 include(AstralShaders)
+include(AstralEmbed)
 include(GNUInstallDirs)
 
 if(ASTRAL_BUILD_TESTS)

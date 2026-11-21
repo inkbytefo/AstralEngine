@@ -1,12 +1,36 @@
+include(FetchContent)
+# Dear ImGui (MIT): the debug UI (built in the app module). Fetched here because the engine's
+# default font (Roboto, Apache 2.0) comes from its misc/fonts folder.
+FetchContent_Declare(imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG v1.92.9
+    GIT_SHALLOW TRUE)
+FetchContent_GetProperties(imgui)
+if(NOT imgui_POPULATED)
+    FetchContent_Populate(imgui)
+endif()
+# stb (public domain / MIT): stb_truetype for font rasterising.
+FetchContent_Declare(stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG 6b5799bae8a1fe3792691ef4b72ae26434c3e799)
+FetchContent_GetProperties(stb)
+if(NOT stb_POPULATED)
+    FetchContent_Populate(stb)
+endif()
+
 astral_add_module(NAME render
     SOURCES
         src/mesh.cpp
         src/renderer.cpp
         src/render_graph.cpp
         src/debug_draw.cpp
+        src/fonts.cpp
     DEPS
         Astral::Core
         Astral::Gpu)
+astral_embed_file(astral_render ${imgui_SOURCE_DIR}/misc/fonts/Roboto-Medium.ttf roboto_medium_ttf)
+target_include_directories(astral_render SYSTEM PRIVATE $<BUILD_INTERFACE:${stb_SOURCE_DIR}>)
+
 astral_add_shaders(astral_render
     SOURCES
         shaders/gbuffer.vert shaders/gbuffer.frag shaders/shadow.vert
@@ -15,7 +39,7 @@ astral_add_shaders(astral_render
         shaders/rt_lighting.comp shaders/ddgi_trace.comp shaders/ddgi_update.comp
         shaders/denoise_temporal.comp shaders/denoise_atrous.comp shaders/composite.comp
         shaders/taa.comp shaders/bloom_down.comp shaders/bloom_up.comp
-        shaders/debug_line.vert shaders/debug_line.frag
+        shaders/debug_line.vert shaders/debug_line.frag shaders/ui.vert shaders/ui.frag
     INCLUDE_DIRS
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include)
 

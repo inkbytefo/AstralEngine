@@ -105,6 +105,7 @@ bool Window::poll(Input& input) {
                                    {event.motion.xrel, event.motion.yrel});
             break;
         case SDL_EVENT_MOUSE_WHEEL: input.add_scroll({event.wheel.x, event.wheel.y}); break;
+        case SDL_EVENT_TEXT_INPUT: input.add_text(event.text.text); break;
         default: break;
         }
     }
@@ -129,6 +130,19 @@ void Window::set_title(std::string_view title) {
 
 void Window::set_mouse_captured(bool captured) {
     SDL_SetWindowRelativeMouseMode(impl_->window, captured);
+}
+
+bool Window::mouse_captured() const { return SDL_GetWindowRelativeMouseMode(impl_->window); }
+
+void Window::set_text_input(bool enabled) {
+    if (enabled == SDL_TextInputActive(impl_->window)) return;
+    if (enabled) SDL_StartTextInput(impl_->window);
+    else SDL_StopTextInput(impl_->window);
+}
+
+float Window::pixel_density() const {
+    const float d = SDL_GetWindowPixelDensity(impl_->window);
+    return d > 0.0f ? d : 1.0f;
 }
 
 gpu::SurfaceSource Window::surface_source() const {

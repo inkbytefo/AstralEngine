@@ -65,3 +65,12 @@ TEST_CASE("mouse buttons have edges like keys") {
     CHECK(input.down(MouseButton::Left));
     CHECK_FALSE(input.pressed(MouseButton::Left));
 }
+
+TEST_CASE("typed text collects for one frame") {
+    astral::Input in;
+    in.add_text("ş");
+    in.add_text("a");
+    CHECK(in.text() == "şa");
+    in.begin_frame();
+    CHECK(in.text().empty());
+}

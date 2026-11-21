@@ -18,6 +18,8 @@
 #include <shaders/tonemap.frag.hpp>
 #include <shaders/debug_line.vert.hpp>
 #include <shaders/debug_line.frag.hpp>
+#include <shaders/ui.vert.hpp>
+#include <shaders/ui.frag.hpp>
 #include <shaders/tonemap.vert.hpp>
 
 #include <algorithm>
@@ -231,7 +233,7 @@ struct GrowBuffer {
 };
 
 struct FrameSlot {
-    GrowBuffer instances, lights, shapes, frame, rects, materials, debug_lines;
+    GrowBuffer instances, lights, shapes, frame, rects, materials, debug_lines, ui_vertices, ui_indices;
     std::shared_ptr<std::uint64_t> last_use = std::make_shared<std::uint64_t>(0);
 };
 
@@ -329,7 +331,13 @@ struct Renderer::Impl {
     MaterialHandle default_material;
     std::uint32_t material_slots = 0; ///< Highest material index + 1 (size of the GPU table).
     std::vector<GpuMaterial> material_table;
-    gpu::PipelineHandle gbuffer, shadow, sdf, lighting, tonemap, debug_depth, debug_top;
+    gpu::PipelineHandle gbuffer, shadow, sdf, lighting, tonemap, debug_depth, debug_top, ui;
+    std::vector<UiVertex> ui_vertex_scratch;
+    std::vector<std::uint32_t> ui_index_scratch;
+
+    /// The 2D overlay over the final image.
+    void add_ui(RenderGraph& g, FrameSlot& slot, RGTexture output, std::uint32_t w, std::uint32_t h,
+                std::span<const UiLayer> layers);
     std::vector<float> debug_vertices; // scratch: position.xyzw, color per vertex
 
     /// Debug lines over the final image: depth-tested ones against the scene depth, then the rest.
@@ -412,6 +420,14 @@ Renderer::Renderer(gpu::Device& device, gpu::Format target_format, const RenderS
             .debug_name = on_top ? "astral.debug_lines_top" : "astral.debug_lines",
         });
     }
+    m.ui = device.create_graphics_pipeline({
+        .vertex = {shaders::ui_vert},
+        .fragment = {shaders::ui_frag},
+        .color_formats = {target_format},
+        .depth = {.format = gpu::Format::Undefined, .test = false, .write = false},
+        .alpha_blend = true,
+        .debug_name = "astral.ui",
+    });
     m.shadow_map = device.create_texture({.width = settings.shadow_map_size, .height = settings.shadow_map_size,
                                           .format = gpu::Format::D32Float,
                                           .usage = gpu::TextureUsage::DepthTarget | gpu::TextureUsage::Sampled,
@@ -488,6 +504,64 @@ void Renderer::Impl::destroy_rt_pipelines() {
         device.destroy(*p);
         *p = {};
     }
+}
+
+void Renderer::Impl::add_ui(RenderGraph& g, FrameSlot& slot, RGTexture output, std::uint32_t w, std::uint32_t h,
+                            std::span<const UiLayer> layers) {
+    std::size_t commands = 0;
+    ui_vertex_scratch.clear();
+    ui_index_scratch.clear();
+    struct Draw {
+        std::uint32_t first_index, index_count;
+        std::int32_t vertex_offset;
+        std::uint32_t texture; // bindless index or UINT32_MAX
+        float sdf_softness;
+        std::int32_t x, y;
+        std::uint32_t cw, ch;
+    };
+    std::vector<Draw> draws;
+    for (const UiLayer& layer : layers) {
+        const auto vertex_base = static_cast<std::int32_t>(ui_vertex_scratch.size());
+        const auto index_base = static_cast<std::uint32_t>(ui_index_scratch.size());
+        ui_vertex_scratch.insert(ui_vertex_scratch.end(), layer.vertices.begin(), layer.vertices.end());
+        ui_index_scratch.insert(ui_index_scratch.end(), layer.indices.begin(), layer.indices.end());
+        for (const UiCommand& c : layer.commands) {
+            if (c.index_count == 0 || c.first_index + c.index_count > layer.indices.size()) continue;
+            const float x0 = std::clamp(c.clip.x, 0.0f, static_cast<float>(w)), y0 = std::clamp(c.clip.y, 0.0f, static_cast<float>(h));
+            const float x1 = std::clamp(c.clip.z, 0.0f, static_cast<float>(w)), y1 = std::clamp(c.clip.w, 0.0f, static_cast<float>(h));
+            if (x1 <= x0 || y1 <= y0) continue;
+            std::uint32_t texture = UINT32_MAX;
+            if (const GpuTexture* t = textures.get(c.texture)) texture = device.bindless_index(t->texture);
+            draws.push_back({index_base + c.first_index, c.index_count, vertex_base + c.vertex_offset, texture, c.sdf_softness,
+                             static_cast<std::int32_t>(x0), static_cast<std::int32_t>(y0),
+                             static_cast<std::uint32_t>(x1 - std::floor(x0)), static_cast<std::uint32_t>(y1 - std::floor(y0))});
+            ++commands;
+        }
+    }
+    if (commands == 0) return;
+    slot.ui_vertices.write(device, ui_vertex_scratch.data(), ui_vertex_scratch.size() * sizeof(UiVertex));
+    slot.ui_indices.write(device, ui_index_scratch.data(), ui_index_scratch.size() * sizeof(std::uint32_t));
+    struct Push {
+        Vec2 scale, translate;
+        std::uint64_t vertices, indices;
+        std::int32_t vertex_offset;
+        std::uint32_t texture, flags;
+        float sdf_softness;
+    };
+    const std::uint64_t vertices = device.buffer_address(slot.ui_vertices.buffer);
+    const std::uint64_t indices = device.buffer_address(slot.ui_indices.buffer);
+    const std::uint32_t linear_target = is_srgb(target_format) ? 2u : 0u;
+    const gpu::PipelineHandle pipeline = ui;
+    g.add_pass("ui", [&](PassBuilder& b) { b.color(output, gpu::LoadOp::Load); }, [=, draws = std::move(draws)](PassContext& ctx) {
+        ctx.cmd.bind_pipeline(pipeline);
+        for (const Draw& d : draws) {
+            const Push push{{2.0f / static_cast<float>(w), 2.0f / static_cast<float>(h)}, {-1.0f, -1.0f}, vertices, indices,
+                            d.vertex_offset, d.texture, (d.texture != UINT32_MAX ? 1u : 0u) | linear_target, d.sdf_softness};
+            ctx.cmd.set_scissor(d.x, d.y, d.cw, d.ch);
+            ctx.cmd.push_constants(&push, sizeof(push));
+            ctx.cmd.draw(d.index_count, 1, d.first_index);
+        }
+    });
 }
 
 void Renderer::Impl::add_debug_lines(RenderGraph& g, FrameSlot& slot, RGTexture output, RGTexture depth,
@@ -575,11 +649,11 @@ Renderer::~Renderer() {
         m.device.destroy(mesh.blas);
     });
     for (auto& slot : m.ring) {
-        for (GrowBuffer* b : {&slot.instances, &slot.lights, &slot.shapes, &slot.frame, &slot.rects, &slot.materials, &slot.debug_lines}) {
+        for (GrowBuffer* b : {&slot.instances, &slot.lights, &slot.shapes, &slot.frame, &slot.rects, &slot.materials, &slot.debug_lines, &slot.ui_vertices, &slot.ui_indices}) {
             m.device.destroy(b->buffer);
         }
     }
-    for (auto p : {m.gbuffer, m.shadow, m.sdf, m.lighting, m.tonemap, m.debug_depth, m.debug_top, m.rt_lighting, m.ddgi_trace, m.ddgi_update,
+    for (auto p : {m.gbuffer, m.shadow, m.sdf, m.lighting, m.tonemap, m.debug_depth, m.debug_top, m.ui, m.rt_lighting, m.ddgi_trace, m.ddgi_update,
                    m.temporal, m.atrous, m.composite, m.taa, m.bloom_down, m.bloom_up}) {
         m.device.destroy(p);
     }
@@ -919,6 +993,7 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
         ctx.cmd.draw(3);
     });
     m.add_debug_lines(g, slot, output, depth, camera.projection * camera.view, scene.debug_lines);
+    m.add_ui(g, slot, output, w, h, scene.ui);
     g.execute(cmd);
 
     m.stats.sdf_shapes = counts_sdf;
@@ -1370,6 +1445,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
         ctx.cmd.draw(3);
     });
     m.add_debug_lines(g, slot, output, depth, unjittered, scene.debug_lines);
+    m.add_ui(g, slot, output, w, h, scene.ui);
     g.execute(cmd);
 
     m.prev_view_projection = unjittered;

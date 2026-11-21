@@ -17,6 +17,20 @@ void Input::begin_frame() noexcept {
     for (auto& b : mouse_) b.pressed = b.released = false;
     mouse_delta_ = {};
     scroll_ = {};
+    text_.clear();
+}
+
+void Input::add_text(std::string_view utf8) { text_ += utf8; }
+
+void Input::clear_keyboard() noexcept {
+    keys_ = {};
+    text_.clear();
+}
+
+void Input::clear_mouse() noexcept {
+    mouse_ = {};
+    mouse_delta_ = {};
+    scroll_ = {};
 }
 
 void Input::set_key(Key key, bool down) noexcept {

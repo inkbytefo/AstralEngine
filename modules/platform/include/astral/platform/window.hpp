@@ -38,6 +38,12 @@ public:
     void set_title(std::string_view title);
     /// Hides the cursor and reports relative motion (FPS camera style).
     void set_mouse_captured(bool captured);
+    [[nodiscard]] bool mouse_captured() const;
+    /// Delivers typed text to Input::text() (and may show an on-screen keyboard).
+    void set_text_input(bool enabled);
+    /// Drawable pixels per window coordinate (2 on many high-DPI screens). Mouse positions are in
+    /// window coordinates: multiply by this to get pixels.
+    [[nodiscard]] float pixel_density() const;
 
     /// False under drivers without Vulkan support (e.g. SDL's headless "dummy" driver).
     [[nodiscard]] bool supports_vulkan() const noexcept;

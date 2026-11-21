@@ -295,6 +295,13 @@ struct LoadResult {
     std::vector<std::string> errors;  ///< Empty when everything loaded cleanly.
 };
 
+/// One component of a live entity as JSON, for tools (inspector, console, network). Entity references
+/// are written as "#index.generation" so they survive a round trip. Null if the entity lacks it.
+[[nodiscard]] Json component_to_json(World& world, const TypeRegistry::Entry& type, Entity entity);
+/// Adds or replaces the component from JSON (missing fields keep their defaults; "#i.g" references
+/// resolve to live entities). Returns the problems found (empty = clean).
+std::vector<std::string> component_from_json(World& world, const TypeRegistry::Entry& type, Entity entity, const Json& value);
+
 /// Every entity that has at least one registered component, in a stable order.
 [[nodiscard]] Json save_world(World& world, const TypeRegistry& types);
 /// Appends the document's entities to `world`. Refuses (creating nothing) on a wrong format/version.

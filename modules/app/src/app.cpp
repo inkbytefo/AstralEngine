@@ -1,5 +1,7 @@
 #include <astral/app/app.hpp>
 
+#include "debug_ui.hpp"
+
 #include <astral/core/clock.hpp>
 #include <astral/gpu/device.hpp>
 #include <astral/gpu/swapchain.hpp>
@@ -41,7 +43,12 @@ struct App::Impl {
     Logger log;
     JobSystem jobs;
     World world;
-    Input input;
+    Input input;      ///< What the window reports.
+    Input game_input; ///< What the game sees: input minus what the debug UI took.
+    std::unique_ptr<DebugUi> debug_ui;
+    bool restore_mouse_capture = false;
+    bool text_input = false;
+    UiLayer ui_layer{};
     Time time;
     Clock clock;
 
@@ -92,6 +99,8 @@ struct App::Impl {
     void log_problems(std::string_view what, const std::vector<std::string>& problems);
     void step_physics(Game& game, float delta);
     void end_frame_profile();
+    void route_input();
+    void build_debug_ui(Game& game, float delta);
     void draw_debug_overlays();
 
     explicit Impl(const AppDesc& d) : desc(d), jobs(d.worker_threads) {}
@@ -107,7 +116,7 @@ void Context::register_system(Phase phase, std::unique_ptr<System> system) {
 App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
     auto& m = *impl_;
     m.log.add_sink(std::make_shared<ConsoleSink>());
-    m.context.reset(new Context(m.world, m.input, m.time, m.log, m.jobs, *this));
+    m.context.reset(new Context(m.world, m.game_input, m.time, m.log, m.jobs, *this));
     TypeRegistry& types = m.context->types;
     register_world_types(types);
     types.add<Camera>();
@@ -180,6 +189,7 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
     });
     m.context->prefabs = m.prefabs.get();
     m.context->profiler = &m.profiler;
+    if (m.renderer && desc.debug_ui) m.debug_ui = std::make_unique<DebugUi>(*m.renderer);
 }
 
 App::~App() {
@@ -190,6 +200,7 @@ App::~App() {
     for (auto& phase : m.systems) phase.clear();
     m.context->physics = nullptr;
     m.physics.reset();
+    m.debug_ui.reset(); // owns renderer textures
     m.context->prefabs = nullptr;
     m.prefabs.reset();
     m.context->assets = nullptr;
@@ -560,6 +571,7 @@ void App::Impl::step_physics(Game&, float delta) {
 void App::Impl::frame(Game& game, float delta) {
     profiler.begin_frame();
     Profiler* prof = &profiler;
+    route_input();
     world.update_events(); // events sent last frame are still readable this frame, then dropped
     {
         ASTRAL_PROFILE_SCOPE(prof, "assets");
@@ -606,6 +618,7 @@ void App::Impl::frame(Game& game, float delta) {
     }
     ASTRAL_PROFILE_SCOPE(prof, "render");
     m.draw_debug_overlays();
+    m.build_debug_ui(game, delta);
 
     const bool offscreen = m.offscreen_target.valid();
     if (m.renderer && (offscreen || (m.swapchain && !(m.window && m.window->minimized())))) {
@@ -667,7 +680,8 @@ void App::Impl::frame(Game& game, float delta) {
             m.renderer->render(cmd, image, camera,
                                {.meshes = m.draw_items, .sdf = m.sdf_shapes, .lights = m.point_lights,
                                 .rect_lights = m.rect_lights, .sun = ctx.sun, .environment = ctx.environment,
-                                .debug_lines = ctx.debug.lines()});
+                                .debug_lines = ctx.debug.lines(),
+                                .ui = m.ui_layer.commands.empty() ? std::span<const UiLayer>{} : std::span(&m.ui_layer, 1)});
             if (offscreen) {
                 cmd.transition(image, gpu::ResourceState::TransferSrc);
                 cmd.copy_texture_to_buffer(image, m.offscreen_readback);
@@ -682,6 +696,45 @@ void App::Impl::frame(Game& game, float delta) {
     ctx.debug.advance(delta); // this frame's shapes go; timed ones count down
     m.time.elapsed += delta;
     ++m.time.frame;
+}
+
+void App::Impl::route_input() {
+    Context& ctx = *context;
+    if (debug_ui && input.pressed(Key::F1)) {
+        ctx.show_debug_ui = !ctx.show_debug_ui;
+        if (window && ctx.show_debug_ui && window->mouse_captured()) { // the UI needs a cursor
+            window->set_mouse_captured(false);
+            restore_mouse_capture = true;
+        } else if (window && !ctx.show_debug_ui && restore_mouse_capture) {
+            window->set_mouse_captured(true);
+            restore_mouse_capture = false;
+        }
+    }
+    game_input = input;
+    if (debug_ui && ctx.show_debug_ui) { // what the UI used last frame is not the game's
+        if (debug_ui->wants_keyboard()) game_input.clear_keyboard();
+        if (debug_ui->wants_mouse()) game_input.clear_mouse();
+    }
+}
+
+void App::Impl::build_debug_ui(Game& game, float delta) {
+    Context& ctx = *context;
+    ui_layer = {};
+    const bool visible = debug_ui && ctx.show_debug_ui;
+    if (window && text_input != (visible && debug_ui->wants_text())) {
+        text_input = !text_input;
+        window->set_text_input(text_input);
+    }
+    if (!visible) return;
+    ASTRAL_PROFILE_SCOPE(&profiler, "debug ui");
+    const gpu::Extent2D extent = offscreen_target.valid() ? gpu::Extent2D{desc.width, desc.height}
+                                 : swapchain                ? swapchain->extent()
+                                                            : gpu::Extent2D{desc.width, desc.height};
+    debug_ui->begin(input, delta, extent, window ? window->pixel_density() : 1.0f);
+    debug_ui->draw_panels(ctx);
+    game.on_debug_ui(ctx);
+    debug_ui->end();
+    ui_layer = debug_ui->layer();
 }
 
 void App::Impl::draw_debug_overlays() {

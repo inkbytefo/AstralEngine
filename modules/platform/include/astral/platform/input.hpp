@@ -3,6 +3,8 @@
 #include <astral/core/math.hpp>
 
 #include <array>
+#include <string>
+#include <string_view>
 #include <cstdint>
 
 namespace astral {
@@ -31,6 +33,11 @@ public:
     void set_mouse_button(MouseButton button, bool down) noexcept;
     void add_mouse_motion(Vec2 position, Vec2 delta) noexcept;
     void add_scroll(Vec2 amount) noexcept;
+    /// Typed text (UTF-8), for text fields. Only arrives while Window::set_text_input(true).
+    void add_text(std::string_view utf8);
+    /// Forget keyboard / mouse state (a UI that took the input hides it from the game).
+    void clear_keyboard() noexcept;
+    void clear_mouse() noexcept;
 
     [[nodiscard]] bool down(Key key) const noexcept;
     [[nodiscard]] bool pressed(Key key) const noexcept;
@@ -42,6 +49,8 @@ public:
     [[nodiscard]] Vec2 mouse_position() const noexcept { return mouse_position_; }
     [[nodiscard]] Vec2 mouse_delta() const noexcept { return mouse_delta_; }
     [[nodiscard]] Vec2 scroll() const noexcept { return scroll_; }
+    /// Text typed this frame (UTF-8).
+    [[nodiscard]] std::string_view text() const noexcept { return text_; }
 
     /// -1..1 per axis from four keys (opposite keys cancel).
     [[nodiscard]] Vec2 axis(Key negative_x, Key positive_x, Key negative_y, Key positive_y) const noexcept;
@@ -61,6 +70,7 @@ private:
     Vec2 mouse_position_{};
     Vec2 mouse_delta_{};
     Vec2 scroll_{};
+    std::string text_;
 };
 
 } // namespace astral

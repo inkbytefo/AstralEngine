@@ -57,6 +57,8 @@ public:
     virtual void on_start(Context&) {}
     virtual void on_update(Context&) {}
     virtual void on_shutdown(Context&) {}
+    /// While the debug UI is open (F1): add your own panels with Dear ImGui (#include <imgui.h>).
+    virtual void on_debug_ui(Context&) {}
 };
 
 /// Ready-made meshes so a game can draw something without loading files.
@@ -97,6 +99,8 @@ public:
         bool physics = false; ///< RigidBody shapes (green: dynamic, blue: kinematic, grey: static) and characters.
         bool lights = false;  ///< Point light ranges, rect light panels.
     } debug_show;
+    /// The engine's debug UI (F1): performance, entities, inspector, render settings. Needs a renderer.
+    bool show_debug_ui = false;
     DirectionalLight sun{};   ///< The sun (direction, color, shadows).
     Environment environment{}; ///< Sky/ground ambient and exposure.
 
@@ -158,6 +162,8 @@ struct AppDesc {
     /// Render into an internal width x height image instead of a window (captures, image tests);
     /// read it with App::read_frame(). Ignored when headless.
     bool offscreen = false;
+    /// F1 opens the debug UI (Context::show_debug_ui). Off: no ImGui at all.
+    bool debug_ui = true;
 };
 
 /// Owns the main loop and every engine service; your Game plugs into it.

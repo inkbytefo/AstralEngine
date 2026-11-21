@@ -318,3 +318,28 @@ TEST_CASE("instances created by code spawn in sync_prefabs; a reloaded prefab ke
     CHECK(w.query<const PrefabPart>().count() == 0);
     CHECK(w.has<Name>(lamp));
 }
+
+TEST_CASE("components round-trip through JSON for tools, with live entity references") {
+    World w;
+    TypeRegistry types = make_types();
+    const Entity target = w.create(Name{"target"});
+    const Entity e = w.create(Light{.intensity = 3}, Target{target});
+    const TypeRegistry::Entry& light = *types.find("scene_test::Light");
+    const TypeRegistry::Entry& ref = *types.find("scene_test::Target");
+    Json j = component_to_json(w, light, e);
+    CHECK(j["intensity"].as_number() == 3);
+    j["intensity"] = 7.5;
+    j["kind"] = "Huge";
+    CHECK(component_from_json(w, light, e, j).empty());
+    CHECK(w.get<Light>(e)->intensity == 7.5f);
+    CHECK(w.get<Light>(e)->kind == scene_test::Kind::Huge);
+
+    Json r = component_to_json(w, ref, e);
+    CHECK(r["entity"].as_string().starts_with("#"));
+    CHECK(component_from_json(w, ref, e, r).empty());
+    CHECK(w.get<Target>(e)->entity == target);
+    r["entity"] = "#999.1";
+    CHECK_FALSE(component_from_json(w, ref, e, r).empty()); // no such entity: reported, reference cleared
+    CHECK_FALSE(w.get<Target>(e)->entity.valid());
+    CHECK(component_to_json(w, ref, target).is_null()); // target has no Target component
+}

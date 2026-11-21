@@ -645,3 +645,43 @@ TEST_CASE("DebugDraw shapes and lifetimes") {
     d.capsule({0, 0, 0}, Quat{}, 0.5f, 1.0f, {1, 1, 1, 1});
     CHECK(d.lines().size() > 40);
 }
+
+namespace {
+/// Two triangles covering [x0, x1) x [y0, y1) pixels.
+void quad(std::vector<UiVertex>& v, std::vector<std::uint32_t>& idx, float x0, float y0, float x1, float y1, std::uint32_t color) {
+    const auto base = static_cast<std::uint32_t>(v.size());
+    v.push_back({{x0, y0}, {0, 0}, color});
+    v.push_back({{x1, y0}, {1, 0}, color});
+    v.push_back({{x1, y1}, {1, 1}, color});
+    v.push_back({{x0, y1}, {0, 1}, color});
+    for (std::uint32_t i : {0u, 1u, 2u, 0u, 2u, 3u}) idx.push_back(base + i);
+}
+} // namespace
+
+TEST_CASE("the 2D overlay draws over the image with colours, textures and clip rectangles") {
+    Fixture f;
+    if (!f.device) return;
+    const float s = static_cast<float>(size);
+    std::vector<UiVertex> v;
+    std::vector<std::uint32_t> idx;
+    quad(v, idx, 0, 0, s / 2, s / 2, 0xFF0000FFu);       // red, top-left quarter
+    quad(v, idx, s / 2, 0, s, s / 2, 0xFFFFFFFFu);       // textured (green), top-right
+    quad(v, idx, 0, s / 2, s, s, 0x80FF0000u);           // half-transparent blue, bottom half, clipped to the left half
+    const TextureHandle green = f.renderer->create_texture(solid_halves({0, 255, 0, 255}, {0, 255, 0, 255}, false));
+    const UiCommand cmds[] = {
+        {.first_index = 0, .index_count = 6},
+        {.first_index = 6, .index_count = 6, .texture = green},
+        {.first_index = 12, .index_count = 6, .clip = {0, 0, s / 2, s}},
+    };
+    const UiLayer layer{.vertices = v, .indices = idx, .commands = cmds};
+    const auto pixels = f.draw({.ui = std::span(&layer, 1)});
+    auto px = [&](float x, float y) { return rgb(pixels[static_cast<std::size_t>(y) * size + static_cast<std::size_t>(x)]); };
+    const Rgb red = px(s * 0.25f, s * 0.25f), tex = px(s * 0.75f, s * 0.25f);
+    const Rgb blue = px(s * 0.25f, s * 0.75f), clipped = px(s * 0.75f, s * 0.75f);
+    CHECK(red.r > 240);
+    CHECK(red.g < 20);
+    CHECK(tex.g > 240);
+    CHECK(tex.r < 20);
+    CHECK(blue.b > 100); // blended over the sky
+    CHECK(blue.b > clipped.b + 50); // the right half was clipped away
+}
