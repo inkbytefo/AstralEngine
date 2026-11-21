@@ -1,5 +1,7 @@
 #include <astral/core/jobs.hpp>
 #include <astral/core/version.hpp>
+#include <astral/gpu/device.hpp>
+#include <astral/platform/input.hpp>
 
 #include <atomic>
 #include <cstdio>
@@ -14,5 +16,8 @@ int main() {
     jobs.wait(counter);
     std::printf("astral %.*s, jobs=%d\n", static_cast<int>(astral::version().size()),
                 astral::version().data(), sum.load());
+    astral::Input input; // links Astral::Platform
+    auto device = astral::gpu::Device::create({}); // links Astral::Gpu (may be null without a GPU)
+    std::printf("gpu: %s\n", device ? "yes" : "no");
     return sum.load() == 100 ? 0 : 1;
 }

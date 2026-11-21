@@ -4,51 +4,69 @@ on:
   push:
   pull_request:
 
+env:
+  LINUX_DEPS: >-
+    ninja-build libvulkan-dev glslc mesa-vulkan-drivers vulkan-validationlayers xvfb
+    libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev
+    libxtst-dev libxkbcommon-dev libwayland-dev libegl-dev
+
 jobs:
-  build:
-    name: ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
+  linux:
+    name: linux-${{ matrix.compiler }}
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { name: linux-gcc,   os: ubuntu-24.04,  cxx: g++-13 }
-          - { name: linux-clang, os: ubuntu-24.04,  cxx: clang++-18 }
-          - { name: windows-msvc, os: windows-2022, cxx: cl }
+        compiler: [gcc, clang]
+    env:
+      CXX: ${{ matrix.compiler == 'gcc' && 'g++-13' || 'clang++-18' }}
+      CC: ${{ matrix.compiler == 'gcc' && 'gcc-13' || 'clang-18' }}
+      # GPU tests run on Mesa's software Vulkan driver (lavapipe).
+      VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.json
     steps:
       - uses: actions/checkout@v4
-
-      - uses: ilammy/msvc-dev-cmd@v1
-        if: runner.os == 'Windows'
-
-      - name: Install Ninja (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
-
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $LINUX_DEPS
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DASTRAL_WARNINGS_AS_ERRORS=ON
-
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DASTRAL_WARNINGS_AS_ERRORS=ON
       - name: Build
         run: cmake --build build
-
-      - name: Test
-        run: ctest --test-dir build --output-on-failure
-
+      - name: Test (virtual display for window tests)
+        run: xvfb-run -a ctest --test-dir build --output-on-failure
       - name: Install
         run: cmake --install build --prefix ${{ github.workspace }}/astral-install
-
       - name: Consumer (find_package)
         run: |
-          cmake -S tests/consumer -B consumer-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_PREFIX_PATH=${{ github.workspace }}/astral-install
+          cmake -S tests/consumer -B consumer-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=${{ github.workspace }}/astral-install
           cmake --build consumer-build
           ./consumer-build/astral_consumer
+
+  windows:
+    name: windows-msvc
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: 1.3.296.0
+          install_runtime: true
+          cache: true
+          stripdown: true
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DASTRAL_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build
+      - name: Test (GPU tests skip without a Vulkan device)
+        run: ctest --test-dir build --output-on-failure
 
   tsan:
     name: linux-tsan
     runs-on: ubuntu-24.04
+    env:
+      VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.json
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $LINUX_DEPS
       - run: cmake --preset tsan
-      - run: cmake --build --preset tsan
-      - run: ctest --preset tsan
+      - run: cmake --build --preset tsan --target astral_core_tests
+      - run: ./build/tsan/modules/core/astral_core_tests

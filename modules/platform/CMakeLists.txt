@@ -5,7 +5,7 @@ set(SDL_STATIC ON CACHE BOOL "" FORCE)
 set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 set(SDL_TESTS OFF CACHE BOOL "" FORCE)
 set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
+set(SDL_INSTALL ${ASTRAL_INSTALL} CACHE BOOL "" FORCE) # consumers of Astral::Platform link SDL3
 set(SDL_RENDER OFF CACHE BOOL "" FORCE)   # we have our own renderer
 set(SDL_GPU OFF CACHE BOOL "" FORCE)
 set(SDL_CAMERA OFF CACHE BOOL "" FORCE)
@@ -24,7 +24,7 @@ astral_add_module(NAME platform
         Astral::Core
         Astral::Gpu
     PRIVATE_DEPS
-        $<BUILD_INTERFACE:SDL3::SDL3-static>
+        SDL3::SDL3-static
         $<BUILD_INTERFACE:Vulkan::Headers>)
 
 astral_add_tests(MODULE platform

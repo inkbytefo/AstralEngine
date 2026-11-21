@@ -43,7 +43,7 @@ cmake --install build/release --prefix <install-dir>
 ```
 
 ```cmake
-find_package(Astral 0.1 CONFIG REQUIRED COMPONENTS Core)
+find_package(Astral 0.2 CONFIG REQUIRED COMPONENTS Core)
 target_link_libraries(MyGame PRIVATE Astral::Core)
 ```
 

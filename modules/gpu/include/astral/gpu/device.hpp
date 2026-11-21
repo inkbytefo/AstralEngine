@@ -20,7 +20,8 @@ namespace astral::gpu {
 /// the platform module fills this in (e.g. Window::surface_source()).
 struct SurfaceSource {
     std::vector<std::string> instance_extensions;
-    /// Receives a VkInstance (as void*), returns a VkSurfaceKHR (as uint64_t), 0 on failure.
+    /// Receives the native graphics-API instance (as void*), returns the native surface handle
+    /// (as uint64_t), or 0 on failure.
     std::function<std::uint64_t(void* instance)> create_surface;
     /// Current drawable size in pixels.
     std::function<Extent2D()> drawable_size;

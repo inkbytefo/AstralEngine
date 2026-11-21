@@ -33,6 +33,8 @@ add_subdirectory(modules/platform)
 
 if(ASTRAL_BUILD_TESTS)
     add_subdirectory(tests/integration)
+    add_test(NAME astral_public_headers_clean
+        COMMAND ${CMAKE_COMMAND} -DROOT=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/CheckPublicHeaders.cmake)
 endif()
 
 if(ASTRAL_BUILD_EXAMPLES)
