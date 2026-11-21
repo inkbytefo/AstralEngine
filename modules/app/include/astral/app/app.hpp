@@ -7,6 +7,7 @@
 #include <astral/platform/input.hpp>
 #include <astral/assets/asset_manager.hpp>
 #include <astral/render/renderer.hpp>
+#include <astral/render/text.hpp>
 #include <astral/world/scene.hpp>
 #include <astral/world/serialize.hpp>
 #include <astral/world/transform.hpp>
@@ -94,6 +95,13 @@ public:
     TypeRegistry types;
     /// Debug lines for this frame (or longer: DebugStyle::seconds); drawn over the image.
     DebugDraw debug;
+    /// The game's 2D overlay for this frame: text, rectangles, images (pixels, origin top-left).
+    /// Cleared after every frame; drawn over the 3D image, under the debug UI.
+    UiCanvas hud;
+    /// The built-in font (Roboto Medium, Turkish letters included). Always available.
+    Font* font = nullptr;
+    /// Size of the image being rendered, pixels (the window's, or AppDesc width x height).
+    [[nodiscard]] Vec2 screen_size() const;
     /// What the App draws into `debug` by itself every frame.
     struct DebugShow {
         bool physics = false; ///< RigidBody shapes (green: dynamic, blue: kinematic, grey: static) and characters.

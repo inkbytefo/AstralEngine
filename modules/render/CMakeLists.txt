@@ -25,6 +25,7 @@ astral_add_module(NAME render
         src/render_graph.cpp
         src/debug_draw.cpp
         src/fonts.cpp
+        src/text.cpp
     DEPS
         Astral::Core
         Astral::Gpu)

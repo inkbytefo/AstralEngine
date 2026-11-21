@@ -46,6 +46,8 @@ struct App::Impl {
     Input input;      ///< What the window reports.
     Input game_input; ///< What the game sees: input minus what the debug UI took.
     std::unique_ptr<DebugUi> debug_ui;
+    std::unique_ptr<Font> font;
+    std::array<UiLayer, 2> ui_layers{}; // HUD, debug UI
     bool restore_mouse_capture = false;
     bool text_input = false;
     UiLayer ui_layer{};
@@ -100,6 +102,7 @@ struct App::Impl {
     void step_physics(Game& game, float delta);
     void end_frame_profile();
     void route_input();
+    std::span<const UiLayer> overlay_layers();
     void build_debug_ui(Game& game, float delta);
     void draw_debug_overlays();
 
@@ -190,6 +193,9 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
     m.context->prefabs = m.prefabs.get();
     m.context->profiler = &m.profiler;
     if (m.renderer && desc.debug_ui) m.debug_ui = std::make_unique<DebugUi>(*m.renderer);
+    m.font = Font::create(default_font_ttf());
+    if (m.font && m.renderer) m.font->upload(*m.renderer);
+    m.context->font = m.font.get();
 }
 
 App::~App() {
@@ -201,6 +207,8 @@ App::~App() {
     m.context->physics = nullptr;
     m.physics.reset();
     m.debug_ui.reset(); // owns renderer textures
+    m.context->font = nullptr;
+    m.font.reset();
     m.context->prefabs = nullptr;
     m.prefabs.reset();
     m.context->assets = nullptr;
@@ -681,7 +689,7 @@ void App::Impl::frame(Game& game, float delta) {
                                {.meshes = m.draw_items, .sdf = m.sdf_shapes, .lights = m.point_lights,
                                 .rect_lights = m.rect_lights, .sun = ctx.sun, .environment = ctx.environment,
                                 .debug_lines = ctx.debug.lines(),
-                                .ui = m.ui_layer.commands.empty() ? std::span<const UiLayer>{} : std::span(&m.ui_layer, 1)});
+                                .ui = m.overlay_layers()});
             if (offscreen) {
                 cmd.transition(image, gpu::ResourceState::TransferSrc);
                 cmd.copy_texture_to_buffer(image, m.offscreen_readback);
@@ -694,8 +702,25 @@ void App::Impl::frame(Game& game, float delta) {
     }
 
     ctx.debug.advance(delta); // this frame's shapes go; timed ones count down
+    ctx.hud.clear();
     m.time.elapsed += delta;
     ++m.time.frame;
+}
+
+std::span<const UiLayer> App::Impl::overlay_layers() {
+    std::size_t n = 0;
+    if (!context->hud.empty()) ui_layers[n++] = context->hud.layer();
+    if (!ui_layer.commands.empty()) ui_layers[n++] = ui_layer;
+    return std::span<const UiLayer>(ui_layers.data(), n);
+}
+
+Vec2 Context::screen_size() const {
+    const auto& m = *app_.impl_;
+    if (m.swapchain && !m.offscreen_target.valid()) {
+        const gpu::Extent2D e = m.swapchain->extent();
+        return {static_cast<float>(e.width), static_cast<float>(e.height)};
+    }
+    return {static_cast<float>(m.desc.width), static_cast<float>(m.desc.height)};
 }
 
 void App::Impl::route_input() {

@@ -33,7 +33,9 @@ public:
     void on_update(Context& ctx) override {
         if (ctx.input.pressed(Key::Escape)) ctx.quit();
         const pong::Match* m = pong::match(ctx.world);
-        if (!ctx.window || !m) return;
+        if (!m) return;
+        draw_hud(ctx, *m);
+        if (!ctx.window) return;
         const int key = m->player * 1000 + m->opponent + (m->game_over_timer > 0 ? 100000 : 0);
         if (key == shown_) return;
         shown_ = key;
@@ -43,6 +45,29 @@ public:
     }
 
 private:
+    /// Score at the top, the result when a match ends, controls at the bottom.
+    void draw_hud(Context& ctx, const pong::Match& m) const {
+        const Font& font = *ctx.font;
+        const Vec2 screen = ctx.screen_size();
+        const float unit = screen.y / 720.0f; // the HUD scales with the window
+        const Vec4 blue{0.45f, 0.72f, 1.0f, 1}, red{1.0f, 0.5f, 0.38f, 1}, white{1, 1, 1, 1};
+        const float y = 18 * unit, size = 54 * unit;
+        ctx.hud.text(font, std::to_string(m.player), {screen.x * 0.5f - 30 * unit, y}, {.size = size, .color = blue, .align = TextAlign::Right, .shadow = true});
+        ctx.hud.text(font, ":", {screen.x * 0.5f, y}, {.size = size, .color = white, .align = TextAlign::Center, .shadow = true});
+        ctx.hud.text(font, std::to_string(m.opponent), {screen.x * 0.5f + 30 * unit, y}, {.size = size, .color = red, .shadow = true});
+        if (m.game_over_timer > 0) {
+            const bool won = m.player > m.opponent;
+            const float h = 120 * unit;
+            ctx.hud.rect({0, screen.y * 0.5f - h * 0.5f}, {screen.x, screen.y * 0.5f + h * 0.5f}, {0, 0, 0, 0.55f});
+            ctx.hud.text(font, won ? "KAZANDIN!" : "YAPAY ZEKÂ KAZANDI", {screen.x * 0.5f, screen.y * 0.5f - 34 * unit},
+                         {.size = 64 * unit, .color = won ? blue : red, .align = TextAlign::Center, .shadow = true});
+        }
+        if (!demo_) {
+            ctx.hud.text(font, "WASD / oklar / fare: raket   •   F1: debug   •   Esc: çıkış", {screen.x * 0.5f, screen.y - 34 * unit},
+                         {.size = 18 * unit, .color = {1, 1, 1, 0.7f}, .align = TextAlign::Center});
+        }
+    }
+
     bool demo_;
     int shown_ = -1;
 };

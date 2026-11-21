@@ -1,6 +1,7 @@
 #include "gpu_test_support.hpp"
 
 #include <astral/render/renderer.hpp>
+#include <astral/render/text.hpp>
 
 #include <cstdint>
 #include <cstdio>
@@ -684,4 +685,60 @@ TEST_CASE("the 2D overlay draws over the image with colours, textures and clip r
     CHECK(tex.r < 20);
     CHECK(blue.b > 100); // blended over the sky
     CHECK(blue.b > clipped.b + 50); // the right half was clipped away
+}
+
+TEST_CASE("fonts: distance-field glyphs with Turkish letters, measuring, lines and alignment") {
+    std::string error;
+    auto font = Font::create(default_font_ttf(), {}, &error);
+    REQUIRE_MESSAGE(font, error);
+    for (char32_t c : {U'A', U'ğ', U'Ğ', U'ş', U'Ş', U'ı', U'İ', U'ö', U'ç', U'ü', U'₺', U'€'}) {
+        CAPTURE(static_cast<std::uint32_t>(c));
+        REQUIRE(font->glyph(c));
+        CHECK(font->glyph(c)->advance > 0.0f);
+    }
+    CHECK(font->glyph(U' ')->size.x == 0.0f); // a space has no quad, only an advance
+    CHECK_FALSE(font->glyph(U'一'));    // CJK is not in the default ranges
+    CHECK_FALSE(Font::create(std::vector<std::uint8_t>{1, 2, 3}, {}, &error));
+
+    const Vec2 one = font->measure("Skor", 20);
+    const Vec2 two = font->measure("Skor", 40);
+    CHECK(one.x > 20.0f);
+    CHECK(two.x == doctest::Approx(one.x * 2).epsilon(0.02));
+    CHECK(font->measure("a\nb", 20).y == doctest::Approx(font->line_height(20) * 2));
+    CHECK(font->measure("AV", 40).x < font->measure("A", 40).x + font->measure("V", 40).x); // kerning
+
+    UiCanvas canvas;
+    const Vec2 size = canvas.text(*font, "Merhaba dünya", {100, 10}, {.size = 30, .align = TextAlign::Center});
+    float min_x = 1e9f, max_x = -1e9f;
+    for (const UiVertex& v : canvas.layer().vertices) {
+        min_x = std::min(min_x, v.position.x);
+        max_x = std::max(max_x, v.position.x);
+    }
+    CHECK(min_x < 100 - size.x * 0.4f); // centred around x = 100
+    CHECK(max_x > 100 + size.x * 0.4f);
+    CHECK(canvas.layer().commands.size() == 1); // one draw for all glyphs
+    canvas.rect({0, 0}, {10, 10}, {1, 0, 0, 1});
+    CHECK(canvas.layer().commands.size() == 2);
+    std::size_t at = 0;
+    CHECK(next_codepoint("ğ", at) == U'ğ');
+    at = 0;
+    CHECK(next_codepoint(std::string_view("\xC4", 1), at) == 0xFFFD); // cut sequence
+}
+
+TEST_CASE("HUD text renders crisp on the GPU") {
+    Fixture f;
+    if (!f.device) return;
+    auto font = Font::create(default_font_ttf());
+    REQUIRE(font);
+    font->upload(*f.renderer);
+    UiCanvas canvas;
+    canvas.rect({0, 0}, {64, 64}, {0, 0, 0, 1}); // black backdrop
+    canvas.text(*font, "I", {32, 8}, {.size = 48, .color = {1, 1, 1, 1}, .align = TextAlign::Center});
+    const UiLayer layer = canvas.layer();
+    const auto pixels = f.draw({.ui = std::span(&layer, 1)});
+    // The stem of the "I" runs down the middle; a little to the side is background.
+    const Rgb stem = rgb(pixels[32 * size + 32]);
+    const Rgb beside = rgb(pixels[32 * size + 20]);
+    CHECK(stem.r > 200);
+    CHECK(beside.r < 30);
 }

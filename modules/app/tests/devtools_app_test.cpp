@@ -116,3 +116,22 @@ TEST_CASE("the debug UI draws the engine's windows and the game's own panel over
     }
     CHECK(different > 200);
 }
+
+TEST_CASE("ctx.hud lays out text every frame (headless too) and starts empty each frame") {
+    App app({.width = 400, .height = 300, .headless = true, .fixed_timestep = 1.0f / 60.0f});
+    struct G final : Game {
+        std::vector<std::size_t> commands_at_start;
+        Vec2 size{}, screen{};
+        void on_update(Context& ctx) override {
+            commands_at_start.push_back(ctx.hud.layer().commands.size());
+            REQUIRE(ctx.font);
+            screen = ctx.screen_size();
+            size = ctx.hud.text(*ctx.font, "Skor 3 : 1 — İyi oyun!", {screen.x * 0.5f, 10}, {.size = 32, .align = TextAlign::Center, .shadow = true});
+            ctx.hud.rect({0, 0}, {50, 50}, {0, 0, 0, 0.5f});
+        }
+    } game;
+    app.run_frames(game, 3);
+    CHECK(game.commands_at_start == std::vector<std::size_t>{0, 0, 0});
+    CHECK(game.size.x > 200.0f);
+    CHECK(game.screen.x == 400.0f);
+}
