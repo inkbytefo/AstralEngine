@@ -38,6 +38,14 @@ struct PipelineRecord {
     VkPipelineBindPoint bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
 };
 
+struct AccelRecord {
+    VkAccelerationStructureKHR handle = VK_NULL_HANDLE;
+    BufferRecord storage;       ///< Backing memory of the structure.
+    BufferRecord scratch;       ///< TLAS only: build scratch, reused every build.
+    std::uint64_t address = 0;
+    std::uint32_t max_instances = 0; ///< 0 for a BLAS.
+};
+
 struct Device::Impl {
     Logger* logger = nullptr;
 
@@ -80,6 +88,16 @@ struct Device::Impl {
     HandlePool<BufferRecord, BufferTag> buffers;
     HandlePool<TextureRecord, TextureTag> textures;
     HandlePool<PipelineRecord, PipelineTag> pipelines;
+    HandlePool<AccelRecord, AccelerationStructureTag> accels;
+
+    // Ray tracing (VK_KHR_acceleration_structure + VK_KHR_ray_query), when supported.
+    bool ray_tracing = false;
+    std::uint32_t scratch_alignment = 256;
+    PFN_vkCreateAccelerationStructureKHR create_as = nullptr;
+    PFN_vkDestroyAccelerationStructureKHR destroy_as = nullptr;
+    PFN_vkGetAccelerationStructureBuildSizesKHR as_build_sizes = nullptr;
+    PFN_vkCmdBuildAccelerationStructuresKHR cmd_build_as = nullptr;
+    PFN_vkGetAccelerationStructureDeviceAddressKHR as_address = nullptr;
 
     // Deferred destruction: run `destroy` once the timeline reaches `value`.
     struct Garbage {
@@ -121,6 +139,10 @@ struct StateInfo {
 StateInfo state_info(ResourceState state, bool depth) noexcept;
 
 void destroy_buffer_record(Device::Impl& s, const BufferRecord& r);
+void destroy_accel_record(Device::Impl& s, const AccelRecord& r);
+/// A buffer with raw Vulkan usage flags (acceleration structure storage/scratch/inputs).
+bool create_buffer_raw_usage(Device::Impl& s, std::uint64_t size, VkBufferUsageFlags usage,
+                             MemoryUsage memory, std::uint64_t alignment, BufferRecord& out);
 void destroy_texture_record(Device::Impl& s, const TextureRecord& r);
 VkImageView create_view(Device::Impl& s, VkImage image, VkFormat format, bool depth,
                         std::uint32_t mips);

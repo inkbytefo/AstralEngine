@@ -55,7 +55,16 @@ public:
     PipelineHandle create_compute_pipeline(const ComputePipelineDesc& desc);
     PipelineHandle create_graphics_pipeline(const GraphicsPipelineDesc& desc);
 
+    /// Builds a bottom-level acceleration structure from triangles (blocking; refused while a
+    /// CommandList records). Needs Feature::RayTracing.
+    AccelerationStructureHandle create_blas(const BlasDesc& desc);
+    /// Allocates a top-level acceleration structure; fill it with CommandList::build_tlas.
+    AccelerationStructureHandle create_tlas(const TlasDesc& desc);
+    /// Address for shaders: `accelerationStructureEXT(address)` (0 for an invalid handle).
+    [[nodiscard]] std::uint64_t acceleration_structure_address(AccelerationStructureHandle as) const noexcept;
+
     /// Destruction is deferred until the GPU finished every submission that may use it.
+    void destroy(AccelerationStructureHandle as);
     void destroy(BufferHandle buffer);
     void destroy(TextureHandle texture);
     void destroy(PipelineHandle pipeline);

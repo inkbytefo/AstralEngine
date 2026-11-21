@@ -108,11 +108,13 @@ VkBufferUsageFlags buffer_usage(BufferUsage usage) {
     return flags;
 }
 
-bool create_raw_buffer(Device::Impl& s, std::uint64_t size, BufferUsage usage, MemoryUsage memory,
-                       BufferRecord& out) {
+} // namespace
+
+bool create_buffer_raw_usage(Device::Impl& s, std::uint64_t size, VkBufferUsageFlags usage,
+                             MemoryUsage memory, std::uint64_t alignment, BufferRecord& out) {
     VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     info.size = size;
-    info.usage = buffer_usage(usage);
+    info.usage = usage | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
     info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     VmaAllocationCreateInfo alloc{};
@@ -127,16 +129,28 @@ bool create_raw_buffer(Device::Impl& s, std::uint64_t size, BufferUsage usage, M
     }
 
     VmaAllocationInfo result{};
-    if (vmaCreateBuffer(s.allocator, &info, &alloc, &out.buffer, &out.allocation, &result) != VK_SUCCESS) {
+    if (vmaCreateBufferWithAlignment(s.allocator, &info, &alloc, alignment, &out.buffer, &out.allocation,
+                                     &result) != VK_SUCCESS) {
         return false;
     }
     out.mapped = result.pMappedData;
     out.size = size;
-    out.usage = usage;
     out.memory = memory;
     VkBufferDeviceAddressInfo address{VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
     address.buffer = out.buffer;
     out.address = vkGetBufferDeviceAddress(s.device, &address);
+    return true;
+}
+
+namespace {
+
+bool create_raw_buffer(Device::Impl& s, std::uint64_t size, BufferUsage usage, MemoryUsage memory,
+                       BufferRecord& out) {
+    VkBufferUsageFlags flags = buffer_usage(usage);
+    // Any buffer may feed an acceleration structure build (vertices, indices).
+    if (s.ray_tracing) flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+    if (!create_buffer_raw_usage(s, size, flags, memory, 1, out)) return false;
+    out.usage = usage;
     return true;
 }
 

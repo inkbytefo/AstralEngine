@@ -2,6 +2,7 @@
 
 #include <astral/core/handle.hpp>
 
+#include <array>
 #include <cstdint>
 #include <span>
 #include <string_view>
@@ -17,6 +18,9 @@ struct PipelineTag;
 using BufferHandle = Handle<BufferTag>;
 using TextureHandle = Handle<TextureTag>;
 using PipelineHandle = Handle<PipelineTag>;
+struct AccelerationStructureTag;
+/// A ray tracing acceleration structure (bottom level: geometry, top level: instances).
+using AccelerationStructureHandle = Handle<AccelerationStructureTag>;
 
 /// Monotonic submission id. `Device::wait(ticket)` blocks until that submission finished.
 struct SubmitTicket {
@@ -108,7 +112,7 @@ enum class Feature : std::uint8_t {
     Bindless,            ///< Always present on a created device.
     Validation,          ///< Validation layer active.
     Presentation,        ///< Device can present to a window surface.
-    RayTracing,
+    RayTracing,  ///< Acceleration structures + ray queries in any shader (GLSL_EXT_ray_query).
     MeshShaders,
 };
 
@@ -164,6 +168,31 @@ struct GraphicsPipelineDesc {
     bool front_counter_clockwise = true;
     bool alpha_blend = false;
     std::string_view debug_name = {};
+};
+
+/// Triangle geometry for a bottom-level acceleration structure. Vertex positions are three
+/// floats at the start of each `vertex_stride`-byte vertex; indices are uint32 triangles.
+struct BlasDesc {
+    BufferHandle vertices;
+    std::uint32_t vertex_count = 0;
+    std::uint32_t vertex_stride = 12;
+    BufferHandle indices;
+    std::uint32_t index_count = 0;
+    std::string_view debug_name = {};
+};
+
+struct TlasDesc {
+    std::uint32_t max_instances = 0; ///< Upper bound for CommandList::build_tlas.
+    std::string_view debug_name = {};
+};
+
+/// One instance of a BLAS in a TLAS.
+struct TlasInstance {
+    AccelerationStructureHandle blas;
+    /// Object-to-world, row-major 3x4 (rows of the upper 3x4 of the 4x4 matrix).
+    std::array<float, 12> transform = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0};
+    std::uint32_t custom_index = 0; ///< 24 bits, readable in shaders (e.g. a material index).
+    std::uint8_t mask = 0xFF;
 };
 
 /// Push constants are limited to this many bytes in every pipeline.

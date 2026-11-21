@@ -70,6 +70,10 @@ public:
                       std::uint32_t first_instance = 0);
     void dispatch(std::uint32_t x, std::uint32_t y = 1, std::uint32_t z = 1);
 
+    /// Rebuilds `tlas` from `instances` (at most its max_instances). Barriers before and after
+    /// make it safe against earlier ray queries and visible to later ones.
+    void build_tlas(AccelerationStructureHandle tlas, std::span<const TlasInstance> instances);
+
     void copy_buffer(BufferHandle src, BufferHandle dst, std::uint64_t size,
                      std::uint64_t src_offset = 0, std::uint64_t dst_offset = 0);
     /// Copies mip 0 of `src` (must be in TransferSrc state) tightly packed into `dst`.

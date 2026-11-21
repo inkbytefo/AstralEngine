@@ -378,6 +378,26 @@ bool create_logical_device(Device::Impl& s) {
     std::vector<const char*> extensions;
     if (s.surface) extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 
+    // Ray tracing via ray queries, when the driver has it.
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR as_query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
+    VkPhysicalDeviceRayQueryFeaturesKHR rq_query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR, &as_query};
+    VkPhysicalDeviceFeatures2 query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &rq_query};
+    const bool rt_extensions = has_device_extension(s.physical, VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) &&
+                               has_device_extension(s.physical, VK_KHR_RAY_QUERY_EXTENSION_NAME) &&
+                               has_device_extension(s.physical, VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+    if (rt_extensions) vkGetPhysicalDeviceFeatures2(s.physical, &query);
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR as_features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
+    VkPhysicalDeviceRayQueryFeaturesKHR rq_features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR, &as_features};
+    s.ray_tracing = rt_extensions && as_query.accelerationStructure && rq_query.rayQuery;
+    if (s.ray_tracing) {
+        extensions.push_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+        extensions.push_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
+        extensions.push_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+        as_features.accelerationStructure = VK_TRUE;
+        rq_features.rayQuery = VK_TRUE;
+        f13.pNext = &rq_features;
+    }
+
     VkDeviceCreateInfo info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, &f2};
     info.queueCreateInfoCount = 1;
     info.pQueueCreateInfos = &queue_info;
@@ -393,6 +413,22 @@ bool create_logical_device(Device::Impl& s) {
             vkGetDeviceProcAddr(s.device, "vkCmdEndDebugUtilsLabelEXT"));
         s.set_object_name = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
             vkGetDeviceProcAddr(s.device, "vkSetDebugUtilsObjectNameEXT"));
+    }
+
+    if (s.ray_tracing) {
+        auto load = [&](const char* name) { return vkGetDeviceProcAddr(s.device, name); };
+        s.create_as = reinterpret_cast<PFN_vkCreateAccelerationStructureKHR>(load("vkCreateAccelerationStructureKHR"));
+        s.destroy_as = reinterpret_cast<PFN_vkDestroyAccelerationStructureKHR>(load("vkDestroyAccelerationStructureKHR"));
+        s.as_build_sizes = reinterpret_cast<PFN_vkGetAccelerationStructureBuildSizesKHR>(
+            load("vkGetAccelerationStructureBuildSizesKHR"));
+        s.cmd_build_as = reinterpret_cast<PFN_vkCmdBuildAccelerationStructuresKHR>(load("vkCmdBuildAccelerationStructuresKHR"));
+        s.as_address = reinterpret_cast<PFN_vkGetAccelerationStructureDeviceAddressKHR>(
+            load("vkGetAccelerationStructureDeviceAddressKHR"));
+        VkPhysicalDeviceAccelerationStructurePropertiesKHR as_props{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR};
+        VkPhysicalDeviceProperties2 props{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &as_props};
+        vkGetPhysicalDeviceProperties2(s.physical, &props);
+        s.scratch_alignment = std::max(1u, as_props.minAccelerationStructureScratchOffsetAlignment);
+        s.ray_tracing = s.create_as && s.destroy_as && s.as_build_sizes && s.cmd_build_as && s.as_address;
     }
 
     VmaAllocatorCreateInfo vma{};
@@ -524,6 +560,7 @@ Device::~Device() {
     // Resources the user never destroyed are released here.
     s.buffers.for_each([&](BufferHandle, BufferRecord& r) { destroy_buffer_record(s, r); });
     s.textures.for_each([&](TextureHandle, TextureRecord& r) { destroy_texture_record(s, r); });
+    s.accels.for_each([&](AccelerationStructureHandle, AccelRecord& r) { destroy_accel_record(s, r); });
     s.pipelines.for_each([&](PipelineHandle, PipelineRecord& r) {
         vkDestroyPipeline(s.device, r.pipeline, nullptr);
     });
@@ -539,8 +576,7 @@ bool Device::supports(Feature feature) const noexcept {
     case Feature::Bindless: return true;
     case Feature::Validation: return impl_->validation;
     case Feature::Presentation: return impl_->presentation;
-    case Feature::RayTracing:
-        return has_device_extension(impl_->physical, "VK_KHR_ray_query");
+    case Feature::RayTracing: return impl_->ray_tracing;
     case Feature::MeshShaders:
         return has_device_extension(impl_->physical, "VK_EXT_mesh_shader");
     }

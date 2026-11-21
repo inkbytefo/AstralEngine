@@ -1,0 +1,26 @@
+#version 460
+#extension GL_EXT_ray_query : require
+#include <astral/bindless.glsl>
+// Casts one ray per invocation (origins/directions fixed below) and writes
+// (hit distance or -1, instance custom index, primitive index, 0).
+ASTRAL_BUFFER(Results, vec4);
+layout(push_constant, scalar) uniform Push { uint64_t tlas; Results results; } pc;
+layout(local_size_x = 4) in;
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    // 0: straight at the quad at the origin; 1: misses to the side; 2: at the second instance (x = 10).
+    vec3 origins[4] = vec3[](vec3(0.25, 0.6, -5), vec3(5, 5, -5), vec3(10.25, 0.6, -5), vec3(0.25, 0.6, -5));
+    float tmax[4] = float[](100.0, 100.0, 100.0, 2.0); // 3: too short to reach the quad
+    rayQueryEXT q;
+    rayQueryInitializeEXT(q, accelerationStructureEXT(pc.tlas), gl_RayFlagsOpaqueEXT, 0xFF,
+                          origins[i], 0.0, vec3(0, 0, 1), tmax[i]);
+    while (rayQueryProceedEXT(q)) {}
+    vec4 r = vec4(-1, 0, 0, 0);
+    if (rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionTriangleEXT) {
+        r = vec4(rayQueryGetIntersectionTEXT(q, true),
+                 float(rayQueryGetIntersectionInstanceCustomIndexEXT(q, true)),
+                 float(rayQueryGetIntersectionPrimitiveIndexEXT(q, true)), 0);
+    }
+    pc.results.data[i] = r;
+}
