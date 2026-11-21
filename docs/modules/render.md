@@ -22,6 +22,8 @@ renderer.set_settings(s);   // çalışma anında; teknik/GI değişirse geçmi�
 | Hareket | `previous_transform` verilirse nesne başına hareket vektörü (TAA/denoiser hayalet bırakmaz); verilmezse hareketsiz sayılır |
 | Ayarlar | `RenderSettings` hem kurucuda hem `set_settings` ile; `settings()` ile okunur |
 | Işıklar | `PointLight`, `RectLight`, `DirectionalLight`, `Environment` saf veri; App'te component olarak da kullanılır |
+| Texture | `create_texture(ImageData)` (mip zinciri otomatik, sRGB'de lineer uzayda filtrelenir), `update_texture` handle'ı korur. `MaterialDesc`: `base_color_texture`, `metallic_roughness_texture` (G pürüzlülük, B metal), `normal_texture` (+`normal_scale`, tangent gerekmez), `emissive_texture` |
+| Hot-reload | `update_mesh`, `update_texture`, `update_material`: aynı handle, yeni veri |
 
 İki yol var: cihaz ray tracing destekliyorsa ve `RenderSettings::ray_tracing` açıksa (varsayılan)
 **ray-traced yol** ([ADR-0011](../decisions/0011-hybrid-ray-traced-lighting.md)), değilse **raster yol**.

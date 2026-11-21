@@ -132,3 +132,12 @@ TEST_CASE("the registry knows names and stable ids") {
     again.add<game::Fighter>(); // registering twice is harmless
     CHECK(again.entries().size() == types.entries().size());
 }
+
+TEST_CASE("entities with an excluded component are not saved") {
+    TypeRegistry types = make_types();
+    types.exclude<game::Boss>();
+    World w;
+    w.create(Transform{});
+    w.create(Transform{}, game::Boss{});
+    CHECK(save_world(w, types)["entities"].size() == 1);
+}

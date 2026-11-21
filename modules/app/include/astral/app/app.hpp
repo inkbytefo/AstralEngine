@@ -4,6 +4,7 @@
 #include <astral/core/jobs.hpp>
 #include <astral/core/log.hpp>
 #include <astral/platform/input.hpp>
+#include <astral/assets/asset_manager.hpp>
 #include <astral/render/renderer.hpp>
 #include <astral/world/serialize.hpp>
 #include <astral/world/world.hpp>
@@ -68,6 +69,8 @@ public:
     gpu::Device* device = nullptr;
     Renderer* renderer = nullptr;
     PhysicsWorld* physics = nullptr; ///< Always available (also headless).
+    /// Always available. Paths are relative to AppDesc::asset_root. Headless: model data, no GPU resources.
+    AssetManager* assets = nullptr;
     BuiltinMeshes meshes{};
     /// Components that save_world/load_world know: the engine's own (Transform, Parent, Camera,
     /// PointLight, RectLight, Sdf) are registered; add your ASTRAL_REFLECT'ed ones with types.add<T>().
@@ -115,6 +118,8 @@ struct AppDesc {
     float physics_rate = 60.0f;   ///< Fixed physics steps per second.
     std::uint32_t max_physics_steps = 4; ///< Per frame; slower frames drop time instead of stalling.
     RenderSettings render = {};   ///< Renderer quality/technique settings (ray tracing, GI, denoiser...).
+    std::string_view asset_root = "assets"; ///< Folder that asset paths (ModelRef, ctx.assets) are relative to.
+    bool hot_reload = true;       ///< Reload assets when their files change on disk.
 };
 
 /// Owns the main loop and every engine service; your Game plugs into it.

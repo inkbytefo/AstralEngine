@@ -18,6 +18,15 @@ namespace {
 struct RenderHistory {
     Mat4 previous;
 };
+/// Internal: on a ModelRef entity, which model (and version) its pieces were spawned from.
+struct SpawnedModel {
+    AssetId id;
+    std::uint32_t version = 0;
+};
+/// Internal: an entity generated from a model; destroyed with its owner, never saved.
+struct ModelPiece {
+    Entity owner;
+};
 } // namespace
 
 struct App::Impl {
@@ -36,6 +45,7 @@ struct App::Impl {
     std::unique_ptr<Renderer> renderer;
 
     std::unique_ptr<PhysicsWorld> physics;
+    std::unique_ptr<AssetManager> assets;
     float physics_accumulator = 0.0f;
     std::vector<ContactEvent> frame_contacts;
     struct BodyLink {
@@ -63,6 +73,8 @@ struct App::Impl {
     bool started = false;
     bool in_fixed_update = false;
     void sync_physics_bodies();
+    void sync_models();
+    void spawn_model(Entity owner, const Model& model);
     void step_physics(Game& game, float delta);
 
     explicit Impl(const AppDesc& d) : desc(d), jobs(d.worker_threads) {}
@@ -84,6 +96,8 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
     types.add<PointLight>();
     types.add<RectLight>();
     types.add<Sdf>();
+    types.add<ModelRef>();
+    types.exclude<ModelPiece>();
     m.physics = std::make_unique<PhysicsWorld>(PhysicsDesc{.logger = &m.log});
     m.context->physics = m.physics.get();
     m.time.fixed_delta = 1.0f / std::max(desc.physics_rate, 1.0f);
@@ -112,6 +126,10 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
     m.context->window = m.window.get();
     m.context->device = m.device.get();
     m.context->renderer = m.renderer.get();
+    m.assets = std::make_unique<AssetManager>(AssetManagerDesc{.root = std::filesystem::path(desc.asset_root),
+                                                               .renderer = m.renderer.get(), .jobs = &m.jobs,
+                                                               .logger = &m.log, .hot_reload = desc.hot_reload});
+    m.context->assets = m.assets.get();
 }
 
 App::~App() {
@@ -122,6 +140,8 @@ App::~App() {
     for (auto& phase : m.systems) phase.clear();
     m.context->physics = nullptr;
     m.physics.reset();
+    m.context->assets = nullptr;
+    m.assets.reset(); // owns renderer resources: before the renderer
     m.renderer.reset();
     m.swapchain.reset();
     m.device.reset();
@@ -151,6 +171,64 @@ const Time& App::time() const noexcept { return impl_->time; }
 namespace {
 
 } // namespace
+
+void App::Impl::spawn_model(Entity owner, const Model& model) {
+    // Depth-first over the node tree; each node is an entity parented to its parent node (roots to
+    // the owner). A node with one piece draws it itself; several pieces get one child each.
+    struct Item {
+        std::uint32_t node;
+        Entity parent;
+    };
+    std::vector<Item> stack;
+    for (auto r = model.roots.rbegin(); r != model.roots.rend(); ++r) stack.push_back({*r, owner});
+    while (!stack.empty()) {
+        const Item item = stack.back();
+        stack.pop_back();
+        const Model::Node& n = model.nodes[item.node];
+        const Entity e = world.create(Transform{n.translation, n.rotation, n.scale}, Parent{item.parent}, ModelPiece{owner});
+        if (n.pieces.size() == 1) {
+            world.add(e, MeshRenderer{n.pieces[0].mesh, n.pieces[0].material});
+        } else {
+            for (const Model::Piece& p : n.pieces) {
+                world.create(Transform{}, Parent{e}, ModelPiece{owner}, MeshRenderer{p.mesh, p.material});
+            }
+        }
+        for (auto c = n.children.rbegin(); c != n.children.rend(); ++c) stack.push_back({*c, e});
+    }
+}
+
+void App::Impl::sync_models() {
+    // Pieces whose owner is gone (destroyed, or its ModelRef removed / changed) are cleared first.
+    std::vector<Entity> stale;
+    world.each<const ModelPiece>([&](Entity e, const ModelPiece& p) {
+        const SpawnedModel* s = world.get<const SpawnedModel>(p.owner);
+        if (!s || !world.has<ModelRef>(p.owner)) stale.push_back(e);
+    });
+    std::vector<std::pair<Entity, AssetId>> todo;
+    world.each<const ModelRef>([&](Entity e, const ModelRef& ref) {
+        const AssetId id = assets->load_model(ref.path); // idempotent
+        const Model* model = assets->model(id);
+        const SpawnedModel* s = world.get<const SpawnedModel>(e);
+        if (model && (!s || s->id != id || s->version != model->version)) todo.emplace_back(e, id);
+    });
+    // Owners whose ModelRef was removed keep a SpawnedModel marker: drop it (their pieces are stale above).
+    std::vector<Entity> orphans;
+    world.query<const SpawnedModel>().without<ModelRef>().each([&](Entity e, const SpawnedModel&) { orphans.push_back(e); });
+    for (Entity e : orphans) world.remove<SpawnedModel>(e);
+    for (const auto& [owner, id] : todo) {
+        world.each<const ModelPiece>([&](Entity e, const ModelPiece& p) {
+            if (p.owner == owner) stale.push_back(e);
+        });
+    }
+    std::sort(stale.begin(), stale.end(), [](Entity a, Entity b) { return a.index < b.index; });
+    stale.erase(std::unique(stale.begin(), stale.end()), stale.end());
+    for (Entity e : stale) world.destroy(e);
+    for (const auto& [owner, id] : todo) {
+        const Model* model = assets->model(id);
+        spawn_model(owner, *model);
+        world.add(owner, SpawnedModel{id, model->version});
+    }
+}
 
 /// Each system sees changes made since it last ran (its own writes are stamped with the tick it
 /// ran at, so it does not see them next time).
@@ -327,6 +405,8 @@ void App::Impl::step_physics(Game&, float delta) {
 
 void App::Impl::frame(Game& game, float delta) {
     world.update_events(); // events sent last frame are still readable this frame, then dropped
+    assets->update();      // finished loads, hot reloads
+    sync_models();         // ModelRef entities get (or refresh) their pieces before any system runs
     Impl& m = *this;
     Context& ctx = *m.context;
     m.time.delta = delta;

@@ -24,6 +24,7 @@ Json save_world(World& world, const TypeRegistry& types) {
     std::vector<Entity> saved;
     SaveContext ctx;
     world.for_each_entity([&](Entity e) {
+        if (types.is_excluded(world, e)) return;
         for (const auto& t : types.entries()) {
             if (t.has(world, e)) {
                 ctx.ids.emplace((std::uint64_t{e.generation} << 32) | e.index, static_cast<std::uint32_t>(saved.size()));

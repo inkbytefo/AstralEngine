@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(Astral VERSION 0.8.0 LANGUAGES CXX)
+project(Astral VERSION 0.9.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -33,6 +33,7 @@ add_subdirectory(modules/platform)
 add_subdirectory(modules/world)
 add_subdirectory(modules/physics)
 add_subdirectory(modules/render)
+add_subdirectory(modules/assets)
 add_subdirectory(modules/app)
 
 if(ASTRAL_BUILD_TESTS)

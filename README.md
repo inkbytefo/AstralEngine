@@ -40,6 +40,8 @@ module (core, gpu, platform, world, render) is also usable directly as a plain l
 | `RenderGraph`, hybrid deferred renderer (meshes + SDF, PBR, shadows) | ✅ M3 |
 | `Astral::Physics` (Jolt: bodies, raycast, contacts, character controller) | ✅ M4 |
 | Ray-traced lighting: RT shadows, area lights, DDGI + near-field RTGI, RT reflections, denoiser, TAA, bloom | ✅ M3.5 |
+| ECS: change detection, filtered queries, events, reflection, JSON save/load | ✅ M5a |
+| `Astral::Assets`: glTF/GLB, textured PBR materials, async loading, hot reload | ✅ M5b |
 
 ![RT showcase](docs/images/m3.5-rt-showcase.png)
 | `Astral::Assets` (glTF) | M5 |

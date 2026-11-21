@@ -22,3 +22,7 @@ astral_set_warnings(physics_demo)
 add_executable(rt_showcase rt_showcase/main.cpp)
 target_link_libraries(rt_showcase PRIVATE Astral::App)
 astral_set_warnings(rt_showcase)
+
+add_executable(model_viewer model_viewer/main.cpp)
+target_link_libraries(model_viewer PRIVATE Astral::App)
+astral_set_warnings(model_viewer)

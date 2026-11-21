@@ -51,3 +51,11 @@ pencerede döngü işlemciyi yormaz.
 - Kare başında `world.update_events()`; `ctx.world.send(...)` / `EventReader<T>`.
 - `ctx.types`: `astral::Transform`, `Parent`, `Camera`, `PointLight`, `RectLight`, `Sdf` kayıtlı;
   oyun kendi component'lerini `ctx.types.add<T>()` ile ekler. `save_world(ctx.world, ctx.types)`.
+
+## Asset'ler (M5b)
+
+- `ctx.assets` her zaman var; yollar `AppDesc::asset_root`'a göre (varsayılan `assets`), `hot_reload` açık.
+- `ModelRef{"props/crate.glb"}`: App modeli yükler, hazır olunca entity'nin altına node ağacını (Transform +
+  Parent + MeshRenderer) kurar; model yeniden yüklenip yapısı değişirse yeniden kurar; `ModelRef` silinir
+  veya entity yok edilirse parçaları kaldırır. Parçalar kaydedilmez — yalnız `ModelRef` kaydedilir.
+- Yükleme asenkron: ilk karelerde model henüz yok olabilir; yükleme ekranı için `ctx.assets->wait_all()`.

@@ -4,6 +4,20 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-11-21 — M5b (asset'ler)
+
+### Added
+- `Astral::Assets`: `AssetId` (kalıcı, yol tabanlı), `AssetManager` (asenkron yükleme JobSystem'de,
+  ana thread'de GPU aktarımı, `wait_all`, hot-reload), `load_gltf` (.gltf/.glb, metallic-roughness materyaller,
+  texture'lar, node hiyerarşisi, eksik normal üretimi), `decode_image`/`load_image` (stb_image).
+- Render: texture'lı materyaller (base color, metallic-roughness, türev tabanlı TBN ile normal map, emissive)
+  hem raster hem RT vuruşlarında; `create_texture`/`update_texture` (CPU mip zinciri), `update_mesh`.
+- GPU: mip başına `write_texture`; materyal sampler'ında anizotropik filtre; örneklenebilir texture'lar
+  her zaman yüklenebilir (transfer hedefi).
+- App: `ctx.assets`, `ModelRef` component'i (node ağacını entity'lere açar, kaydedilmez parçalar),
+  `AppDesc::asset_root`, `hot_reload`. World: `TypeRegistry::exclude<T>()`.
+- `examples/model_viewer` (pencere + `--capture`), `tools/make_test_model.py` (prosedürel test kasası).
+
 ## [0.8.0] — 2026-11-21 — M5a (ECS tamamlama)
 
 ### Added

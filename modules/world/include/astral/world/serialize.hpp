@@ -239,8 +239,20 @@ public:
     [[nodiscard]] const Entry* find(std::string_view name) const noexcept;
     [[nodiscard]] std::span<const Entry> entries() const noexcept { return entries_; }
 
+    /// Entities that have T are never saved (generated at runtime, e.g. the pieces of a spawned model).
+    template <class T> void exclude() {
+        excluded_.push_back([](World& w, Entity e) { return w.has<T>(e); });
+    }
+    [[nodiscard]] bool is_excluded(World& world, Entity e) const {
+        for (auto check : excluded_) {
+            if (check(world, e)) return true;
+        }
+        return false;
+    }
+
 private:
     std::vector<Entry> entries_;
+    std::vector<bool (*)(World&, Entity)> excluded_;
 };
 
 /// Registers the world module's own components (Transform, Parent).

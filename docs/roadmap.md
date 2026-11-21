@@ -12,8 +12,8 @@ Durum: ✅ bitti · 🚧 sürüyor · 🔜 sıradaki · ⬜ planlı
 | M3.5 | Fotogerçekçi render: RT (ray query), DDGI, RT yansıma/gölge, alan ışıkları, denoise, TAA, bloom | ✅ |
 | M3.6 | Render API v2: materyal handle'ları, nesne başına hareket vektörü, çalışma anında ayarlar | ✅ |
 | M5a | ECS tamamlama: reflection, `without`/`added`/`changed`, olaylar, serileştirme | ✅ |
-| M5b | `Astral::Assets`: AssetId, async yükleme, hot-reload, glTF, texture'lı materyal | 🔜 |
-| M5c | Sahne + prefab (JSON yazım, ikili çalışma zamanı) | ⬜ |
+| M5b | `Astral::Assets`: AssetId, async yükleme, hot-reload, glTF, texture'lı materyal | ✅ |
+| M5c | Sahne + prefab (JSON yazım, ikili çalışma zamanı) | 🔜 |
 | M6 | Paketleme: `astral-cook`, `.apak`, `astral_add_game` | ⬜ |
 | M7 | İlk oyun dikey dilimi (kılıç arenası prototipi) | ⬜ |
 
@@ -103,6 +103,14 @@ Core'a bağımlılıksız `Json` ve `ASTRAL_REFLECT` ([ADR-0013](decisions/0013-
 
 **Bitiş kriterleri (karşılandı):** bir dünya JSON'a kaydedilip başka bir dünyaya yüklenir ve yeniden kaydedildiğinde
 bayt bayt aynı belgeyi verir; App sistemleri `changed<T>()` ile yalnız kendi görmedikleri değişiklikleri görür.
+
+## M5b — Asset'ler ✅
+
+**Sonuç:** `Astral::Assets` ([assets.md](modules/assets.md), [ADR-0014](decisions/0014-assets.md)): kalıcı
+AssetId, asenkron glTF/GLB yükleme, texture'lı PBR materyaller (raster + RT), handle koruyan hot-reload,
+sahnede `ModelRef`. `examples/model_viewer`.
+
+![model viewer](images/m5b-model-viewer.png)
 
 ## M5 — Asset'ler
 
