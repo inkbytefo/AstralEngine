@@ -24,7 +24,7 @@ struct Sdf {
     std::int32_t order = 0;
 };
 
-// PointLight (from the renderer) is also a component: its position follows the entity's
+// PointLight and RectLight (from the renderer) are also components: their position follows the entity's
 // WorldTransform when the entity has one.
 
 /// Turns the entity into the camera (its WorldTransform is the camera pose; looks down -Z).

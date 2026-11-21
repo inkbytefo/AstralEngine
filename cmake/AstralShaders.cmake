@@ -20,7 +20,13 @@ function(astral_add_shaders target)
     foreach(dir ${ARG_INCLUDE_DIRS})
         list(APPEND include_flags -I${dir})
     endforeach()
+    # Every header a shader can include is a dependency (the depfile below is exact; the glob is
+    # the fallback for generators without depfile support).
     file(GLOB_RECURSE shader_headers ${ASTRAL_GPU_SHADER_INCLUDE_DIR}/*.glsl)
+    foreach(dir ${ARG_INCLUDE_DIRS})
+        file(GLOB_RECURSE extra_headers ${dir}/*.glsl)
+        list(APPEND shader_headers ${extra_headers})
+    endforeach()
 
     set(outputs "")
     foreach(src ${ARG_SOURCES})
@@ -38,8 +44,10 @@ function(astral_add_shaders target)
         configure_file(${hpp}.tmp ${hpp} COPYONLY)
         add_custom_command(
             OUTPUT ${inc}
-            COMMAND ${ASTRAL_GLSLC} --target-env=vulkan1.3 -O -mfmt=c ${include_flags} ${abs} -o ${inc}
+            COMMAND ${ASTRAL_GLSLC} --target-env=vulkan1.3 -O -mfmt=c -MD -MF ${inc}.d -MT ${inc}
+                    ${include_flags} ${abs} -o ${inc}
             DEPENDS ${abs} ${shader_headers}
+            DEPFILE ${inc}.d
             COMMENT "glslc ${name}"
             VERBATIM)
         list(APPEND outputs ${inc})

@@ -50,6 +50,7 @@ struct App::Impl {
     std::vector<std::pair<std::int32_t, SdfShape>> sdf_sorted;
     std::vector<SdfShape> sdf_shapes;
     std::vector<PointLight> point_lights;
+    std::vector<RectLight> rect_lights;
 
     bool started = false;
     bool in_fixed_update = false;
@@ -84,7 +85,7 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
             if (m.device) {
                 m.swapchain = gpu::Swapchain::create(*m.device, m.surface, {.vsync = desc.vsync});
                 if (m.swapchain) {
-                    m.renderer = std::make_unique<Renderer>(*m.device, m.swapchain->format());
+                    m.renderer = std::make_unique<Renderer>(*m.device, m.swapchain->format(), m.desc.render);
                     m.context->meshes = {m.renderer->create_mesh(make_cube()),
                                          m.renderer->create_mesh(make_sphere(32, 16)),
                                          m.renderer->create_mesh(make_plane(1.0f))};
@@ -335,13 +336,26 @@ void App::Impl::frame(Game& game, float delta) {
                 }
                 m.point_lights.push_back(light);
             });
+            m.rect_lights.clear();
+            m.world.each<const RectLight>([&](Entity e, const RectLight& l) {
+                RectLight light = l;
+                if (const WorldTransform* w = m.world.get<WorldTransform>(e)) {
+                    // Position from the entity; the panel's axes turn and scale with it.
+                    light.position = {w->matrix[3].x, w->matrix[3].y, w->matrix[3].z};
+                    const Vec4 r = w->matrix * Vec4{l.right.x, l.right.y, l.right.z, 0};
+                    const Vec4 u = w->matrix * Vec4{l.up.x, l.up.y, l.up.z, 0};
+                    light.right = {r.x, r.y, r.z};
+                    light.up = {u.x, u.y, u.z};
+                }
+                m.rect_lights.push_back(light);
+            });
             const gpu::Extent2D extent = m.swapchain->extent();
             const float aspect = extent.height ? static_cast<float>(extent.width) / static_cast<float>(extent.height) : 1.0f;
             const CameraData camera = find_camera(m.world, aspect);
             auto cmd = m.device->begin_commands();
             m.renderer->render(cmd, image, camera,
                                {.meshes = m.draw_items, .sdf = m.sdf_shapes, .lights = m.point_lights,
-                                .sun = ctx.sun, .environment = ctx.environment});
+                                .rect_lights = m.rect_lights, .sun = ctx.sun, .environment = ctx.environment});
             cmd.transition(image, gpu::ResourceState::Present);
             m.swapchain->present(cmd);
         }

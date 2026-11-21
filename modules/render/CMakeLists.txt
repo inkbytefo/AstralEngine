@@ -11,6 +11,9 @@ astral_add_shaders(astral_render
         shaders/gbuffer.vert shaders/gbuffer.frag shaders/shadow.vert
         shaders/sdf.comp shaders/lighting.comp
         shaders/tonemap.vert shaders/tonemap.frag
+        shaders/rt_lighting.comp shaders/ddgi_trace.comp shaders/ddgi_update.comp
+        shaders/denoise_temporal.comp shaders/denoise_atrous.comp shaders/composite.comp
+        shaders/taa.comp shaders/bloom_down.comp shaders/bloom_up.comp
     INCLUDE_DIRS
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include)
 

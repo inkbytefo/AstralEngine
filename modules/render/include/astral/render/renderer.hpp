@@ -49,7 +49,20 @@ struct PointLight {
     Vec3 position{};
     Vec3 color{1, 1, 1};
     float intensity = 10.0f;
-    float radius = 10.0f; ///< No light beyond this distance.
+    float radius = 10.0f;         ///< No light beyond this distance.
+    float source_radius = 0.05f;  ///< Bulb size: softens ray-traced shadows.
+};
+
+/// A rectangular area light (a glowing panel: ceiling light, window, screen). Emits from the side
+/// its normal `cross(right, up)` faces (or both). Ray-traced path only; it is visible to the
+/// camera and in reflections, and casts physically soft shadows.
+struct RectLight {
+    Vec3 position{};
+    Vec3 right{0.5f, 0, 0}; ///< Half extent along the first axis.
+    Vec3 up{0, 0, 0.5f};    ///< Half extent along the second axis.
+    Vec3 color{1, 1, 1};
+    float intensity = 10.0f; ///< Emitted radiance = color * intensity.
+    bool two_sided = false;
 };
 
 struct CameraData {
@@ -64,6 +77,7 @@ struct DirectionalLight {
     Vec3 color{1, 1, 1};
     float intensity = 3.0f;
     bool shadows = true;
+    float angular_radius = 0.0047f; ///< Radians; the real sun is ~0.0047. Larger = softer shadows.
 };
 
 struct Environment {
@@ -78,12 +92,38 @@ struct RenderScene {
     std::span<const DrawItem> meshes = {};
     std::span<const SdfShape> sdf = {};
     std::span<const PointLight> lights = {};
+    std::span<const RectLight> rect_lights = {};
     DirectionalLight sun = {};
     Environment environment = {};
 };
 
+/// Dynamic diffuse global illumination: a grid of probes that trace rays every frame.
+struct GiSettings {
+    std::uint32_t probes_x = 8, probes_y = 8, probes_z = 8;
+    std::uint32_t rays_per_probe = 128;
+    float hysteresis = 0.97f; ///< History weight: higher = smoother but slower to react.
+    /// Probe volume. Equal min/max = fit around every mesh automatically.
+    Vec3 volume_min{}, volume_max{};
+};
+
+/// What the ray-traced path shows (for tuning and debugging).
+enum class DebugView : std::uint32_t { None, Albedo, Normals, DiffuseLight, Specular };
+
 struct RenderSettings {
-    std::uint32_t shadow_map_size = 2048;
+    std::uint32_t shadow_map_size = 2048; ///< Raster path.
+    /// Ray-traced lighting (RT shadows, area lights, DDGI, reflections, denoiser, TAA, bloom)
+    /// when the device supports it; otherwise the raster path.
+    bool ray_tracing = true;
+    GiSettings gi = {};
+    std::uint32_t denoise_iterations = 3; ///< À-trous passes (0 = temporal only).
+    float max_history = 32.0f;            ///< Temporal accumulation length (frames).
+    float taa_blend = 0.1f;               ///< Weight of the new frame in TAA.
+    float bloom_strength = 0.04f;
+    float max_ray_distance = 1000.0f;
+    /// Near-field ray-traced GI range: within it, one ray per pixel gathers the actual bounce light
+    /// (contact shadows + colour bleeding); beyond it the probes take over. 0 = probes only.
+    float near_gi_radius = 0.75f;
+    DebugView debug_view = DebugView::None;
 };
 
 struct RenderStats {
@@ -93,11 +133,14 @@ struct RenderStats {
     std::uint32_t sdf_shapes = 0;
     std::uint32_t point_lights = 0;
     std::uint32_t passes = 0;            ///< Render graph passes executed.
+    bool ray_traced = false;             ///< This frame used the ray-traced path.
+    std::uint32_t gi_probes = 0;
+    std::uint32_t rect_lights = 0;
 };
 
-/// Hybrid deferred renderer built on RenderGraph:
-/// shadow map → mesh G-buffer → SDF raymarch → PBR lighting (mesh/SDF composite, sun shadows,
-/// SDF soft shadows, point lights, sky ambient) → ACES tonemap into the target.
+/// Hybrid deferred renderer built on RenderGraph. Raster G-buffer (meshes + raymarched SDFs), then
+/// either the ray-traced path (ADR-0011): RT direct light + DDGI + RT reflections → SVGF-style
+/// denoiser → composite → TAA → bloom → ACES; or the raster path: shadow map + PBR → ACES.
 /// It knows nothing about the ECS; Astral::App fills RenderScene from components.
 class Renderer {
 public:
@@ -116,6 +159,10 @@ public:
                 const RenderScene& scene);
 
     [[nodiscard]] const RenderStats& stats() const noexcept;
+    /// True when frames use the ray-traced path (settings + device support).
+    [[nodiscard]] bool ray_tracing() const noexcept;
+    /// Forget temporal history (TAA, denoiser, GI) — call on camera cuts and teleports.
+    void reset_history();
 
 private:
     struct Impl;

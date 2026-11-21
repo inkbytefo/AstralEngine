@@ -18,3 +18,7 @@ astral_set_warnings(sdf_scene)
 add_executable(physics_demo physics_demo/main.cpp)
 target_link_libraries(physics_demo PRIVATE Astral::App)
 astral_set_warnings(physics_demo)
+
+add_executable(rt_showcase rt_showcase/main.cpp)
+target_link_libraries(rt_showcase PRIVATE Astral::App)
+astral_set_warnings(rt_showcase)

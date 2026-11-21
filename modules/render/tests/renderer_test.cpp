@@ -1,3 +1,4 @@
+#include <cstdio>
 #include "gpu_test_support.hpp"
 
 #include <astral/render/renderer.hpp>
@@ -30,9 +31,10 @@ struct Fixture {
     gpu::BufferHandle readback;
     CameraData camera;
 
-    Fixture() {
+    /// The raster-path tests run with ray tracing off; ray-traced tests pass their own settings.
+    explicit Fixture(RenderSettings settings = {.shadow_map_size = 512, .ray_tracing = false}) {
         if (!device) return;
-        renderer = std::make_unique<Renderer>(*device, gpu::Format::RGBA8Unorm, RenderSettings{.shadow_map_size = 512});
+        renderer = std::make_unique<Renderer>(*device, gpu::Format::RGBA8Unorm, settings);
         target = device->create_texture({.width = size, .height = size, .format = gpu::Format::RGBA8Unorm,
                                          .usage = gpu::TextureUsage::ColorTarget | gpu::TextureUsage::TransferSrc});
         readback = device->create_buffer({.size = size * size * 4, .usage = gpu::BufferUsage::TransferDst,
@@ -231,3 +233,143 @@ TEST_CASE("shadows stay attached to their casters in large scenes") {
     // Right next to the cube's base on the far side from the sun: must be in shadow.
     CHECK(luminance(f.at(pixels, {0.75f, 0, 0})) < luminance(f.at(pixels, {-2.5f, 0, 0})) - 60);
 }
+
+// --- Ray-traced path ----------------------------------------------------------------------
+
+namespace {
+
+/// Sky light at a realistic ratio to the sun (the default sky is a bright overcast sky).
+const Environment dim_sky{.sky = {0.08f, 0.1f, 0.13f}, .ground = {0.03f, 0.03f, 0.03f}};
+
+RenderSettings rt_settings() {
+    RenderSettings s;
+    s.gi = {.probes_x = 4, .probes_y = 4, .probes_z = 4, .rays_per_probe = 32};
+    return s;
+}
+
+/// Renders several frames so temporal accumulation (denoiser, DDGI, TAA) converges.
+std::vector<std::uint32_t> converge(Fixture& f, const RenderScene& scene, int frames = 12) {
+    std::vector<std::uint32_t> pixels;
+    for (int i = 0; i < frames; ++i) pixels = f.draw(scene);
+    return pixels;
+}
+
+bool rt_available(Fixture& f) {
+    if (!f.device) return false;
+    if (!f.renderer->ray_tracing()) {
+        MESSAGE("no ray tracing — skipping");
+        return false;
+    }
+    return true;
+}
+
+} // namespace
+
+TEST_CASE("ray-traced path renders a lit mesh with the full pass chain") {
+    Fixture f(rt_settings());
+    if (!rt_available(f)) return;
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const DrawItem item{.mesh = cube, .color = {1, 0, 0, 1}, .roughness = 1.0f}; // no highlight toward the camera
+    const auto pixels = converge(f, {.meshes = std::span(&item, 1), .sun = front_sun, .environment = dim_sky}, 3);
+    const Rgb c = rgb(Fixture::center(pixels));
+    CHECK(c.r > 120);
+    CHECK(c.r > c.g + 80); // a red cube (plus a faint, physically correct white specular)
+    CHECK(f.renderer->stats().ray_traced);
+    CHECK(f.renderer->stats().gi_probes == 64);
+    CHECK(f.renderer->stats().passes >= 10);
+}
+
+TEST_CASE("ray-traced sun shadows darken what lies under a caster") {
+    Fixture f(rt_settings());
+    if (!rt_available(f)) return;
+    f.look_from({0, 6, 0.01f}, {0, 0, 0});
+    const MeshHandle plane = f.renderer->create_mesh(make_plane(10.0f));
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const std::array items{DrawItem{.mesh = plane, .color = {0.8f, 0.8f, 0.8f, 1}},
+                           DrawItem{.mesh = cube, .transform = translate({0, 1.5f, 0}), .color = {0.8f, 0.8f, 0.8f, 1}}};
+    const RenderScene scene{.meshes = items, .sun = {.direction = {0.6f, -1, 0}, .intensity = 3.0f}, .environment = dim_sky};
+    const auto pixels = converge(f, scene);
+    // The cube sits 1.5 above the floor; the sun moves its shadow toward +x by ~0.6 * 1.5.
+    CHECK(luminance(f.at(pixels, {1.0f, 0, 0})) < luminance(f.at(pixels, {-2.5f, 0, 0})) - 60);
+}
+
+TEST_CASE("a rect area light lights the floor and is visible to the camera") {
+    Fixture f(rt_settings());
+    if (!rt_available(f)) return;
+    f.look_from({0, 3, 6}, {0, 0.5f, 0});
+    const MeshHandle plane = f.renderer->create_mesh(make_plane(10.0f));
+    const DrawItem floor{.mesh = plane, .color = {0.8f, 0.8f, 0.8f, 1}};
+    // cross(right, up) = -y: the panel shines down; two-sided so the camera above sees it glow too.
+    const RectLight panel{.position = {0, 1.5f, 0}, .right = {0.5f, 0, 0}, .up = {0, 0, 0.5f}, .intensity = 8.0f,
+                          .two_sided = true};
+    RenderScene scene{.meshes = std::span(&floor, 1), .sun = {.intensity = 0}, .environment = {.sky = {}, .ground = {}}};
+    const auto dark = converge(f, scene, 2);
+    scene.rect_lights = std::span(&panel, 1);
+    f.renderer->reset_history();
+    const auto lit = converge(f, scene);
+    CHECK(luminance(f.at(lit, {0, 0, 0})) > luminance(f.at(dark, {0, 0, 0})) + 100);
+    CHECK(luminance(f.at(lit, {0, 0, 0})) > luminance(f.at(lit, {4, 0, 0})) + 40); // falls off with distance
+    CHECK(rgb(f.at(lit, {0, 1.5f, 0})).r > 240);                                 // the panel itself glows
+    CHECK(f.renderer->stats().rect_lights == 1);
+}
+
+TEST_CASE("a mirror reflects what is behind the camera") {
+    Fixture f(rt_settings());
+    if (!rt_available(f)) return;
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    // A mirror wall at z = -1 facing the camera, and a red block behind the camera (not visible directly).
+    const std::array items{
+        DrawItem{.mesh = cube, .transform = translate({0, 0, -1.5f}) * scale({6, 6, 1}), .color = {0.95f, 0.95f, 0.95f, 1},
+                 .roughness = 0.02f, .metallic = 1.0f},
+        DrawItem{.mesh = cube, .transform = translate({0, 0, 9}) * scale({6, 6, 1}), .color = {1, 0, 0, 1}},
+    };
+    const DirectionalLight sun{.direction = {0, 0, 1}, .intensity = 3.0f}; // lights the red block's mirror-facing side
+    const auto pixels = converge(f, {.meshes = items, .sun = sun}, 4);
+    const Rgb c = rgb(Fixture::center(pixels));
+    CHECK(c.r > 100);
+    CHECK(c.r > c.g + 60);
+}
+
+TEST_CASE("global illumination bleeds a wall's colour onto a white floor") {
+    Fixture f(rt_settings());
+    if (!rt_available(f)) return;
+    f.look_from({0, 2, 5}, {0, 0, 0});
+    const MeshHandle plane = f.renderer->create_mesh(make_plane(6.0f));
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    std::array items{DrawItem{.mesh = plane, .color = {0.9f, 0.9f, 0.9f, 1}},
+                     DrawItem{.mesh = cube, .transform = translate({-1.6f, 1, 0}) * scale({0.2f, 2, 4}), .color = {0.9f, 0.05f, 0.05f, 1}}};
+    // Sky light only: next to the wall, part of the sky is replaced by light bounced off the wall.
+    // Exposure keeps the floor in the mid-tones, where the tone curve does not hide differences.
+    const RenderScene scene{.meshes = items, .sun = {.intensity = 0.0f},
+                            .environment = {.sky = {1, 1, 1}, .ground = {0.3f, 0.3f, 0.3f}, .exposure = 0.5f}};
+    const auto with_wall = converge(f, scene, 16);
+    const Rgb red_bounce = rgb(f.at(with_wall, {-1.2f, 0, 0.5f}));
+    items[1].color = {0.9f, 0.9f, 0.9f, 1};
+    f.renderer->reset_history();
+    const auto white_wall = converge(f, scene, 16);
+    const Rgb neutral = rgb(f.at(white_wall, {-1.2f, 0, 0.5f}));
+    CHECK(std::abs(neutral.r - neutral.g) < 4);
+    CHECK(red_bounce.r - red_bounce.g > neutral.r - neutral.g + 8); // red light bounced off the wall
+    CHECK(red_bounce.g < neutral.g);                                // ...which reflects little green
+}
+
+TEST_CASE("SDF shapes take part in ray-traced lighting") {
+    Fixture f(rt_settings());
+    if (!rt_available(f)) return;
+    f.look_from({0, 6, 0.01f}, {0, 0, 0});
+    const MeshHandle plane = f.renderer->create_mesh(make_plane(10.0f));
+    const DrawItem floor{.mesh = plane, .color = {0.8f, 0.8f, 0.8f, 1}};
+    // A grey ball (a white one bounces so much light back into its own shadow that it washes out).
+    const SdfShape ball{.primitive = SdfPrimitive::Sphere, .operation = SdfOperation::Union, .position = {0, 1.5f, 0},
+                        .size = {0.8f, 0, 0, 0}, .color = {0.3f, 0.3f, 0.3f, 1}};
+    const auto pixels = converge(f, {.meshes = std::span(&floor, 1), .sdf = std::span(&ball, 1),
+                                     .sun = {.direction = {0.6f, -1, 0}, .intensity = 3.0f}, .environment = dim_sky});
+    // The shadow is centred at x = 0.9; seen from above, x < ~1.07 is hidden behind the ball itself.
+    CHECK(luminance(f.at(pixels, {1.4f, 0, 0})) < luminance(f.at(pixels, {-2.5f, 0, 0})) - 60);
+}
+
+
+
+
+
+

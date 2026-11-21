@@ -1,0 +1,32 @@
+#version 460
+#include <astral/bindless.glsl>
+// Bloom downsample (Call of Duty: Advanced Warfare / RDR2 style): 13 bilinear taps in five
+// overlapping 2x2 boxes. The first level applies a Karis average against fireflies.
+layout(push_constant, scalar) uniform Push { uint src; uint dst; vec2 src_texel; uvec2 dst_size; uint first; } pc;
+layout(local_size_x = 8, local_size_y = 8) in;
+
+vec3 tap(vec2 uv) { return astral_sample(pc.src, ASTRAL_SAMPLER_LINEAR_CLAMP, uv).rgb; }
+float karis(vec3 c) { return 1.0 / (1.0 + dot(c, vec3(0.2126, 0.7152, 0.0722))); }
+
+void main() {
+    uvec2 p = gl_GlobalInvocationID.xy;
+    if (p.x >= pc.dst_size.x || p.y >= pc.dst_size.y) return;
+    vec2 uv = (vec2(p) + 0.5) / vec2(pc.dst_size);
+    vec2 t = pc.src_texel;
+    vec3 a = tap(uv + t * vec2(-2, -2)), b = tap(uv + t * vec2(0, -2)), c = tap(uv + t * vec2(2, -2));
+    vec3 d = tap(uv + t * vec2(-1, -1)), e = tap(uv + t * vec2(1, -1));
+    vec3 g = tap(uv + t * vec2(-2, 0)), h = tap(uv), i = tap(uv + t * vec2(2, 0));
+    vec3 j = tap(uv + t * vec2(-1, 1)), k = tap(uv + t * vec2(1, 1));
+    vec3 l = tap(uv + t * vec2(-2, 2)), m = tap(uv + t * vec2(0, 2)), n = tap(uv + t * vec2(2, 2));
+    vec3 boxes[5] = vec3[]((d + e + j + k) * 0.25, (a + b + g + h) * 0.25, (b + c + h + i) * 0.25,
+                           (g + h + l + m) * 0.25, (h + i + m + n) * 0.25);
+    const float weights[5] = float[](0.5, 0.125, 0.125, 0.125, 0.125);
+    vec3 sum = vec3(0);
+    float wsum = 0.0;
+    for (int q = 0; q < 5; ++q) {
+        float w = weights[q] * (pc.first != 0u ? karis(boxes[q]) : 1.0);
+        sum += boxes[q] * w;
+        wsum += w;
+    }
+    imageStore(astral_storage_images[pc.dst], ivec2(p), vec4(sum / wsum, 1));
+}

@@ -1,0 +1,39 @@
+#version 460
+#include <astral/rt.glsl>
+// DDGI: every probe casts `rays per probe` rays. Hits are lit with direct light plus the previous
+// frame's probes (so bounces accumulate over frames); misses see the sky.
+// Output per ray: rgb radiance, a hit distance (shortened for backfaces: the probe is inside geometry).
+layout(push_constant, scalar) uniform Push {
+    FrameRef frame; uint64_t tlas; Instances instances; PointLights lights; RectLights rects; SdfShapes shapes;
+    ProbeRays rays; uint irr_prev; uint dist_prev;
+} pc;
+layout(local_size_x = 64) in;
+
+void main() {
+    Frame f = pc.frame.f;
+    uint rays = f.ddgi_counts.w;
+    uint id = gl_GlobalInvocationID.x;
+    if (id >= ddgi_probe_count(f) * rays) return;
+    uint probe = id / rays, ray = id % rays;
+    vec3 origin = ddgi_probe_position(f, ddgi_probe_coord(f, probe));
+    vec3 dir = ddgi_ray_dir(ray, rays, ddgi_rotation(f.rt_counts.y));
+    uint sdf_count = f.counts.y;
+
+    TraceHit h = trace(pc.tlas, pc.shapes, sdf_count, origin, dir, f.rt_params.w);
+    vec4 result;
+    if (!h.hit) {
+        result = vec4(sky_radiance(f, dir), 1e4);
+    } else {
+        Surface s = h.sdf ? sdf_surface(pc.shapes, sdf_count, origin, dir, h.t)
+                          : triangle_surface(pc.instances, h.instance, h.prim, h.bary, origin, dir, h.t);
+        if (s.backface) {
+            result = vec4(0, 0, 0, h.t * 0.2);
+        } else {
+            uint seed = make_seed(uvec2(probe, ray), f.rt_counts.y, 7u);
+            LightingInputs li = LightingInputs(pc.tlas, pc.shapes, sdf_count, pc.lights, pc.rects);
+            vec3 radiance = shade_secondary(f, li, s, -dir, pc.irr_prev, pc.dist_prev, seed);
+            result = vec4(radiance, h.t);
+        }
+    }
+    pc.rays.data[id] = result;
+}

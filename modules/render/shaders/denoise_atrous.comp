@@ -1,0 +1,77 @@
+#version 460
+#include <astral/primary.glsl>
+// One edge-avoiding à-trous wavelet iteration (Dammertz 2010, as in SVGF) over both signals.
+// Weights: B3 spline × normal similarity × relative depth × luminance difference measured in
+// standard deviations of the pixel's temporal luminance variance (young history: wider).
+// Specular is filtered less as surfaces get smoother: mirrors stay sharp.
+layout(push_constant, scalar) uniform Push {
+    FrameRef frame; GBufferIds g;
+    uint geometry; uint diffuse; uint specular; uint out_diffuse; uint out_specular; int step; uint moments;
+} pc;
+layout(local_size_x = 8, local_size_y = 8) in;
+
+float luminance(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+
+void main() {
+    Frame f = pc.frame.f;
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = ivec2(f.screen.xy);
+    if (pixel.x >= size.x || pixel.y >= size.y) return;
+    vec4 geo = fetch_texel(pc.geometry, pixel);
+    vec4 cd = fetch_texel(pc.diffuse, pixel);
+    vec4 cs = fetch_texel(pc.specular, pixel);
+    if (geo.w < 0.0) {
+        imageStore(astral_storage_images[pc.out_diffuse], pixel, cd);
+        imageStore(astral_storage_images[pc.out_specular], pixel, cs);
+        return;
+    }
+    float roughness = fetch_texel(pc.g.albedo, pixel).a;
+    if (f.counts.y > 0u && fetch_texel(pc.g.sdf_depth, pixel).r < fetch_texel(pc.g.depth, pixel).r) {
+        roughness = fetch_texel(pc.g.sdf_albedo, pixel).a;
+    }
+    float history = max(cd.a, 1.0);
+    float lum_d = luminance(cd.rgb), lum_s = luminance(cs.rgb);
+    // Variance from the temporal moments, smoothed over 3x3 (SVGF); young pixels get a boost so
+    // the first frames are blurred harder.
+    vec2 variance = vec2(0);
+    float vw = 0.0;
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            ivec2 q = clamp(pixel + ivec2(x, y), ivec2(0), size - 1);
+            vec4 m = fetch_texel(pc.moments, q);
+            float k = (x == 0 && y == 0) ? 0.25 : ((x == 0 || y == 0) ? 0.125 : 0.0625);
+            variance += max(vec2(m.y - m.x * m.x, m.w - m.z * m.z), 0.0) * k;
+            vw += k;
+        }
+    }
+    variance /= vw;
+    float young = 4.0 / history;
+    variance += young * young * vec2(lum_d * lum_d, lum_s * lum_s);
+    float phi_d = 4.0 * sqrt(variance.x) + 1e-3, phi_s = 4.0 * sqrt(variance.y) + 1e-3;
+    // Smooth specular: shrink the kernel to nothing below roughness ~0.1.
+    float spec_extent = clamp((roughness - 0.08) * 3.0, 0.0, 1.0);
+    const float kernel[3] = float[](3.0 / 8.0, 1.0 / 4.0, 1.0 / 16.0);
+    vec3 sum_d = vec3(0), sum_s = vec3(0);
+    float w_d = 0.0, w_s = 0.0;
+    for (int y = -2; y <= 2; ++y) {
+        for (int x = -2; x <= 2; ++x) {
+            ivec2 q = pixel + ivec2(x, y) * pc.step;
+            if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, size))) continue;
+            vec4 qg = fetch_texel(pc.geometry, q);
+            if (qg.w < 0.0) continue;
+            float k = kernel[abs(x)] * kernel[abs(y)];
+            float wn = pow(max(dot(qg.xyz, geo.xyz), 0.0), 64.0);
+            float wz = exp(-abs(qg.w - geo.w) / (0.01 * geo.w * float(pc.step) + 1e-3));
+            vec3 qd = fetch_texel(pc.diffuse, q).rgb;
+            vec3 qs = fetch_texel(pc.specular, q).rgb;
+            float wl_d = exp(-abs(luminance(qd) - lum_d) / phi_d);
+            float wl_s = exp(-abs(luminance(qs) - lum_s) / phi_s);
+            float wd = k * wn * wz * wl_d;
+            float ws = (x == 0 && y == 0) ? k : k * wn * wz * wl_s * spec_extent;
+            sum_d += qd * wd; w_d += wd;
+            sum_s += qs * ws; w_s += ws;
+        }
+    }
+    imageStore(astral_storage_images[pc.out_diffuse], pixel, vec4(sum_d / max(w_d, 1e-6), cd.a));
+    imageStore(astral_storage_images[pc.out_specular], pixel, vec4(sum_s / max(w_s, 1e-6), cs.a));
+}

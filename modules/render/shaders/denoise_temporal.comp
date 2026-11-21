@@ -1,0 +1,74 @@
+#version 460
+#include <astral/primary.glsl>
+// Temporal accumulation of the noisy diffuse and specular signals (SVGF-style): reproject the
+// previous result with the pixel's world position, reject on geometry mismatch, blend with an
+// exponential moving average whose weight follows the per-pixel history length (alpha channel).
+// Also accumulates the first two luminance moments of each signal: their variance tells the
+// spatial filter how much of a neighbour's difference is noise and how much is a real edge.
+layout(push_constant, scalar) uniform Push {
+    FrameRef frame;
+    uint geometry; uint prev_geometry;
+    uint diffuse; uint specular; uint prev_diffuse; uint prev_specular;
+    uint out_diffuse; uint out_specular;
+    float max_history;
+    uint prev_moments; uint out_moments;
+} pc;
+layout(local_size_x = 8, local_size_y = 8) in;
+
+void main() {
+    Frame f = pc.frame.f;
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= int(f.screen.x) || pixel.y >= int(f.screen.y)) return;
+    vec4 geo = fetch_texel(pc.geometry, pixel);
+    vec3 d = fetch_texel(pc.diffuse, pixel).rgb;
+    vec3 sp = fetch_texel(pc.specular, pixel).rgb;
+    if (geo.w < 0.0) { // sky
+        imageStore(astral_storage_images[pc.out_diffuse], pixel, vec4(0));
+        imageStore(astral_storage_images[pc.out_specular], pixel, vec4(0));
+        imageStore(astral_storage_images[pc.out_moments], pixel, vec4(0));
+        return;
+    }
+    vec3 world = f.camera_position.xyz + camera_ray(f, pixel) * geo.w;
+    vec2 uv;
+    vec4 hist_d = vec4(0), hist_s = vec4(0), hist_m = vec4(0);
+    float history = 0.0;
+    if (f.rt_counts.z != 0u && reproject(f, world, uv)) {
+        // Bilinear footprint, each tap validated against the previous geometry.
+        vec2 size = f.screen.xy;
+        vec2 pos = uv * size - 0.5;
+        ivec2 base = ivec2(floor(pos));
+        vec2 fr = pos - vec2(base);
+        float wsum = 0.0;
+        for (int i = 0; i < 4; ++i) {
+            ivec2 tap = base + ivec2(i & 1, i >> 1);
+            if (any(lessThan(tap, ivec2(0))) || any(greaterThanEqual(tap, ivec2(size)))) continue;
+            vec4 pg = fetch_texel(pc.prev_geometry, tap);
+            if (pg.w < 0.0) continue;
+            float normal_ok = dot(pg.xyz, geo.xyz) > 0.9 ? 1.0 : 0.0;
+            float depth_ok = abs(pg.w - geo.w) < 0.05 * geo.w + 0.02 ? 1.0 : 0.0;
+            float bw = (i & 1) == 1 ? fr.x : 1.0 - fr.x;
+            bw *= (i >> 1) == 1 ? fr.y : 1.0 - fr.y;
+            float w = bw * normal_ok * depth_ok;
+            hist_d += fetch_texel(pc.prev_diffuse, tap) * w;
+            hist_s += fetch_texel(pc.prev_specular, tap) * w;
+            hist_m += fetch_texel(pc.prev_moments, tap) * w;
+            wsum += w;
+        }
+        if (wsum > 0.01) {
+            hist_d /= wsum;
+            hist_s /= wsum;
+            hist_m /= wsum;
+            history = hist_d.a;
+        }
+    }
+    history = min(history + 1.0, pc.max_history);
+    float alpha = 1.0 / history;
+    vec3 out_d = mix(hist_d.rgb, d, alpha);
+    vec3 out_s = mix(hist_s.rgb, sp, max(alpha, 0.08)); // specular reacts faster (view dependent)
+    float ld = dot(d, vec3(0.2126, 0.7152, 0.0722)), ls = dot(sp, vec3(0.2126, 0.7152, 0.0722));
+    vec4 moments = vec4(ld, ld * ld, ls, ls * ls);
+    vec4 out_m = history <= 1.0 ? moments : mix(hist_m, moments, max(alpha, 0.2));
+    imageStore(astral_storage_images[pc.out_moments], pixel, out_m);
+    imageStore(astral_storage_images[pc.out_diffuse], pixel, vec4(out_d, history));
+    imageStore(astral_storage_images[pc.out_specular], pixel, vec4(out_s, history));
+}

@@ -1,0 +1,49 @@
+#version 460
+#include <astral/primary.glsl>
+// Puts the frame back together in HDR:
+//   albedo × denoised diffuse light (direct + DDGI × RTAO) + pre-integrated BRDF × denoised specular + emission.
+// Sky pixels show the sky; rect lights are visible as glowing panels wherever they are nearest.
+layout(push_constant, scalar) uniform Push {
+    FrameRef frame; RectLights rects; GBufferIds g;
+    uint diffuse; uint specular; uint out_hdr; uint debug_view;
+} pc;
+layout(local_size_x = 8, local_size_y = 8) in;
+
+void main() {
+    Frame f = pc.frame.f;
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= int(f.screen.x) || pixel.y >= int(f.screen.y)) return;
+    vec3 dir = camera_ray(f, pixel);
+    Surface s;
+    float depth;
+    bool surface = load_primary(f, pc.g, pixel, s, depth);
+    float surface_t = surface ? length(s.p - f.camera_position.xyz) : 1e30;
+
+    vec3 color;
+    if (surface) {
+        vec3 v = -dir;
+        float nv = max(dot(s.n, v), 1e-4);
+        vec3 f0 = mix(vec3(0.04), s.albedo, s.metallic);
+        vec3 dfg = env_brdf(f0, s.roughness, nv);
+        vec3 diffuse = fetch_texel(pc.diffuse, pixel).rgb;
+        vec3 specular = fetch_texel(pc.specular, pixel).rgb;
+        color = s.albedo * diffuse + dfg * specular + s.emissive;
+        if (pc.debug_view == 1u) color = s.albedo;
+        if (pc.debug_view == 2u) color = s.n * 0.5 + 0.5;
+        if (pc.debug_view == 3u) color = diffuse;
+        if (pc.debug_view == 4u) color = dfg * specular;
+    } else {
+        color = sky_radiance(f, dir);
+    }
+    for (uint i = 0u; i < f.rt_counts.x; ++i) {
+        RectLight r = pc.rects.data[i];
+        float t = intersect_rect(r, f.camera_position.xyz, dir);
+        if (t > 0.0 && t < surface_t) {
+            color = r.radiance.rgb;
+            surface_t = t;
+        }
+    }
+    if (any(isnan(color)) || any(isinf(color))) color = vec3(50, 0, 50); // DEBUG
+    if (any(isnan(color)) || any(isinf(color))) color = vec3(0);
+    imageStore(astral_storage_images[pc.out_hdr], pixel, vec4(color, 1));
+}

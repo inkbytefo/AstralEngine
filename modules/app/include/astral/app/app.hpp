@@ -99,6 +99,7 @@ struct AppDesc {
     unsigned worker_threads = 0;  ///< 0 = hardware threads - 1.
     float physics_rate = 60.0f;   ///< Fixed physics steps per second.
     std::uint32_t max_physics_steps = 4; ///< Per frame; slower frames drop time instead of stalling.
+    RenderSettings render = {};   ///< Renderer quality/technique settings (ray tracing, GI, denoiser...).
 };
 
 /// Owns the main loop and every engine service; your Game plugs into it.
