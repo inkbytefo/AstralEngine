@@ -28,6 +28,7 @@ astral_add_module(NAME app
         Astral::Render
         Astral::Assets
         Astral::Physics
+        Astral::Audio
         Astral::ImGui)
 
 astral_add_tests(MODULE app
@@ -39,7 +40,8 @@ astral_add_tests(MODULE app
         tests/assets_app_test.cpp
         tests/scene_app_test.cpp
         tests/pack_app_test.cpp
-        tests/devtools_app_test.cpp)
+        tests/devtools_app_test.cpp
+        tests/audio_app_test.cpp)
 if(TARGET astral_app_tests)
     FetchContent_GetProperties(stb)
     target_include_directories(astral_app_tests SYSTEM PRIVATE ${stb_SOURCE_DIR})

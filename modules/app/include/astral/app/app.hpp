@@ -83,6 +83,11 @@ public:
     PhysicsWorld* physics = nullptr; ///< Always available (also headless).
     /// Always available. Paths are relative to AppDesc::asset_root. Headless: model data, no GPU resources.
     AssetManager* assets = nullptr;
+    /// Sound output (a silent mixer when headless or without a device). Always available.
+    AudioEngine* audio = nullptr;
+    /// Loads a sound by asset path once (from the pack or the asset folder) and returns it; invalid
+    /// (and logged once) if it cannot be read or decoded. ctx.audio->play(ctx.sound("sfx/hit.wav")).
+    SoundHandle sound(std::string_view path);
     /// Prefab templates (from asset documents). Always available.
     PrefabLibrary* prefabs = nullptr;
     /// CPU frame profiler: the App times its phases and every system; add your own scopes with
@@ -172,6 +177,8 @@ struct AppDesc {
     bool offscreen = false;
     /// F1 opens the debug UI (Context::show_debug_ui). Off: no ImGui at all.
     bool debug_ui = true;
+    /// Play sound on the default device (headless and offscreen always mix silently).
+    bool audio = true;
 };
 
 /// Owns the main loop and every engine service; your Game plugs into it.

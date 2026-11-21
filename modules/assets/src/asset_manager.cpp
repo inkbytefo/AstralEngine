@@ -379,4 +379,11 @@ std::uint32_t AssetManager::reloads() const noexcept { return impl_->reload_coun
 
 bool AssetManager::from_pack() const noexcept { return impl_->pack != nullptr; }
 
+std::optional<std::vector<std::uint8_t>> AssetManager::read(std::string_view relative_path, std::string* error) const {
+    std::string message;
+    auto bytes = impl_->read_bytes(std::string(relative_path), impl_->desc.root / relative_path, &message);
+    if (!bytes && error) *error = message;
+    return bytes;
+}
+
 } // namespace astral

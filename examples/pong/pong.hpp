@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <random>
+#include <string>
 
 namespace pong {
 
@@ -48,9 +49,28 @@ struct ScorePip {
 /// Follows the ball's depth (the ring that shows how far away it is).
 struct DepthMarker {};
 
+/// What the match sounds like (asset paths; empty = silent). On the court entity.
+struct Sounds {
+    std::string paddle = "sounds/paddle.wav";
+    std::string wall = "sounds/wall.wav";
+    std::string serve = "sounds/serve.wav";
+    std::string point_won = "sounds/point_won.wav";   ///< You scored.
+    std::string point_lost = "sounds/point_lost.wav";
+    std::string match_won = "sounds/match_won.wav";
+    std::string match_lost = "sounds/match_lost.wav";
+    float volume = 0.8f;
+};
+
 /// Sent when a side scores.
 struct Scored {
     Side by;
+};
+
+/// Sent when the ball is served or bounces (fixed step); sounds and effects listen to it.
+struct Bounced {
+    enum class On : std::uint8_t { Serve, Wall, Paddle } on;
+    astral::Vec3 position;
+    float speed;           ///< m/s after the bounce.
 };
 
 /// Match state (a world resource).
@@ -80,3 +100,4 @@ ASTRAL_REFLECT(pong::Paddle, side, ai, half_size, speed, reaction, accuracy)
 ASTRAL_REFLECT(pong::Ball, radius, serve_speed, max_speed, speedup, spin)
 ASTRAL_REFLECT(pong::ScorePip, side, index, color)
 ASTRAL_REFLECT_EMPTY(pong::DepthMarker)
+ASTRAL_REFLECT(pong::Sounds, paddle, wall, serve, point_won, point_lost, match_won, match_lost, volume)

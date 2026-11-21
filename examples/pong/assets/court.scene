@@ -26,6 +26,12 @@
         },
         "pong::Court": {
           "seed": 7
+        },
+        "pong::Sounds": {},
+        "astral::AudioSource": {
+          "sound": "sounds/hum.wav",
+          "volume": 0.12,
+          "spatial": false
         }
       }
     },

@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -90,6 +91,9 @@ public:
     AssetId load_document(std::string_view relative_path);
     /// Null if it failed to load (see error()).
     [[nodiscard]] const Document* document(AssetId id) const noexcept;
+
+    /// The raw bytes of any asset (sounds, custom data), from the pack or the file. Not cached.
+    std::optional<std::vector<std::uint8_t>> read(std::string_view relative_path, std::string* error = nullptr) const;
     /// The load error of a Failed asset.
     [[nodiscard]] std::string_view error(AssetId id) const noexcept;
     [[nodiscard]] std::string_view path(AssetId id) const noexcept;

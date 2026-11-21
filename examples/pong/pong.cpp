@@ -149,6 +149,7 @@ public:
         w.each<const Paddle, const Transform>([&](const Paddle& p, const Transform& t) { paddles.push_back({p, t.position}); });
 
         std::vector<Side> scored;
+        std::vector<Bounced> bounces;
         w.each<Ball, Transform>([&](Ball& b, Transform& t) {
             Vec3 v = b.velocity;
             if (v.x == 0 && v.y == 0 && v.z == 0) { // waiting for the serve
@@ -158,15 +159,18 @@ public:
                 std::uniform_real_distribution<float> sx(-0.35f, 0.35f), sy(-0.25f, 0.25f);
                 const Vec3 dir = normalize(Vec3{sx(m.rng), sy(m.rng), m.serve_to == Side::Player ? 1.0f : -1.0f});
                 b.velocity = dir * b.serve_speed;
+                bounces.push_back({Bounced::On::Serve, t.position, b.serve_speed});
                 return;
             }
             Vec3 p = t.position + v * dt;
             // Tunnel walls.
             const float lx = court.half_extents.x - b.radius, ly = court.half_extents.y - b.radius;
-            if (p.x > lx) { p.x = 2 * lx - p.x; v.x = -std::abs(v.x); }
-            if (p.x < -lx) { p.x = -2 * lx - p.x; v.x = std::abs(v.x); }
-            if (p.y > ly) { p.y = 2 * ly - p.y; v.y = -std::abs(v.y); }
-            if (p.y < -ly) { p.y = -2 * ly - p.y; v.y = std::abs(v.y); }
+            bool wall = false;
+            if (p.x > lx) { p.x = 2 * lx - p.x; v.x = -std::abs(v.x); wall = true; }
+            if (p.x < -lx) { p.x = -2 * lx - p.x; v.x = std::abs(v.x); wall = true; }
+            if (p.y > ly) { p.y = 2 * ly - p.y; v.y = -std::abs(v.y); wall = true; }
+            if (p.y < -ly) { p.y = -2 * ly - p.y; v.y = std::abs(v.y); wall = true; }
+            if (wall) bounces.push_back({Bounced::On::Wall, p, length(v)});
             // Paddles: crossing the paddle's face this step, inside its rectangle (swept: no tunnelling).
             for (const PaddleAt& pa : paddles) {
                 const float sign = pa.paddle.side == Side::Player ? 1.0f : -1.0f;
@@ -187,6 +191,7 @@ public:
                 }
                 p.z = 2 * plane - p.z;
                 ++m.rallies;
+                bounces.push_back({Bounced::On::Paddle, p, speed});
                 break;
             }
             // Past a paddle: a point for the other side.
@@ -202,6 +207,7 @@ public:
             b.velocity = v;
         });
         for (Side s : scored) w.send(Scored{s});
+        for (const Bounced& b : bounces) w.send(b);
     }
 };
 
@@ -230,6 +236,53 @@ private:
     EventReader<Scored> events_;
 };
 
+/// Plays the match: bounces at the ball (3D, faster = higher), points and results flat.
+class MatchAudio final : public System {
+public:
+    void update(Context& ctx) override {
+        World& w = ctx.world;
+        const Sounds* sounds = nullptr;
+        w.each<const Sounds>([&](const Sounds& s) { sounds = &s; });
+        if (!sounds || !ctx.audio) {
+            bounces_.read(w, [](const Bounced&) {});
+            scores_.read(w, [](const Scored&) {});
+            return;
+        }
+        const Sounds s = *sounds;
+        auto play = [&](const std::string& path, PlayDesc desc) {
+            if (path.empty()) return;
+            desc.volume *= s.volume;
+            ctx.audio->play(ctx.sound(path), desc);
+        };
+        int walls = 0;
+        bounces_.read(w, [&](const Bounced& b) {
+            const float pitch = std::clamp(0.85f + b.speed / 40.0f, 0.85f, 1.5f);
+            const PlayDesc at_ball{.pitch = pitch, .spatial = true, .position = b.position, .min_distance = 4.0f, .max_distance = 40.0f};
+            switch (b.on) {
+            case Bounced::On::Serve: play(s.serve, {.volume = 0.7f}); break;
+            case Bounced::On::Paddle: play(s.paddle, at_ball); break;
+            case Bounced::On::Wall: // a corner is two walls in one step: one click
+                if (walls++ == 0) {
+                    PlayDesc d = at_ball;
+                    d.volume = 0.7f;
+                    play(s.wall, d);
+                }
+                break;
+            }
+        });
+        const Match& m = *w.resource<Match>();
+        scores_.read(w, [&](const Scored& e) {
+            const bool won = e.by == Side::Player;
+            if (m.game_over_timer > 0) play(m.player > m.opponent ? s.match_won : s.match_lost, {.bus = AudioBus::Interface});
+            else play(won ? s.point_won : s.point_lost, {.bus = AudioBus::Interface});
+        });
+    }
+
+private:
+    EventReader<Bounced> bounces_;
+    EventReader<Scored> scores_;
+};
+
 /// The depth ring sits at the ball's depth.
 class DepthFollow final : public System {
 public:
@@ -248,12 +301,14 @@ void install(Context& ctx, bool player_ai) {
     ctx.types.add<Ball>();
     ctx.types.add<ScorePip>();
     ctx.types.add<DepthMarker>();
+    ctx.types.add<Sounds>();
     ctx.world.set_resource(Match{});
     if (!player_ai) ctx.add_system<PlayerControl>(Phase::Update);
     ctx.add_system<AiControl>(Phase::FixedUpdate, player_ai);
     ctx.add_system<BallPhysics>(Phase::FixedUpdate);
     ctx.add_system<Scoreboard>(Phase::PostUpdate);
     ctx.add_system<DepthFollow>(Phase::PostUpdate);
+    ctx.add_system<MatchAudio>(Phase::PostUpdate); // after the Scoreboard: knows when a match ends
 }
 
 const Match* match(World& world) { return world.resource<Match>(); }

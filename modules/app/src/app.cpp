@@ -36,6 +36,11 @@ struct ModelPiece {
 };
 /// Internal: this entity's MeshRenderer was made from its PrimitiveMesh.
 struct PrimitiveDrawn {};
+/// Internal: the voice an AudioSource plays.
+struct AudioVoice {
+    VoiceHandle voice;
+    std::string sound;
+};
 } // namespace
 
 struct App::Impl {
@@ -63,6 +68,9 @@ struct App::Impl {
     std::unique_ptr<PhysicsWorld> physics;
     std::unique_ptr<AssetManager> assets;
     std::unique_ptr<PrefabLibrary> prefabs;
+    std::unique_ptr<AudioEngine> audio;
+    std::unordered_map<std::string, SoundHandle> sounds; // by asset path
+    void sync_audio();
     Profiler profiler;
     Tick primitives_seen = 0;
     std::unordered_map<std::string, MaterialHandle> primitive_materials; // shared by identical descriptions
@@ -128,6 +136,8 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
     types.add<Sdf>();
     types.add<ModelRef>();
     types.add<PrimitiveMesh>();
+    types.add<AudioSource>();
+    types.add<AudioListener>();
     types.exclude<ModelPiece>();
     m.physics = std::make_unique<PhysicsWorld>(PhysicsDesc{.logger = &m.log});
     m.context->physics = m.physics.get();
@@ -192,6 +202,16 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
     });
     m.context->prefabs = m.prefabs.get();
     m.context->profiler = &m.profiler;
+    {
+        std::string error;
+        const bool device = desc.audio && !desc.headless && !desc.offscreen; // captures and tests mix silently
+        if (device) m.audio = AudioEngine::create({.logger = &m.log}, &error);
+        if (!m.audio) {
+            if (device) m.log.log(LogLevel::Warn, error + "; sound is mixed silently");
+            m.audio = AudioEngine::create({.null_device = true, .logger = &m.log}, &error);
+        }
+        m.context->audio = m.audio.get();
+    }
     if (m.renderer && desc.debug_ui) m.debug_ui = std::make_unique<DebugUi>(*m.renderer);
     m.font = Font::create(default_font_ttf());
     if (m.font && m.renderer) m.font->upload(*m.renderer);
@@ -207,6 +227,8 @@ App::~App() {
     m.context->physics = nullptr;
     m.physics.reset();
     m.debug_ui.reset(); // owns renderer textures
+    m.context->audio = nullptr;
+    m.audio.reset();
     m.context->font = nullptr;
     m.font.reset();
     m.context->prefabs = nullptr;
@@ -624,6 +646,10 @@ void App::Impl::frame(Game& game, float delta) {
         update_transforms(m.world);
         m.sync_primitives();
     }
+    {
+        ASTRAL_PROFILE_SCOPE(prof, "audio");
+        m.sync_audio();
+    }
     ASTRAL_PROFILE_SCOPE(prof, "render");
     m.draw_debug_overlays();
     m.build_debug_ui(game, delta);
@@ -712,6 +738,79 @@ std::span<const UiLayer> App::Impl::overlay_layers() {
     if (!context->hud.empty()) ui_layers[n++] = context->hud.layer();
     if (!ui_layer.commands.empty()) ui_layers[n++] = ui_layer;
     return std::span<const UiLayer>(ui_layers.data(), n);
+}
+
+SoundHandle Context::sound(std::string_view path) {
+    auto& m = *app_.impl_;
+    auto [it, inserted] = m.sounds.try_emplace(std::string(path));
+    if (!inserted) return it->second;
+    std::string error;
+    if (auto bytes = assets->read(path, &error)) {
+        it->second = audio->load(*bytes, path);
+        if (!it->second.valid()) log.log(LogLevel::Error, "sound " + std::string(path) + ": cannot decode (WAV, FLAC or MP3)");
+    } else {
+        log.log(LogLevel::Error, "sound: " + error);
+    }
+    return it->second;
+}
+
+/// AudioSource -> voices (started, moved with the entity, stopped); the listener follows its entity.
+void App::Impl::sync_audio() {
+    Context& ctx = *context;
+    auto position = [&](Entity e) {
+        const WorldTransform* w = world.get<WorldTransform>(e);
+        return w ? Vec3{w->matrix[3].x, w->matrix[3].y, w->matrix[3].z} : Vec3{};
+    };
+    // Listener: an AudioListener entity, else the first active camera.
+    bool listener = false;
+    auto listen_from = [&](const Mat4& m) {
+        const Vec3 forward = normalize(Vec3{-m[2].x, -m[2].y, -m[2].z});
+        const Vec3 up = normalize(Vec3{m[1].x, m[1].y, m[1].z});
+        audio->set_listener({m[3].x, m[3].y, m[3].z}, forward, up);
+        listener = true;
+    };
+    world.each<const AudioListener, const WorldTransform>([&](const AudioListener&, const WorldTransform& w) {
+        if (!listener) listen_from(w.matrix);
+    });
+    world.each<const Camera, const WorldTransform>([&](const Camera& c, const WorldTransform& w) {
+        if (!listener && c.active) listen_from(w.matrix);
+    });
+
+    // Removed sources stop.
+    std::vector<Entity> gone;
+    world.query<const AudioVoice>().without<AudioSource>().each([&](Entity e, const AudioVoice&) { gone.push_back(e); });
+    for (Entity e : gone) {
+        audio->stop(world.get<AudioVoice>(e)->voice, 0.05f);
+        world.remove<AudioVoice>(e);
+    }
+    std::vector<std::pair<Entity, AudioVoice>> new_voices;
+    world.each<AudioSource>([&](Entity e, AudioSource& src) {
+        AudioVoice* v = world.get<AudioVoice>(e);
+        const bool alive = v && audio->playing(v->voice);
+        if (v && (v->sound != src.sound || !src.playing)) { // stopped, or another sound
+            audio->stop(v->voice, 0.05f);
+            if (!src.playing) return;
+        }
+        if (alive && v->sound == src.sound) { // keep it in step with the component
+            audio->set_volume(v->voice, src.volume);
+            audio->set_pitch(v->voice, src.pitch);
+            if (src.spatial) audio->set_position(v->voice, position(e));
+            return;
+        }
+        if (v && v->sound == src.sound && v->voice.valid() && !alive) { // a one-shot ended
+            src.playing = false;
+            v->voice = {};
+            return;
+        }
+        if (!src.playing || src.sound.empty()) return;
+        const SoundHandle sound = ctx.sound(src.sound);
+        const VoiceHandle voice = audio->play(sound, {.bus = src.bus, .volume = src.volume, .pitch = src.pitch, .loop = src.loop,
+                                                      .spatial = src.spatial, .position = position(e),
+                                                      .min_distance = src.min_distance, .max_distance = src.max_distance});
+        new_voices.emplace_back(e, AudioVoice{voice, src.sound});
+    });
+    for (auto& [e, v] : new_voices) world.add(e, std::move(v));
+    audio->update();
 }
 
 Vec2 Context::screen_size() const {

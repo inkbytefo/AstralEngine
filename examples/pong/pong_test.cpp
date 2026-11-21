@@ -152,3 +152,31 @@ TEST_CASE("hitting off-centre bends the ball towards that side") {
     CHECK(after.x > 2.0f);
     CHECK(std::abs(after.y) < 1e-4f);
 }
+
+TEST_CASE("the match is heard: serves and bounces are events, the court sounds load and play") {
+    App app = make_app();
+    Run run;
+    int serves = 0, walls = 0, paddles = 0;
+    std::uint32_t most_voices = 0;
+    bool sounds_load = false;
+    EventReader<pong::Bounced> reader;
+    run.setup = [&](Context& ctx) {
+        const pong::Sounds s;
+        sounds_load = ctx.sound(s.paddle).valid() && ctx.sound(s.wall).valid() && ctx.sound(s.serve).valid() &&
+                      ctx.sound(s.point_won).valid() && ctx.sound(s.match_lost).valid();
+    };
+    run.each_frame = [&](Context& ctx) {
+        reader.read(ctx.world, [&](const pong::Bounced& b) {
+            (b.on == pong::Bounced::On::Serve ? serves : b.on == pong::Bounced::On::Wall ? walls : paddles) += 1;
+        });
+        most_voices = std::max(most_voices, ctx.audio->voice_count());
+        std::vector<float> mix(800 * ctx.audio->channels()); // pull audio like a device would
+        ctx.audio->read(mix);
+    };
+    app.run_frames(run, 60 * 20);
+    CHECK(sounds_load);
+    CHECK(serves >= 1);
+    CHECK(walls >= 1);
+    CHECK(paddles >= 2);
+    CHECK(most_voices >= 2); // the court hum plus effects
+}

@@ -1,9 +1,12 @@
 #pragma once
 
+#include <astral/audio/audio.hpp>
 #include <astral/core/math.hpp>
 #include <astral/physics/physics.hpp>
 #include <astral/render/renderer.hpp>
 #include <astral/world/world.hpp>
+
+#include <string>
 
 namespace astral {
 
@@ -80,6 +83,24 @@ inline Entity entity_from_user_data(std::uint64_t data) noexcept {
 /// CharacterController); bodies you create directly carry whatever user_data you gave them.
 inline Entity entity_of(const RayHit& hit) noexcept { return entity_from_user_data(hit.user_data); }
 
+/// A sound playing at the entity (positioned in 3D unless `spatial` is false). Set `playing` to
+/// start or stop it; the App clears it when a non-looping sound ends. Serializable (scene files).
+struct AudioSource {
+    std::string sound;              ///< Asset path ("sounds/fire.wav").
+    AudioBus bus = AudioBus::Ambience;
+    float volume = 1.0f;
+    float pitch = 1.0f;
+    bool loop = true;
+    bool spatial = true;
+    float min_distance = 1.0f;
+    float max_distance = 40.0f;
+    bool playing = true;
+};
+
+/// Hears the world from this entity (its WorldTransform; looks down -Z). Without one the active
+/// camera listens.
+struct AudioListener {};
+
 /// Frame timing, available to every system as ctx.time.
 struct Time {
     float fixed_delta = 1.0f / 60.0f; ///< Step length inside Phase::FixedUpdate systems.
@@ -94,3 +115,5 @@ ASTRAL_REFLECT_ENUM(astral::Primitive, Cube, Sphere, Plane)
 ASTRAL_REFLECT(astral::PrimitiveMesh, shape, material)
 ASTRAL_REFLECT(astral::Sdf, shape, order)
 ASTRAL_REFLECT(astral::Camera, fov_y, near_plane, far_plane, active)
+ASTRAL_REFLECT(astral::AudioSource, sound, bus, volume, pitch, loop, spatial, min_distance, max_distance, playing)
+ASTRAL_REFLECT_EMPTY(astral::AudioListener)
