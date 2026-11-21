@@ -59,6 +59,7 @@ eski v2'deki deferred + SDF teknikleri bu mimariye temiz yeniden yazılmış olu
 
 **Sonuç:** Jolt üzerine `Astral::Physics` (body'ler, şekiller, sensörler, CCD, raycast, temas olayları,
 karakter kontrolcüsü); App'te `RigidBody`/`CharacterController`, sabit 60 Hz adım. `examples/physics_demo`.
+İncelemenin 7 önemli bulgusu testle düzeltildi; fizik TSan altında temiz.
 Ayrıntı: [physics.md](modules/physics.md).
 
 **Bitiş kriterleri (karşılandı):** `physics_demo` (düşen kutular, raycast); fizik renderer olmadan test edilir.

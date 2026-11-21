@@ -22,7 +22,8 @@ if (auto hit = physics.raycast(origin, direction, 100.0f)) { /* hit->body, posit
 | Kontrol | `set_transform`, `move_kinematic`, `set_linear_velocity`, `add_impulse`, `add_force`, `set_gravity` |
 | Sorgu | `raycast` (sensörleri atlar, bir body'yi hariç tutabilir) |
 | Olaylar | `contacts()`: son adımdaki Begin/End temasları (sensör girişleri dahil) |
-| Karakter | kapsül karakter: zeminde durur, duvarda kayar, eğim sınırı, zıplama, dinamik body'leri iter |
+| Karakter | kapsül karakter: zeminde durur, duvarda kayar, eğim sınırı, zıplama, dinamik body'leri iter; iç body sayesinde raycast ve sensörler onu görür, karakterler birbirinin içinden geçmez |
+| Hatalı girdi | sıfır/negatif/NaN boyutlar reddedilir (geçersiz handle + log), adım taşmaları loglanır |
 
 ## App içinde
 
@@ -39,13 +40,17 @@ for (const ContactEvent& c : ctx.contacts()) { ... }
 - Fizik **sabit 60 Hz** adımla koşar (`AppDesc::physics_rate`), kare başına en fazla 4 adım; yavaş
   karelerde zaman atılır (spiral of death yok). `Phase::FixedUpdate` system'leri her adımdan önce,
   `ctx.time.fixed_delta` ile çalışır.
-- Dinamik body'ler `Transform`'u yazar; kinematik body'ler `Transform`'u takip eder.
+- Dinamik body'ler `Transform`'u yazar; kinematik body'ler `Transform`'u takip eder (hedef, karedeki
+  adımlara bölünür: düşük FPS'te sarsıntı yok).
+- `ctx.contacts()`: FixedUpdate içinde bir önceki adımın, diğer fazlarda bu karenin tüm temasları.
+- Bir component'i kopyalamak (şablondan spawn) yeni entity'ye kendi body'sini verir.
 - Karakterin konumu **ayak**; görsel mesh'i çocuk entity olarak yukarı kaydır (`examples/physics_demo`).
 
 ## Bilinen sınırlar
 
-- `RigidBody` yalnızca kök entity'lerde (Parent'sız); statik body'nin `Transform`'u sonradan değişirse
-  body taşınmaz (`set_transform` kullan).
+- `RigidBody` yalnızca kök entity'lerde (Parent'sız); `desc` yalnızca oluşturulurken okunur; statik
+  body'nin `Transform`'u sonradan değişirse body taşınmaz (`set_transform` kullan).
+- Karakterler birbirini iter (kütleye göre değil, eşit).
 - Mesh/convex hull/heightfield çarpışma şekilleri, eklemler (constraint), shape cast/overlap sorguları,
   çarpışma katmanları/filtreleri yok.
 - Jolt kendi iş parçacığı havuzunu kullanır (motorun JobSystem'iyle paylaşılmıyor).

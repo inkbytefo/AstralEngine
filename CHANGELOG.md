@@ -13,6 +13,13 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
   (`physics_rate`, `max_physics_steps`); `ctx.physics`, `ctx.contacts()`, `entity_of(RayHit)`.
 - `examples/physics_demo`; kurulan pakette Jolt bağımlılığı.
 
+### Fixed (M4 incelemesi)
+- Silinip yeniden oluşturulan body'lerde "temas bitti" olayının yanlış body'ye gitmesi.
+- Kopyalanan `RigidBody`/`CharacterController`'ın orijinalin body'sini paylaşması / orijine ışınlanması.
+- FixedUpdate system'lerinin temasları hiç görmemesi.
+- Karakterlerin raycast ve sensörlere görünmemesi, birbirinin içinden geçmesi.
+- Geçersiz boyutlarda Debug'da sessiz çökme; düşük FPS'te kinematik body'lerin sarsıntılı hareketi.
+
 ## [0.4.0] — 2026-11-21 — M3
 
 ### Added
