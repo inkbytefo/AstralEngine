@@ -19,7 +19,9 @@ sunucuda ve testlerde pencere/GPU olmadan çalışır. Kullanım rehberi: [writi
 
 ## İçeride nasıl çalışıyor
 
-- **Component kimliği** derleme zamanında tip adından hash'lenir (FNV-1a): kayıt yok, global sayaç yok.
+- **Component kimliği** tip başına benzersiz bir etiketin adresi: kayıt yok, global sayaç yok ve farklı
+  .cpp dosyalarındaki aynı isimli (anonim namespace) tipler asla çakışmaz. Kaydedilecek/ağa gidecek
+  veriler için çalıştırmalar arası sabit `component_name_hash<T>()` var.
 - **Archetype**: aynı component kümesine sahip entity'ler; her component tipi için sıkı paketlenmiş
   bir sütun (SoA). `each` sütunlar üzerinde doğrusal yürür → cache dostu, kolay paralel.
 - Component ekle/çıkar entity'yi komşu archetype'a taşır; geçişler önbellekli (archetype grafiği).
@@ -27,10 +29,15 @@ sunucuda ve testlerde pencere/GPU olmadan çalışır. Kullanım rehberi: [writi
 - Sorgular önbellekli; yeni archetype'lar oluştukça artımlı güncellenir.
 - Entity = indeks + nesil: silinen entity'nin eski handle'ı asla yeni entity'ye ulaşmaz.
 - `each` sırasında yapısal değişiklik `ASTRAL_ASSERT` ile durdurulur (sessiz bellek bozulması yerine).
+- `commands()` thread-safe: `parallel_each` içinden de kayıt yapılabilir.
+- `add`/`create` değeri önce kopyalar: dünyanın içindeki bir component'i kopyalayarak eklemek güvenli.
 
 ## Bilinen sınırlar
 
-- `update_transforms` çocukları her karede üst zincirden yeniden hesaplar (derin hiyerarşilerde O(derinlik)).
-  İleride derinliğe göre sıralı, paralel yayılım.
-- Değişiklik takibi (changed/added filtreleri), olaylar, serileştirme yok.
+- `update_transforms` tek thread'de, her entity'yi bir kez hesaplar (derinlik sınırı yok, döngüler kök
+  sayılır). İleride derinliğe göre sıralı, paralel yayılım.
+- Component kimlikleri paylaşılan kütüphaneler (DLL) arasında farklı olabilir: motor ve oyun aynı
+  ikili içinde statik linklenmeli (varsayılan).
+- Değişiklik takibi (changed/added filtreleri), `without<T>` filtresi, olaylar, serileştirme yok.
+- `commands().spawn()` oluşturulan entity'yi döndürmüyor (ertelenmiş referans yok).
 - `get<T>` dönen pointer bir sonraki yapısal değişikliğe kadar geçerli.

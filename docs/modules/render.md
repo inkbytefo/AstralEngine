@@ -14,7 +14,8 @@ renderer.render(cmd, target, camera, items, light);
 - Instanced çizim: aynı mesh'i kullanan tüm nesneler **tek draw call** (1000 küp = 1 çağrı).
 - Vertex pulling: vertex/instance/frame verisi buffer adresleriyle shader'a; vertex input yok.
 - Derinlik testi, back-face culling, Lambert + ambient yönlü ışık.
-- Kare başına veriler 3'lü halka buffer'da (en fazla 2 kare uçuşta).
+- Kare başına veriler 3'lü halka buffer'da; bir dilim, onu son okuyan GPU gönderimi bitmeden yeniden
+  yazılmaz (`CommandList::on_submitted` ile takip) — kare başına birden fazla `render()` güvenli.
 - Primitifler: `make_cube`, `make_plane`, `make_sphere`.
 
 ## Sonraki faz (M3)

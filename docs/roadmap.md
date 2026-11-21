@@ -38,7 +38,8 @@ pencere olmadan (headless/offscreen) da çalışır ve testleri CI'da yazılıms
 
 **Sonuç:** Kendi archetype ECS'imiz (cache dostu SoA, paralel sorgu, ertelenmiş komutlar, hiyerarşi),
 instanced forward renderer, `App` + `Game` + `System`; `spinning_cubes` 576 küpü component/system
-olarak yazılmış oyun koduyla çiziyor. M1 incelemesinin 1 kritik + 9 önemli bulgusu testle düzeltildi.
+olarak yazılmış oyun koduyla çiziyor. M1 incelemesinin 1 kritik + 9 önemli, M2 incelemesinin 2 kritik + 3 önemli bulgusu testle düzeltildi;
+tüm suite ASan/LSan, TSan ve `-Werror` (GCC/Clang) altında temiz.
 Rehber: [writing-a-game.md](guides/writing-a-game.md).
 
 **Bitiş kriterleri (karşılandı):** `examples/spinning_cubes`: oyun kodu yalnızca `Game` + component + system

@@ -23,6 +23,12 @@ Swapchain, Renderer, hazır mesh'ler. `Game` + `System`'ler bunlara `Context` ü
 
 Kamera: ilk aktif `Camera` component'li entity'nin `WorldTransform`'u (−Z'ye bakar); yoksa varsayılan.
 
+## Yaşam süresi
+
+`run()`/`run_frames()` App başına bir kez. Kapanışta önce system'ler yok edilir (destructor'larında
+renderer/GPU kaynağı bırakabilirler), sonra renderer, swapchain, device ve pencere. Küçültülmüş
+pencerede döngü işlemciyi yormaz.
+
 ## Bilinen sınırlar
 
 - Pencere yeniden boyutlanınca swapchain kendini yeniler; olay callback'i yok.

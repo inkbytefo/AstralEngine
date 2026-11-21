@@ -14,7 +14,7 @@ target_link_libraries(MyGame PRIVATE Astral::Gpu)
 | `Device` | GPU. Tüm kaynakların sahibi, komut listesi verir, gönderir. `Device::create()` cihaz yoksa `nullptr`. |
 | Handle'lar | `BufferHandle`, `TextureHandle`, `PipelineHandle` — ham pointer yok; silinen handle hiçbir şeye çözülmez. |
 | `CommandList` | Komut kaydı. `begin_commands()` → kaydet → `submit()` → `SubmitTicket`. |
-| `SubmitTicket` | Gönderim numarası; `wait(ticket)` / `is_complete(ticket)`. |
+| `SubmitTicket` | Gönderim numarası; `wait(ticket)` / `is_complete(ticket)`; `cmd.on_submitted(fn)` listenin numarasını bildirir. |
 | `Swapchain` | Pencereye çizim; boyut değişimini kendisi yönetir. |
 | Bindless | Texture'lar tek bir dev tabloda: shader'a sadece `bindless_index(texture)` verilir. |
 | Buffer adresleri | Shader'lar buffer'lara `buffer_address(buffer)` ile pointer gibi erişir (BDA). |

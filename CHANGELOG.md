@@ -12,12 +12,18 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 - `Astral::Render`: instanced forward renderer (vertex pulling), derinlik, yönlü ışık; küp/düzlem/küre.
 - `Astral::App`: `App`, `Game`, `System`, `Context`, fazlar, headless mod, sabit zaman adımı,
   `MeshRenderer`, `Camera`, `Time`; `<astral/astral.hpp>`.
-- `examples/spinning_cubes`, oyun yazma rehberi, `ASTRAL_ASSERT`, asan preset.
+- `examples/spinning_cubes`, oyun yazma rehberi, `ASTRAL_ASSERT`, asan preset (LSan bastırmalarıyla).
+- `CommandList::on_submitted`, kurulan pakette `astral_add_shaders`.
 
 ### Changed
 - `Swapchain::present()` artık komut listesini alıp gönderiyor: `swapchain.present(cmd)`.
 
 ### Fixed
+- World (M2 incelemesi): farklı .cpp dosyalarındaki aynı isimli component'lerin aynı depoyu paylaşması;
+  dünyadaki bir değeri kopyalarken serbest bırakılmış belleğe erişim; `parallel_each` içinden
+  `commands()` yarış durumu; derin/döngüsel hiyerarşilerde yanlış sonuç.
+- Render/App: kare halkasının GPU okurken üzerine yazılabilmesi; kapanışta system'lerin silinmiş
+  renderer'a erişmesi; `run()`'ın iki kez çağrılması.
 - GPU (M1 incelemesi): gönderilmemiş listedeki kaynağın erken silinmesi (use-after-free); pipeline
   olmadan draw/dispatch çökmesi; sınır dışı kopyalar; bırakılan listenin durum izini bozması;
   acquire/present kilitlenmeleri; WSI geçiş senkronizasyonu; Wayland'de yeniden boyutlama;
