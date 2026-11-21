@@ -7,4 +7,5 @@ astral_add_tests(MODULE core
     SOURCES
         tests/test_main.cpp
         tests/version_test.cpp
-        tests/log_test.cpp)
+        tests/log_test.cpp
+        tests/handle_test.cpp)
