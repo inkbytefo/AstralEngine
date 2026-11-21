@@ -6,6 +6,7 @@
 #include <astral/gpu/command_list.hpp>
 #include <astral/gpu/device.hpp>
 #include <astral/render/mesh.hpp>
+#include <astral/render/render_graph.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -229,6 +230,9 @@ public:
                 const RenderScene& scene);
 
     [[nodiscard]] const RenderStats& stats() const noexcept;
+    /// GPU time per render pass of a recent frame, and their total (see RenderGraph::gpu_timings).
+    [[nodiscard]] std::span<const PassTiming> gpu_timings() const noexcept;
+    [[nodiscard]] float gpu_frame_ms() const noexcept;
     /// True when frames use the ray-traced path (settings + device support).
     [[nodiscard]] bool ray_tracing() const noexcept;
     /// Forget temporal history (TAA, denoiser, GI) — call on camera cuts and teleports.

@@ -11,6 +11,7 @@ astral_add_module(NAME core
         src/math.cpp
         src/assert.cpp
         src/json.cpp
+        src/profiler.cpp
     DEPS
         Threads::Threads)
 
@@ -25,4 +26,5 @@ astral_add_tests(MODULE core
         tests/math_test.cpp
         tests/json_test.cpp
         tests/reflect_test.cpp
-        tests/bytes_test.cpp)
+        tests/bytes_test.cpp
+        tests/profiler_test.cpp)

@@ -18,6 +18,7 @@ astral_add_module(NAME gpu
         src/command_list.cpp
         src/swapchain.cpp
         src/ray_tracing.cpp
+        src/queries.cpp
         src/vma.cpp
     DEPS
         Astral::Core

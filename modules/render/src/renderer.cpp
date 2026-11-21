@@ -634,6 +634,9 @@ MaterialHandle Renderer::create_material(const MaterialDesc& desc) {
     return h;
 }
 
+std::span<const PassTiming> Renderer::gpu_timings() const noexcept { return impl_->graph.gpu_timings(); }
+float Renderer::gpu_frame_ms() const noexcept { return impl_->graph.gpu_frame_ms(); }
+
 bool Renderer::update_material(MaterialHandle material, const MaterialDesc& desc) {
     MaterialDesc* d = impl_->materials.get(material);
     if (!d) return false;

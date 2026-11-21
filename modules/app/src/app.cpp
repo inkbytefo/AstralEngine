@@ -8,6 +8,7 @@
 #include <astral/world/transform.hpp>
 
 #include <array>
+#include <typeinfo>
 #include <filesystem>
 #include <fstream>
 #include <unordered_map>
@@ -53,6 +54,7 @@ struct App::Impl {
     std::unique_ptr<PhysicsWorld> physics;
     std::unique_ptr<AssetManager> assets;
     std::unique_ptr<PrefabLibrary> prefabs;
+    Profiler profiler;
     Tick primitives_seen = 0;
     std::unordered_map<std::string, MaterialHandle> primitive_materials; // shared by identical descriptions
     gpu::TextureHandle offscreen_target;
@@ -89,6 +91,7 @@ struct App::Impl {
     void sync_primitives();
     void log_problems(std::string_view what, const std::vector<std::string>& problems);
     void step_physics(Game& game, float delta);
+    void end_frame_profile();
 
     explicit Impl(const AppDesc& d) : desc(d), jobs(d.worker_threads) {}
     bool start(Game& game);
@@ -96,6 +99,7 @@ struct App::Impl {
 };
 
 void Context::register_system(Phase phase, std::unique_ptr<System> system) {
+    system->name_ = demangle(typeid(*system).name());
     app_.impl_->systems[static_cast<std::size_t>(phase)].push_back(std::move(system));
 }
 
@@ -174,6 +178,7 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
         return SourceDocument{.json = nullptr, .version = 0, .error = std::string(m.assets->error(id))};
     });
     m.context->prefabs = m.prefabs.get();
+    m.context->profiler = &m.profiler;
 }
 
 App::~App() {
@@ -373,6 +378,7 @@ void App::Impl::sync_models() {
 /// ran at, so it does not see them next time).
 void App::run_phase(std::vector<std::unique_ptr<System>>& systems, Context& ctx) {
     for (auto& s : systems) {
+        ASTRAL_PROFILE_SCOPE(ctx.profiler, s->name_.c_str());
         ctx.world.set_change_baseline(s->last_run_);
         s->update(ctx);
         s->last_run_ = ctx.world.tick();
@@ -420,6 +426,7 @@ void App::run_frames(Game& game, std::uint32_t frames) {
         if (m.window && !m.window->poll(m.input)) break;
         const float dt = m.desc.fixed_timestep > 0 ? m.desc.fixed_timestep : m.clock.tick();
         m.frame(game, dt);
+        m.end_frame_profile();
     }
     game.on_shutdown(*m.context);
     if (m.device) m.device->wait_idle();
@@ -436,6 +443,7 @@ int App::run(Game& game) {
         }
         const float dt = m.desc.fixed_timestep > 0 ? m.desc.fixed_timestep : m.clock.tick();
         m.frame(game, dt);
+        m.end_frame_profile();
     }
     game.on_shutdown(*m.context);
     if (m.device) m.device->wait_idle();
@@ -492,7 +500,10 @@ void App::Impl::step_physics(Game&, float delta) {
     std::uint32_t steps = 0;
     while (physics_accumulator >= fixed && steps < max_steps) {
         in_fixed_update = true;
-        run_phase(systems[static_cast<std::size_t>(Phase::FixedUpdate)], ctx);
+        {
+            ASTRAL_PROFILE_SCOPE(&profiler, "FixedUpdate");
+            run_phase(systems[static_cast<std::size_t>(Phase::FixedUpdate)], ctx);
+        }
         in_fixed_update = false;
         world.apply_commands();
         sync_physics_bodies(); // FixedUpdate systems may have spawned or removed bodies
@@ -513,7 +524,10 @@ void App::Impl::step_physics(Game&, float delta) {
             physics->update_character(cc.handle, cc.move, cc.jump, fixed, cc.jump_speed);
             cc.jump = false; // one jump per press
         });
-        physics->step(fixed);
+        {
+            ASTRAL_PROFILE_SCOPE(&profiler, "physics.step");
+            physics->step(fixed);
+        }
         frame_contacts.insert(frame_contacts.end(), physics->contacts().begin(), physics->contacts().end());
         physics_accumulator -= fixed;
         ++steps;
@@ -543,31 +557,53 @@ void App::Impl::step_physics(Game&, float delta) {
 }
 
 void App::Impl::frame(Game& game, float delta) {
+    profiler.begin_frame();
+    Profiler* prof = &profiler;
     world.update_events(); // events sent last frame are still readable this frame, then dropped
-    assets->update();      // finished loads, hot reloads
-    prefabs->refresh();    // templates whose documents reloaded are rebuilt on next use
     {
+        ASTRAL_PROFILE_SCOPE(prof, "assets");
+        assets->update();      // finished loads, hot reloads
+        prefabs->refresh();    // templates whose documents reloaded are rebuilt on next use
         std::vector<std::string> problems;
         sync_prefabs(world, *prefabs, &problems); // instances spawned by code / prefabs that changed
         log_problems("prefab", problems);
+        sync_models();         // ModelRef entities get (or refresh) their pieces before any system runs
     }
-    sync_models();         // ModelRef entities get (or refresh) their pieces before any system runs
     Impl& m = *this;
     Context& ctx = *m.context;
     m.time.delta = delta;
 
-    run_phase(m.systems[static_cast<std::size_t>(Phase::PreUpdate)], ctx);
-    m.world.apply_commands();
-    game.on_update(ctx);
-    m.world.apply_commands();
-    run_phase(m.systems[static_cast<std::size_t>(Phase::Update)], ctx);
-    m.world.apply_commands();
-    m.step_physics(game, delta);
-    m.world.apply_commands();
-    run_phase(m.systems[static_cast<std::size_t>(Phase::PostUpdate)], ctx);
-    m.world.apply_commands();
-    update_transforms(m.world);
-    m.sync_primitives();
+    {
+        ASTRAL_PROFILE_SCOPE(prof, "PreUpdate");
+        run_phase(m.systems[static_cast<std::size_t>(Phase::PreUpdate)], ctx);
+        m.world.apply_commands();
+    }
+    {
+        ASTRAL_PROFILE_SCOPE(prof, "Game::on_update");
+        game.on_update(ctx);
+        m.world.apply_commands();
+    }
+    {
+        ASTRAL_PROFILE_SCOPE(prof, "Update");
+        run_phase(m.systems[static_cast<std::size_t>(Phase::Update)], ctx);
+        m.world.apply_commands();
+    }
+    {
+        ASTRAL_PROFILE_SCOPE(prof, "physics");
+        m.step_physics(game, delta);
+        m.world.apply_commands();
+    }
+    {
+        ASTRAL_PROFILE_SCOPE(prof, "PostUpdate");
+        run_phase(m.systems[static_cast<std::size_t>(Phase::PostUpdate)], ctx);
+        m.world.apply_commands();
+    }
+    {
+        ASTRAL_PROFILE_SCOPE(prof, "transforms");
+        update_transforms(m.world);
+        m.sync_primitives();
+    }
+    ASTRAL_PROFILE_SCOPE(prof, "render");
 
     const bool offscreen = m.offscreen_target.valid();
     if (m.renderer && (offscreen || (m.swapchain && !(m.window && m.window->minimized())))) {
@@ -643,5 +679,7 @@ void App::Impl::frame(Game& game, float delta) {
     m.time.elapsed += delta;
     ++m.time.frame;
 }
+
+void App::Impl::end_frame_profile() { profiler.end_frame(); }
 
 } // namespace astral

@@ -116,3 +116,26 @@ TEST_CASE("block-compressed textures upload whole 4x4 blocks per mip") {
     CHECK_FALSE(device->create_texture({.width = 8, .height = 8, .format = Format::BC7Unorm,
                                         .usage = astral::gpu::TextureUsage::ColorTarget}).valid());
 }
+
+TEST_CASE("timestamp queries measure GPU work and never block") {
+    auto device = astral::test::make_device();
+    if (!device || !device->supports(astral::gpu::Feature::Timestamps)) return;
+    auto pool = device->create_timestamp_pool(2);
+    REQUIRE(pool.valid());
+    std::uint64_t ns[2] = {};
+    CHECK_FALSE(device->read_timestamps(pool, 0, 2, ns)); // nothing written yet
+
+    auto buffer = device->create_buffer({.size = 1 << 20, .usage = astral::gpu::BufferUsage::TransferDst | astral::gpu::BufferUsage::TransferSrc});
+    auto other = device->create_buffer({.size = 1 << 20, .usage = astral::gpu::BufferUsage::TransferDst | astral::gpu::BufferUsage::TransferSrc});
+    auto cmd = device->begin_commands();
+    cmd.reset_queries(pool, 0, 2);
+    cmd.write_timestamp(pool, 0);
+    cmd.copy_buffer(buffer, other, 1 << 20);
+    cmd.write_timestamp(pool, 1);
+    device->wait(device->submit(cmd));
+    REQUIRE(device->read_timestamps(pool, 0, 2, ns));
+    CHECK(ns[1] >= ns[0]);
+    CHECK(ns[1] - ns[0] < 1'000'000'000ull); // a 1 MB copy takes far less than a second
+    CHECK_FALSE(device->read_timestamps(pool, 1, 2, ns)); // out of range
+    device->destroy(pool);
+}

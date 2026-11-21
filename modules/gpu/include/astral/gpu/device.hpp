@@ -63,7 +63,14 @@ public:
     /// Address for shaders: `accelerationStructureEXT(address)` (0 for an invalid handle).
     [[nodiscard]] std::uint64_t acceleration_structure_address(AccelerationStructureHandle as) const noexcept;
 
+    /// `count` GPU timestamps (Feature::Timestamps). Write them with CommandList::write_timestamp.
+    QueryPoolHandle create_timestamp_pool(std::uint32_t count);
+    /// Times in nanoseconds (from an arbitrary origin) of queries [first, first + count). Never waits:
+    /// false if any of them has not been written by a finished submission yet.
+    bool read_timestamps(QueryPoolHandle pool, std::uint32_t first, std::uint32_t count, std::uint64_t* out_ns);
+
     /// Destruction is deferred until the GPU finished every submission that may use it.
+    void destroy(QueryPoolHandle pool);
     void destroy(AccelerationStructureHandle as);
     void destroy(BufferHandle buffer);
     void destroy(TextureHandle texture);

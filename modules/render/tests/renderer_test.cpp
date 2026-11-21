@@ -584,3 +584,21 @@ TEST_CASE("ready-made compressed mip chains: two-channel normal maps get their Z
     broken.levels[1].pop_back();
     CHECK_FALSE(f.renderer->create_texture(broken).valid());
 }
+
+TEST_CASE("the renderer reports GPU time per pass a few frames later") {
+    Fixture f;
+    if (!f.device || !f.device->supports(gpu::Feature::Timestamps)) return;
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const MeshInstance inst{.mesh = cube, .material = {}};
+    for (int i = 0; i < 6; ++i) f.draw({.meshes = std::span(&inst, 1), .sun = front_sun});
+    const auto timings = f.renderer->gpu_timings();
+    REQUIRE_FALSE(timings.empty());
+    float sum = 0;
+    for (const PassTiming& t : timings) {
+        CHECK_FALSE(t.name.empty());
+        CHECK(t.ms >= 0.0f);
+        sum += t.ms;
+    }
+    CHECK(f.renderer->gpu_frame_ms() > 0.0f);
+    CHECK(f.renderer->gpu_frame_ms() == doctest::Approx(sum).epsilon(0.05));
+}

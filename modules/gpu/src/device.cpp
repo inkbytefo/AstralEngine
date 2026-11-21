@@ -1,5 +1,7 @@
 #include "vk_device.hpp"
 
+#include <vector>
+
 #include <astral/core/log.hpp>
 
 #include <algorithm>
@@ -69,7 +71,7 @@ bool meets_requirements(VkPhysicalDevice device) {
            f12.bufferDeviceAddress && f12.descriptorIndexing && f12.runtimeDescriptorArray &&
            f12.descriptorBindingPartiallyBound && f12.shaderSampledImageArrayNonUniformIndexing &&
            f12.descriptorBindingSampledImageUpdateAfterBind &&
-           f12.descriptorBindingStorageImageUpdateAfterBind && f12.scalarBlockLayout &&
+           f12.descriptorBindingStorageImageUpdateAfterBind && f12.scalarBlockLayout && f12.hostQueryReset &&
            f2.features.shaderInt64 && f2.features.shaderStorageImageWriteWithoutFormat;
 }
 
@@ -348,6 +350,16 @@ bool pick_physical_device(Device::Impl& s) {
     vkGetPhysicalDeviceProperties(s.physical, &props);
     s.adapter = props.deviceName;
     s.presentation = s.surface != VK_NULL_HANDLE;
+    {
+        std::uint32_t family_count = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(s.physical, &family_count, nullptr);
+        std::vector<VkQueueFamilyProperties> families(family_count);
+        vkGetPhysicalDeviceQueueFamilyProperties(s.physical, &family_count, families.data());
+        const std::uint32_t bits = s.queue_family < family_count ? families[s.queue_family].timestampValidBits : 0;
+        s.timestamps = props.limits.timestampComputeAndGraphics == VK_TRUE && bits > 0;
+        s.timestamp_period = props.limits.timestampPeriod;
+        s.timestamp_mask = bits >= 64 ? ~0ull : ((1ull << bits) - 1);
+    }
     return true;
 }
 
@@ -371,6 +383,7 @@ bool create_logical_device(Device::Impl& s) {
     f12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
     f12.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
     f12.scalarBlockLayout = VK_TRUE;
+    f12.hostQueryReset = VK_TRUE; // timestamp pools start "not available"
     VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f12};
     f2.features.shaderInt64 = VK_TRUE;
     VkPhysicalDeviceFeatures supported{};
@@ -571,6 +584,7 @@ Device::~Device() {
     s.buffers.for_each([&](BufferHandle, BufferRecord& r) { destroy_buffer_record(s, r); });
     s.textures.for_each([&](TextureHandle, TextureRecord& r) { destroy_texture_record(s, r); });
     s.accels.for_each([&](AccelerationStructureHandle, AccelRecord& r) { destroy_accel_record(s, r); });
+    s.queries.for_each([&](QueryPoolHandle, QueryRecord& r) { vkDestroyQueryPool(s.device, r.pool, nullptr); });
     s.pipelines.for_each([&](PipelineHandle, PipelineRecord& r) {
         vkDestroyPipeline(s.device, r.pipeline, nullptr);
     });
@@ -588,6 +602,7 @@ bool Device::supports(Feature feature) const noexcept {
     case Feature::Presentation: return impl_->presentation;
     case Feature::RayTracing: return impl_->ray_tracing;
     case Feature::TextureCompressionBC: return impl_->texture_compression_bc;
+    case Feature::Timestamps: return impl_->timestamps;
     case Feature::MeshShaders:
         return has_device_extension(impl_->physical, "VK_EXT_mesh_shader");
     }

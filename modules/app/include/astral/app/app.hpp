@@ -3,6 +3,7 @@
 #include <astral/app/components.hpp>
 #include <astral/core/jobs.hpp>
 #include <astral/core/log.hpp>
+#include <astral/core/profiler.hpp>
 #include <astral/platform/input.hpp>
 #include <astral/assets/asset_manager.hpp>
 #include <astral/render/renderer.hpp>
@@ -39,10 +40,14 @@ class System {
 public:
     virtual ~System() = default;
     virtual void update(Context& ctx) = 0;
+    /// Its type name ("PlayerControl"): how the profiler and debug UI show it.
+    [[nodiscard]] const std::string& name() const noexcept { return name_; }
 
 private:
     friend class App;
+    friend class Context;
     Tick last_run_ = 0;
+    std::string name_;
 };
 
 /// Your game. Override what you need; spawn entities and add systems in on_start().
@@ -77,6 +82,9 @@ public:
     AssetManager* assets = nullptr;
     /// Prefab templates (from asset documents). Always available.
     PrefabLibrary* prefabs = nullptr;
+    /// CPU frame profiler: the App times its phases and every system; add your own scopes with
+    /// ASTRAL_PROFILE_SCOPE(ctx.profiler, "name"). GPU pass times: renderer->gpu_timings().
+    Profiler* profiler = nullptr;
     BuiltinMeshes meshes{};
     /// Components that scenes, prefabs and save_world/load_world know: the engine's own (Name,
     /// Transform, Parent, Camera, PointLight, RectLight, Sdf, PrimitiveMesh, ModelRef) are registered;

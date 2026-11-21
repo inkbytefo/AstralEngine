@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <span>
+#include <string>
 #include <string_view>
 
 namespace astral {
@@ -16,6 +18,12 @@ struct RGTexture {
     std::uint32_t index = UINT32_MAX;
     [[nodiscard]] bool valid() const noexcept { return index != UINT32_MAX; }
     bool operator==(const RGTexture&) const = default;
+};
+
+/// GPU time of one pass (profiling).
+struct PassTiming {
+    std::string name;
+    float ms = 0.0f;
 };
 
 struct RGTextureDesc {
@@ -86,6 +94,14 @@ public:
         std::uint32_t transient_textures = 0; ///< Textures alive in the pool.
     };
     [[nodiscard]] const Stats& stats() const noexcept;
+
+    /// GPU time per executed pass of a recent frame. Results are read a few frames later without
+    /// waiting, so they lag slightly. Empty without gpu::Feature::Timestamps or when profiling is off.
+    [[nodiscard]] std::span<const PassTiming> gpu_timings() const noexcept;
+    /// Sum of gpu_timings() (first pass start to last pass end).
+    [[nodiscard]] float gpu_frame_ms() const noexcept;
+    /// On by default when the device has timestamps (cost: two queries per pass).
+    void set_profiling(bool enabled) noexcept;
 
     struct Impl;
     /// Bindless index of `t` (used by PassContext).

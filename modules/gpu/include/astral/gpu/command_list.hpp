@@ -85,6 +85,11 @@ public:
     /// is dropped). Lets a system know when the GPU finished with data it recorded.
     void on_submitted(std::function<void(SubmitTicket)> callback);
 
+    /// Queries must be reset (outside rendering) before they are written again.
+    void reset_queries(QueryPoolHandle pool, std::uint32_t first, std::uint32_t count);
+    /// Timestamp once every command recorded before it has finished.
+    void write_timestamp(QueryPoolHandle pool, std::uint32_t index);
+
     void begin_debug_label(const char* name);
     void end_debug_label();
 

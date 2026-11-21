@@ -1,5 +1,7 @@
 #include <astral/render/render_graph.hpp>
 
+#include <array>
+
 #include <string>
 #include <vector>
 
@@ -86,6 +88,33 @@ struct RenderGraph::Impl {
     std::uint64_t frame = 0;
     Stats stats;
 
+    // Profiling: a ring of timestamp pools, read back (never waited for) when the slot comes round.
+    static constexpr std::size_t timing_ring = 4;
+    static constexpr std::uint32_t max_timed_passes = 128;
+    struct TimingSlot {
+        gpu::QueryPoolHandle pool;
+        std::vector<std::string> names;
+        bool pending = false;
+    };
+    std::array<TimingSlot, timing_ring> timing_slots;
+    std::size_t timing_slot = 0;
+    bool profiling = true;
+    std::vector<PassTiming> timings;
+    float timing_total = 0.0f;
+    std::vector<std::uint64_t> stamps;
+
+    void collect(TimingSlot& t) {
+        if (!t.pending || t.names.empty()) return;
+        stamps.resize(t.names.size() + 1);
+        if (!device.read_timestamps(t.pool, 0, static_cast<std::uint32_t>(stamps.size()), stamps.data())) return;
+        t.pending = false;
+        timings.clear();
+        for (std::size_t i = 0; i < t.names.size(); ++i) {
+            timings.push_back({t.names[i], static_cast<float>(static_cast<double>(stamps[i + 1] - stamps[i]) * 1e-6)});
+        }
+        timing_total = static_cast<float>(static_cast<double>(stamps.back() - stamps.front()) * 1e-6);
+    }
+
     explicit Impl(gpu::Device& d) : device(d) {}
     void add(void* pass, RGTexture t, Access a) {
         if (!t.valid() || t.index >= resources.size()) {
@@ -169,6 +198,17 @@ RenderGraph::RenderGraph(gpu::Device& device) : impl_(std::make_unique<Impl>(dev
 
 RenderGraph::~RenderGraph() {
     for (auto& e : impl_->pool) impl_->device.destroy(e.texture);
+    for (auto& t : impl_->timing_slots) impl_->device.destroy(t.pool);
+}
+
+std::span<const PassTiming> RenderGraph::gpu_timings() const noexcept { return impl_->timings; }
+float RenderGraph::gpu_frame_ms() const noexcept { return impl_->timing_total; }
+void RenderGraph::set_profiling(bool enabled) noexcept {
+    impl_->profiling = enabled;
+    if (!enabled) {
+        impl_->timings.clear();
+        impl_->timing_total = 0.0f;
+    }
 }
 
 void RenderGraph::begin_frame() {
@@ -243,7 +283,24 @@ void RenderGraph::execute(gpu::CommandList& cmd) {
         if (!r.imported && r.usage != gpu::TextureUsage::None) r.texture = m.acquire(r);
     }
 
-    // 3. Record.
+    // 3. Record (with a timestamp before the first live pass and after each one when profiling).
+    Impl::TimingSlot* timing = nullptr;
+    if (m.profiling && m.device.supports(gpu::Feature::Timestamps)) {
+        m.timing_slot = (m.timing_slot + 1) % Impl::timing_ring;
+        timing = &m.timing_slots[m.timing_slot];
+        if (!timing->pool.valid()) timing->pool = m.device.create_timestamp_pool(Impl::max_timed_passes + 1);
+        m.collect(*timing); // this slot's previous frame, if the GPU finished it
+        // Any slot that finished since then too: the newest available result wins.
+        for (std::size_t k = 1; k < Impl::timing_ring; ++k) m.collect(m.timing_slots[(m.timing_slot + k) % Impl::timing_ring]);
+        if (timing->pool.valid()) {
+            timing->names.clear();
+            timing->pending = false;
+            cmd.reset_queries(timing->pool, 0, Impl::max_timed_passes + 1);
+            cmd.write_timestamp(timing->pool, 0);
+        } else {
+            timing = nullptr;
+        }
+    }
     for (Pass& p : m.passes) {
         if (!p.alive) {
             ++m.stats.passes_culled;
@@ -271,7 +328,12 @@ void RenderGraph::execute(gpu::CommandList& cmd) {
         if (raster) cmd.end_rendering();
         cmd.end_debug_label();
         ++m.stats.passes_executed;
+        if (timing && timing->names.size() < Impl::max_timed_passes) {
+            timing->names.push_back(p.name);
+            cmd.write_timestamp(timing->pool, static_cast<std::uint32_t>(timing->names.size()));
+        }
     }
+    if (timing) timing->pending = !timing->names.empty();
 
     for (const auto& r : m.resources) {
         if (r.imported && r.final_state != gpu::ResourceState::Undefined) cmd.transition(r.texture, r.final_state);

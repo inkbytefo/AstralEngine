@@ -46,6 +46,11 @@ struct AccelRecord {
     std::uint32_t max_instances = 0; ///< 0 for a BLAS.
 };
 
+struct QueryRecord {
+    VkQueryPool pool = VK_NULL_HANDLE;
+    std::uint32_t count = 0;
+};
+
 struct Device::Impl {
     Logger* logger = nullptr;
 
@@ -91,6 +96,10 @@ struct Device::Impl {
     HandlePool<TextureRecord, TextureTag> textures;
     HandlePool<PipelineRecord, PipelineTag> pipelines;
     HandlePool<AccelRecord, AccelerationStructureTag> accels;
+    HandlePool<QueryRecord, QueryPoolTag> queries;
+    bool timestamps = false;
+    double timestamp_period = 1.0;      ///< Nanoseconds per tick.
+    std::uint64_t timestamp_mask = ~0ull; ///< Valid bits of a timestamp.
 
     // Ray tracing (VK_KHR_acceleration_structure + VK_KHR_ray_query), when supported.
     bool ray_tracing = false;

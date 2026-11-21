@@ -21,6 +21,9 @@ using PipelineHandle = Handle<PipelineTag>;
 struct AccelerationStructureTag;
 /// A ray tracing acceleration structure (bottom level: geometry, top level: instances).
 using AccelerationStructureHandle = Handle<AccelerationStructureTag>;
+struct QueryPoolTag;
+/// A pool of GPU timestamp queries (profiling).
+using QueryPoolHandle = Handle<QueryPoolTag>;
 
 /// Monotonic submission id. `Device::wait(ticket)` blocks until that submission finished.
 struct SubmitTicket {
@@ -120,6 +123,7 @@ enum class Feature : std::uint8_t {
     Presentation,        ///< Device can present to a window surface.
     RayTracing,  ///< Acceleration structures + ray queries in any shader (GLSL_EXT_ray_query).
     TextureCompressionBC, ///< BC5/BC7 textures can be sampled (every desktop GPU).
+    Timestamps,           ///< GPU timestamp queries (profiling).
     MeshShaders,
 };
 
