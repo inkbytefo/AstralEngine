@@ -2,7 +2,8 @@ astral_add_module(NAME core
     SOURCES
         src/version.cpp
         src/log.cpp
-        src/clock.cpp)
+        src/clock.cpp
+        src/jobs.cpp)
 
 astral_add_tests(MODULE core
     SOURCES
@@ -10,4 +11,5 @@ astral_add_tests(MODULE core
         tests/version_test.cpp
         tests/log_test.cpp
         tests/handle_test.cpp
-        tests/clock_test.cpp)
+        tests/clock_test.cpp
+        tests/jobs_test.cpp)
