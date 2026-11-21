@@ -156,3 +156,23 @@ MyGame game;
 app.run_frames(game, 120);           // 2 saniye
 CHECK(app.world().count<Enemy>() == 0);
 ```
+
+## Değişiklikler, olaylar, kaydetme
+
+```cpp
+struct Health { int value = 100; };
+ASTRAL_REFLECT(Health, value)                       // kaydedilebilir yapar (global kapsamda)
+
+class HealthBar final : public System {
+    void update(Context& ctx) override {
+        // Yalnız bu sistem son çalıştığından beri değişen canlar:
+        ctx.world.query<const Health>().changed<Health>().each([](Entity e, const Health& h) { /* UI güncelle */ });
+    }
+};
+
+ctx.world.send(Damage{target, 30});                 // olay gönder; EventReader<Damage> ile oku
+ctx.types.add<Health>();
+Json save = save_world(ctx.world, ctx.types);       // save.dump(2) → dosyaya
+```
+
+Salt okuduğun component'i `const` yaz (`each<const Health>`): const olmayan erişim "değişti" sayılır.

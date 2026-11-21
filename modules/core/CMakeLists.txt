@@ -10,6 +10,7 @@ astral_add_module(NAME core
         src/jobs.cpp
         src/math.cpp
         src/assert.cpp
+        src/json.cpp
     DEPS
         Threads::Threads)
 
@@ -21,4 +22,6 @@ astral_add_tests(MODULE core
         tests/handle_test.cpp
         tests/clock_test.cpp
         tests/jobs_test.cpp
-        tests/math_test.cpp)
+        tests/math_test.cpp
+        tests/json_test.cpp
+        tests/reflect_test.cpp)

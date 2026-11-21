@@ -4,6 +4,22 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-11-21 — M5a (ECS tamamlama)
+
+### Added
+- Core: `Json` (sıra koruyan, istisnasız, hata konumlu ayrıştırıcı; tam geri dönüşen sayılar),
+  `ASTRAL_REFLECT` / `ASTRAL_REFLECT_EMPTY`, `for_each_field`, `stable_hash`.
+- World: satır başına eklenme/değişme tick'leri; `query<...>()` builder (`with`, `without`, `added`,
+  `changed`, `each`, `parallel_each`, `count`); `tick`/`advance_tick`/`set_change_baseline`/`clear_trackers`;
+  olaylar (`send`, `Events<T>`, `EventReader<T>`, `update_events`); `for_each_entity`;
+  `TypeRegistry`, `save_world`, `load_world` (entity referansları yeniden eşlenir).
+- App: sistem başına değişiklik referansı, kare başı olay yaşlandırma, `ctx.types` (motor component'leri kayıtlı).
+- Render/App veri tiplerine reflection (`PointLight`, `RectLight`, `SdfShape`, `Sdf`, `Camera`, `MaterialDesc`…).
+
+### Changed
+- Const olmayan erişim (`each<T>`, `get<T>`, değer değiştiren `add`) component'i değişmiş olarak işaretler;
+  salt okuma için `const T` kullanın.
+
 ## [0.7.0] — 2026-11-21 — Render API v2
 
 ### Changed (kırıcı)

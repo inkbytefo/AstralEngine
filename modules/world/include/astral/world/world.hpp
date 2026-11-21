@@ -21,6 +21,45 @@ namespace astral {
 
 class World;
 class EntityRef;
+template <class... Cs> class QueryView;
+
+/// Change-detection clock. Writes stamp rows with World::tick(); filters compare against the
+/// world's change baseline. 32 bits: ~4 billion system runs before it wraps.
+using Tick = std::uint32_t;
+
+/// Queue of events of one type, owned by the world as a resource (World::send / EventReader).
+/// Events live for two World::update_events() calls, so every system gets a chance to read them.
+template <class T> class Events {
+public:
+    void send(T event) { current_.push_back({next_id_++, std::move(event)}); }
+    /// Drops events older than one update.
+    void update() {
+        previous_ = std::move(current_);
+        current_.clear();
+    }
+    /// Calls fn for events with id >= cursor (oldest first) and moves the cursor past them.
+    template <class Fn> std::size_t read(std::uint64_t& cursor, Fn&& fn) const {
+        std::size_t n = 0;
+        for (const auto* list : {&previous_, &current_}) {
+            for (const Item& item : *list) {
+                if (item.id < cursor) continue;
+                fn(item.value);
+                ++n;
+            }
+        }
+        cursor = next_id_;
+        return n;
+    }
+    [[nodiscard]] std::size_t size() const noexcept { return previous_.size() + current_.size(); }
+
+private:
+    struct Item {
+        std::uint64_t id;
+        T value;
+    };
+    std::vector<Item> previous_, current_;
+    std::uint64_t next_id_ = 0;
+};
 
 /// Structural changes recorded now and applied later with World::apply_commands().
 /// Use it inside each()/parallel_each(), where the world must not change shape.
@@ -82,14 +121,40 @@ public:
     template <class T> [[nodiscard]] bool has(Entity entity) const noexcept;
 
     // Queries -----------------------------------------------------------------------------
+    /// A filtered query: `world.query<Pos, const Vel>().without<Frozen>().changed<Vel>().each(fn)`.
+    template <class... Cs> [[nodiscard]] QueryView<Cs...> query();
     /// Calls fn(Cs&...) or fn(Entity, Cs&...) for every entity having all of Cs.
-    /// Declare read-only access as `const T`. No structural changes inside: use commands().
+    /// Declare read-only access as `const T`: non-const access marks the component changed.
+    /// No structural changes inside: use commands().
     template <class... Cs, class Fn> void each(Fn&& fn);
     /// Same as each(), split across the job system. fn must only touch its own entity's data.
     template <class... Cs, class Fn>
     void parallel_each(JobSystem& jobs, Fn&& fn, std::size_t batch = 1024);
     /// Number of entities that have all of Cs.
     template <class... Cs> [[nodiscard]] std::size_t count();
+
+    // Change detection -----------------------------------------------------------------------
+    /// Current tick: writes are stamped with it.
+    [[nodiscard]] Tick tick() const noexcept { return tick_; }
+    void advance_tick() noexcept { ++tick_; }
+    /// added<T>()/changed<T>() filters match rows stamped after this tick.
+    void set_change_baseline(Tick tick) noexcept { baseline_ = tick; }
+    [[nodiscard]] Tick change_baseline() const noexcept { return baseline_; }
+    /// Simple mode: "changes since the previous clear_trackers()". (App instead gives every
+    /// system its own baseline: changes since that system last ran.)
+    void clear_trackers() noexcept {
+        baseline_ = tick_;
+        ++tick_;
+    }
+
+    // Events -------------------------------------------------------------------------------
+    template <class T> void send(T event);
+    /// Ages every event queue by one update (App calls it once per frame).
+    void update_events();
+
+    // Generic access (serialization, tools) -------------------------------------------------
+    /// Calls fn(Entity) for every living entity. No structural changes inside.
+    template <class Fn> void for_each_entity(Fn&& fn) const;
 
     // Deferred changes ----------------------------------------------------------------------
     Commands& commands() noexcept { return commands_; }
@@ -100,6 +165,7 @@ public:
     template <class T> [[nodiscard]] T* resource() noexcept;
 
 private:
+    template <class... Cs> friend class QueryView;
     struct Slot {
         detail::Archetype* archetype = nullptr;
         std::uint32_t row = 0;
@@ -130,12 +196,10 @@ private:
     std::size_t move_entity(Entity entity, Slot& s, detail::Archetype* to);
     void place(Entity entity, detail::Archetype* archetype, std::size_t row);
     void fix_moved(Entity moved, std::size_t row);
-    Query& query(std::vector<ComponentId> ids);
+    Query& find_query(std::vector<ComponentId> ids);
+    void mark_changed(Slot& s, ComponentId id) noexcept;
     void check_not_iterating(const char* operation) const;
 
-    template <class... Cs, class Fn, std::size_t... I>
-    static void run_rows(detail::Archetype& a, Fn& fn, std::size_t begin, std::size_t end,
-                         std::index_sequence<I...>);
 
     std::vector<Slot> slots_;
     std::vector<std::uint32_t> free_slots_;
@@ -147,6 +211,43 @@ private:
     std::unordered_map<ComponentId, Resource> resources_;
     Commands commands_;
     int iterating_ = 0;
+    Tick tick_ = 1;
+    Tick baseline_ = 0;
+    std::vector<std::pair<ComponentId, void (*)(void*)>> event_updaters_;
+};
+
+/// Builder over World::each with filters. Cheap to create; build it where you use it.
+/// with<T>: must have T (not passed to fn) · without<T>: must not have T ·
+/// added<T>/changed<T>: T was added / mutably accessed after the world's change baseline.
+template <class... Cs> class QueryView {
+public:
+    explicit QueryView(World& world) : world_(world) {}
+    template <class T> QueryView& with() { with_.push_back(component_id<T>()); return *this; }
+    template <class T> QueryView& without() { without_.push_back(component_id<T>()); return *this; }
+    template <class T> QueryView& added() {
+        with_.push_back(component_id<T>());
+        added_.push_back(component_id<T>());
+        return *this;
+    }
+    template <class T> QueryView& changed() {
+        with_.push_back(component_id<T>());
+        changed_.push_back(component_id<T>());
+        return *this;
+    }
+
+    template <class Fn> void each(Fn&& fn);
+    template <class Fn> void parallel_each(JobSystem& jobs, Fn&& fn, std::size_t batch = 1024);
+    [[nodiscard]] std::size_t count();
+
+private:
+    /// Archetypes that have every component and none of the excluded ones.
+    template <class Visit> void for_matches(Visit&& visit);
+    template <class Fn, std::size_t... I>
+    void run_rows(detail::Archetype& a, Fn& fn, std::size_t begin, std::size_t end, std::index_sequence<I...>);
+    bool row_passes(detail::Archetype& a, std::size_t row) const noexcept;
+
+    World& world_;
+    std::vector<ComponentId> with_, without_, added_, changed_;
 };
 
 /// Convenience wrapper: `world.spawn().add(Transform{}).add(Health{})`.
@@ -168,6 +269,20 @@ public:
 private:
     World* world_;
     Entity entity_;
+};
+
+/// Reads events of type T sent with World::send: every reader sees every event once, as long as
+/// it reads at least once per two World::update_events() calls.
+template <class T> class EventReader {
+public:
+    /// Calls fn(const T&) for each unread event; returns how many.
+    template <class Fn> std::size_t read(World& world, Fn&& fn) {
+        const Events<T>* events = world.resource<Events<T>>();
+        return events ? events->read(cursor_, std::forward<Fn>(fn)) : 0;
+    }
+
+private:
+    std::uint64_t cursor_ = 0;
 };
 
 // ===================================================================================== //
@@ -198,7 +313,7 @@ template <class... Cs> Entity World::create(Cs&&... components) {
         std::tuple<std::remove_cvref_t<Cs>...> values(std::forward<Cs>(components)...);
         detail::Archetype* a = archetype_for({&component_info<Cs>()...});
         Entity e = allocate_entity();
-        const std::size_t row = a->push(e);
+        const std::size_t row = a->push(e, tick_);
         std::apply(
             [&](auto&... v) {
                 ((::new (a->column_data(component_id<decltype(v)>()) + row * sizeof(v))
@@ -218,7 +333,7 @@ template <class T> std::remove_cvref_t<T>& World::add(Entity entity, T&& compone
     ASTRAL_ASSERT(s, "add() on a dead entity");
     // Copy first: `component` may live inside a column that the move below reallocates.
     C value(std::forward<T>(component));
-    if (C* existing = get<C>(entity)) {
+    if (C* existing = get<C>(entity)) { // get<C> (non-const) marks it changed
         *existing = std::move(value);
         return *existing;
     }
@@ -240,7 +355,13 @@ template <class T> T* World::get(Entity entity) noexcept {
     if (!s) return nullptr;
     std::byte* column = s->archetype->column_data(component_id<T>());
     if (!column) return nullptr;
+    if constexpr (!std::is_const_v<T>) mark_changed(*s, component_id<T>()); // mutable access = change
     return std::launder(reinterpret_cast<T*>(column + s->row * sizeof(std::remove_cvref_t<T>)));
+}
+
+inline void World::mark_changed(Slot& s, ComponentId id) noexcept {
+    const int c = s.archetype->column_of(id);
+    if (c >= 0) s.archetype->column(static_cast<std::size_t>(c)).changed[s.row] = tick_;
 }
 
 template <class T> bool World::has(Entity entity) const noexcept {
@@ -248,46 +369,108 @@ template <class T> bool World::has(Entity entity) const noexcept {
     return s && s->archetype->contains(component_id<T>());
 }
 
-template <class... Cs, class Fn, std::size_t... I>
-void World::run_rows(detail::Archetype& a, Fn& fn, std::size_t begin, std::size_t end,
-                     std::index_sequence<I...>) {
+template <class... Cs> QueryView<Cs...> World::query() { return QueryView<Cs...>(*this); }
+
+template <class... Cs, class Fn> void World::each(Fn&& fn) { query<Cs...>().each(std::forward<Fn>(fn)); }
+
+template <class... Cs, class Fn>
+void World::parallel_each(JobSystem& jobs, Fn&& fn, std::size_t batch) {
+    query<Cs...>().parallel_each(jobs, std::forward<Fn>(fn), batch);
+}
+
+template <class... Cs> std::size_t World::count() { return query<Cs...>().count(); }
+
+template <class Fn> void World::for_each_entity(Fn&& fn) const {
+    for (std::uint32_t i = 0; i < slots_.size(); ++i) {
+        if (slots_[i].alive) fn(Entity{i, slots_[i].generation});
+    }
+}
+
+template <class T> void World::send(T event) {
+    auto* events = resource<Events<T>>();
+    if (!events) {
+        events = &set_resource(Events<T>{});
+        event_updaters_.emplace_back(component_id<Events<T>>(), [](void* p) { static_cast<Events<T>*>(p)->update(); });
+    }
+    events->send(std::move(event));
+}
+
+// --- QueryView ---------------------------------------------------------------------------------
+
+template <class... Cs> template <class Visit> void QueryView<Cs...>::for_matches(Visit&& visit) {
+    std::vector<ComponentId> ids{component_id<Cs>()...};
+    ids.insert(ids.end(), with_.begin(), with_.end());
+    std::sort(ids.begin(), ids.end());
+    ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+    for (detail::Archetype* a : world_.find_query(std::move(ids)).matches) {
+        if (a->size() == 0) continue;
+        const bool excluded = std::any_of(without_.begin(), without_.end(), [a](ComponentId id) { return a->contains(id); });
+        if (!excluded) visit(*a);
+    }
+}
+
+template <class... Cs>
+bool QueryView<Cs...>::row_passes(detail::Archetype& a, std::size_t row) const noexcept {
+    const Tick since = world_.baseline_;
+    for (ComponentId id : added_) {
+        if (a.column(static_cast<std::size_t>(a.column_of(id))).added[row] <= since) return false;
+    }
+    for (ComponentId id : changed_) {
+        if (a.column(static_cast<std::size_t>(a.column_of(id))).changed[row] <= since) return false;
+    }
+    return true;
+}
+
+template <class... Cs>
+template <class Fn, std::size_t... I>
+void QueryView<Cs...>::run_rows(detail::Archetype& a, Fn& fn, std::size_t begin, std::size_t end,
+                                std::index_sequence<I...>) {
     std::array<std::byte*, sizeof...(Cs)> columns{a.column_data(component_id<Cs>())...};
+    // Change ticks of the components accessed mutably (nullptr for const ones).
+    std::array<std::uint32_t*, sizeof...(Cs)> stamps{
+        (std::is_const_v<Cs> ? nullptr : a.column(static_cast<std::size_t>(a.column_of(component_id<Cs>()))).changed)...};
+    const bool filtered = !added_.empty() || !changed_.empty();
+    const Tick now = world_.tick_;
     Entity* entities = a.entities();
     for (std::size_t row = begin; row < end; ++row) {
+        if (filtered && !row_passes(a, row)) continue;
+        ((stamps[I] ? (void)(stamps[I][row] = now) : (void)0), ...);
         if constexpr (std::is_invocable_v<Fn&, Entity, Cs&...>) {
-            fn(entities[row], *std::launder(reinterpret_cast<Cs*>(
-                                  columns[I] + row * sizeof(std::remove_cvref_t<Cs>)))...);
+            fn(entities[row], *std::launder(reinterpret_cast<Cs*>(columns[I] + row * sizeof(std::remove_cvref_t<Cs>)))...);
         } else {
             fn(*std::launder(reinterpret_cast<Cs*>(columns[I] + row * sizeof(std::remove_cvref_t<Cs>)))...);
         }
     }
 }
 
-template <class... Cs, class Fn> void World::each(Fn&& fn) {
-    Query& q = query({component_id<Cs>()...});
-    IterationGuard guard(*this);
-    for (detail::Archetype* a : q.matches) {
-        run_rows<Cs...>(*a, fn, 0, a->size(), std::index_sequence_for<Cs...>{});
-    }
+template <class... Cs> template <class Fn> void QueryView<Cs...>::each(Fn&& fn) {
+    World::IterationGuard guard(world_);
+    for_matches([&](detail::Archetype& a) { run_rows(a, fn, 0, a.size(), std::index_sequence_for<Cs...>{}); });
 }
 
-template <class... Cs, class Fn>
-void World::parallel_each(JobSystem& jobs, Fn&& fn, std::size_t batch) {
-    Query& q = query({component_id<Cs>()...});
-    IterationGuard guard(*this);
+template <class... Cs>
+template <class Fn>
+void QueryView<Cs...>::parallel_each(JobSystem& jobs, Fn&& fn, std::size_t batch) {
+    World::IterationGuard guard(world_);
     JobCounter counter;
-    for (detail::Archetype* a : q.matches) {
-        if (a->size() == 0) continue;
-        jobs.parallel_for(counter, a->size(), batch, [a, &fn](std::size_t begin, std::size_t end) {
-            run_rows<Cs...>(*a, fn, begin, end, std::index_sequence_for<Cs...>{});
+    for_matches([&](detail::Archetype& a) {
+        jobs.parallel_for(counter, a.size(), batch, [this, &a, &fn](std::size_t begin, std::size_t end) {
+            run_rows(a, fn, begin, end, std::index_sequence_for<Cs...>{});
         });
-    }
+    });
     jobs.wait(counter);
 }
 
-template <class... Cs> std::size_t World::count() {
+template <class... Cs> std::size_t QueryView<Cs...>::count() {
     std::size_t total = 0;
-    for (detail::Archetype* a : query({component_id<Cs>()...}).matches) total += a->size();
+    const bool filtered = !added_.empty() || !changed_.empty();
+    for_matches([&](detail::Archetype& a) {
+        if (!filtered) {
+            total += a.size();
+            return;
+        }
+        for (std::size_t row = 0; row < a.size(); ++row) total += row_passes(a, row) ? 1 : 0;
+    });
     return total;
 }
 

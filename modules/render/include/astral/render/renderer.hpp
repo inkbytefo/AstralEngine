@@ -2,6 +2,7 @@
 
 #include <astral/core/handle.hpp>
 #include <astral/core/math.hpp>
+#include <astral/core/reflect.hpp>
 #include <astral/gpu/command_list.hpp>
 #include <astral/gpu/device.hpp>
 #include <astral/render/mesh.hpp>
@@ -202,3 +203,10 @@ private:
 };
 
 } // namespace astral
+
+ASTRAL_REFLECT(astral::SdfShape, primitive, operation, position, rotation, size, blend, color, roughness, metallic)
+ASTRAL_REFLECT(astral::PointLight, position, color, intensity, radius, source_radius)
+ASTRAL_REFLECT(astral::RectLight, position, right, up, color, intensity, two_sided)
+ASTRAL_REFLECT(astral::DirectionalLight, direction, color, intensity, shadows, angular_radius)
+ASTRAL_REFLECT(astral::Environment, sky, ground, ambient, exposure)
+ASTRAL_REFLECT(astral::MaterialDesc, base_color, roughness, metallic, emissive)

@@ -78,3 +78,6 @@ struct Time {
 };
 
 } // namespace astral
+
+ASTRAL_REFLECT(astral::Sdf, shape, order)
+ASTRAL_REFLECT(astral::Camera, fov_y, near_plane, far_plane, active)

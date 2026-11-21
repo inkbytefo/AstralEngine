@@ -11,8 +11,8 @@ Durum: ✅ bitti · 🚧 sürüyor · 🔜 sıradaki · ⬜ planlı
 | M4 | `Astral::Physics` (Jolt) | ✅ |
 | M3.5 | Fotogerçekçi render: RT (ray query), DDGI, RT yansıma/gölge, alan ışıkları, denoise, TAA, bloom | ✅ |
 | M3.6 | Render API v2: materyal handle'ları, nesne başına hareket vektörü, çalışma anında ayarlar | ✅ |
-| M5a | ECS tamamlama: reflection, `without`/`added`/`changed`, olaylar, serileştirme | 🔜 |
-| M5b | `Astral::Assets`: AssetId, async yükleme, hot-reload, glTF, texture'lı materyal | ⬜ |
+| M5a | ECS tamamlama: reflection, `without`/`added`/`changed`, olaylar, serileştirme | ✅ |
+| M5b | `Astral::Assets`: AssetId, async yükleme, hot-reload, glTF, texture'lı materyal | 🔜 |
 | M5c | Sahne + prefab (JSON yazım, ikili çalışma zamanı) | ⬜ |
 | M6 | Paketleme: `astral-cook`, `.apak`, `astral_add_game` | ⬜ |
 | M7 | İlk oyun dikey dilimi (kılıç arenası prototipi) | ⬜ |
@@ -94,6 +94,15 @@ renk taşması ve SDF katılımı testlerle doğrulanır; validation temiz; RT y
 **Sonuç:** Kaynak/kare ayrımı netleşti: mesh ve materyal paylaşılan handle'lar, kare verisi saf `RenderScene`.
 Materyal tablosu raster ve RT yollarında ortak. G-buffer hız hedefi; App transform geçmişini kendisi tutar.
 `set_settings` ile çalışma anında teknik değişimi. 27 render testi (materyal, ayar, hareket dahil).
+
+## M5a — ECS tamamlama ✅
+
+**Sonuç:** ECS yeniden yazılmadı, üstü tamamlandı: değişiklik takibi (satır başına tick, sistem başına referans),
+filtreli sorgular, olaylar, reflection ve JSON ile dünya kaydet/yükle (entity referansları yeniden eşlenir).
+Core'a bağımlılıksız `Json` ve `ASTRAL_REFLECT`. ThreadSanitizer temiz. Ayrıntı: [world.md](modules/world.md).
+
+**Bitiş kriterleri (karşılandı):** bir dünya JSON'a kaydedilip başka bir dünyaya yüklenir ve yeniden kaydedildiğinde
+bayt bayt aynı belgeyi verir; App sistemleri `changed<T>()` ile yalnız kendi görmedikleri değişiklikleri görür.
 
 ## M5 — Asset'ler
 

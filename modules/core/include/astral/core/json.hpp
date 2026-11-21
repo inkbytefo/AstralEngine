@@ -1,0 +1,84 @@
+#pragma once
+// A small JSON value for engine data (scenes, prefabs, settings): human-readable, diffable,
+// easy for tools and AI to read and write. Objects keep insertion order so saved files diff cleanly.
+// Not a high-throughput parser: shipped games load cooked binary data instead.
+
+#include <cstddef>
+#include <cstdint>
+#include <initializer_list>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <variant>
+#include <vector>
+
+namespace astral {
+
+class Json {
+public:
+    enum class Type : std::uint8_t { Null, Bool, Number, String, Array, Object };
+    using Array = std::vector<Json>;
+    using Object = std::vector<std::pair<std::string, Json>>;
+
+    Json() noexcept = default;
+    Json(std::nullptr_t) noexcept {}
+    Json(bool b) noexcept : value_(b) {}
+    Json(double n) noexcept : value_(n) {}
+    Json(int n) noexcept : value_(static_cast<double>(n)) {}
+    Json(std::int64_t n) noexcept : value_(static_cast<double>(n)) {}
+    Json(std::uint32_t n) noexcept : value_(static_cast<double>(n)) {}
+    Json(std::uint64_t n) noexcept : value_(static_cast<double>(n)) {}
+    Json(float n) noexcept : value_(static_cast<double>(n)) {}
+    Json(const char* s) : value_(std::string(s)) {}
+    Json(std::string s) noexcept : value_(std::move(s)) {}
+    Json(std::string_view s) : value_(std::string(s)) {}
+
+    static Json array(std::initializer_list<Json> items = {});
+    static Json object();
+
+    [[nodiscard]] Type type() const noexcept { return static_cast<Type>(value_.index()); }
+    [[nodiscard]] bool is_null() const noexcept { return type() == Type::Null; }
+    [[nodiscard]] bool is_bool() const noexcept { return type() == Type::Bool; }
+    [[nodiscard]] bool is_number() const noexcept { return type() == Type::Number; }
+    [[nodiscard]] bool is_string() const noexcept { return type() == Type::String; }
+    [[nodiscard]] bool is_array() const noexcept { return type() == Type::Array; }
+    [[nodiscard]] bool is_object() const noexcept { return type() == Type::Object; }
+
+    // Reads never throw: a wrong type gives the fallback.
+    [[nodiscard]] bool as_bool(bool fallback = false) const noexcept;
+    [[nodiscard]] double as_number(double fallback = 0.0) const noexcept;
+    [[nodiscard]] const std::string& as_string() const noexcept;
+    [[nodiscard]] const Array& as_array() const noexcept;
+    [[nodiscard]] const Object& as_object() const noexcept;
+    /// Elements of an array or members of an object; 0 otherwise.
+    [[nodiscard]] std::size_t size() const noexcept;
+
+    /// Member lookup; nullptr if absent or not an object.
+    [[nodiscard]] const Json* find(std::string_view key) const noexcept;
+    /// Missing member / index / wrong type: a shared null value.
+    const Json& operator[](std::string_view key) const noexcept;
+    const Json& operator[](std::size_t index) const noexcept;
+    const Json& operator[](int index) const noexcept { return (*this)[static_cast<std::size_t>(index)]; }
+    // Non-const index reads: without these, `doc[0]` on a non-const Json would also match the
+    // const char* key overload (0 is a null pointer constant) and be ambiguous.
+    const Json& operator[](std::size_t index) noexcept { return static_cast<const Json&>(*this)[index]; }
+    const Json& operator[](int index) noexcept { return static_cast<const Json&>(*this)[static_cast<std::size_t>(index)]; }
+    /// Member access that inserts (turns a null into an object first).
+    Json& operator[](std::string_view key);
+    Json& operator[](const char* key) { return (*this)[std::string_view(key)]; }
+    /// Appends (turns a null into an array first).
+    void push_back(Json value);
+
+    /// Compact (indent < 0... = 0) or pretty-printed with `indent` spaces.
+    [[nodiscard]] std::string dump(int indent = 0) const;
+    /// nullopt on invalid input; `error` gets "line L, column C: message".
+    static std::optional<Json> parse(std::string_view text, std::string* error = nullptr);
+
+    friend bool operator==(const Json& a, const Json& b) noexcept { return a.value_ == b.value_; }
+
+private:
+    std::variant<std::nullptr_t, bool, double, std::string, Array, Object> value_{nullptr};
+};
+
+} // namespace astral

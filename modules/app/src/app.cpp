@@ -78,6 +78,12 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
     auto& m = *impl_;
     m.log.add_sink(std::make_shared<ConsoleSink>());
     m.context.reset(new Context(m.world, m.input, m.time, m.log, m.jobs, *this));
+    TypeRegistry& types = m.context->types;
+    register_world_types(types);
+    types.add<Camera>();
+    types.add<PointLight>();
+    types.add<RectLight>();
+    types.add<Sdf>();
     m.physics = std::make_unique<PhysicsWorld>(PhysicsDesc{.logger = &m.log});
     m.context->physics = m.physics.get();
     m.time.fixed_delta = 1.0f / std::max(desc.physics_rate, 1.0f);
@@ -144,9 +150,20 @@ const Time& App::time() const noexcept { return impl_->time; }
 
 namespace {
 
-void run_phase(std::vector<std::unique_ptr<System>>& systems, Context& ctx) {
-    for (auto& s : systems) s->update(ctx);
+} // namespace
+
+/// Each system sees changes made since it last ran (its own writes are stamped with the tick it
+/// ran at, so it does not see them next time).
+void App::run_phase(std::vector<std::unique_ptr<System>>& systems, Context& ctx) {
+    for (auto& s : systems) {
+        ctx.world.set_change_baseline(s->last_run_);
+        s->update(ctx);
+        s->last_run_ = ctx.world.tick();
+        ctx.world.advance_tick();
+    }
 }
+
+namespace {
 
 /// Builds the camera from the first active Camera entity (or a default one).
 CameraData find_camera(World& world, float aspect) {
@@ -309,6 +326,7 @@ void App::Impl::step_physics(Game&, float delta) {
 }
 
 void App::Impl::frame(Game& game, float delta) {
+    world.update_events(); // events sent last frame are still readable this frame, then dropped
     Impl& m = *this;
     Context& ctx = *m.context;
     m.time.delta = delta;

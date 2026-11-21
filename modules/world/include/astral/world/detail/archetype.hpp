@@ -15,10 +15,13 @@ using Entity = Handle<EntityTag>;
 
 namespace astral::detail {
 
-/// One column of a component type: tightly packed values, one per entity row.
+/// One column of a component type: tightly packed values, one per entity row, plus the tick at
+/// which each row's value was added and last changed (change detection).
 struct Column {
     const ComponentInfo* info = nullptr;
     std::byte* data = nullptr;
+    std::uint32_t* added = nullptr;
+    std::uint32_t* changed = nullptr;
 };
 
 /// All entities with exactly the same set of components, stored structure-of-arrays.
@@ -43,9 +46,11 @@ public:
     [[nodiscard]] std::byte* at(std::size_t column, std::size_t row) noexcept {
         return columns_[column].data + row * columns_[column].info->size;
     }
+    [[nodiscard]] Column& column(std::size_t c) noexcept { return columns_[c]; }
 
-    /// Appends an uninitialised row for `entity`; the caller constructs every column value.
-    std::size_t push(Entity entity);
+    /// Appends an uninitialised row for `entity` (every column stamped added/changed at `tick`);
+    /// the caller constructs every column value.
+    std::size_t push(Entity entity, std::uint32_t tick);
     /// Destroys the row's values and fills the hole with the last row.
     /// Returns the entity that moved into `row`, or an invalid handle if none moved.
     Entity remove(std::size_t row);

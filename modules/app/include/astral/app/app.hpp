@@ -5,6 +5,7 @@
 #include <astral/core/log.hpp>
 #include <astral/platform/input.hpp>
 #include <astral/render/renderer.hpp>
+#include <astral/world/serialize.hpp>
 #include <astral/world/world.hpp>
 
 #include <cstdint>
@@ -28,10 +29,15 @@ class Context;
 enum class Phase : std::uint8_t { PreUpdate, Update, FixedUpdate, PostUpdate };
 
 /// Game logic that runs every frame. Read and write components through ctx.world.
+/// Inside update(), `added<T>()`/`changed<T>()` query filters mean "since this system last ran".
 class System {
 public:
     virtual ~System() = default;
     virtual void update(Context& ctx) = 0;
+
+private:
+    friend class App;
+    Tick last_run_ = 0;
 };
 
 /// Your game. Override what you need; spawn entities and add systems in on_start().
@@ -63,6 +69,9 @@ public:
     Renderer* renderer = nullptr;
     PhysicsWorld* physics = nullptr; ///< Always available (also headless).
     BuiltinMeshes meshes{};
+    /// Components that save_world/load_world know: the engine's own (Transform, Parent, Camera,
+    /// PointLight, RectLight, Sdf) are registered; add your ASTRAL_REFLECT'ed ones with types.add<T>().
+    TypeRegistry types;
     DirectionalLight sun{};   ///< The sun (direction, color, shadows).
     Environment environment{}; ///< Sky/ground ambient and exposure.
 
@@ -138,6 +147,7 @@ public:
 private:
     friend class Context;
     struct Impl;
+    static void run_phase(std::vector<std::unique_ptr<System>>& systems, Context& ctx);
     std::unique_ptr<Impl> impl_;
 };
 

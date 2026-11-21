@@ -25,6 +25,8 @@ Archetype::~Archetype() {
     }
     for (auto& column : columns_) {
         ::operator delete(column.data, std::align_val_t{column.info->align});
+        delete[] column.added;
+        delete[] column.changed;
     }
 }
 
@@ -51,14 +53,29 @@ void Archetype::grow() {
         }
         ::operator delete(column.data, std::align_val_t{info.align});
         column.data = fresh;
+        auto* added = new std::uint32_t[new_capacity];
+        auto* changed = new std::uint32_t[new_capacity];
+        if (!entities_.empty()) {
+            std::memcpy(added, column.added, entities_.size() * sizeof(std::uint32_t));
+            std::memcpy(changed, column.changed, entities_.size() * sizeof(std::uint32_t));
+        }
+        delete[] column.added;
+        delete[] column.changed;
+        column.added = added;
+        column.changed = changed;
     }
     capacity_ = new_capacity;
 }
 
-std::size_t Archetype::push(Entity entity) {
+std::size_t Archetype::push(Entity entity, std::uint32_t tick) {
     if (entities_.size() == capacity_) grow();
+    const std::size_t row = entities_.size();
+    for (auto& column : columns_) {
+        column.added[row] = tick;
+        column.changed[row] = tick;
+    }
     entities_.push_back(entity);
-    return entities_.size() - 1;
+    return row;
 }
 
 Entity Archetype::remove(std::size_t row) {
@@ -69,6 +86,8 @@ Entity Archetype::remove(std::size_t row) {
         if (row != last) {
             info.move_construct(at(c, row), at(c, last));
             info.destroy(at(c, last));
+            columns_[c].added[row] = columns_[c].added[last];
+            columns_[c].changed[row] = columns_[c].changed[last];
         }
     }
     Entity moved{};
@@ -156,7 +175,7 @@ void World::fix_moved(Entity moved, std::size_t row) {
 Entity World::create() {
     check_not_iterating("create");
     Entity e = allocate_entity();
-    place(e, root_, root_->push(e));
+    place(e, root_, root_->push(e, tick_));
     return e;
 }
 
@@ -214,20 +233,24 @@ detail::Archetype* World::without_component(detail::Archetype* from, ComponentId
 std::size_t World::move_entity(Entity entity, Slot& s, detail::Archetype* to) {
     detail::Archetype* from = s.archetype;
     const std::size_t from_row = s.row;
-    const std::size_t to_row = to->push(entity);
-    // Relocate shared components; from->remove() then destroys the moved-from husks and any
-    // component the destination does not have.
+    const std::size_t to_row = to->push(entity, tick_);
+    // Relocate shared components (keeping their change ticks); from->remove() then destroys the
+    // moved-from husks and any component the destination does not have.
     for (std::size_t c = 0; c < from->column_count(); ++c) {
         const ComponentInfo& info = *from->infos()[c];
         const int dst = to->column_of(info.id);
-        if (dst >= 0) info.move_construct(to->at(static_cast<std::size_t>(dst), to_row), from->at(c, from_row));
+        if (dst < 0) continue;
+        const auto d = static_cast<std::size_t>(dst);
+        info.move_construct(to->at(d, to_row), from->at(c, from_row));
+        to->column(d).added[to_row] = from->column(c).added[from_row];
+        to->column(d).changed[to_row] = from->column(c).changed[from_row];
     }
     fix_moved(from->remove(from_row), from_row);
     place(entity, to, to_row);
     return to_row;
 }
 
-World::Query& World::query(std::vector<ComponentId> ids) {
+World::Query& World::find_query(std::vector<ComponentId> ids) {
     std::sort(ids.begin(), ids.end());
     auto [it, inserted] = queries_.try_emplace(ids);
     Query& q = it->second;
@@ -240,6 +263,12 @@ World::Query& World::query(std::vector<ComponentId> ids) {
         if (match) q.matches.push_back(a);
     }
     return q;
+}
+
+void World::update_events() {
+    for (auto& [id, update] : event_updaters_) {
+        if (auto it = resources_.find(id); it != resources_.end()) update(it->second.ptr);
+    }
 }
 
 void World::apply_commands() {

@@ -16,6 +16,22 @@ target_link_libraries(MyGame PRIVATE Astral::Core)
 | `astral/core/clock.hpp` | `Clock`, `ITimeSource`, `SteadyTimeSource` |
 | `astral/core/jobs.hpp` | `JobSystem`, `JobCounter` |
 | `astral/core/math.hpp` | `Vec2/3/4`, `Mat4`, `Quat`, `perspective`, `look_at`, `inverse`… |
+| `astral/core/json.hpp` | `Json`: sahne/prefab/ayar verisi için küçük JSON (sıra korunur, istisna atmaz) |
+| `astral/core/reflect.hpp` | `ASTRAL_REFLECT(Tip, alanlar...)`: derleme zamanı alan listesi, kalıcı ad/kimlik |
+
+## Reflection ve JSON
+
+```cpp
+struct Health { int value = 100; float regen = 0; };
+ASTRAL_REFLECT(Health, value, regen)          // global kapsamda, tipten sonra; en çok 32 alan
+astral::for_each_field<Health>([&](const auto& f) { /* f.name, obj.*(f.member) */ });
+Reflect<Health>::name  // "Health" — dosyalardaki kimlik; derleyiciden bağımsız
+```
+
+- Kimlik makroya **yazıldığı gibi** ad: `ASTRAL_REFLECT(game::Health, …)` → `"game::Health"`. Tipi yeniden
+  adlandırmak = dosyalardaki anahtarı değiştirmek.
+- `Json`: nesneler ekleme sırasını korur (kaydedilen dosyalar temiz diff'lenir); okuma yanlış tipte varsayılan
+  döner; `Json::parse` hatada satır/sütun verir; sayılar en kısa ve tam geri dönüşen biçimde yazılır.
 
 ## Logger
 

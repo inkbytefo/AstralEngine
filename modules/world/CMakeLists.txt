@@ -2,6 +2,7 @@ astral_add_module(NAME world
     SOURCES
         src/world.cpp
         src/transform.cpp
+        src/serialize.cpp
     DEPS
         Astral::Core)
 
@@ -12,4 +13,6 @@ astral_add_tests(MODULE world
         tests/transform_test.cpp
         tests/review_test.cpp
         tests/collision_a.cpp
-        tests/collision_b.cpp)
+        tests/collision_b.cpp
+        tests/query_test.cpp
+        tests/serialize_test.cpp)

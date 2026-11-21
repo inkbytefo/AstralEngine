@@ -43,3 +43,11 @@ pencerede döngü işlemciyi yormaz.
 ## Bilinen sınırlar
 
 - Pencere yeniden boyutlanınca swapchain kendini yeniler; olay callback'i yok.
+
+## ECS entegrasyonu (M5a)
+
+- Her `System::update` öncesi dünyanın değişiklik referansı o sistemin son çalışma tick'ine ayarlanır:
+  sistem içinde `query<...>().changed<T>()` = "bu sistem son çalıştığından beri".
+- Kare başında `world.update_events()`; `ctx.world.send(...)` / `EventReader<T>`.
+- `ctx.types`: `astral::Transform`, `Parent`, `Camera`, `PointLight`, `RectLight`, `Sdf` kayıtlı;
+  oyun kendi component'lerini `ctx.types.add<T>()` ile ekler. `save_world(ctx.world, ctx.types)`.
