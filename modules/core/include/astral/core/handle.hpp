@@ -18,14 +18,15 @@ template <class Tag> struct Handle {
     constexpr bool operator==(const Handle&) const noexcept = default;
 };
 
-/// Dense slot storage addressed by Handle<T>. Freed slots are reused; each reuse
+/// Dense slot storage addressed by Handle<Tag> (Tag defaults to T; a separate tag lets a
+/// module keep its record type private while handing out a public handle type). Freed slots are reused; each reuse
 /// bumps the slot's generation so outstanding handles to the old object fail to resolve.
 /// Not thread-safe: synchronize externally if shared.
 /// Pointers returned by get() are invalidated by a later create() (storage may grow).
 /// Generations are 32-bit: a slot reused 2^32-1 times wraps (practically never).
-template <class T> class HandlePool {
+template <class T, class Tag = T> class HandlePool {
 public:
-    using HandleType = Handle<T>;
+    using HandleType = Handle<Tag>;
 
     HandleType create(T value) {
         std::uint32_t index;
@@ -67,6 +68,15 @@ public:
     }
 
     [[nodiscard]] std::size_t size() const noexcept { return size_; }
+
+    /// Calls fn(handle, value&) for every live object. Do not create/destroy inside fn.
+    template <class Fn> void for_each(Fn&& fn) {
+        for (std::uint32_t i = 0; i < slots_.size(); ++i) {
+            if (slots_[i].value) {
+                fn(HandleType{i, slots_[i].generation}, *slots_[i].value);
+            }
+        }
+    }
 
 private:
     struct Slot {

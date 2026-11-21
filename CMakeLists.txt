@@ -13,6 +13,7 @@ option(ASTRAL_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(AstralWarnings)
 include(AstralModule)
+include(AstralShaders)
 
 if(ASTRAL_BUILD_TESTS)
     enable_testing()
@@ -27,6 +28,7 @@ endif()
 
 # Modules — order follows the dependency layers (lower first).
 add_subdirectory(modules/core)
+add_subdirectory(modules/gpu)
 
 if(ASTRAL_BUILD_EXAMPLES)
     add_subdirectory(examples)

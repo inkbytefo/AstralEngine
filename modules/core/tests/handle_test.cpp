@@ -54,3 +54,30 @@ TEST_CASE("handle from an out-of-range index is rejected") {
     CHECK(pool.get(bogus) == nullptr);
     CHECK_FALSE(pool.destroy(bogus));
 }
+
+TEST_CASE("pool can use a separate tag type for its handles") {
+    struct Record {
+        int value;
+    };
+    struct PublicTag;
+    HandlePool<Record, PublicTag> pool;
+    Handle<PublicTag> h = pool.create(Record{5});
+    REQUIRE(pool.get(h) != nullptr);
+    CHECK(pool.get(h)->value == 5);
+}
+
+TEST_CASE("for_each visits only live objects") {
+    HandlePool<int> pool;
+    auto a = pool.create(1);
+    pool.create(2);
+    pool.create(3);
+    pool.destroy(a);
+    int sum = 0;
+    int visits = 0;
+    pool.for_each([&](Handle<int>, int& v) {
+        sum += v;
+        ++visits;
+    });
+    CHECK(visits == 2);
+    CHECK(sum == 5);
+}

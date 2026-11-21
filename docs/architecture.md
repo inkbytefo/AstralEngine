@@ -15,7 +15,9 @@ while (window.poll()) {
 }
 ```
 
-`Astral::App` ileride bu döngüyü hazır sunan **opsiyonel** bir yardımcı olacak.
+Oyunlar ise genellikle bu döngüyü elle yazmaz: üstteki `Astral::App` katmanı döngünün sahibi olur,
+oyun `Game` + component + system yazar ([ADR-0006](decisions/0006-app-layer-for-games.md)).
+Alt katman her zaman doğrudan kullanılabilir kalır.
 
 ## Katmanlar
 

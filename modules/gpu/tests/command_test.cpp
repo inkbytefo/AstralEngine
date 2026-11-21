@@ -1,0 +1,106 @@
+#include "gpu_test_support.hpp"
+
+#include <shaders/fill.comp.hpp>
+#include <shaders/solid.frag.hpp>
+#include <shaders/triangle.vert.hpp>
+
+#include <array>
+#include <cstdint>
+#include <vector>
+
+using namespace astral;
+
+TEST_CASE("compute shader fills a buffer through its device address") {
+    auto device = test::make_device();
+    if (!device) return;
+    constexpr std::uint32_t count = 1000;
+    auto buffer = device->create_buffer({.size = count * 4, .usage = gpu::BufferUsage::Storage});
+    auto pipeline = device->create_compute_pipeline({.shader = {shaders::fill_comp}});
+    REQUIRE(pipeline.valid());
+
+    struct Push {
+        std::uint64_t address;
+        std::uint32_t count;
+    } push{device->buffer_address(buffer), count};
+
+    auto cmd = device->begin_commands();
+    cmd.bind_pipeline(pipeline);
+    cmd.push_constants(&push, sizeof(push));
+    cmd.dispatch((count + 63) / 64);
+    device->wait(device->submit(cmd));
+
+    std::vector<std::uint32_t> out(count);
+    REQUIRE(device->read_buffer(buffer, out.data(), count * 4));
+    CHECK(out[0] == 0);
+    CHECK(out[1] == 2);
+    CHECK(out[999] == 1998);
+}
+
+TEST_CASE("graphics pipeline draws a triangle into an offscreen target") {
+    auto device = test::make_device();
+    if (!device) return;
+    constexpr std::uint32_t size = 64;
+    auto target = device->create_texture({.width = size, .height = size,
+                                          .format = gpu::Format::RGBA8Unorm,
+                                          .usage = gpu::TextureUsage::ColorTarget |
+                                                   gpu::TextureUsage::TransferSrc});
+    auto readback = device->create_buffer({.size = size * size * 4,
+                                           .usage = gpu::BufferUsage::TransferDst,
+                                           .memory = gpu::MemoryUsage::GpuToCpu});
+    auto pipeline = device->create_graphics_pipeline({
+        .vertex = {shaders::triangle_vert},
+        .fragment = {shaders::solid_frag},
+        .color_formats = {gpu::Format::RGBA8Unorm},
+    });
+    REQUIRE(pipeline.valid());
+
+    const std::array<float, 4> red{1, 0, 0, 1};
+    auto cmd = device->begin_commands();
+    cmd.transition(target, gpu::ResourceState::ColorTarget);
+    cmd.begin_rendering({.color = {{.texture = target, .load = gpu::LoadOp::Clear,
+                                    .clear = {0, 0, 1, 1}}}});
+    cmd.bind_pipeline(pipeline);
+    cmd.push_constants(red.data(), sizeof(red));
+    cmd.draw(3);
+    cmd.end_rendering();
+    cmd.transition(target, gpu::ResourceState::TransferSrc);
+    cmd.copy_texture_to_buffer(target, readback);
+    device->wait(device->submit(cmd));
+
+    std::vector<std::uint32_t> pixels(size * size);
+    REQUIRE(device->read_buffer(readback, pixels.data(), pixels.size() * 4));
+    const std::uint32_t center = pixels[(size / 2) * size + size / 2];
+    const std::uint32_t corner = pixels[0];
+    CHECK(center == 0xFF0000FFu); // RGBA8 little-endian: R in the low byte
+    CHECK(corner == 0xFFFF0000u); // blue clear
+}
+
+TEST_CASE("destroying a resource while the GPU uses it is deferred safely") {
+    auto device = test::make_device();
+    if (!device) return;
+    auto buffer = device->create_buffer({.size = 4096, .usage = gpu::BufferUsage::Storage});
+    auto pipeline = device->create_compute_pipeline({.shader = {shaders::fill_comp}});
+    struct Push {
+        std::uint64_t address;
+        std::uint32_t count;
+    } push{device->buffer_address(buffer), 1024};
+    auto cmd = device->begin_commands();
+    cmd.bind_pipeline(pipeline);
+    cmd.push_constants(&push, sizeof(push));
+    cmd.dispatch(16);
+    auto ticket = device->submit(cmd);
+    device->destroy(buffer); // GPU may still be running: must not free memory yet
+    device->wait(ticket);
+    device->wait_idle();
+    CHECK(true);
+}
+
+TEST_CASE("command lists can be recorded and submitted repeatedly") {
+    auto device = test::make_device();
+    if (!device) return;
+    for (int i = 0; i < 20; ++i) {
+        auto cmd = device->begin_commands();
+        device->wait(device->submit(cmd));
+    }
+    CHECK(true);
+}

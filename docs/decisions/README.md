@@ -10,3 +10,4 @@ ADR eskisini "yerini aldı" diye işaretler.
 | [0003](0003-vulkan-only-own-rhi.md) | Kendi RHI'mız, ilk ve tek backend Vulkan 1.3 | Kabul |
 | [0004](0004-helping-wait-own-group.md) | Yardımlı `wait()` sadece kendi grubunu çalıştırır | Kabul |
 | [0005](0005-own-ecs.md) | Kendi ECS'imiz; EnTT kullanılmaz | Kabul |
+| [0006](0006-app-layer-for-games.md) | Oyunlar App + Game + System ile yazılır | Kabul |

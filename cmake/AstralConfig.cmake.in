@@ -2,6 +2,9 @@
 
 include(CMakeFindDependencyMacro)
 find_dependency(Threads)
+if("Gpu" IN_LIST Astral_FIND_COMPONENTS)
+    find_dependency(Vulkan 1.3)
+endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/AstralTargets.cmake")
 
