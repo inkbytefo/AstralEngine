@@ -1,0 +1,187 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+// Deferred lighting: one pass for meshes and SDFs alike.
+// Sun (shadow map for mesh casters + SDF soft shadows), point lights, image-based
+// ambient from the procedural sky, SDF ambient occlusion, emissive, sky background.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+#include "include/Lighting.glsl"
+#include "include/Scene.glsl"
+#define SHAPE_BINDING  13
+#define VOLUME_BINDING 14
+#include "include/Sdf.glsl"
+
+layout(set = 0, binding = 0) uniform FrameUBO { FrameData frame; };
+layout(set = 0, binding = 1, rgba8) uniform readonly image2D gbAlbedoMetal;
+layout(set = 0, binding = 2, rgba16f) uniform readonly image2D gbNormalRough;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D gbEmissive;
+layout(set = 0, binding = 4, r32ui) uniform readonly uimage2D gbObjectId;
+layout(set = 0, binding = 5, r32f) uniform readonly image2D sceneDepth;
+layout(set = 0, binding = 6, rg32f) uniform readonly image2D gbMotion;
+layout(set = 0, binding = 7) uniform sampler2D shadowMap;
+layout(set = 0, binding = 8) uniform samplerCube irradianceMap;
+layout(set = 0, binding = 9) uniform samplerCube prefilteredMap;
+layout(set = 0, binding = 10) uniform sampler2D brdfLut;
+layout(std430, set = 0, binding = 11) readonly buffer Lights { PointLight lights[]; };
+layout(set = 0, binding = 12, rgba16f) uniform writeonly image2D hdrOut;
+layout(set = 0, binding = 15, r32ui) uniform readonly uimage3D sparseMap;
+layout(set = 0, binding = 16) uniform sampler3D brickAtlas;
+
+// ---------------- SDF field (brick volume) ----------------
+float FieldDistance(vec3 p, out bool isBrick) {
+    isBrick = false;
+    ivec3 cell = ivec3(floor((p - VolumeMin()) / CellSize()));
+    if (any(lessThan(cell, ivec3(0))) || any(greaterThanEqual(cell, ivec3(vol.gridDim.xyz)))) {
+        vec3 c = 0.5 * (VolumeMin() + VolumeMax());
+        return max(sdBox(p - c, 0.5 * (VolumeMax() - VolumeMin()), 0.0), CellSize());
+    }
+    uint v = imageLoad(sparseMap, cell).r;
+    if ((v & BRICK_FLAG) == 0u) return max(uintBitsToFloat(v), 0.5 * CellSize());
+    isBrick = true;
+    uvec3 b = BrickAtlasCoord(v & BRICK_MASK);
+    vec3 local = clamp((p - CellMin(uvec3(cell))) / VoxelSize(), vec3(0.0), vec3(BRICK_SAMPLES - 1));
+    vec3 uvw = (vec3(b * uint(BRICK_SAMPLES)) + local + 0.5) / vec3(vol.atlasBricks.xyz * uint(BRICK_SAMPLES));
+    return textureLod(brickAtlas, uvw, 0.0).r;
+}
+
+float SdfSoftShadow(vec3 ro, vec3 rd, float maxT) {
+    float res = 1.0;
+    float t = 0.05;
+    for (int i = 0; i < 48 && t < maxT; ++i) {
+        bool isBrick;
+        float h = FieldDistance(ro + rd * t, isBrick);
+        if (isBrick) {
+            if (h < 0.002) return 0.0;
+            res = min(res, 10.0 * h / t);
+        }
+        t += clamp(h, 0.02, 2.0);
+    }
+    return clamp(res, 0.0, 1.0);
+}
+
+float SdfAmbientOcclusion(vec3 p, vec3 n) {
+    float occ = 0.0, scale = 1.0;
+    for (int i = 1; i <= 5; ++i) {
+        float h = 0.06 * float(i);
+        bool isBrick;
+        float d = FieldDistance(p + n * h, isBrick);
+        if (isBrick) occ += (h - clamp(d, 0.0, h)) * scale;
+        scale *= 0.7;
+    }
+    return clamp(1.0 - 2.5 * occ, 0.0, 1.0);
+}
+
+// ---------------- Shadow map (mesh casters) ----------------
+float ShadowMapVisibility(vec3 worldPos, vec3 N) {
+    vec3 offsetPos = worldPos + N * frame.shadowParams.x * 1.5;
+    vec4 clip = frame.shadowViewProj * vec4(offsetPos, 1.0);
+    vec3 ndc = clip.xyz / clip.w;
+    vec2 uv = ndc.xy * 0.5 + 0.5;
+    if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0))) || ndc.z <= 0.0) return 1.0;
+
+    ivec2 size = textureSize(shadowMap, 0);
+    vec2 texel = uv * vec2(size) - 0.5;
+    ivec2 base = ivec2(floor(texel));
+    vec2 f = fract(texel);
+    float bias = 0.0005;
+    // 3x3 bilinear PCF. Reversed Z: a larger stored depth is closer to the light.
+    float lit = 0.0;
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            vec4 s;
+            for (int k = 0; k < 4; ++k) {
+                ivec2 o = base + ivec2(x, y) + ivec2(k & 1, k >> 1);
+                float d = texelFetch(shadowMap, clamp(o, ivec2(0), size - 1), 0).r;
+                s[k] = d > ndc.z + bias ? 0.0 : 1.0;
+            }
+            lit += mix(mix(s.x, s.y, f.x), mix(s.z, s.w, f.x), f.y);
+        }
+    }
+    return lit / 9.0;
+}
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= int(frame.viewport.x) || pixel.y >= int(frame.viewport.y)) return;
+    vec2 uv = (vec2(pixel) + 0.5) * frame.viewport.zw;
+    uint debugView = frame.counts.z;
+
+    float depth = imageLoad(sceneDepth, pixel).r;
+    vec4 albedoMetal = imageLoad(gbAlbedoMetal, pixel);
+
+    if (debugView == DEBUG_SDF_BRICKS || debugView == DEBUG_SDF_STEPS) {
+        imageStore(hdrOut, pixel, vec4(depth > 0.0 || debugView == DEBUG_SDF_STEPS ? albedoMetal.rgb : vec3(0.05), 1.0));
+        return;
+    }
+
+    vec3 V = -ViewRay(frame, uv);
+    if (depth <= 0.0) { // sky
+        vec3 sky = SkyRadiance(frame, -V, true);
+        imageStore(hdrOut, pixel, vec4(debugView == DEBUG_NONE ? sky : vec3(0.0), 1.0));
+        return;
+    }
+
+    vec3 P = WorldFromDepth(frame, uv, depth);
+    vec4 normalRough = imageLoad(gbNormalRough, pixel);
+    vec3 N = normalize(normalRough.xyz);
+    vec3 albedo = albedoMetal.rgb;
+    float metallic = albedoMetal.a;
+    float roughness = normalRough.a;
+    vec3 emissive = imageLoad(gbEmissive, pixel).rgb;
+
+    bool haveSdf = ShapeCount() > 0u;
+    float ao = (haveSdf && frame.shadowParams.w > 0.0) ? SdfAmbientOcclusion(P + N * 0.01, N) : 1.0;
+
+    // Sun
+    vec3 color = vec3(0.0);
+    float shadow = 1.0;
+    if (frame.sunColor.w > 0.0) {
+        vec3 L = frame.sunDirection.xyz;
+        if (dot(N, L) > 0.0) {
+            if (frame.shadowParams.y > 0.0) shadow = ShadowMapVisibility(P, N);
+            if (haveSdf && frame.shadowParams.z > 0.0 && shadow > 0.0) shadow *= SdfSoftShadow(P + N * 0.02, L, 40.0);
+            color += ShadeDirect(N, V, L, frame.sunColor.rgb * frame.sunDirection.w * shadow, albedo, metallic, roughness);
+        } else {
+            shadow = 0.0;
+        }
+    }
+
+    // Point lights (no shadows yet)
+    for (uint i = 0u; i < frame.counts.x; ++i) {
+        PointLight l = lights[i];
+        vec3 toLight = l.positionRange.xyz - P;
+        float dist2 = dot(toLight, toLight);
+        float range = l.positionRange.w;
+        if (dist2 > range * range) continue;
+        float dist = sqrt(dist2);
+        float falloff = pow(clamp(1.0 - pow(dist / range, 4.0), 0.0, 1.0), 2.0) / max(dist2, 0.01);
+        vec3 radiance = l.colorIntensity.rgb * l.colorIntensity.w * falloff;
+        color += ShadeDirect(N, V, toLight / dist, radiance, albedo, metallic, roughness);
+    }
+
+    // Image-based ambient (split-sum)
+    float NoV = max(dot(N, V), 1e-4);
+    vec3 f0 = mix(vec3(0.04), albedo, metallic);
+    vec3 F = F_SchlickRoughness(f0, NoV, roughness);
+    vec2 envBrdf = texture(brdfLut, vec2(NoV, roughness)).rg;
+    vec3 R = reflect(-V, N);
+    vec3 specularEnv = textureLod(prefilteredMap, R, roughness * (frame.envParams.w - 1.0)).rgb * (F * envBrdf.x + envBrdf.y);
+    vec3 diffuseEnv = texture(irradianceMap, N).rgb * albedo * (1.0 - F) * (1.0 - metallic);
+    color += (diffuseEnv + specularEnv) * ao * frame.envParams.x;
+    color += emissive;
+
+    switch (debugView) {
+        case DEBUG_ALBEDO:    color = albedo; break;
+        case DEBUG_NORMALS:   color = N * 0.5 + 0.5; break;
+        case DEBUG_ROUGHNESS: color = vec3(roughness); break;
+        case DEBUG_METALLIC:  color = vec3(metallic); break;
+        case DEBUG_DEPTH:     color = vec3(pow(depth, 0.2)); break;
+        case DEBUG_MOTION:    color = vec3(abs(imageLoad(gbMotion, pixel).xy) * 50.0, 0.0); break;
+        case DEBUG_OBJECT_ID: color = HashColor(imageLoad(gbObjectId, pixel).r); break;
+        case DEBUG_SHADOWS:   color = vec3(shadow); break;
+        case DEBUG_AO:        color = vec3(ao); break;
+    }
+    imageStore(hdrOut, pixel, vec4(color, 1.0));
+}

@@ -1,0 +1,59 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+// Temporal anti-aliasing: reproject last frame's result with the motion vectors,
+// clamp it to the current 3x3 neighbourhood (in YCoCg) and blend.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+#include "include/Common.glsl"
+
+layout(set = 0, binding = 0) uniform FrameUBO { FrameData frame; };
+layout(set = 0, binding = 1, rgba16f) uniform readonly image2D current;
+layout(set = 0, binding = 2) uniform sampler2D history;
+layout(set = 0, binding = 3, rg32f) uniform readonly image2D motion;
+layout(set = 0, binding = 4, rgba16f) uniform writeonly image2D result;
+
+layout(push_constant) uniform Push { uint historyValid; } pc;
+
+vec3 ToYCoCg(vec3 c) { return vec3(c.r * 0.25 + c.g * 0.5 + c.b * 0.25, c.r * 0.5 - c.b * 0.5, -c.r * 0.25 + c.g * 0.5 - c.b * 0.25); }
+vec3 FromYCoCg(vec3 c) { return vec3(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z); }
+// Compress HDR before blending so bright pixels do not dominate.
+vec3 Tonemap(vec3 c) { return c / (1.0 + Luminance(c)); }
+vec3 Untonemap(vec3 c) { return c / max(1.0 - Luminance(c), 1e-4); }
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = ivec2(frame.viewport.xy);
+    if (pixel.x >= size.x || pixel.y >= size.y) return;
+
+    vec3 center = Tonemap(imageLoad(current, pixel).rgb);
+    if (pc.historyValid == 0u) {
+        imageStore(result, pixel, vec4(Untonemap(center), 1.0));
+        return;
+    }
+
+    vec3 m1 = vec3(0.0), m2 = vec3(0.0);
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            vec3 c = ToYCoCg(Tonemap(imageLoad(current, clamp(pixel + ivec2(x, y), ivec2(0), size - 1)).rgb));
+            m1 += c;
+            m2 += c * c;
+        }
+    }
+    vec3 mean = m1 / 9.0;
+    vec3 sigma = sqrt(max(m2 / 9.0 - mean * mean, 0.0));
+    vec3 lo = mean - sigma * 1.25, hi = mean + sigma * 1.25;
+
+    vec2 uv = (vec2(pixel) + 0.5) * frame.viewport.zw;
+    vec2 prevUv = uv - imageLoad(motion, pixel).xy;
+    if (any(lessThan(prevUv, vec2(0.0))) || any(greaterThan(prevUv, vec2(1.0)))) {
+        imageStore(result, pixel, vec4(Untonemap(center), 1.0));
+        return;
+    }
+    vec3 hist = ToYCoCg(Tonemap(texture(history, prevUv).rgb));
+    hist = FromYCoCg(clamp(hist, lo, hi));
+
+    vec3 blended = mix(hist, center, 0.1);
+    imageStore(result, pixel, vec4(Untonemap(blended), 1.0));
+}

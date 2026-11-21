@@ -1,0 +1,90 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+// Image-based lighting from the procedural sky. Evaluated analytically (no capture):
+//   mode 0: irradiance cube (cosine-weighted)
+//   mode 1: prefiltered specular cube, one mip per dispatch (GGX importance sampling)
+//   mode 2: split-sum BRDF lookup table
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#include "include/Lighting.glsl"
+
+layout(set = 0, binding = 0) uniform FrameUBO { FrameData frame; };
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2DArray cubeOut;
+layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D lutOut;
+
+layout(push_constant) uniform Push {
+    uint mode;
+    uint size;
+    float roughness;
+    uint pad;
+} pc;
+
+vec3 Irradiance(vec3 N) {
+    vec3 up = abs(N.y) < 0.999 ? vec3(0, 1, 0) : vec3(1, 0, 0);
+    vec3 T = normalize(cross(up, N));
+    vec3 B = cross(N, T);
+    vec3 sum = vec3(0.0);
+    const uint COUNT = 256u;
+    for (uint i = 0u; i < COUNT; ++i) {
+        vec2 xi = Hammersley(i, COUNT);
+        float phi = 2.0 * PI * xi.x;
+        float cosTheta = sqrt(1.0 - xi.y);
+        float sinTheta = sqrt(xi.y);
+        vec3 L = T * (cos(phi) * sinTheta) + B * (sin(phi) * sinTheta) + N * cosTheta;
+        sum += SkyRadiance(frame, L, false);
+    }
+    return sum / float(COUNT);
+}
+
+vec3 Prefilter(vec3 N, float roughness) {
+    vec3 V = N;
+    vec3 sum = vec3(0.0);
+    float weight = 0.0;
+    const uint COUNT = 128u;
+    for (uint i = 0u; i < COUNT; ++i) {
+        vec3 H = ImportanceSampleGGX(Hammersley(i, COUNT), N, max(roughness, 0.02));
+        vec3 L = normalize(2.0 * dot(V, H) * H - V);
+        float NoL = dot(N, L);
+        if (NoL > 0.0) {
+            sum += SkyRadiance(frame, L, false) * NoL;
+            weight += NoL;
+        }
+    }
+    return sum / max(weight, 1e-4);
+}
+
+vec2 IntegrateBrdf(float NoV, float roughness) {
+    vec3 V = vec3(sqrt(1.0 - NoV * NoV), 0.0, NoV);
+    vec3 N = vec3(0.0, 0.0, 1.0);
+    float a = 0.0, b = 0.0;
+    const uint COUNT = 256u;
+    for (uint i = 0u; i < COUNT; ++i) {
+        vec3 H = ImportanceSampleGGX(Hammersley(i, COUNT), N, max(roughness, 0.02));
+        vec3 L = normalize(2.0 * dot(V, H) * H - V);
+        float NoL = max(L.z, 0.0), NoH = max(H.z, 0.0), VoH = max(dot(V, H), 0.0);
+        if (NoL > 0.0) {
+            float alpha = roughness * roughness;
+            float vis = V_SmithGGXCorrelated(NoV, NoL, alpha) * 4.0 * NoL * VoH / max(NoH, 1e-4);
+            float fc = pow(1.0 - VoH, 5.0);
+            a += (1.0 - fc) * vis;
+            b += fc * vis;
+        }
+    }
+    return vec2(a, b) / float(COUNT);
+}
+
+void main() {
+    uvec3 id = gl_GlobalInvocationID;
+    if (id.x >= pc.size || id.y >= pc.size) return;
+    vec2 uv = (vec2(id.xy) + 0.5) / float(pc.size);
+
+    if (pc.mode == 2u) {
+        imageStore(lutOut, ivec2(id.xy), vec4(IntegrateBrdf(max(uv.x, 1e-3), uv.y), 0.0, 1.0));
+        return;
+    }
+    vec3 dir = CubeDirection(id.z, uv);
+    vec3 c = pc.mode == 0u ? Irradiance(dir) : Prefilter(dir, pc.roughness);
+    imageStore(cubeOut, ivec3(id), vec4(c, 1.0));
+}

@@ -1,0 +1,175 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+// Keeps the sparse brick volume in sync with the shape list.
+//   pass 0 INIT      fill the free-brick stack with every atlas slot
+//   pass 1 CLASSIFY  per dirty cell: does the surface pass through it?
+//                    no  -> free its brick, store a conservative skip distance
+//                    yes -> keep its brick (queue refill) or request a new one
+//   pass 2 ALLOCATE  pop bricks for requested cells (lock-free)
+//   pass 3 FILL      one workgroup per queued brick: 8^3 distance samples
+// Pushes happen only in CLASSIFY and pops only in ALLOCATE, so the stack never
+// sees both at once.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+#define SHAPE_BINDING  0
+#define VOLUME_BINDING 6
+#include "include/Sdf.glsl"
+
+layout(set = 0, binding = 1, r32ui) uniform uimage3D sparseMap;
+layout(set = 0, binding = 2, r16f) uniform writeonly image3D brickAtlas;
+
+layout(std430, set = 0, binding = 3) buffer BrickState {
+    uint freeTop;
+    uint overflow;
+    uint allocCount;
+    uint pad;
+    uint freeStack[];
+} state;
+
+layout(std430, set = 0, binding = 4) buffer AllocList { uint allocCells[]; };
+
+// Header doubles as VkDispatchIndirectCommand for FILL.
+layout(std430, set = 0, binding = 5) buffer WorkList {
+    uint groupsX;
+    uint groupsY;
+    uint groupsZ;
+    uint workPad;
+    uvec2 work[]; // (cell linear index, brick id)
+};
+
+layout(push_constant) uniform Push {
+    uvec4 boxMin;   // xyz first dirty cell, w = pass
+    uvec4 boxSize;  // xyz dirty cell count
+} pc;
+
+uint FlatInvocation() {
+    uvec3 n = gl_NumWorkGroups * gl_WorkGroupSize;
+    uvec3 g = gl_GlobalInvocationID;
+    return g.x + g.y * n.x + g.z * n.x * n.y;
+}
+
+void QueueWork(uint cellIdx, uint brick) {
+    uint slot = atomicAdd(groupsX, 1u);
+    work[slot] = uvec2(cellIdx, brick);
+}
+
+void PassInit() {
+    uint i = FlatInvocation();
+    uint capacity = vol.atlasBricks.w;
+    if (i < capacity) state.freeStack[i] = capacity - 1u - i;
+    if (i == 0u) {
+        state.freeTop = capacity;
+        state.overflow = 0u;
+        state.allocCount = 0u;
+    }
+}
+
+void PassClassify() {
+    uvec3 local = gl_GlobalInvocationID;
+    if (any(greaterThanEqual(local, pc.boxSize.xyz))) return;
+    uvec3 cell = pc.boxMin.xyz + local;
+    if (any(greaterThanEqual(cell, vol.gridDim.xyz))) return;
+
+    float halfDiag = vol.metrics.y;
+    float margin = VoxelSize() * 1.75;   // keeps trilinear + normal taps inside allocated bricks
+    float maxSkip = vol.metrics.w;
+    float band = halfDiag + margin + maxSkip;
+
+    vec3 center = CellMin(cell) + 0.5 * CellSize();
+    float d = EvaluateShapes(center, band);
+    bool needsBrick = abs(d) <= halfDiag + margin;
+
+    uint old = imageLoad(sparseMap, ivec3(cell)).r;
+    bool hasBrick = (old & BRICK_FLAG) != 0u;
+
+    if (needsBrick) {
+        if (hasBrick) {
+            QueueWork(CellLinear(cell), old & BRICK_MASK);
+        } else {
+            uint slot = atomicAdd(state.allocCount, 1u);
+            if (slot < vol.atlasBricks.w) {
+                allocCells[slot] = CellLinear(cell);
+            } else {
+                atomicAdd(state.overflow, 1u);
+                imageStore(sparseMap, ivec3(cell), uvec4(floatBitsToUint(0.0)));
+            }
+        }
+    } else {
+        if (hasBrick) {
+            uint top = atomicAdd(state.freeTop, 1u);
+            state.freeStack[top] = old & BRICK_MASK;
+        }
+        // Every point of the cell is at least |d| - halfDiag away from the surface.
+        imageStore(sparseMap, ivec3(cell), uvec4(floatBitsToUint(clamp(abs(d) - halfDiag, 0.0, maxSkip))));
+    }
+}
+
+void PassAllocate() {
+    uint i = FlatInvocation();
+    uint requested = min(state.allocCount, vol.atlasBricks.w);
+    if (i >= requested) return;
+
+    uint cellIdx = allocCells[i];
+    ivec3 cell = ivec3(CellFromLinear(cellIdx));
+
+    uint top = state.freeTop;
+    bool got = false;
+    uint brick = 0u;
+    while (top > 0u) {
+        uint prev = atomicCompSwap(state.freeTop, top, top - 1u);
+        if (prev == top) {
+            brick = state.freeStack[top - 1u];
+            got = true;
+            break;
+        }
+        top = prev;
+    }
+
+    if (got) {
+        imageStore(sparseMap, cell, uvec4(BRICK_FLAG | brick));
+        QueueWork(cellIdx, brick);
+    } else {
+        atomicAdd(state.overflow, 1u);
+        imageStore(sparseMap, cell, uvec4(floatBitsToUint(0.0)));
+    }
+}
+
+const uint MAX_SHAPES = 1024u;
+shared uint activeShape[MAX_SHAPES];
+
+void PassFill() {
+    uvec2 item = work[gl_WorkGroupID.x];
+    uvec3 cell = CellFromLinear(item.x);
+    uint brick = item.y;
+    uint count = min(ShapeCount(), MAX_SHAPES);
+    float band = vol.metrics.z;
+    vec3 base = CellMin(cell);
+
+    // Per-brick culling: test each shape once against the brick's bounding sphere.
+    vec3 brickCenter = base + 0.5 * CellSize();
+    for (uint i = gl_LocalInvocationIndex; i < count; i += 512u)
+        activeShape[i] = ShapeCulled(shapes[i], brickCenter, vol.metrics.y, band) ? 0u : 1u;
+    barrier();
+
+    vec3 p = base + vec3(gl_LocalInvocationID) * VoxelSize();
+    float d = SDF_FAR;
+    for (uint i = 0u; i < count; ++i) {
+        if (activeShape[i] == 0u) continue;
+        SdfShape s = shapes[i];
+        d = Combine(d, ShapeDistance(s, p), s.operation, s.positionBlend.w);
+    }
+
+    ivec3 texel = ivec3(BrickAtlasCoord(brick) * uint(BRICK_SAMPLES) + gl_LocalInvocationID);
+    imageStore(brickAtlas, texel, vec4(clamp(d, -band, band)));
+}
+
+void main() {
+    switch (pc.boxMin.w) {
+        case 0u: PassInit(); break;
+        case 1u: PassClassify(); break;
+        case 2u: PassAllocate(); break;
+        case 3u: PassFill(); break;
+    }
+}

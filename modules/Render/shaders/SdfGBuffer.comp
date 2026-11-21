@@ -1,0 +1,141 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+// Raymarches the SDF brick volume and writes hits into the same G-buffer the mesh
+// pass filled. A pixel is only overwritten when the SDF surface is closer than the
+// mesh surface already there, so meshes and SDFs intersect correctly.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+#include "include/Common.glsl"
+#define SHAPE_BINDING  1
+#define VOLUME_BINDING 2
+#include "include/Sdf.glsl"
+
+layout(set = 0, binding = 0) uniform FrameUBO { FrameData frame; };
+layout(set = 0, binding = 3, r32ui) uniform readonly uimage3D sparseMap;
+layout(set = 0, binding = 4) uniform sampler3D brickAtlas;
+layout(set = 0, binding = 5, rgba8) uniform image2D gbAlbedoMetal;
+layout(set = 0, binding = 6, rgba16f) uniform image2D gbNormalRough;
+layout(set = 0, binding = 7, rgba16f) uniform image2D gbEmissive;
+layout(set = 0, binding = 8, rg32f) uniform image2D gbMotion;
+layout(set = 0, binding = 9, r32ui) uniform uimage2D gbObjectId;
+layout(set = 0, binding = 10, r32f) uniform image2D sceneDepth;
+
+const int MAX_STEPS = 160;
+
+// Field distance at p. isBrick: accurate brick sample; otherwise a conservative bound.
+float VolumeQuery(vec3 p, out bool isBrick, out ivec3 cell, out bool inside) {
+    isBrick = false;
+    cell = ivec3(floor((p - VolumeMin()) / CellSize()));
+    inside = all(greaterThanEqual(cell, ivec3(0))) && all(lessThan(cell, ivec3(vol.gridDim.xyz)));
+    if (!inside) {
+        vec3 c = 0.5 * (VolumeMin() + VolumeMax());
+        return max(sdBox(p - c, 0.5 * (VolumeMax() - VolumeMin()), 0.0), 0.0);
+    }
+    uint v = imageLoad(sparseMap, cell).r;
+    if ((v & BRICK_FLAG) == 0u) return uintBitsToFloat(v);
+    isBrick = true;
+    uvec3 b = BrickAtlasCoord(v & BRICK_MASK);
+    vec3 local = clamp((p - CellMin(uvec3(cell))) / VoxelSize(), vec3(0.0), vec3(BRICK_SAMPLES - 1));
+    vec3 uvw = (vec3(b * uint(BRICK_SAMPLES)) + local + 0.5) / vec3(vol.atlasBricks.xyz * uint(BRICK_SAMPLES));
+    return textureLod(brickAtlas, uvw, 0.0).r;
+}
+
+float CellExit(vec3 p, vec3 rd, ivec3 cell) {
+    vec3 safeRd = mix(rd, vec3(1e-8), lessThan(abs(rd), vec3(1e-8)));
+    vec3 bmin = CellMin(uvec3(cell));
+    vec3 tmax = max((bmin - p) / safeRd, (bmin + CellSize() - p) / safeRd);
+    return min(tmax.x, min(tmax.y, tmax.z));
+}
+
+vec3 SurfaceNormal(vec3 p) {
+    const vec2 k = vec2(1.0, -1.0);
+    float h = 0.5 * VoxelSize();
+    float band = 4.0 * VoxelSize();
+    return normalize(k.xyy * EvaluateShapes(p + k.xyy * h, band) + k.yyx * EvaluateShapes(p + k.yyx * h, band) +
+                     k.yxy * EvaluateShapes(p + k.yxy * h, band) + k.xxx * EvaluateShapes(p + k.xxx * h, band));
+}
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= int(frame.viewport.x) || pixel.y >= int(frame.viewport.y)) return;
+    uint debugView = frame.counts.z;
+    bool debugSdf = debugView == DEBUG_SDF_BRICKS || debugView == DEBUG_SDF_STEPS;
+    if (ShapeCount() == 0u && !debugSdf) return;
+
+    vec2 uv = (vec2(pixel) + 0.5) * frame.viewport.zw;
+    vec3 ro = frame.cameraPos.xyz;
+    vec3 rd = ViewRay(frame, uv);
+
+    // Stop at the mesh surface already in the G-buffer.
+    float meshDepth = imageLoad(sceneDepth, pixel).r;
+    float maxT = frame.clip.y;
+    if (meshDepth > 0.0) maxT = distance(WorldFromDepth(frame, uv, meshDepth), ro);
+
+    // Skip straight to the volume.
+    vec3 inv = 1.0 / mix(rd, vec3(1e-8), lessThan(abs(rd), vec3(1e-8)));
+    vec3 t0 = (VolumeMin() - ro) * inv, t1 = (VolumeMax() - ro) * inv;
+    float tEnter = max(max(min(t0.x, t1.x), min(t0.y, t1.y)), min(t0.z, t1.z));
+    float tExit = min(min(max(t0.x, t1.x), max(t0.y, t1.y)), max(t0.z, t1.z));
+    tExit = min(tExit, maxT);
+
+    float t = max(tEnter, 0.0);
+    bool hit = false;
+    int steps = 0;
+    if (tEnter <= tExit && ShapeCount() > 0u) {
+        for (int i = 0; i < MAX_STEPS && t < tExit; ++i) {
+            ++steps;
+            vec3 p = ro + rd * t;
+            bool isBrick, inside; ivec3 cell;
+            float d = VolumeQuery(p, isBrick, cell, inside);
+            float eps = 0.0005 + 0.0005 * t;
+            if (isBrick && d < eps) { hit = true; break; }
+            if (!isBrick && inside) d = max(d, CellExit(p, rd, cell) + 1e-3 * CellSize());
+            t += max(d, eps * 0.5);
+        }
+    }
+
+    if (debugSdf) {
+        vec3 c = vec3(0.0);
+        if (debugView == DEBUG_SDF_STEPS) {
+            float s = float(steps) / float(MAX_STEPS);
+            c = vec3(s * s, s, 0.4 * s);
+        }
+        if (debugView == DEBUG_SDF_BRICKS && hit) {
+            vec3 p = ro + rd * t;
+            ivec3 cell = ivec3(floor((p - VolumeMin()) / CellSize()));
+            uint v = imageLoad(sparseMap, clamp(cell, ivec3(0), ivec3(vol.gridDim.xyz) - 1)).r;
+            c = HashColor(v & BRICK_MASK);
+        }
+        if (debugView == DEBUG_SDF_STEPS || hit) {
+            imageStore(gbAlbedoMetal, pixel, vec4(c, 0.0));
+            if (!hit) return;
+        }
+    }
+    if (!hit) return;
+
+    // Snap from the voxel surface to the exact analytic surface.
+    float band = 4.0 * VoxelSize();
+    vec3 p = ro + rd * t;
+    SdfSurface s = EvaluateSurface(p, band);
+    for (int i = 0; i < 2; ++i) {
+        t += clamp(s.dist, -VoxelSize(), VoxelSize());
+        p = ro + rd * t;
+        s = EvaluateSurface(p, band);
+    }
+    if (t >= maxT) return; // the mesh is in front after refinement
+
+    vec4 clip = frame.viewProj * vec4(p, 1.0);
+    float depth = clip.z / clip.w;
+    vec4 currNoJitter = frame.viewProjNoJitter * vec4(p, 1.0);
+    vec4 prevNoJitter = frame.prevViewProjNoJitter * vec4(p, 1.0); // SDF shapes treated as static
+    vec2 motion = (currNoJitter.xy / currNoJitter.w - prevNoJitter.xy / prevNoJitter.w) * 0.5;
+
+    if (!debugSdf) imageStore(gbAlbedoMetal, pixel, vec4(s.albedo, s.metallic));
+    imageStore(gbNormalRough, pixel, vec4(SurfaceNormal(p), clamp(s.roughness, 0.03, 1.0)));
+    imageStore(gbEmissive, pixel, vec4(s.emissive, 0.0));
+    imageStore(gbMotion, pixel, vec4(motion, 0.0, 0.0));
+    imageStore(gbObjectId, pixel, uvec4(s.objectId));
+    imageStore(sceneDepth, pixel, vec4(depth));
+}
