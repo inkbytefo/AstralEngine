@@ -27,6 +27,7 @@ int main() {
     log.info("GPU: {}", device->adapter_name());
 
     auto swapchain = astral::gpu::Swapchain::create(*device, surface);
+    if (!swapchain) return 1;
     auto pipeline = device->create_graphics_pipeline({
         .vertex = {astral::shaders::triangle_vert},
         .fragment = {astral::shaders::triangle_frag},
@@ -51,8 +52,7 @@ int main() {
         cmd.draw(3);
         cmd.end_rendering();
         cmd.transition(image, astral::gpu::ResourceState::Present);
-        device->submit(cmd);
-        swapchain->present();
+        swapchain->present(cmd);
     }
     device->wait_idle();
 }

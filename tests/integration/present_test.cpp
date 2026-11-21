@@ -32,10 +32,26 @@ TEST_CASE("a window presents frames through the swapchain") {
         cmd.begin_rendering({.color = {{.texture = image, .clear = {0.1f, 0.2f, 0.3f, 1.0f}}}});
         cmd.end_rendering();
         cmd.transition(image, gpu::ResourceState::Present);
-        device->submit(cmd);
-        swapchain->present();
+        swapchain->present(cmd);
         ++presented;
     }
     device->wait_idle();
     CHECK(presented == 5);
+}
+
+TEST_CASE("acquiring twice before presenting returns the same image") {
+    auto window = Window::create({.title = "acquire twice", .width = 128, .height = 128});
+    if (!window || !window->supports_vulkan()) return;
+    const auto surface = window->surface_source();
+    auto device = gpu::Device::create({.surface = &surface});
+    if (!device) return;
+    auto swapchain = gpu::Swapchain::create(*device, surface);
+    REQUIRE(swapchain);
+    const gpu::TextureHandle a = swapchain->acquire();
+    const gpu::TextureHandle b = swapchain->acquire();
+    CHECK(a == b);
+    auto cmd = device->begin_commands();
+    cmd.transition(a, gpu::ResourceState::Present);
+    swapchain->present(cmd);
+    device->wait_idle();
 }

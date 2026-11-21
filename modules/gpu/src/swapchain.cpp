@@ -27,6 +27,8 @@ struct Swapchain::Impl {
     std::uint32_t frame = 0;
     std::uint32_t image_index = UINT32_MAX;
     bool dirty = false;
+    VkSemaphoreSubmitInfo pending_wait{};   // acquire -> render
+    VkSemaphoreSubmitInfo pending_signal{}; // render -> present
 
     ~Impl() {
         if (!s) return;
@@ -167,6 +169,12 @@ Swapchain::~Swapchain() = default;
 TextureHandle Swapchain::acquire() {
     auto& m = *impl_;
     auto& s = *m.s;
+    if (m.image_index != UINT32_MAX) return m.images[m.image_index]; // already acquired
+    // Some platforms (e.g. Wayland) never report out-of-date on resize: compare sizes ourselves.
+    if (m.surface.drawable_size) {
+        const Extent2D wanted = m.surface.drawable_size();
+        if (wanted.width != m.extent.width || wanted.height != m.extent.height) m.dirty = true;
+    }
     if (m.dirty || !m.swapchain) {
         if (!m.rebuild()) return {};
     }
@@ -186,25 +194,30 @@ TextureHandle Swapchain::acquire() {
         m.image_index = UINT32_MAX;
         return {};
     }
-    // The next submit waits for the image and signals that rendering finished.
-    VkSemaphoreSubmitInfo wait{VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
-    wait.semaphore = frame.acquired;
-    wait.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
-    VkSemaphoreSubmitInfo signal{VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
-    signal.semaphore = m.render_done[m.image_index];
-    signal.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-    s.next_waits.push_back(wait);
-    s.next_signals.push_back(signal);
+    // present(cmd) makes its submit wait for the image and signal that rendering finished.
+    m.pending_wait = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+    m.pending_wait.semaphore = frame.acquired;
+    m.pending_wait.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+    m.pending_signal = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+    m.pending_signal.semaphore = m.render_done[m.image_index];
+    m.pending_signal.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
     TextureHandle image = m.images[m.image_index];
     if (TextureRecord* r = s.textures.get(image)) r->state = ResourceState::Undefined; // contents discarded
     return image;
 }
 
-void Swapchain::present() {
+SubmitTicket Swapchain::present(CommandList& commands) {
     auto& m = *impl_;
     auto& s = *m.s;
-    if (m.image_index == UINT32_MAX) return;
+    if (m.image_index == UINT32_MAX) return m.device->submit(commands);
+    const SubmitTicket ticket = m.device->submit_internal(commands, &m.pending_wait, 1, &m.pending_signal, 1);
+    if (ticket.value != s.last_submitted || s.last_submitted == 0) {
+        // Submit failed: nothing will signal render_done, so presenting would hang.
+        m.image_index = UINT32_MAX;
+        m.dirty = true;
+        return ticket;
+    }
     VkPresentInfoKHR info{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     info.waitSemaphoreCount = 1;
     info.pWaitSemaphores = &m.render_done[m.image_index];
@@ -213,9 +226,10 @@ void Swapchain::present() {
     info.pImageIndices = &m.image_index;
     const VkResult result = vkQueuePresentKHR(s.queue, &info);
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) m.dirty = true;
-    m.frames[m.frame].ticket = s.last_submitted;
+    m.frames[m.frame].ticket = ticket.value;
     m.frame = (m.frame + 1) % static_cast<std::uint32_t>(m.frames.size());
     m.image_index = UINT32_MAX;
+    return ticket;
 }
 
 void Swapchain::invalidate() noexcept { impl_->dirty = true; }

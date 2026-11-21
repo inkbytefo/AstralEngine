@@ -56,7 +56,12 @@ bool is_depth(Format format) noexcept { return format == Format::D32Float; }
 StateInfo state_info(ResourceState state, bool depth) noexcept {
     switch (state) {
     case ResourceState::Undefined:
-        return {VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE};
+        // As a source stage this must chain with a swapchain acquire wait (which waits at
+        // color output / transfer), otherwise the layout change could run before the
+        // presentation engine released the image.
+        return {VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT,
+                VK_ACCESS_2_NONE};
     case ResourceState::ColorTarget:
         return {VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                 VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -192,6 +197,7 @@ bool Device::write_buffer(BufferHandle buffer, const void* data, std::uint64_t s
         vmaFlushAllocation(s.allocator, r->allocation, offset, size);
         return true;
     }
+    if (!s.can_run_immediate("write_buffer")) return false;
     BufferRecord staging;
     if (!create_raw_buffer(s, size, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu, staging)) return false;
     std::memcpy(staging.mapped, data, size);
@@ -215,6 +221,7 @@ bool Device::read_buffer(BufferHandle buffer, void* out, std::uint64_t size, std
         std::memcpy(out, static_cast<const std::byte*>(r->mapped) + offset, size);
         return true;
     }
+    if (!s.can_run_immediate("read_buffer")) return false;
     BufferRecord staging;
     if (!create_raw_buffer(s, size, BufferUsage::TransferDst, MemoryUsage::GpuToCpu, staging)) return false;
     const VkBuffer src = r->buffer;
@@ -329,6 +336,7 @@ bool Device::write_texture(TextureHandle texture, const void* data, std::uint64_
     const std::uint64_t expected =
         std::uint64_t{r->desc.width} * r->desc.height * format_size(r->desc.format);
     if (size != expected) return false;
+    if (!s.can_run_immediate("write_texture")) return false;
 
     BufferRecord staging;
     if (!create_raw_buffer(s, size, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu, staging)) return false;

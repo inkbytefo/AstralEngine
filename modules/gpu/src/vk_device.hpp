@@ -57,9 +57,6 @@ struct Device::Impl {
     // Synchronization: one timeline semaphore, value = submission count.
     VkSemaphore timeline = VK_NULL_HANDLE;
     std::uint64_t last_submitted = 0;
-    // Extra binary semaphores for the next submit (set by the swapchain).
-    std::vector<VkSemaphoreSubmitInfo> next_waits;
-    std::vector<VkSemaphoreSubmitInfo> next_signals;
 
     // Command buffers, recycled once their submission completed.
     struct CommandSlot {
@@ -108,6 +105,9 @@ struct Device::Impl {
     void free_bindless_index(std::uint32_t index);
     void write_texture_descriptors(const TextureRecord& texture);
     void log_error(std::string_view message) const;
+    bool any_recording() const noexcept;
+    /// Refuses (with a log) blocking uploads/readbacks while a CommandList records.
+    bool can_run_immediate(const char* operation) const;
 };
 
 VkFormat to_vk(Format format) noexcept;

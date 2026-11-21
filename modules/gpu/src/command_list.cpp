@@ -25,7 +25,8 @@ CommandList::CommandList(Device* device, void* native_buffer, std::uint32_t slot
 
 CommandList::CommandList(CommandList&& other) noexcept
     : device_(std::exchange(other.device_, nullptr)), native_(other.native_), slot_(other.slot_),
-      rendering_(other.rendering_), bound_pipeline_(other.bound_pipeline_) {}
+      rendering_(other.rendering_), bound_pipeline_(other.bound_pipeline_),
+      compute_bound_(other.compute_bound_), touched_(std::move(other.touched_)) {}
 
 CommandList& CommandList::operator=(CommandList&& other) noexcept {
     if (this != &other) {
@@ -35,6 +36,8 @@ CommandList& CommandList::operator=(CommandList&& other) noexcept {
         slot_ = other.slot_;
         rendering_ = other.rendering_;
         bound_pipeline_ = other.bound_pipeline_;
+        compute_bound_ = other.compute_bound_;
+        touched_ = std::move(other.touched_);
     }
     return *this;
 }
@@ -46,10 +49,22 @@ CommandList::~CommandList() {
     if (rendering_) vkCmdEndRendering(native(native_));
     vkEndCommandBuffer(native(native_));
     s.command_slots[slot_].recording = false;
+    // Its transitions never execute: restore the states they assumed (latest first).
+    for (auto it = touched_.rbegin(); it != touched_.rend(); ++it) {
+        if (TextureRecord* r = s.textures.get(it->first)) r->state = it->second;
+    }
     device_ = nullptr;
 }
 
+void CommandList::remember_state(TextureHandle texture, ResourceState previous) {
+    for (const auto& [t, state] : touched_) {
+        if (t == texture) return; // only the first (original) state matters
+    }
+    touched_.emplace_back(texture, previous);
+}
+
 void CommandList::transition(TextureHandle texture, ResourceState state) {
+    if (!usable()) return;
     auto& s = device_->impl();
     TextureRecord* r = s.textures.get(texture);
     if (!r) {
@@ -77,10 +92,12 @@ void CommandList::transition(TextureHandle texture, ResourceState state) {
     dep.imageMemoryBarrierCount = 1;
     dep.pImageMemoryBarriers = &b;
     vkCmdPipelineBarrier2(native(native_), &dep);
+    remember_state(texture, r->state);
     r->state = state;
 }
 
 void CommandList::memory_barrier() {
+    if (!usable()) return;
     VkMemoryBarrier2 b{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
     b.srcStageMask = b.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
     b.srcAccessMask = b.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
@@ -91,7 +108,9 @@ void CommandList::memory_barrier() {
 }
 
 void CommandList::begin_rendering(const RenderingDesc& desc) {
+    if (!usable()) return;
     auto& s = device_->impl();
+    if (rendering_) end_rendering();
     std::vector<VkRenderingAttachmentInfo> colors;
     Extent2D extent = desc.extent;
     for (const auto& c : desc.color) {
@@ -132,34 +151,40 @@ void CommandList::begin_rendering(const RenderingDesc& desc) {
 }
 
 void CommandList::end_rendering() {
-    if (!rendering_) return;
+    if (!usable() || !rendering_) return;
     vkCmdEndRendering(native(native_));
     rendering_ = false;
 }
 
 void CommandList::set_viewport(float x, float y, float width, float height) {
+    if (!usable()) return;
     const VkViewport v{x, y, width, height, 0.0f, 1.0f};
     vkCmdSetViewport(native(native_), 0, 1, &v);
 }
 
 void CommandList::set_scissor(std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height) {
+    if (!usable()) return;
     const VkRect2D r{{x, y}, {width, height}};
     vkCmdSetScissor(native(native_), 0, 1, &r);
 }
 
 void CommandList::bind_pipeline(PipelineHandle pipeline) {
+    if (!usable()) return;
     auto& s = device_->impl();
     const PipelineRecord* r = s.pipelines.get(pipeline);
     if (!r) {
         s.log_error("bind_pipeline: invalid pipeline handle");
+        bound_pipeline_ = {};
         return;
     }
     vkCmdBindPipeline(native(native_), r->bind_point, r->pipeline);
     bound_pipeline_ = pipeline;
+    compute_bound_ = r->bind_point == VK_PIPELINE_BIND_POINT_COMPUTE;
 }
 
 void CommandList::push_constants(const void* data, std::uint32_t size, std::uint32_t offset) {
-    if (size + offset > max_push_constant_size) {
+    if (!usable()) return;
+    if (std::uint64_t{size} + offset > max_push_constant_size) {
         device_->impl().log_error("push_constants: exceeds 128 bytes");
         return;
     }
@@ -168,43 +193,82 @@ void CommandList::push_constants(const void* data, std::uint32_t size, std::uint
 }
 
 void CommandList::bind_index_buffer(BufferHandle buffer, IndexType type, std::uint64_t offset) {
+    if (!usable()) return;
     const BufferRecord* r = device_->impl().buffers.get(buffer);
-    if (!r) return;
+    if (!r) {
+        device_->impl().log_error("bind_index_buffer: invalid buffer handle");
+        return;
+    }
     vkCmdBindIndexBuffer(native(native_), r->buffer, offset,
                          type == IndexType::Uint16 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32);
 }
 
+namespace {
+bool check_draw(Device& device, bool rendering, bool pipeline_ok, bool compute_bound) {
+    if (!rendering) {
+        device.impl().log_error("draw: not inside begin_rendering()/end_rendering()");
+        return false;
+    }
+    if (!pipeline_ok || compute_bound) {
+        device.impl().log_error("draw: no valid graphics pipeline bound");
+        return false;
+    }
+    return true;
+}
+} // namespace
+
 void CommandList::draw(std::uint32_t vertex_count, std::uint32_t instance_count,
                        std::uint32_t first_vertex, std::uint32_t first_instance) {
+    if (!usable()) return;
+    if (!check_draw(*device_, rendering_, device_->impl().pipelines.get(bound_pipeline_) != nullptr,
+                    compute_bound_)) return;
     vkCmdDraw(native(native_), vertex_count, instance_count, first_vertex, first_instance);
 }
 
 void CommandList::draw_indexed(std::uint32_t index_count, std::uint32_t instance_count,
                                std::uint32_t first_index, std::int32_t vertex_offset,
                                std::uint32_t first_instance) {
+    if (!usable()) return;
+    if (!check_draw(*device_, rendering_, device_->impl().pipelines.get(bound_pipeline_) != nullptr,
+                    compute_bound_)) return;
     vkCmdDrawIndexed(native(native_), index_count, instance_count, first_index, vertex_offset,
                      first_instance);
 }
 
 void CommandList::dispatch(std::uint32_t x, std::uint32_t y, std::uint32_t z) {
+    if (!usable()) return;
+    if (!device_->impl().pipelines.get(bound_pipeline_) || !compute_bound_ || rendering_) {
+        device_->impl().log_error("dispatch: no valid compute pipeline bound (or inside rendering)");
+        return;
+    }
     vkCmdDispatch(native(native_), x, y, z);
 }
 
 void CommandList::copy_buffer(BufferHandle src, BufferHandle dst, std::uint64_t size,
                               std::uint64_t src_offset, std::uint64_t dst_offset) {
+    if (!usable()) return;
     auto& s = device_->impl();
     const BufferRecord* a = s.buffers.get(src);
     const BufferRecord* b = s.buffers.get(dst);
-    if (!a || !b) return;
+    auto fits = [](std::uint64_t off, std::uint64_t n, std::uint64_t total) { return n <= total && off <= total - n; };
+    if (!a || !b || !fits(src_offset, size, a->size) || !fits(dst_offset, size, b->size)) {
+        s.log_error("copy_buffer: invalid handle or range out of bounds");
+        return;
+    }
     const VkBufferCopy region{src_offset, dst_offset, size};
     vkCmdCopyBuffer(native(native_), a->buffer, b->buffer, 1, &region);
 }
 
 void CommandList::copy_texture_to_buffer(TextureHandle src, BufferHandle dst) {
+    if (!usable()) return;
     auto& s = device_->impl();
     const TextureRecord* t = s.textures.get(src);
     const BufferRecord* b = s.buffers.get(dst);
-    if (!t || !b) return;
+    if (!t || !b ||
+        b->size < std::uint64_t{t->desc.width} * t->desc.height * format_size(t->desc.format)) {
+        s.log_error("copy_texture_to_buffer: invalid handle or buffer too small");
+        return;
+    }
     VkBufferImageCopy region{};
     region.imageSubresource = {static_cast<VkImageAspectFlags>(is_depth(t->desc.format)
                                                                    ? VK_IMAGE_ASPECT_DEPTH_BIT
@@ -215,17 +279,26 @@ void CommandList::copy_texture_to_buffer(TextureHandle src, BufferHandle dst) {
 }
 
 void CommandList::copy_buffer_to_texture(BufferHandle src, TextureHandle dst) {
+    if (!usable()) return;
     auto& s = device_->impl();
     const BufferRecord* b = s.buffers.get(src);
     const TextureRecord* t = s.textures.get(dst);
-    if (!t || !b) return;
+    if (!t || !b ||
+        b->size < std::uint64_t{t->desc.width} * t->desc.height * format_size(t->desc.format)) {
+        s.log_error("copy_buffer_to_texture: invalid handle or buffer too small");
+        return;
+    }
     VkBufferImageCopy region{};
-    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageSubresource = {static_cast<VkImageAspectFlags>(is_depth(t->desc.format)
+                                                                   ? VK_IMAGE_ASPECT_DEPTH_BIT
+                                                                   : VK_IMAGE_ASPECT_COLOR_BIT),
+                               0, 0, 1};
     region.imageExtent = {t->desc.width, t->desc.height, 1};
     vkCmdCopyBufferToImage(native(native_), b->buffer, t->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 }
 
 void CommandList::begin_debug_label(const char* name) {
+    if (!usable()) return;
     auto& s = device_->impl();
     if (!s.cmd_begin_label) return;
     VkDebugUtilsLabelEXT label{VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT};
@@ -234,6 +307,7 @@ void CommandList::begin_debug_label(const char* name) {
 }
 
 void CommandList::end_debug_label() {
+    if (!usable()) return;
     auto& s = device_->impl();
     if (s.cmd_end_label) s.cmd_end_label(native(native_));
 }

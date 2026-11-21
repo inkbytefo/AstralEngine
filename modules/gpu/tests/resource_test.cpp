@@ -76,6 +76,7 @@ TEST_CASE("sampled textures get distinct bindless indices") {
 TEST_CASE("invalid descriptions are refused") {
     auto device = test::make_device();
     if (!device) return;
+    device.expect_errors(2); // both refusals are logged
     CHECK_FALSE(device->create_buffer({.size = 0}).valid());
     CHECK_FALSE(device->create_texture({.width = 0, .height = 4}).valid());
 }

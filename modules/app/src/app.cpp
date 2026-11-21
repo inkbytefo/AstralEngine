@@ -165,8 +165,7 @@ void App::Impl::frame(Game& game, float delta) {
             auto cmd = m.device->begin_commands();
             m.renderer->render(cmd, image, camera, m.draw_items, ctx.light);
             cmd.transition(image, gpu::ResourceState::Present);
-            m.device->submit(cmd);
-            m.swapchain->present();
+            m.swapchain->present(cmd);
         }
     }
 

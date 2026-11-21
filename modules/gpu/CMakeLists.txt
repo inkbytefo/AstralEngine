@@ -34,7 +34,8 @@ astral_add_tests(MODULE gpu
         tests/test_main.cpp
         tests/device_test.cpp
         tests/resource_test.cpp
-        tests/command_test.cpp)
+        tests/command_test.cpp
+        tests/robustness_test.cpp)
 if(TARGET astral_gpu_tests)
     astral_add_shaders(astral_gpu_tests SOURCES
         tests/shaders/fill.comp

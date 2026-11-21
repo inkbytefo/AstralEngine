@@ -58,12 +58,16 @@ public:
     void destroy(TextureHandle texture);
     void destroy(PipelineHandle pipeline);
 
-    /// Copies CPU data into a buffer (mapped write or staged copy). Blocks for staged copies.
+    /// Copies CPU data into a buffer. Host-visible buffers are written directly (the caller must
+    /// not overwrite data the GPU may still be reading); GPU-only buffers go through a blocking
+    /// staged copy, which is refused while a CommandList is being recorded.
     bool write_buffer(BufferHandle buffer, const void* data, std::uint64_t size,
                       std::uint64_t offset = 0);
-    /// Copies buffer contents to the CPU. Waits for pending GPU work first.
+    /// Copies buffer contents to the CPU. Waits for pending GPU work first. GPU-only buffers
+    /// need a staged copy, refused while a CommandList is being recorded.
     bool read_buffer(BufferHandle buffer, void* out, std::uint64_t size, std::uint64_t offset = 0);
     /// Uploads tightly packed texels to mip 0 and leaves the texture in ShaderRead state.
+    /// Blocking; refused while a CommandList is being recorded.
     bool write_texture(TextureHandle texture, const void* data, std::uint64_t size);
 
     /// GPU virtual address for shaders (0 for an invalid handle).
@@ -84,7 +88,11 @@ public:
     Impl& impl() noexcept { return *impl_; }
 
 private:
+    friend class Swapchain;
     explicit Device(std::unique_ptr<Impl> impl);
+    /// Submit with extra native semaphores (used by Swapchain::present).
+    SubmitTicket submit_internal(CommandList& commands, const void* waits, std::uint32_t wait_count,
+                                 const void* signals, std::uint32_t signal_count);
     std::unique_ptr<Impl> impl_;
 };
 

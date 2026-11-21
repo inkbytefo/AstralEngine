@@ -104,7 +104,23 @@ std::uint64_t Device::Impl::completed_value() const {
 }
 
 void Device::Impl::retire(std::function<void()> destroy) {
-    garbage.push_back({last_submitted, std::move(destroy)});
+    // A command list being recorded right now may reference the resource and will be
+    // submitted as `last_submitted + 1`: wait for that one too.
+    garbage.push_back({last_submitted + 1, std::move(destroy)});
+}
+
+bool Device::Impl::any_recording() const noexcept {
+    for (const auto& c : command_slots) {
+        if (c.recording) return true;
+    }
+    return false;
+}
+
+bool Device::Impl::can_run_immediate(const char* operation) const {
+    if (!any_recording()) return true;
+    log_error(std::string(operation) + ": refused while a CommandList is being recorded "
+                                       "(submit it first, or use a host-visible buffer)");
+    return false;
 }
 
 void Device::Impl::collect_garbage() {
@@ -185,7 +201,18 @@ void Device::Impl::immediate(const std::function<void(VkCommandBuffer)>& record)
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(cmd, &begin);
+    // Order against everything submitted before and after (uploads are rare: simplicity wins).
+    VkMemoryBarrier2 full{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    full.srcStageMask = full.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    full.srcAccessMask = full.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+    VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &full;
+    vkCmdPipelineBarrier2(cmd, &dep);
     record(cmd);
+    full.dstAccessMask |= VK_ACCESS_2_HOST_READ_BIT;
+    full.dstStageMask |= VK_PIPELINE_STAGE_2_HOST_BIT;
+    vkCmdPipelineBarrier2(cmd, &dep);
     vkEndCommandBuffer(cmd);
 
     const std::uint64_t value = ++last_submitted;
@@ -274,11 +301,14 @@ bool create_instance(Device::Impl& s, const DeviceDesc& desc) {
             vkGetInstanceProcAddr(s.instance, "vkCreateDebugUtilsMessengerEXT"));
         if (create) create(s.instance, &messenger_info, nullptr, &s.messenger);
     }
-    if (desc.surface && desc.surface->create_surface) {
-        s.surface = reinterpret_cast<VkSurfaceKHR>(desc.surface->create_surface(s.instance));
-        if (!s.surface) return false;
-    }
     return true;
+}
+
+bool create_surface(Device::Impl& s, const DeviceDesc& desc) {
+    if (!desc.surface) return true;
+    if (!desc.surface->create_surface) return false;
+    s.surface = reinterpret_cast<VkSurfaceKHR>(desc.surface->create_surface(s.instance));
+    return s.surface != VK_NULL_HANDLE;
 }
 
 bool pick_physical_device(Device::Impl& s) {
@@ -467,6 +497,10 @@ std::unique_ptr<Device> Device::create(const DeviceDesc& desc) {
         state->log_error("vkCreateInstance failed (is a Vulkan driver installed?)");
         return nullptr;
     }
+    if (!create_surface(*state, desc)) {
+        state->log_error("could not create a Vulkan surface for the window");
+        return nullptr;
+    }
     if (!pick_physical_device(*state)) {
         state->log_error("no Vulkan 1.3 device with the required features");
         return nullptr;
@@ -549,38 +583,48 @@ CommandList Device::begin_commands() {
 }
 
 SubmitTicket Device::submit(CommandList& commands) {
+    return submit_internal(commands, nullptr, 0, nullptr, 0);
+}
+
+SubmitTicket Device::submit_internal(CommandList& commands, const void* waits, std::uint32_t wait_count,
+                                     const void* signals, std::uint32_t signal_count) {
     auto& s = *impl_;
     if (!commands.valid()) return {s.last_submitted};
     if (commands.rendering_) commands.end_rendering();
     auto& slot = s.command_slots[commands.slot_];
     vkEndCommandBuffer(slot.buffer);
 
-    const std::uint64_t value = ++s.last_submitted;
+    const std::uint64_t value = s.last_submitted + 1;
     VkCommandBufferSubmitInfo cmd_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
     cmd_info.commandBuffer = slot.buffer;
-    std::vector<VkSemaphoreSubmitInfo> signals = std::move(s.next_signals);
+    std::vector<VkSemaphoreSubmitInfo> signal_infos;
+    if (signal_count) {
+        auto* begin = static_cast<const VkSemaphoreSubmitInfo*>(signals);
+        signal_infos.assign(begin, begin + signal_count);
+    }
     VkSemaphoreSubmitInfo timeline_signal{VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
     timeline_signal.semaphore = s.timeline;
     timeline_signal.value = value;
     timeline_signal.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-    signals.push_back(timeline_signal);
-    std::vector<VkSemaphoreSubmitInfo> waits = std::move(s.next_waits);
-    s.next_signals.clear();
-    s.next_waits.clear();
+    signal_infos.push_back(timeline_signal);
 
     VkSubmitInfo2 submit{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
-    submit.waitSemaphoreInfoCount = static_cast<std::uint32_t>(waits.size());
-    submit.pWaitSemaphoreInfos = waits.data();
+    submit.waitSemaphoreInfoCount = wait_count;
+    submit.pWaitSemaphoreInfos = static_cast<const VkSemaphoreSubmitInfo*>(waits);
     submit.commandBufferInfoCount = 1;
     submit.pCommandBufferInfos = &cmd_info;
-    submit.signalSemaphoreInfoCount = static_cast<std::uint32_t>(signals.size());
-    submit.pSignalSemaphoreInfos = signals.data();
-    if (vkQueueSubmit2(s.queue, 1, &submit, VK_NULL_HANDLE) != VK_SUCCESS) {
-        s.log_error("vkQueueSubmit2 failed");
-    }
-    slot.ticket = value;
+    submit.signalSemaphoreInfoCount = static_cast<std::uint32_t>(signal_infos.size());
+    submit.pSignalSemaphoreInfos = signal_infos.data();
     slot.recording = false;
     commands.device_ = nullptr; // consumed
+    commands.touched_.clear();
+    if (vkQueueSubmit2(s.queue, 1, &submit, VK_NULL_HANDLE) != VK_SUCCESS) {
+        s.log_error("vkQueueSubmit2 failed (device lost?)");
+        slot.ticket = 0;
+        return {s.last_submitted}; // nothing will signal `value`: do not advance
+    }
+    s.last_submitted = value;
+    slot.ticket = value;
     return {value};
 }
 
@@ -594,8 +638,16 @@ bool Device::is_complete(SubmitTicket ticket) const {
 }
 
 void Device::wait_idle() {
-    vkDeviceWaitIdle(impl_->device);
-    impl_->collect_garbage();
+    auto& s = *impl_;
+    vkDeviceWaitIdle(s.device);
+    s.collect_garbage();
+    if (!s.any_recording()) {
+        // Nothing can reference retired resources any more.
+        while (!s.garbage.empty()) {
+            s.garbage.front().destroy();
+            s.garbage.pop_front();
+        }
+    }
 }
 
 } // namespace astral::gpu

@@ -22,10 +22,10 @@ struct SwapchainDesc {
 ///     cmd.transition(image, ResourceState::ColorTarget);
 ///     ... render ...
 ///     cmd.transition(image, ResourceState::Present);
-///     device.submit(cmd);                     // waits for the acquire, signals present
-///     swapchain.present();
+///     swapchain.present(cmd);                 // submits (waiting for the image) and presents
 ///
-/// Out-of-date or resized surfaces are recreated automatically.
+/// Out-of-date or resized surfaces are recreated automatically. The Swapchain must be
+/// destroyed before its Device.
 class Swapchain {
 public:
     /// Requires a Device created with DeviceDesc::surface. Returns nullptr on failure.
@@ -36,10 +36,12 @@ public:
     Swapchain& operator=(const Swapchain&) = delete;
 
     /// Next image to render into, or an invalid handle when nothing can be drawn this frame.
-    /// Also throttles the CPU so at most `frames_in_flight` frames are queued.
+    /// Also throttles the CPU so at most `frames_in_flight` frames are queued. Calling it again
+    /// before present() returns the same image.
     TextureHandle acquire();
-    /// Presents the image from the last acquire(). Call right after submitting its commands.
-    void present();
+    /// Submits `commands` (which must leave the image in Present state) so they wait for the
+    /// acquired image, then presents it. Without an acquired image it is a plain submit.
+    SubmitTicket present(CommandList& commands);
     /// Forces recreation at the next acquire (e.g. after a window resize event).
     void invalidate() noexcept;
 
