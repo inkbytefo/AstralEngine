@@ -51,11 +51,14 @@ public:
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
 
+    /// Uploads a mesh (blocking). Returns an invalid handle on failure, e.g. while a
+    /// CommandList is being recorded.
     MeshHandle create_mesh(const MeshData& data);
     void destroy(MeshHandle mesh);
 
     /// Records the frame into `cmd`. `target` ends in ColorTarget state.
-    /// Keeps a small ring of per-frame buffers: at most 2 frames may be in flight.
+    /// Per-frame data lives in a small ring of buffers; a slot is reused only after the GPU
+    /// finished the submission that last read it (several render() calls per frame are fine).
     void render(gpu::CommandList& cmd, gpu::TextureHandle target, const CameraData& camera,
                 std::span<const DrawItem> items, const DirectionalLight& light,
                 Vec4 clear_color = {0.02f, 0.02f, 0.03f, 1.0f});

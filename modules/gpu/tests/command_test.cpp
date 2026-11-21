@@ -104,3 +104,20 @@ TEST_CASE("command lists can be recorded and submitted repeatedly") {
     }
     CHECK(true);
 }
+
+TEST_CASE("on_submitted reports the ticket of the submission, never for dropped lists") {
+    auto device = test::make_device();
+    if (!device) return;
+    std::uint64_t seen = 0;
+    int dropped_calls = 0;
+    {
+        auto dropped = device->begin_commands();
+        dropped.on_submitted([&](gpu::SubmitTicket) { ++dropped_calls; });
+    }
+    auto cmd = device->begin_commands();
+    cmd.on_submitted([&](gpu::SubmitTicket t) { seen = t.value; });
+    const gpu::SubmitTicket ticket = device->submit(cmd);
+    CHECK(seen == ticket.value);
+    CHECK(dropped_calls == 0);
+    device->wait(ticket);
+}

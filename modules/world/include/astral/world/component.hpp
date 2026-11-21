@@ -9,9 +9,11 @@
 
 namespace astral {
 
-/// Stable identifier of a component type, computed at compile time from the type's name.
-/// No registration and no global counter: the same type always gets the same id.
-using ComponentId = std::uint64_t;
+/// Identifier of a component type within this program: the address of a per-type tag, so
+/// distinct types never collide — even same-named types in anonymous namespaces of different
+/// .cpp files. No registration and no global counter. Not stable across runs: use
+/// component_name_hash() for anything persisted (save files, network).
+using ComponentId = std::uintptr_t;
 
 namespace detail {
 
@@ -34,7 +36,17 @@ constexpr std::uint64_t fnv1a(std::string_view text) noexcept {
 
 } // namespace detail
 
-template <class T> constexpr ComponentId component_id() noexcept {
+namespace detail {
+template <class T> inline constexpr char type_tag = 0;
+} // namespace detail
+
+template <class T> ComponentId component_id() noexcept {
+    return reinterpret_cast<ComponentId>(&detail::type_tag<std::remove_cvref_t<T>>);
+}
+
+/// Hash of the type's printed name: stable between runs of the same build, but NOT unique
+/// for same-named types in anonymous namespaces. For serialization keys only.
+template <class T> constexpr std::uint64_t component_name_hash() noexcept {
     return detail::fnv1a(detail::type_signature<std::remove_cvref_t<T>>());
 }
 
@@ -53,7 +65,7 @@ template <class T> const ComponentInfo& component_info() noexcept {
     static_assert(std::is_move_constructible_v<C>, "components must be move-constructible");
     static_assert(std::is_nothrow_move_constructible_v<C>,
                   "components must be nothrow move-constructible (they are relocated in memory)");
-    static constexpr ComponentInfo info{
+    static const ComponentInfo info{
         component_id<C>(),
         sizeof(C),
         alignof(C),

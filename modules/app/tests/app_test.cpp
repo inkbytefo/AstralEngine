@@ -136,3 +136,11 @@ TEST_CASE("headless app has no window or renderer but a working world") {
     CHECK(app.context().renderer == nullptr);
     CHECK(app.context().world.count() == 0);
 }
+
+TEST_CASE("an app runs a game only once") {
+    App app(headless());
+    TestGame game;
+    app.run_frames(game, 1);
+    app.run_frames(game, 1); // refused and logged
+    CHECK(game.starts == 1);
+}

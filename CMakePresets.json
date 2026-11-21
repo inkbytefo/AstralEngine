@@ -88,6 +88,9 @@
       "configurePreset": "asan",
       "output": {
         "outputOnFailure": true
+      },
+      "environment": {
+        "LSAN_OPTIONS": "suppressions=${sourceDir}/cmake/lsan.supp:print_suppressions=0"
       }
     }
   ]

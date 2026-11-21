@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
@@ -23,6 +24,7 @@ class EntityRef;
 
 /// Structural changes recorded now and applied later with World::apply_commands().
 /// Use it inside each()/parallel_each(), where the world must not change shape.
+/// Recording is thread-safe (parallel_each workers may record concurrently).
 class Commands {
 public:
     template <class... Cs> void spawn(Cs&&... components);
@@ -44,8 +46,11 @@ private:
         void apply(World& world) override { fn(world); }
     };
     template <class Fn> void push(Fn fn) {
-        commands_.push_back(std::make_unique<FnCommand<Fn>>(std::move(fn)));
+        auto command = std::make_unique<FnCommand<Fn>>(std::move(fn));
+        std::scoped_lock lock(mutex_);
+        commands_.push_back(std::move(command));
     }
+    std::mutex mutex_;
     std::vector<std::unique_ptr<Command>> commands_;
 };
 
@@ -102,7 +107,6 @@ private:
         bool alive = false;
     };
     struct Query {
-        std::vector<ComponentId> ids;
         std::vector<detail::Archetype*> matches;
         std::size_t checked = 0; // archetypes_ already tested
     };
@@ -139,7 +143,7 @@ private:
     std::vector<std::unique_ptr<detail::Archetype>> archetypes_;
     std::map<std::vector<ComponentId>, detail::Archetype*> archetype_index_;
     detail::Archetype* root_ = nullptr; // no components
-    std::unordered_map<std::uint64_t, Query> queries_;
+    std::map<std::vector<ComponentId>, Query> queries_;
     std::unordered_map<ComponentId, Resource> resources_;
     Commands commands_;
     int iterating_ = 0;
@@ -170,17 +174,38 @@ private:
 // Template implementations                                                               //
 // ===================================================================================== //
 
+namespace detail {
+template <class... Ts> constexpr bool all_unique() {
+    if constexpr (sizeof...(Ts) <= 1) {
+        return true;
+    } else {
+        return []<class First, class... Rest>(std::type_identity<First>, std::type_identity<Rest>...) {
+            return (!std::is_same_v<First, Rest> && ...) && all_unique<Rest...>();
+        }(std::type_identity<Ts>{}...);
+    }
+}
+} // namespace detail
+
 template <class... Cs> Entity World::create(Cs&&... components) {
     check_not_iterating("create");
+    static_assert(detail::all_unique<std::remove_cvref_t<Cs>...>(),
+                  "create(): each component type may appear only once");
     if constexpr (sizeof...(Cs) == 0) {
         return create();
     } else {
+        // Build the values first: an argument may point into the world's own storage,
+        // which push() below can reallocate; a throwing copy must not leave a half-built row.
+        std::tuple<std::remove_cvref_t<Cs>...> values(std::forward<Cs>(components)...);
         detail::Archetype* a = archetype_for({&component_info<Cs>()...});
         Entity e = allocate_entity();
         const std::size_t row = a->push(e);
-        (::new (a->column_data(component_id<Cs>()) + row * sizeof(std::remove_cvref_t<Cs>))
-             std::remove_cvref_t<Cs>(std::forward<Cs>(components)),
-         ...);
+        std::apply(
+            [&](auto&... v) {
+                ((::new (a->column_data(component_id<decltype(v)>()) + row * sizeof(v))
+                      std::remove_cvref_t<decltype(v)>(std::move(v))),
+                 ...);
+            },
+            values);
         place(e, a, row);
         return e;
     }
@@ -191,14 +216,15 @@ template <class T> std::remove_cvref_t<T>& World::add(Entity entity, T&& compone
     check_not_iterating("add");
     Slot* s = slot(entity);
     ASTRAL_ASSERT(s, "add() on a dead entity");
-    constexpr ComponentId id = component_id<C>();
+    // Copy first: `component` may live inside a column that the move below reallocates.
+    C value(std::forward<T>(component));
     if (C* existing = get<C>(entity)) {
-        *existing = std::forward<T>(component);
+        *existing = std::move(value);
         return *existing;
     }
     detail::Archetype* to = with_component(s->archetype, component_info<C>());
     const std::size_t row = move_entity(entity, *s, to);
-    return *::new (to->column_data(id) + row * sizeof(C)) C(std::forward<T>(component));
+    return *::new (to->column_data(component_id<C>()) + row * sizeof(C)) C(std::move(value));
 }
 
 template <class T> bool World::remove(Entity entity) {
@@ -266,9 +292,10 @@ template <class... Cs> std::size_t World::count() {
 }
 
 template <class T> T& World::set_resource(T value) {
+    auto* fresh = new T(std::move(value)); // before touching the old one: exception-safe
     auto& r = resources_[component_id<T>()];
     if (r.ptr) r.destroy(r.ptr);
-    r.ptr = new T(std::move(value));
+    r.ptr = fresh;
     r.destroy = [](void* p) { delete static_cast<T*>(p); };
     return *static_cast<T*>(r.ptr);
 }

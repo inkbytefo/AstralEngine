@@ -90,9 +90,13 @@ void Commands::destroy(Entity entity) {
 
 void Commands::apply(World& world) {
     // Commands may record more commands; keep applying until the queue is empty.
-    while (!commands_.empty()) {
-        auto batch = std::move(commands_);
-        commands_.clear();
+    for (;;) {
+        std::vector<std::unique_ptr<Command>> batch;
+        {
+            std::scoped_lock lock(mutex_);
+            batch.swap(commands_);
+        }
+        if (batch.empty()) return;
         for (auto& command : batch) command->apply(world);
     }
 }
@@ -225,14 +229,13 @@ std::size_t World::move_entity(Entity entity, Slot& s, detail::Archetype* to) {
 
 World::Query& World::query(std::vector<ComponentId> ids) {
     std::sort(ids.begin(), ids.end());
-    std::uint64_t key = 1469598103934665603ull;
-    for (ComponentId id : ids) key = (key ^ id) * 1099511628211ull;
-    Query& q = queries_[key];
-    if (q.checked == 0 && q.ids.empty()) q.ids = ids;
+    auto [it, inserted] = queries_.try_emplace(ids);
+    Query& q = it->second;
+    const std::vector<ComponentId>& key = it->first;
     // Archetypes are only ever appended: test just the new ones.
     for (; q.checked < archetypes_.size(); ++q.checked) {
         detail::Archetype* a = archetypes_[q.checked].get();
-        const bool match = std::all_of(q.ids.begin(), q.ids.end(),
+        const bool match = std::all_of(key.begin(), key.end(),
                                        [a](ComponentId id) { return a->contains(id); });
         if (match) q.matches.push_back(a);
     }

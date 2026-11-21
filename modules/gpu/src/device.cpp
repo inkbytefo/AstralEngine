@@ -618,6 +618,8 @@ SubmitTicket Device::submit_internal(CommandList& commands, const void* waits, s
     slot.recording = false;
     commands.device_ = nullptr; // consumed
     commands.touched_.clear();
+    auto callbacks = std::move(commands.on_submitted_);
+    commands.on_submitted_.clear();
     if (vkQueueSubmit2(s.queue, 1, &submit, VK_NULL_HANDLE) != VK_SUCCESS) {
         s.log_error("vkQueueSubmit2 failed (device lost?)");
         slot.ticket = 0;
@@ -625,6 +627,7 @@ SubmitTicket Device::submit_internal(CommandList& commands, const void* waits, s
     }
     s.last_submitted = value;
     slot.ticket = value;
+    for (auto& callback : callbacks) callback({value});
     return {value};
 }
 

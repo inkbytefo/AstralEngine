@@ -1,0 +1,6 @@
+# Known one-time leaks inside third-party platform libraries (not AstralEngine code).
+leak:X11_VideoInit
+leak:X11_InitKeyboard
+leak:libdbus-1.so
+leak:libX11.so
+leak:libxkbcommon.so

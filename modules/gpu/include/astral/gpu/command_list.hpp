@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <initializer_list>
 #include <span>
 #include <utility>
@@ -76,6 +77,10 @@ public:
     /// Copies tightly packed texels from `src` into mip 0 of `dst` (TransferDst state).
     void copy_buffer_to_texture(BufferHandle src, TextureHandle dst);
 
+    /// Runs `callback` with this list's ticket right after it is submitted (never if the list
+    /// is dropped). Lets a system know when the GPU finished with data it recorded.
+    void on_submitted(std::function<void(SubmitTicket)> callback);
+
     void begin_debug_label(const char* name);
     void end_debug_label();
 
@@ -96,6 +101,7 @@ private:
     bool compute_bound_ = false;
     /// First state each texture had in this list, to roll back if the list is dropped.
     std::vector<std::pair<TextureHandle, ResourceState>> touched_;
+    std::vector<std::function<void(SubmitTicket)>> on_submitted_;
 };
 
 } // namespace astral::gpu

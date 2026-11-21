@@ -26,7 +26,8 @@ CommandList::CommandList(Device* device, void* native_buffer, std::uint32_t slot
 CommandList::CommandList(CommandList&& other) noexcept
     : device_(std::exchange(other.device_, nullptr)), native_(other.native_), slot_(other.slot_),
       rendering_(other.rendering_), bound_pipeline_(other.bound_pipeline_),
-      compute_bound_(other.compute_bound_), touched_(std::move(other.touched_)) {}
+      compute_bound_(other.compute_bound_), touched_(std::move(other.touched_)),
+      on_submitted_(std::move(other.on_submitted_)) {}
 
 CommandList& CommandList::operator=(CommandList&& other) noexcept {
     if (this != &other) {
@@ -38,6 +39,7 @@ CommandList& CommandList::operator=(CommandList&& other) noexcept {
         bound_pipeline_ = other.bound_pipeline_;
         compute_bound_ = other.compute_bound_;
         touched_ = std::move(other.touched_);
+        on_submitted_ = std::move(other.on_submitted_);
     }
     return *this;
 }
@@ -295,6 +297,10 @@ void CommandList::copy_buffer_to_texture(BufferHandle src, TextureHandle dst) {
                                0, 0, 1};
     region.imageExtent = {t->desc.width, t->desc.height, 1};
     vkCmdCopyBufferToImage(native(native_), b->buffer, t->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+}
+
+void CommandList::on_submitted(std::function<void(SubmitTicket)> callback) {
+    if (usable() && callback) on_submitted_.push_back(std::move(callback));
 }
 
 void CommandList::begin_debug_label(const char* name) {

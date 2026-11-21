@@ -7,6 +7,8 @@
 #include <astral/world/transform.hpp>
 
 #include <array>
+#include <chrono>
+#include <thread>
 #include <vector>
 
 namespace astral {
@@ -30,7 +32,10 @@ struct App::Impl {
     std::array<std::vector<std::unique_ptr<System>>, 3> systems;
     std::vector<DrawItem> draw_items; // scratch, reused every frame
 
+    bool started = false;
+
     explicit Impl(const AppDesc& d) : desc(d), jobs(d.worker_threads) {}
+    bool start(Game& game);
     void frame(Game& game, float delta);
 };
 
@@ -72,7 +77,9 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
 App::~App() {
     auto& m = *impl_;
     if (m.device) m.device->wait_idle();
-    // Order matters: renderer and swapchain before the device, window last.
+    // Systems may release GPU resources in their destructors: they go first, while the
+    // renderer and device still exist. Then the services, device last, window after it.
+    for (auto& phase : m.systems) phase.clear();
     m.renderer.reset();
     m.swapchain.reset();
     m.device.reset();
@@ -107,11 +114,21 @@ CameraData find_camera(World& world, float aspect) {
 
 } // namespace
 
+bool App::Impl::start(Game& game) {
+    if (started) {
+        log.error("App: run()/run_frames() may only be called once per App");
+        return false;
+    }
+    started = true;
+    game.on_start(*context);
+    world.apply_commands();
+    clock.tick();
+    return true;
+}
+
 void App::run_frames(Game& game, std::uint32_t frames) {
     auto& m = *impl_;
-    game.on_start(*m.context);
-    m.world.apply_commands();
-    m.clock.tick();
+    if (!m.start(game)) return;
     for (std::uint32_t i = 0; i < frames && !m.context->quit_requested(); ++i) {
         if (m.window && !m.window->poll(m.input)) break;
         const float dt = m.desc.fixed_timestep > 0 ? m.desc.fixed_timestep : m.clock.tick();
@@ -123,11 +140,13 @@ void App::run_frames(Game& game, std::uint32_t frames) {
 
 int App::run(Game& game) {
     auto& m = *impl_;
-    game.on_start(*m.context);
-    m.world.apply_commands();
-    m.clock.tick();
+    if (!m.start(game)) return 1;
     while (!m.context->quit_requested()) {
         if (m.window && !m.window->poll(m.input)) break;
+        if (m.window && m.window->minimized()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(16)); // don't spin while hidden
+            continue;
+        }
         const float dt = m.desc.fixed_timestep > 0 ? m.desc.fixed_timestep : m.clock.tick();
         m.frame(game, dt);
     }

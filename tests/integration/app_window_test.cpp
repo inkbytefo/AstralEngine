@@ -24,3 +24,29 @@ TEST_CASE("windowed app renders a scene of meshes") {
     app.run_frames(scene, 10);
     CHECK(app.context().renderer->stats().instances == 50);
 }
+
+TEST_CASE("systems can release GPU resources in their destructors at shutdown") {
+    class OwnsMesh final : public System {
+    public:
+        explicit OwnsMesh(Context& ctx) : renderer_(ctx.renderer), mesh_(ctx.renderer->create_mesh(make_cube())) {}
+        ~OwnsMesh() override { renderer_->destroy(mesh_); }
+        void update(Context&) override {}
+
+    private:
+        Renderer* renderer_;
+        MeshHandle mesh_;
+    };
+    class Owner final : public Game {
+    public:
+        void on_start(Context& ctx) override {
+            if (ctx.renderer) ctx.add_system<OwnsMesh>(Phase::Update, ctx);
+        }
+    };
+    {
+        App app({.title = "shutdown", .width = 64, .height = 64});
+        if (!app.context().renderer) return;
+        Owner game;
+        app.run_frames(game, 2);
+    } // ~App must destroy the system before the renderer
+    CHECK(true);
+}

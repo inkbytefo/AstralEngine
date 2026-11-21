@@ -50,6 +50,8 @@ struct Renderer::Impl {
         gpu::BufferHandle instances;
         std::uint64_t instance_capacity = 0;
         gpu::BufferHandle frame;
+        /// Submission that last read this slot (0 = none or not submitted yet).
+        std::shared_ptr<std::uint64_t> last_use = std::make_shared<std::uint64_t>(0);
     };
     std::array<FrameBuffers, ring_size> ring{};
     std::uint32_t ring_index = 0;
@@ -57,7 +59,8 @@ struct Renderer::Impl {
     gpu::TextureHandle depth;
     gpu::Extent2D depth_extent{};
     RenderStats stats;
-    std::vector<std::uint32_t> order; // scratch: draw items sorted by mesh
+    std::vector<std::uint32_t> order;     // scratch: draw items sorted by mesh
+    std::vector<GpuInstance> instances;   // scratch, reused every frame
 
     Impl(gpu::Device& d, gpu::Format format) : device(d), color_format(format) {}
 };
@@ -101,8 +104,12 @@ MeshHandle Renderer::create_mesh(const MeshData& data) {
     const std::uint64_t ibytes = data.indices.size() * sizeof(std::uint32_t);
     mesh.vertices = m.device.create_buffer({.size = vbytes, .usage = gpu::BufferUsage::Storage});
     mesh.indices = m.device.create_buffer({.size = ibytes, .usage = gpu::BufferUsage::Index});
-    m.device.write_buffer(mesh.vertices, data.vertices.data(), vbytes);
-    m.device.write_buffer(mesh.indices, data.indices.data(), ibytes);
+    if (!m.device.write_buffer(mesh.vertices, data.vertices.data(), vbytes) ||
+        !m.device.write_buffer(mesh.indices, data.indices.data(), ibytes)) {
+        m.device.destroy(mesh.vertices);
+        m.device.destroy(mesh.indices);
+        return {}; // e.g. called while a CommandList is recording
+    }
     mesh.index_count = static_cast<std::uint32_t>(data.indices.size());
     return m.meshes.create(mesh);
 }
@@ -138,6 +145,10 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
     // Per-frame data goes into this frame's slot of the ring.
     auto& frame = m.ring[m.ring_index];
     m.ring_index = (m.ring_index + 1) % ring_size;
+    // The GPU may still read this slot from an earlier frame: wait for exactly that submission
+    // (normally long finished). Then mark it as used by whatever submits `cmd`.
+    m.device.wait({*frame.last_use});
+    cmd.on_submitted([use = frame.last_use](gpu::SubmitTicket t) { *use = t.value; });
 
     // Sort by mesh so each mesh is one instanced draw.
     m.order.resize(items.size());
@@ -145,8 +156,8 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
     std::sort(m.order.begin(), m.order.end(), [&](std::uint32_t a, std::uint32_t b) {
         return items[a].mesh.index < items[b].mesh.index;
     });
-    std::vector<GpuInstance> instances;
-    instances.reserve(items.size());
+    auto& instances = m.instances;
+    instances.clear();
     for (std::uint32_t i : m.order) instances.push_back({items[i].transform, items[i].color});
 
     const std::uint64_t needed = std::max<std::uint64_t>(instances.size(), 1) * sizeof(GpuInstance);
