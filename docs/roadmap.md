@@ -15,16 +15,24 @@ Durum: ✅ bitti · 🚧 sürüyor · 🔜 sıradaki · ⬜ planlı
 | M5b | `Astral::Assets`: AssetId, async yükleme, hot-reload, glTF, texture'lı materyal | ✅ |
 | M5c | Sahne + prefab: kalıcı kimlikler, alan bazlı override, iç içe/varyant, hot-reload | ✅ |
 | M6 | Paketleme: `astral-cook`, `.apak`, `astral_add_game` (ikili sahne dahil) | ✅ |
-| M7 | İlk oyun dikey dilimi (kılıç arenası prototipi) | 🔜 |
+| M7 | İlk oyun: 3D Pong (`examples/pong`) — motoru uçtan uca sınayan küçük oyun | ✅ |
+| M8 | Oyunun temel eksikleri: `Astral::Audio` (ses) + metin/HUD (yazı, debug UI) | 🔜 |
+| M9 | Atmosfer: fiziksel gökyüzü, hacimsel bulut/sis, hava durumu haritaları | ⬜ |
+| M10 | Animasyon: iskelet/skin, blend, root motion; ardından motion matching | ⬜ |
+| M11 | Dünya: hücrelere bölünmüş haritalar, streaming, HLOD | ⬜ |
+| — | Kılıç arenası: yer tutucu — motor (animasyon, aktif ragdoll) olgunlaşınca | ⬜ |
 
 Oyun nasıl yazılır: [ADR-0006](decisions/0006-app-layer-for-games.md).
 
 Sıra ve gerekçe: [ADR-0012](decisions/0012-render-api-contract.md).
 
+**Yön (2026-11-21):** oyun tarafı küçük tutuluyor, enerji motorun gücüne. İlk oyun kılıç arenası yerine
+3D Pong oldu (M7); kılıç arenası motor olgunlaşınca yapılacak.
+
 **RAGE araştırmasından gelen sistemler** ([research/rage.md](research/rage.md)) — sıra: render (M3.5) →
-asset'ler (M5) → kılıç arenası + kendi aktif ragdoll'umuz (M6) → atmosfer (dünya ölçekli bulut/sis/hava
-haritaları, fiziksel gökyüzü) → animasyon (parça havuzu / motion matching) → AI (node navigasyonu, rutinler,
-hafıza) → dünya streaming + görünmez LOD.
+asset'ler (M5) → atmosfer (dünya ölçekli bulut/sis/hava haritaları, fiziksel gökyüzü) → animasyon (parça
+havuzu / motion matching) + kendi aktif ragdoll'umuz → AI (node navigasyonu, rutinler, hafıza) → dünya
+streaming + görünmez LOD.
 
 ## M0 — İskelet ve Core ✅
 
@@ -142,6 +150,26 @@ Ayrıntı: [ADR-0016](decisions/0016-packaging.md), [modules/assets.md](modules/
 
 **Devreden borç:** memory-map ve kısmi okuma yok, prefab şablon cook'u yok (sahne yine JSON
 değerlendirmesi), ASTC/mobil yok, bağımsız inceleme yapılmadı.
+
+
+## M7 — İlk oyun: 3D Pong ✅
+
+**Sonuç:** `examples/pong`: tünelde 3D Pong ("Curveball"). Oyuncu WASD/oklar/fare ile oynuyor, karşıda
+yapay zekâ var, topun rakete çarptığı nokta yönünü büküyor, 5 sayıda maç bitiyor. Oyun kodu iki dosya
+(`pong.hpp/.cpp`: 5 component, 5 sistem). Görünen her şey `court.scene` ve 5 prefab'da; bunlara oyunun
+kendi component'leri (`pong::Paddle`, `pong::Court`...) dahil. Rakip raket bir prefab **varyantı**,
+derinlik halkası override'lı bir prefab örneği. Testler headless ve deterministik: dört dakikalık AI-AI
+maçı 2 saniyede, kurallar ayrı ayrı. `pong_package` ile paketleniyor. Görüntü:
+[images/m7-pong.png](images/m7-pong.png).
+
+**Pong'un motorda bulduğu eksikler** (sonraki fazların girdisi):
+- Ses yok: çarpma ve sayı sesi çalınamıyor → M8.
+- Metin/HUD yok: skor pencere başlığına ve sahnedeki ışıklara yazıldı → M8.
+- `astral.hpp` `Window` ve sahne API'sini içermiyordu → bu fazda düzeltildi.
+- Tekil component'e (kural nesnesi) erişim için yardımcı yok (`each` + ilk eleman) → küçük iş.
+- Yakalama her kareyi çiziyor; mantığı hızlıca ileri sarıp yalnız son kareleri çizmek mümkün değil.
+- Bir component'in materyalini değiştirmek yeni bir materyal oluşturuyor; önbellek hiç boşalmıyor
+  (`PrimitiveMesh`).
 
 ## M5 — Asset'ler
 

@@ -1,0 +1,32 @@
+{
+  "format": "astral.scene",
+  "version": 1,
+  "entities": [
+    {
+      "id": 1,
+      "components": {
+        "astral::Name": {
+          "value": "ball"
+        },
+        "astral::Transform": {
+          "scale": [0.6, 0.6, 0.6]
+        },
+        "astral::PrimitiveMesh": {
+          "shape": "Sphere",
+          "material": {
+            "base_color": [1, 1, 1, 1],
+            "roughness": 0.2,
+            "emissive": [7, 6.4, 5]
+          }
+        },
+        "astral::PointLight": {
+          "color": [1.0, 0.88, 0.7],
+          "intensity": 14,
+          "radius": 14,
+          "source_radius": 0.25
+        },
+        "pong::Ball": {}
+      }
+    }
+  ]
+}

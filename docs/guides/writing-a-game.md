@@ -1,7 +1,9 @@
 # Oyun nasıl yazılır
 
 AstralEngine'de oyun üç parçadan oluşur: **component** (veri), **system** (mantık), **Game** (kurulum).
-Döngüyü, pencereyi, GPU'yu ve render'ı `App` yönetir. Tam örnek: `examples/spinning_cubes/main.cpp`.
+Döngüyü, pencereyi, GPU'yu ve render'ı `App` yönetir. En küçük örnek: `examples/spinning_cubes/main.cpp`.
+Tam bir oyun: `examples/pong` — kurallar iki dosyada, saha ve nesneler `court.scene` + prefab'larda,
+headless testler `pong_test.cpp`'de.
 
 ## 1. main
 
@@ -212,7 +214,7 @@ void on_start(Context& ctx) override {
 Oyunu CMake'te `astral_add_game` ile tanımla; asset klasörü yanında:
 
 ```cmake
-find_package(Astral 0.11 CONFIG REQUIRED COMPONENTS App)   # ya da motorun içinden: add_subdirectory
+find_package(Astral 0.12 CONFIG REQUIRED COMPONENTS App)   # ya da motorun içinden: add_subdirectory
 astral_add_game(arena SOURCES src/main.cpp src/combat.cpp ASSETS content)
 ```
 

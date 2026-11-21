@@ -1,0 +1,25 @@
+{
+  "format": "astral.scene",
+  "version": 1,
+  "entities": [
+    {
+      "id": 1,
+      "components": {
+        "astral::Name": {
+          "value": "pip"
+        },
+        "astral::Transform": {
+          "scale": [0.34, 0.34, 0.06]
+        },
+        "astral::PrimitiveMesh": {
+          "shape": "Cube",
+          "material": {
+            "base_color": [0.03, 0.03, 0.03, 1],
+            "roughness": 0.4
+          }
+        },
+        "pong::ScorePip": {}
+      }
+    }
+  ]
+}

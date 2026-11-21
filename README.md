@@ -44,6 +44,8 @@ module (core, gpu, platform, world, render) is also usable directly as a plain l
 | `Astral::Assets`: glTF/GLB, textured PBR materials, async loading, hot reload | ✅ M5b |
 | Scenes and prefabs: stable ids, field-level overrides, nested prefabs/variants, live reload | ✅ M5c |
 | Packaging: `astral-cook` (BC7/BC5 textures, binary scenes, incremental), `.apak` (zstd), `astral_add_game` | ✅ M6 |
+| First game: 3D Pong (`examples/pong`) — rules in code, everything else in scene/prefab files | ✅ M7 |
+| Audio + text/HUD | 🔜 M8 |
 
 ![RT showcase](docs/images/m3.5-rt-showcase.png)
 
@@ -52,6 +54,14 @@ places three prefabs (room, mirror pedestal, box ×3 with per-instance overrides
 `scene_viewer` runs and the room updates.
 
 ![Scene viewer](docs/images/m5c-scene-viewer.png)
+
+## First game: 3D Pong
+
+`examples/pong` is the smallest complete game on the engine: two source files of rules (components +
+systems) and a scene with prefabs for everything you see. Keep the ball in the tunnel; where it hits your
+paddle bends its path. `pong --demo` lets the AI play both sides.
+
+![3D Pong](docs/images/m7-pong.png)
 
 ## Build
 

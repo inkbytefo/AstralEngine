@@ -1,0 +1,107 @@
+{
+  "format": "astral.scene",
+  "version": 1,
+  "entities": [
+    {
+      "id": 1,
+      "components": {
+        "astral::Name": {
+          "value": "rib"
+        },
+        "astral::Transform": {}
+      }
+    },
+    {
+      "id": 2,
+      "components": {
+        "astral::Name": {
+          "value": "top"
+        },
+        "astral::Parent": {
+          "entity": 1
+        },
+        "astral::Transform": {
+          "position": [0, 2.48, 0],
+          "scale": [7.96, 0.04, 0.04]
+        },
+        "astral::PrimitiveMesh": {
+          "shape": "Cube",
+          "material": {
+            "base_color": [0.02, 0.02, 0.03, 1],
+            "roughness": 0.5,
+            "emissive": [0.105, 0.385, 0.63]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "components": {
+        "astral::Name": {
+          "value": "bottom"
+        },
+        "astral::Parent": {
+          "entity": 1
+        },
+        "astral::Transform": {
+          "position": [0, -2.48, 0],
+          "scale": [7.96, 0.04, 0.04]
+        },
+        "astral::PrimitiveMesh": {
+          "shape": "Cube",
+          "material": {
+            "base_color": [0.02, 0.02, 0.03, 1],
+            "roughness": 0.5,
+            "emissive": [0.105, 0.385, 0.63]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "components": {
+        "astral::Name": {
+          "value": "left"
+        },
+        "astral::Parent": {
+          "entity": 1
+        },
+        "astral::Transform": {
+          "position": [-3.98, 0, 0],
+          "scale": [0.04, 4.96, 0.04]
+        },
+        "astral::PrimitiveMesh": {
+          "shape": "Cube",
+          "material": {
+            "base_color": [0.02, 0.02, 0.03, 1],
+            "roughness": 0.5,
+            "emissive": [0.105, 0.385, 0.63]
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "components": {
+        "astral::Name": {
+          "value": "right"
+        },
+        "astral::Parent": {
+          "entity": 1
+        },
+        "astral::Transform": {
+          "position": [3.98, 0, 0],
+          "scale": [0.04, 4.96, 0.04]
+        },
+        "astral::PrimitiveMesh": {
+          "shape": "Cube",
+          "material": {
+            "base_color": [0.02, 0.02, 0.03, 1],
+            "roughness": 0.5,
+            "emissive": [0.105, 0.385, 0.63]
+          }
+        }
+      }
+    }
+  ]
+}

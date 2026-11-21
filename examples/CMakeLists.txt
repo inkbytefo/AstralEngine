@@ -29,3 +29,13 @@ astral_set_warnings(model_viewer)
 
 # A game in the shape every game takes: exe + assets folder; `scene_viewer_package` cooks and packs.
 astral_add_game(scene_viewer SOURCES scene_viewer/main.cpp ASSETS scene_viewer/assets)
+
+# 3D Pong: the smallest complete game on the engine (rules in pong.cpp, everything else in assets/).
+astral_add_game(pong SOURCES pong/main.cpp pong/pong.cpp ASSETS pong/assets)
+if(ASTRAL_BUILD_TESTS)
+    add_executable(pong_tests pong/pong_test.cpp pong/pong.cpp)
+    target_link_libraries(pong_tests PRIVATE Astral::App doctest::doctest)
+    target_compile_definitions(pong_tests PRIVATE ASTRAL_GAME_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/pong/assets")
+    astral_set_warnings(pong_tests)
+    add_test(NAME pong_tests COMMAND pong_tests)
+endif()

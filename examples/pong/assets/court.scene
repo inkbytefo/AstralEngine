@@ -1,0 +1,432 @@
+{
+  "format": "astral.scene",
+  "version": 1,
+  "entities": [
+    {
+      "id": 1,
+      "components": {
+        "astral::Name": {
+          "value": "camera"
+        },
+        "astral::Transform": {
+          "position": [0, 0, 14.5]
+        },
+        "astral::Camera": {
+          "fov_y": 1.0123,
+          "near_plane": 0.1,
+          "far_plane": 100
+        }
+      }
+    },
+    {
+      "id": 2,
+      "components": {
+        "astral::Name": {
+          "value": "court"
+        },
+        "pong::Court": {
+          "seed": 7
+        }
+      }
+    },
+    {
+      "id": 3,
+      "components": {
+        "astral::Name": {
+          "value": "floor"
+        },
+        "astral::Transform": {
+          "position": [0, -2.6, 2.9],
+          "scale": [8.4, 0.2, 24.2]
+        },
+        "astral::PrimitiveMesh": {
+          "shape": "Cube",
+          "material": {
+            "base_color": [0.07, 0.08, 0.11, 1],
+            "roughness": 0.16
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "components": {
+        "astral::Name": {
+          "value": "ceiling"
+        },
+        "astral::Transform": {
+          "position": [0, 2.6, 2.9],
+          "scale": [8.4, 0.2, 24.2]
+        },
+        "astral::PrimitiveMesh": {
+          "shape": "Cube",
+          "material": {
+            "base_color": [0.09, 0.1, 0.13, 1],
+            "roughness": 0.6
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "components": {
+        "astral::Name": {
+          "value": "left wall"
+        },
+        "astral::Transform": {
+          "position": [-4.1, 0, 2.9],
+          "scale": [0.2, 5.4, 24.2]
+        },
+        "astral::PrimitiveMesh": {
+          "shape": "Cube",
+          "material": {
+            "base_color": [0.09, 0.1, 0.13, 1],
+            "roughness": 0.32
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "components": {
+        "astral::Name": {
+          "value": "right wall"
+        },
+        "astral::Transform": {
+          "position": [4.1, 0, 2.9],
+          "scale": [0.2, 5.4, 24.2]
+        },
+        "astral::PrimitiveMesh": {
+          "shape": "Cube",
+          "material": {
+            "base_color": [0.09, 0.1, 0.13, 1],
+            "roughness": 0.32
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "components": {
+        "astral::Name": {
+          "value": "back wall"
+        },
+        "astral::Transform": {
+          "position": [0, 0, -9.6],
+          "scale": [8.4, 5.4, 0.2]
+        },
+        "astral::PrimitiveMesh": {
+          "shape": "Cube",
+          "material": {
+            "base_color": [0.03, 0.03, 0.04, 1],
+            "roughness": 0.5
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "components": {
+        "astral::Name": {
+          "value": "ceiling light"
+        },
+        "astral::Transform": {
+          "position": [0, 2.49, 0]
+        },
+        "astral::RectLight": {
+          "right": [0.5, 0, 0],
+          "up": [0, 0, 6.5],
+          "color": [0.75, 0.85, 1.0],
+          "intensity": 2.4
+        }
+      }
+    },
+    {
+      "id": 10,
+      "prefab": "prefabs/paddle.prefab",
+      "components": {
+        "astral::Name": {
+          "value": "player paddle"
+        },
+        "astral::Transform": {
+          "position": [0, 0, 8.4]
+        }
+      }
+    },
+    {
+      "id": 11,
+      "prefab": "prefabs/opponent_paddle.prefab",
+      "components": {
+        "astral::Name": {
+          "value": "opponent paddle"
+        },
+        "astral::Transform": {
+          "position": [0, 0, -8.4]
+        }
+      }
+    },
+    {
+      "id": 12,
+      "prefab": "prefabs/ball.prefab"
+    },
+    {
+      "id": 13,
+      "prefab": "prefabs/rib.prefab",
+      "components": {
+        "astral::Name": {
+          "value": "depth ring"
+        },
+        "pong::DepthMarker": {}
+      },
+      "parts": {
+        "2": {
+          "components": {
+            "astral::PrimitiveMesh": {
+              "material": {
+                "emissive": [0.6, 2.2, 0.8]
+              }
+            }
+          }
+        },
+        "3": {
+          "components": {
+            "astral::PrimitiveMesh": {
+              "material": {
+                "emissive": [0.6, 2.2, 0.8]
+              }
+            }
+          }
+        },
+        "4": {
+          "components": {
+            "astral::PrimitiveMesh": {
+              "material": {
+                "emissive": [0.6, 2.2, 0.8]
+              }
+            }
+          }
+        },
+        "5": {
+          "components": {
+            "astral::PrimitiveMesh": {
+              "material": {
+                "emissive": [0.6, 2.2, 0.8]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 20,
+      "prefab": "prefabs/rib.prefab",
+      "components": {
+        "astral::Transform": {
+          "position": [0, 0, -7.5]
+        }
+      }
+    },
+    {
+      "id": 21,
+      "prefab": "prefabs/rib.prefab",
+      "components": {
+        "astral::Transform": {
+          "position": [0, 0, -5]
+        }
+      }
+    },
+    {
+      "id": 22,
+      "prefab": "prefabs/rib.prefab",
+      "components": {
+        "astral::Transform": {
+          "position": [0, 0, -2.5]
+        }
+      }
+    },
+    {
+      "id": 23,
+      "prefab": "prefabs/rib.prefab",
+      "components": {
+        "astral::Transform": {
+          "position": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "id": 24,
+      "prefab": "prefabs/rib.prefab",
+      "components": {
+        "astral::Transform": {
+          "position": [0, 0, 2.5]
+        }
+      }
+    },
+    {
+      "id": 25,
+      "prefab": "prefabs/rib.prefab",
+      "components": {
+        "astral::Transform": {
+          "position": [0, 0, 5]
+        }
+      }
+    },
+    {
+      "id": 26,
+      "prefab": "prefabs/rib.prefab",
+      "components": {
+        "astral::Transform": {
+          "position": [0, 0, 7.5]
+        }
+      }
+    },
+    {
+      "id": 30,
+      "prefab": "prefabs/pip.prefab",
+      "components": {
+        "astral::Transform": {
+          "position": [-3.3, 2.0, -9.45]
+        },
+        "pong::ScorePip": {
+          "side": "Player",
+          "index": 0,
+          "color": [0.25, 0.55, 1.0]
+        }
+      }
+    },
+    {
+      "id": 31,
+      "prefab": "prefabs/pip.prefab",
+      "components": {
+        "astral::Transform": {
+          "position": [-2.8, 2.0, -9.45]
+        },
+        "pong::ScorePip": {
+          "side": "Player",
+          "index": 1,
+          "color": [0.25, 0.55, 1.0]
+        }
+      }
+    },
+    {
+      "id": 32,
+      "prefab": "prefabs/pip.prefab",
+      "components": {
+        "astral::Transform": {
+          "position": [-2.3, 2.0, -9.45]
+        },
+        "pong::ScorePip": {
+          "side": "Player",
+          "index": 2,
+          "color": [0.25, 0.55, 1.0]
+        }
+      }
+    },
+    {
+      "id": 33,
+      "prefab": "prefabs/pip.prefab",
+      "components": {
+        "astral::Transform": {
+          "position": [-1.8, 2.0, -9.45]
+        },
+        "pong::ScorePip": {
+          "side": "Player",
+          "index": 3,
+          "color": [0.25, 0.55, 1.0]
+        }
+      }
+    },
+    {
+      "id": 34,
+      "prefab": "prefabs/pip.prefab",
+      "components": {
+        "astral::Transform": {
+          "position": [-1.3, 2.0, -9.45]
+        },
+        "pong::ScorePip": {
+          "side": "Player",
+          "index": 4,
+          "color": [0.25, 0.55, 1.0]
+        }
+      }
+    },
+    {
+      "id": 40,
+      "prefab": "prefabs/pip.prefab",
+      "components": {
+        "astral::Transform": {
+          "position": [3.3, 2.0, -9.45]
+        },
+        "pong::ScorePip": {
+          "side": "Opponent",
+          "index": 0,
+          "color": [1.0, 0.28, 0.15]
+        }
+      }
+    },
+    {
+      "id": 41,
+      "prefab": "prefabs/pip.prefab",
+      "components": {
+        "astral::Transform": {
+          "position": [2.8, 2.0, -9.45]
+        },
+        "pong::ScorePip": {
+          "side": "Opponent",
+          "index": 1,
+          "color": [1.0, 0.28, 0.15]
+        }
+      }
+    },
+    {
+      "id": 42,
+      "prefab": "prefabs/pip.prefab",
+      "components": {
+        "astral::Transform": {
+          "position": [2.3, 2.0, -9.45]
+        },
+        "pong::ScorePip": {
+          "side": "Opponent",
+          "index": 2,
+          "color": [1.0, 0.28, 0.15]
+        }
+      }
+    },
+    {
+      "id": 43,
+      "prefab": "prefabs/pip.prefab",
+      "components": {
+        "astral::Transform": {
+          "position": [1.8, 2.0, -9.45]
+        },
+        "pong::ScorePip": {
+          "side": "Opponent",
+          "index": 3,
+          "color": [1.0, 0.28, 0.15]
+        }
+      }
+    },
+    {
+      "id": 44,
+      "prefab": "prefabs/pip.prefab",
+      "components": {
+        "astral::Transform": {
+          "position": [1.3, 2.0, -9.45]
+        },
+        "pong::ScorePip": {
+          "side": "Opponent",
+          "index": 4,
+          "color": [1.0, 0.28, 0.15]
+        }
+      }
+    }
+  ],
+  "sun": {
+    "intensity": 0
+  },
+  "environment": {
+    "sky": [0.01, 0.012, 0.02],
+    "ground": [0.005, 0.005, 0.008],
+    "exposure": 1.0
+  }
+}

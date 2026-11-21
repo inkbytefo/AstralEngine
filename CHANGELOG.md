@@ -4,6 +4,19 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-11-21 — M7 (ilk oyun: 3D Pong)
+
+### Added
+- `examples/pong`: 3D Pong; kurallar `pong.hpp/.cpp`'de, saha/raketler/top/skor ışıkları `court.scene` ve
+  prefab'larda (prefab varyantı, override'lı örnekler, oyunun kendi reflect edilmiş component'leri).
+  `--demo` (AI'ye karşı AI), `--capture`. `pong_tests`: headless, deterministik kural testleri. `pong_package`.
+
+### Fixed
+- `astral/astral.hpp` artık `Window` (`ctx.window`) ve sahne API'sini (`load_scene`, `find_by_name`...) içeriyor.
+
+### Changed
+- Yol haritası: M7 kılıç arenası yerine 3D Pong; kılıç arenası yer tutucu. Sıradaki M8: ses + metin/HUD.
+
 ## [0.11.0] — 2026-11-21 — M6 (paketleme)
 
 ### Added
