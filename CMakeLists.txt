@@ -30,6 +30,7 @@ endif()
 add_subdirectory(modules/core)
 add_subdirectory(modules/gpu)
 add_subdirectory(modules/platform)
+add_subdirectory(modules/world)
 
 if(ASTRAL_BUILD_TESTS)
     add_subdirectory(tests/integration)

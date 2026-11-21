@@ -9,6 +9,7 @@ astral_add_module(NAME core
         src/clock.cpp
         src/jobs.cpp
         src/math.cpp
+        src/assert.cpp
     DEPS
         Threads::Threads)
 
