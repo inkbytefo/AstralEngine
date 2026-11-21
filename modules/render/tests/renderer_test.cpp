@@ -1,9 +1,10 @@
-#include <cstdio>
 #include "gpu_test_support.hpp"
 
 #include <astral/render/renderer.hpp>
 
 #include <cstdint>
+#include <cstdio>
+#include <deque>
 #include <memory>
 #include <vector>
 
@@ -24,8 +25,19 @@ int luminance(std::uint32_t p) {
     return c.r + c.g + c.b;
 }
 
+/// Test shorthand: an instance with its material inline (converted by Fixture::inst()).
+struct Item {
+    MeshHandle mesh;
+    Mat4 transform = Mat4::identity();
+    Vec4 color{1, 1, 1, 1};
+    float roughness = 0.6f;
+    float metallic = 0.0f;
+    float emissive = 0.0f;
+};
+
 struct Fixture {
     test::TestDevice device;
+    std::deque<std::vector<MeshInstance>> converted; // keeps spans handed out by inst() alive
     std::unique_ptr<Renderer> renderer;
     gpu::TextureHandle target;
     gpu::BufferHandle readback;
@@ -45,6 +57,17 @@ struct Fixture {
         camera.position = eye;
         camera.view = look_at(eye, at, std::abs(eye.y - at.y) > 4.9f && eye.x == at.x && eye.z == at.z ? Vec3{0, 0, -1} : Vec3{0, 1, 0});
         camera.projection = perspective(radians(60), 1.0f, 0.1f, 100.0f);
+    }
+    /// Materials are created for each item; the returned span lives as long as the fixture.
+    std::span<const MeshInstance> inst(std::span<const Item> items) {
+        auto& out = converted.emplace_back();
+        for (const Item& i : items) {
+            const MaterialHandle m = renderer->create_material(
+                {.base_color = i.color, .roughness = i.roughness, .metallic = i.metallic,
+                 .emissive = Vec3{i.color.x, i.color.y, i.color.z} * i.emissive});
+            out.push_back({.mesh = i.mesh, .material = m, .transform = i.transform});
+        }
+        return out;
     }
     std::vector<std::uint32_t> draw(const RenderScene& scene) {
         auto cmd = device->begin_commands();
@@ -85,8 +108,8 @@ TEST_CASE("a lit mesh is drawn over the sky") {
     Fixture f;
     if (!f.device) return;
     MeshHandle cube = f.renderer->create_mesh(make_cube());
-    const std::vector<DrawItem> items{{.mesh = cube, .color = {1, 0, 0, 1}, .roughness = 1.0f}};
-    auto pixels = f.draw({.meshes = items, .sun = front_sun});
+    const std::vector<Item> items{{.mesh = cube, .color = {1, 0, 0, 1}, .roughness = 1.0f}};
+    auto pixels = f.draw({.meshes = f.inst(items), .sun = front_sun});
     const Rgb c = rgb(Fixture::center(pixels));
     CHECK(c.r > 150);
     CHECK(c.g < 60);
@@ -99,9 +122,9 @@ TEST_CASE("depth test keeps the nearer mesh in front") {
     Fixture f;
     if (!f.device) return;
     MeshHandle cube = f.renderer->create_mesh(make_cube());
-    const std::vector<DrawItem> items{{.mesh = cube, .transform = translate({0, 0, 1}), .color = {0, 1, 0, 1}, .roughness = 1.0f},
+    const std::vector<Item> items{{.mesh = cube, .transform = translate({0, 0, 1}), .color = {0, 1, 0, 1}, .roughness = 1.0f},
                                       {.mesh = cube, .transform = translate({0, 0, -1}), .color = {1, 0, 0, 1}, .roughness = 1.0f}};
-    const Rgb c = rgb(Fixture::center(f.draw({.meshes = items, .sun = front_sun})));
+    const Rgb c = rgb(Fixture::center(f.draw({.meshes = f.inst(items), .sun = front_sun})));
     CHECK(c.g > 150);
     CHECK(c.r < 60);
 }
@@ -110,9 +133,9 @@ TEST_CASE("many instances of one mesh are one draw call") {
     Fixture f;
     if (!f.device) return;
     MeshHandle cube = f.renderer->create_mesh(make_cube());
-    std::vector<DrawItem> items;
+    std::vector<Item> items;
     for (int i = 0; i < 1000; ++i) items.push_back({.mesh = cube, .transform = translate({0, 0, -static_cast<float>(i)})});
-    f.draw({.meshes = items, .sun = front_sun});
+    f.draw({.meshes = f.inst(items), .sun = front_sun});
     CHECK(f.renderer->stats().draw_calls == 1);
     CHECK(f.renderer->stats().instances == 1000);
 }
@@ -122,8 +145,8 @@ TEST_CASE("draw items with destroyed meshes are skipped") {
     if (!f.device) return;
     MeshHandle cube = f.renderer->create_mesh(make_cube());
     f.renderer->destroy(cube);
-    const std::vector<DrawItem> items{{.mesh = cube, .color = {1, 0, 0, 1}}};
-    const Rgb c = rgb(Fixture::center(f.draw({.meshes = items, .sun = front_sun})));
+    const std::vector<Item> items{{.mesh = cube, .color = {1, 0, 0, 1}}};
+    const Rgb c = rgb(Fixture::center(f.draw({.meshes = f.inst(items), .sun = front_sun})));
     CHECK(c.b > c.r); // sky, not a red cube
 }
 
@@ -142,15 +165,15 @@ TEST_CASE("meshes and SDF shapes are depth-composited") {
     if (!f.device) return;
     MeshHandle cube = f.renderer->create_mesh(make_cube());
     SUBCASE("mesh in front") {
-        const std::vector<DrawItem> items{{.mesh = cube, .transform = translate({0, 0, 1.5f}), .color = {0, 1, 0, 1}}};
+        const std::vector<Item> items{{.mesh = cube, .transform = translate({0, 0, 1.5f}), .color = {0, 1, 0, 1}}};
         const std::vector<SdfShape> shapes{{.size = {1, 0, 0, 0}, .color = {1, 0, 0, 1}}};
-        const Rgb c = rgb(Fixture::center(f.draw({.meshes = items, .sdf = shapes, .sun = front_sun})));
+        const Rgb c = rgb(Fixture::center(f.draw({.meshes = f.inst(items), .sdf = shapes, .sun = front_sun})));
         CHECK(c.g > c.r);
     }
     SUBCASE("SDF in front") {
-        const std::vector<DrawItem> items{{.mesh = cube, .transform = translate({0, 0, -2}), .color = {0, 1, 0, 1}}};
+        const std::vector<Item> items{{.mesh = cube, .transform = translate({0, 0, -2}), .color = {0, 1, 0, 1}}};
         const std::vector<SdfShape> shapes{{.position = {0, 0, 1}, .size = {1, 0, 0, 0}, .color = {1, 0, 0, 1}}};
-        const Rgb c = rgb(Fixture::center(f.draw({.meshes = items, .sdf = shapes, .sun = front_sun})));
+        const Rgb c = rgb(Fixture::center(f.draw({.meshes = f.inst(items), .sdf = shapes, .sun = front_sun})));
         CHECK(c.r > c.g);
     }
 }
@@ -173,12 +196,12 @@ TEST_CASE("point lights light the scene") {
     Fixture f;
     if (!f.device) return;
     MeshHandle cube = f.renderer->create_mesh(make_cube());
-    const std::vector<DrawItem> items{{.mesh = cube, .color = {1, 1, 1, 1}}};
+    const std::vector<Item> items{{.mesh = cube, .color = {1, 1, 1, 1}}};
     const DirectionalLight dark{.intensity = 0.0f, .shadows = false};
     const Environment no_ambient{.ambient = 0.0f};
-    const Rgb unlit = rgb(Fixture::center(f.draw({.meshes = items, .sun = dark, .environment = no_ambient})));
+    const Rgb unlit = rgb(Fixture::center(f.draw({.meshes = f.inst(items), .sun = dark, .environment = no_ambient})));
     const std::vector<PointLight> lights{{.position = {0, 0, 2}, .color = {1, 0, 0}, .intensity = 20, .radius = 10}};
-    const Rgb lit = rgb(Fixture::center(f.draw({.meshes = items, .lights = lights, .sun = dark, .environment = no_ambient})));
+    const Rgb lit = rgb(Fixture::center(f.draw({.meshes = f.inst(items), .lights = lights, .sun = dark, .environment = no_ambient})));
     CHECK(unlit.r < 20);
     CHECK(lit.r > 100);
     CHECK(lit.g < 30);
@@ -190,10 +213,10 @@ TEST_CASE("the sun casts shadows from meshes") {
     MeshHandle cube = f.renderer->create_mesh(make_cube());
     MeshHandle plane = f.renderer->create_mesh(make_plane(1.0f));
     f.look_from({0, 8, 6}, {0, 0, 0});
-    const std::vector<DrawItem> items{{.mesh = plane, .transform = scale({20, 1, 20})},
+    const std::vector<Item> items{{.mesh = plane, .transform = scale({20, 1, 20})},
                                       {.mesh = cube, .transform = translate({0, 1, 0})}};
     const DirectionalLight sun{.direction = {1, -1, 0}, .intensity = 3.0f, .shadows = true};
-    auto pixels = f.draw({.meshes = items, .sun = sun});
+    auto pixels = f.draw({.meshes = f.inst(items), .sun = sun});
     const int shadowed = luminance(f.at(pixels, {1.3f, 0, 0}));  // behind the cube, away from the sun
     const int lit = luminance(f.at(pixels, {-2.5f, 0, 0}));      // open ground
     CHECK(shadowed < lit - 60);
@@ -204,9 +227,9 @@ TEST_CASE("a camera inside an SDF shape sees through it instead of producing NaN
     Fixture f;
     if (!f.device) return;
     MeshHandle cube = f.renderer->create_mesh(make_cube());
-    const std::vector<DrawItem> items{{.mesh = cube, .transform = translate({0, 0, -3}), .color = {1, 0, 0, 1}, .roughness = 1.0f}};
+    const std::vector<Item> items{{.mesh = cube, .transform = translate({0, 0, -3}), .color = {1, 0, 0, 1}, .roughness = 1.0f}};
     const std::vector<SdfShape> shapes{{.position = {0, 0, 5}, .size = {1.5f, 0, 0, 0}, .color = {0, 1, 0, 1}}}; // camera at z=5
-    const Rgb c = rgb(Fixture::center(f.draw({.meshes = items, .sdf = shapes, .sun = front_sun})));
+    const Rgb c = rgb(Fixture::center(f.draw({.meshes = f.inst(items), .sdf = shapes, .sun = front_sun})));
     CHECK(c.r > 100); // the red cube behind, not a black/NaN frame
 }
 
@@ -216,8 +239,8 @@ TEST_CASE("large user meshes still cast and receive shadows") {
     MeshHandle cube = f.renderer->create_mesh(make_cube());
     MeshHandle ground = f.renderer->create_mesh(make_plane(20.0f)); // big mesh at identity
     f.look_from({0, 8, 6}, {0, 0, 0});
-    const std::vector<DrawItem> items{{.mesh = ground}, {.mesh = cube, .transform = translate({0, 1, 0})}};
-    auto pixels = f.draw({.meshes = items, .sun = {.direction = {1, -1, 0}, .intensity = 3.0f}});
+    const std::vector<Item> items{{.mesh = ground}, {.mesh = cube, .transform = translate({0, 1, 0})}};
+    auto pixels = f.draw({.meshes = f.inst(items), .sun = {.direction = {1, -1, 0}, .intensity = 3.0f}});
     CHECK(luminance(f.at(pixels, {1.3f, 0, 0})) < luminance(f.at(pixels, {-2.5f, 0, 0})) - 60);
 }
 
@@ -227,9 +250,9 @@ TEST_CASE("shadows stay attached to their casters in large scenes") {
     MeshHandle cube = f.renderer->create_mesh(make_cube());
     MeshHandle plane = f.renderer->create_mesh(make_plane(1.0f));
     f.look_from({0, 8, 6}, {0, 0, 0});
-    const std::vector<DrawItem> items{{.mesh = plane, .transform = scale({80, 1, 80})},
+    const std::vector<Item> items{{.mesh = plane, .transform = scale({80, 1, 80})},
                                       {.mesh = cube, .transform = translate({0, 0.5f, 0})}}; // resting on the ground
-    auto pixels = f.draw({.meshes = items, .sun = {.direction = {1, -1, 0}, .intensity = 3.0f}});
+    auto pixels = f.draw({.meshes = f.inst(items), .sun = {.direction = {1, -1, 0}, .intensity = 3.0f}});
     // Right next to the cube's base on the far side from the sun: must be in shadow.
     CHECK(luminance(f.at(pixels, {0.75f, 0, 0})) < luminance(f.at(pixels, {-2.5f, 0, 0})) - 60);
 }
@@ -269,8 +292,8 @@ TEST_CASE("ray-traced path renders a lit mesh with the full pass chain") {
     Fixture f(rt_settings());
     if (!rt_available(f)) return;
     const MeshHandle cube = f.renderer->create_mesh(make_cube());
-    const DrawItem item{.mesh = cube, .color = {1, 0, 0, 1}, .roughness = 1.0f}; // no highlight toward the camera
-    const auto pixels = converge(f, {.meshes = std::span(&item, 1), .sun = front_sun, .environment = dim_sky}, 3);
+    const Item item{.mesh = cube, .color = {1, 0, 0, 1}, .roughness = 1.0f}; // no highlight toward the camera
+    const auto pixels = converge(f, {.meshes = f.inst(std::span(&item, 1)), .sun = front_sun, .environment = dim_sky}, 3);
     const Rgb c = rgb(Fixture::center(pixels));
     CHECK(c.r > 120);
     CHECK(c.r > c.g + 80); // a red cube (plus a faint, physically correct white specular)
@@ -285,9 +308,9 @@ TEST_CASE("ray-traced sun shadows darken what lies under a caster") {
     f.look_from({0, 6, 0.01f}, {0, 0, 0});
     const MeshHandle plane = f.renderer->create_mesh(make_plane(10.0f));
     const MeshHandle cube = f.renderer->create_mesh(make_cube());
-    const std::array items{DrawItem{.mesh = plane, .color = {0.8f, 0.8f, 0.8f, 1}},
-                           DrawItem{.mesh = cube, .transform = translate({0, 1.5f, 0}), .color = {0.8f, 0.8f, 0.8f, 1}}};
-    const RenderScene scene{.meshes = items, .sun = {.direction = {0.6f, -1, 0}, .intensity = 3.0f}, .environment = dim_sky};
+    const std::array items{Item{.mesh = plane, .color = {0.8f, 0.8f, 0.8f, 1}},
+                           Item{.mesh = cube, .transform = translate({0, 1.5f, 0}), .color = {0.8f, 0.8f, 0.8f, 1}}};
+    const RenderScene scene{.meshes = f.inst(items), .sun = {.direction = {0.6f, -1, 0}, .intensity = 3.0f}, .environment = dim_sky};
     const auto pixels = converge(f, scene);
     // The cube sits 1.5 above the floor; the sun moves its shadow toward +x by ~0.6 * 1.5.
     CHECK(luminance(f.at(pixels, {1.0f, 0, 0})) < luminance(f.at(pixels, {-2.5f, 0, 0})) - 60);
@@ -298,11 +321,11 @@ TEST_CASE("a rect area light lights the floor and is visible to the camera") {
     if (!rt_available(f)) return;
     f.look_from({0, 3, 6}, {0, 0.5f, 0});
     const MeshHandle plane = f.renderer->create_mesh(make_plane(10.0f));
-    const DrawItem floor{.mesh = plane, .color = {0.8f, 0.8f, 0.8f, 1}};
+    const Item floor{.mesh = plane, .color = {0.8f, 0.8f, 0.8f, 1}};
     // cross(right, up) = -y: the panel shines down; two-sided so the camera above sees it glow too.
     const RectLight panel{.position = {0, 1.5f, 0}, .right = {0.5f, 0, 0}, .up = {0, 0, 0.5f}, .intensity = 8.0f,
                           .two_sided = true};
-    RenderScene scene{.meshes = std::span(&floor, 1), .sun = {.intensity = 0}, .environment = {.sky = {}, .ground = {}}};
+    RenderScene scene{.meshes = f.inst(std::span(&floor, 1)), .sun = {.intensity = 0}, .environment = {.sky = {}, .ground = {}}};
     const auto dark = converge(f, scene, 2);
     scene.rect_lights = std::span(&panel, 1);
     f.renderer->reset_history();
@@ -319,12 +342,12 @@ TEST_CASE("a mirror reflects what is behind the camera") {
     const MeshHandle cube = f.renderer->create_mesh(make_cube());
     // A mirror wall at z = -1 facing the camera, and a red block behind the camera (not visible directly).
     const std::array items{
-        DrawItem{.mesh = cube, .transform = translate({0, 0, -1.5f}) * scale({6, 6, 1}), .color = {0.95f, 0.95f, 0.95f, 1},
+        Item{.mesh = cube, .transform = translate({0, 0, -1.5f}) * scale({6, 6, 1}), .color = {0.95f, 0.95f, 0.95f, 1},
                  .roughness = 0.02f, .metallic = 1.0f},
-        DrawItem{.mesh = cube, .transform = translate({0, 0, 9}) * scale({6, 6, 1}), .color = {1, 0, 0, 1}},
+        Item{.mesh = cube, .transform = translate({0, 0, 9}) * scale({6, 6, 1}), .color = {1, 0, 0, 1}},
     };
     const DirectionalLight sun{.direction = {0, 0, 1}, .intensity = 3.0f}; // lights the red block's mirror-facing side
-    const auto pixels = converge(f, {.meshes = items, .sun = sun}, 4);
+    const auto pixels = converge(f, {.meshes = f.inst(items), .sun = sun}, 4);
     const Rgb c = rgb(Fixture::center(pixels));
     CHECK(c.r > 100);
     CHECK(c.r > c.g + 60);
@@ -336,17 +359,19 @@ TEST_CASE("global illumination bleeds a wall's colour onto a white floor") {
     f.look_from({0, 2, 5}, {0, 0, 0});
     const MeshHandle plane = f.renderer->create_mesh(make_plane(6.0f));
     const MeshHandle cube = f.renderer->create_mesh(make_cube());
-    std::array items{DrawItem{.mesh = plane, .color = {0.9f, 0.9f, 0.9f, 1}},
-                     DrawItem{.mesh = cube, .transform = translate({-1.6f, 1, 0}) * scale({0.2f, 2, 4}), .color = {0.9f, 0.05f, 0.05f, 1}}};
+    std::array items{Item{.mesh = plane, .color = {0.9f, 0.9f, 0.9f, 1}},
+                     Item{.mesh = cube, .transform = translate({-1.6f, 1, 0}) * scale({0.2f, 2, 4}), .color = {0.9f, 0.05f, 0.05f, 1}}};
     // Sky light only: next to the wall, part of the sky is replaced by light bounced off the wall.
     // Exposure keeps the floor in the mid-tones, where the tone curve does not hide differences.
-    const RenderScene scene{.meshes = items, .sun = {.intensity = 0.0f},
+    const RenderScene scene{.meshes = f.inst(items), .sun = {.intensity = 0.0f},
                             .environment = {.sky = {1, 1, 1}, .ground = {0.3f, 0.3f, 0.3f}, .exposure = 0.5f}};
     const auto with_wall = converge(f, scene, 16);
     const Rgb red_bounce = rgb(f.at(with_wall, {-1.2f, 0, 0.5f}));
     items[1].color = {0.9f, 0.9f, 0.9f, 1};
     f.renderer->reset_history();
-    const auto white_wall = converge(f, scene, 16);
+    RenderScene white_scene = scene;
+    white_scene.meshes = f.inst(items);
+    const auto white_wall = converge(f, white_scene, 16);
     const Rgb neutral = rgb(f.at(white_wall, {-1.2f, 0, 0.5f}));
     CHECK(std::abs(neutral.r - neutral.g) < 4);
     CHECK(red_bounce.r - red_bounce.g > neutral.r - neutral.g + 8); // red light bounced off the wall
@@ -358,11 +383,11 @@ TEST_CASE("SDF shapes take part in ray-traced lighting") {
     if (!rt_available(f)) return;
     f.look_from({0, 6, 0.01f}, {0, 0, 0});
     const MeshHandle plane = f.renderer->create_mesh(make_plane(10.0f));
-    const DrawItem floor{.mesh = plane, .color = {0.8f, 0.8f, 0.8f, 1}};
+    const Item floor{.mesh = plane, .color = {0.8f, 0.8f, 0.8f, 1}};
     // A grey ball (a white one bounces so much light back into its own shadow that it washes out).
     const SdfShape ball{.primitive = SdfPrimitive::Sphere, .operation = SdfOperation::Union, .position = {0, 1.5f, 0},
                         .size = {0.8f, 0, 0, 0}, .color = {0.3f, 0.3f, 0.3f, 1}};
-    const auto pixels = converge(f, {.meshes = std::span(&floor, 1), .sdf = std::span(&ball, 1),
+    const auto pixels = converge(f, {.meshes = f.inst(std::span(&floor, 1)), .sdf = std::span(&ball, 1),
                                      .sun = {.direction = {0.6f, -1, 0}, .intensity = 3.0f}, .environment = dim_sky});
     // The shadow is centred at x = 0.9; seen from above, x < ~1.07 is hidden behind the ball itself.
     CHECK(luminance(f.at(pixels, {1.4f, 0, 0})) < luminance(f.at(pixels, {-2.5f, 0, 0})) - 60);
@@ -373,3 +398,73 @@ TEST_CASE("SDF shapes take part in ray-traced lighting") {
 
 
 
+
+// --- API: materials, runtime settings, motion -------------------------------------------------
+
+TEST_CASE("materials are shared handles; updating one recolours every instance using it") {
+    Fixture f;
+    if (!f.device) return;
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const MaterialHandle paint = f.renderer->create_material({.base_color = {1, 0, 0, 1}, .roughness = 1.0f});
+    const MeshInstance inst{.mesh = cube, .material = paint};
+    const RenderScene scene{.meshes = std::span(&inst, 1), .sun = front_sun};
+    CHECK(rgb(Fixture::center(f.draw(scene))).r > 150);
+    REQUIRE(f.renderer->update_material(paint, {.base_color = {0, 0, 1, 1}, .roughness = 1.0f}));
+    const Rgb blue = rgb(Fixture::center(f.draw(scene)));
+    CHECK(blue.b > 150);
+    CHECK(blue.r < 60);
+    // A destroyed material falls back to the default (white) material, never garbage.
+    f.renderer->destroy(paint);
+    CHECK_FALSE(f.renderer->update_material(paint, {}));
+    const Rgb white = rgb(Fixture::center(f.draw(scene)));
+    CHECK(std::abs(white.r - white.b) < 20);
+    CHECK(white.r > 100);
+    // The default material cannot be destroyed.
+    f.renderer->destroy(f.renderer->default_material());
+    CHECK(f.renderer->material(f.renderer->default_material()) != nullptr);
+}
+
+TEST_CASE("settings change at runtime: ray tracing on and off") {
+    Fixture f(rt_settings());
+    if (!rt_available(f)) return;
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const Item item{.mesh = cube, .color = {1, 0, 0, 1}, .roughness = 1.0f};
+    const RenderScene scene{.meshes = f.inst(std::span(&item, 1)), .sun = front_sun, .environment = dim_sky};
+    f.draw(scene);
+    CHECK(f.renderer->stats().ray_traced);
+    RenderSettings raster = f.renderer->settings();
+    raster.ray_tracing = false;
+    f.renderer->set_settings(raster);
+    CHECK_FALSE(f.renderer->ray_tracing());
+    CHECK(rgb(Fixture::center(f.draw(scene))).r > 120);
+    CHECK_FALSE(f.renderer->stats().ray_traced);
+    // Meshes created while ray tracing was off get their acceleration structures on the way back.
+    const MeshHandle later = f.renderer->create_mesh(make_cube());
+    raster.ray_tracing = true;
+    f.renderer->set_settings(raster);
+    REQUIRE(f.renderer->ray_tracing());
+    const Item item2{.mesh = later, .color = {1, 0, 0, 1}, .roughness = 1.0f};
+    const auto pixels = converge(f, {.meshes = f.inst(std::span(&item2, 1)), .sun = front_sun, .environment = dim_sky}, 2);
+    CHECK(rgb(Fixture::center(pixels)).r > 120);
+    CHECK(f.renderer->stats().ray_traced);
+}
+
+TEST_CASE("moving meshes get per-object motion vectors") {
+    RenderSettings s = rt_settings();
+    s.debug_view = DebugView::Motion;
+    s.bloom_strength = 0;
+    s.taa_blend = 1.0f; // show this frame's motion only
+    Fixture f(s);
+    if (!rt_available(f)) return;
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const MaterialHandle mat = f.renderer->create_material({});
+    MeshInstance moving{.mesh = cube, .material = mat, .transform = translate({-1, 0, 0}),
+                        .previous_transform = translate({-1.3f, 0, 0})};
+    const MeshInstance still{.mesh = cube, .material = mat, .transform = translate({1, 0, 0})};
+    const std::array scene_items{moving, still};
+    const RenderScene scene{.meshes = scene_items, .sun = front_sun, .environment = dim_sky};
+    f.draw(scene);
+    const auto pixels = f.draw(scene); // second frame: the camera has a history, so only objects move
+    CHECK(rgb(f.at(pixels, {-1, 0, 0.5f})).r > 40); // moved right on screen
+    CHECK(rgb(f.at(pixels, {1, 0, 0.5f})).r < 10);  // did not move
+}

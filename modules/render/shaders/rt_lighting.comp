@@ -4,7 +4,7 @@
 // rect area lights) and one GGX reflection ray. Writes noisy, albedo-free signals for the
 // denoiser, plus the pixel's geometry (normal, view distance) for reprojection next frame.
 layout(push_constant, scalar) uniform Push {
-    FrameRef frame; uint64_t tlas; Instances instances; PointLights lights; RectLights rects; SdfShapes shapes;
+    FrameRef frame; uint64_t tlas; Instances instances; Materials materials; PointLights lights; RectLights rects; SdfShapes shapes;
     GBufferIds g; uint irr; uint dist;
     uint out_diffuse; uint out_specular; uint out_geometry; float near_gi_radius;
 } pc;
@@ -45,7 +45,7 @@ void main() {
         TraceHit nh = trace(pc.tlas, pc.shapes, sdf_count, origin, dir, pc.near_gi_radius);
         if (nh.hit) {
             Surface hs = nh.sdf ? sdf_surface(pc.shapes, sdf_count, origin, dir, nh.t)
-                                : triangle_surface(pc.instances, nh.instance, nh.prim, nh.bary, origin, dir, nh.t);
+                                : triangle_surface(pc.instances, pc.materials, nh.instance, nh.prim, nh.bary, origin, dir, nh.t);
             indirect = hs.backface ? vec3(0) : shade_secondary(f, li, hs, -dir, pc.irr, pc.dist, seed);
         }
     }
@@ -85,7 +85,7 @@ void main() {
             reflected = rect_radiance;
         } else if (h.hit) {
             Surface hs = h.sdf ? sdf_surface(pc.shapes, sdf_count, origin, l, h.t)
-                               : triangle_surface(pc.instances, h.instance, h.prim, h.bary, origin, l, h.t);
+                               : triangle_surface(pc.instances, pc.materials, h.instance, h.prim, h.bary, origin, l, h.t);
             reflected = hs.backface ? vec3(0) : shade_secondary(f, li, hs, -l, pc.irr, pc.dist, seed);
         } else {
             reflected = sky_radiance(f, l);

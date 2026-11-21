@@ -8,22 +8,35 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 
 namespace astral {
 
 class RenderGraph;
 struct MeshTag;
+struct MaterialTag;
+/// GPU geometry owned by the Renderer (Renderer::create_mesh).
 using MeshHandle = Handle<MeshTag>;
+/// A surface description owned by the Renderer (Renderer::create_material). Shared by any number of
+/// instances; editing it with update_material changes all of them.
+using MaterialHandle = Handle<MaterialTag>;
 
-/// One mesh instance to draw this frame, with a simple PBR material.
-struct DrawItem {
-    MeshHandle mesh;
-    Mat4 transform = Mat4::identity();
-    Vec4 color{1, 1, 1, 1};
+/// Metallic-roughness PBR, the glTF model (textures arrive with the asset system, M5).
+struct MaterialDesc {
+    Vec4 base_color{1, 1, 1, 1};
     float roughness = 0.6f;
     float metallic = 0.0f;
-    float emissive = 0.0f; ///< Glow strength (multiplies color).
+    Vec3 emissive{};       ///< Emitted radiance (rgb). Lights the scene in the ray-traced path.
+};
+
+/// One mesh to draw this frame. An invalid material means Renderer::default_material().
+struct MeshInstance {
+    MeshHandle mesh;
+    MaterialHandle material;
+    Mat4 transform = Mat4::identity();
+    /// Last frame's transform, for per-object motion vectors (TAA, denoiser). Unset = did not move.
+    std::optional<Mat4> previous_transform = {};
 };
 
 enum class SdfPrimitive : std::uint32_t { Sphere, Box, Torus, Capsule, Cylinder };
@@ -89,7 +102,7 @@ struct Environment {
 
 /// Everything to draw in one frame. Spans must stay valid until render() returns.
 struct RenderScene {
-    std::span<const DrawItem> meshes = {};
+    std::span<const MeshInstance> meshes = {};
     std::span<const SdfShape> sdf = {};
     std::span<const PointLight> lights = {};
     std::span<const RectLight> rect_lights = {};
@@ -107,7 +120,8 @@ struct GiSettings {
 };
 
 /// What the ray-traced path shows (for tuning and debugging).
-enum class DebugView : std::uint32_t { None, Albedo, Normals, DiffuseLight, Specular };
+/// `Motion`: screen-space motion vectors (red = horizontal, green = vertical speed).
+enum class DebugView : std::uint32_t { None, Albedo, Normals, DiffuseLight, Specular, Motion };
 
 struct RenderSettings {
     std::uint32_t shadow_map_size = 2048; ///< Raster path.
@@ -138,7 +152,12 @@ struct RenderStats {
     std::uint32_t rect_lights = 0;
 };
 
-/// Hybrid deferred renderer built on RenderGraph. Raster G-buffer (meshes + raymarched SDFs), then
+/// Hybrid deferred renderer built on RenderGraph.
+///
+/// Usage contract (the same for App and for engines/tools using the module directly):
+///   * resources — meshes and materials — are created once and referenced by handle;
+///   * every frame the caller *extracts* a RenderScene (plain spans, nothing retained) and calls render();
+///   * settings can change at runtime (set_settings); the renderer resets what depends on them. Raster G-buffer (meshes + raymarched SDFs), then
 /// either the ray-traced path (ADR-0011): RT direct light + DDGI + RT reflections → SVGF-style
 /// denoiser → composite → TAA → bloom → ACES; or the raster path: shadow map + PBR → ACES.
 /// It knows nothing about the ECS; Astral::App fills RenderScene from components.
@@ -152,6 +171,19 @@ public:
     /// Uploads a mesh (blocking). Invalid handle on failure, e.g. while a CommandList records.
     MeshHandle create_mesh(const MeshData& data);
     void destroy(MeshHandle mesh);
+
+    MaterialHandle create_material(const MaterialDesc& desc);
+    /// False for a dead handle. Takes effect from the next render().
+    bool update_material(MaterialHandle material, const MaterialDesc& desc);
+    void destroy(MaterialHandle material);
+    [[nodiscard]] const MaterialDesc* material(MaterialHandle material) const noexcept;
+    /// Used by instances whose material is invalid or destroyed (white, roughness 0.6).
+    [[nodiscard]] MaterialHandle default_material() const noexcept;
+
+    /// Changes technique/quality at runtime. Turning ray tracing on/off, or changing GI or the
+    /// denoiser, resets the temporal history.
+    void set_settings(const RenderSettings& settings);
+    [[nodiscard]] const RenderSettings& settings() const noexcept;
 
     /// Records the frame into `cmd`; `target` ends in ColorTarget state.
     /// Per-frame data is ring-buffered and synchronised with the GPU automatically.

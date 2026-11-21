@@ -6,10 +6,15 @@
 struct Vertex { vec3 position; vec3 normal; vec2 uv; };
 struct Instance {
     mat4 model;
-    vec4 albedo;
-    vec4 material;     // x roughness, y metallic, z emissive strength
+    mat4 prev_model;   // last frame's transform (motion vectors)
+    uint material;     // index into the material table
     uvec2 vertices;    // Vertices address as 2 x uint32 (keeps the struct 4-byte aligned)
     uvec2 indices;     // uint32 triangle indices address
+};
+struct Material {
+    vec4 base_color;
+    vec4 emissive_roughness; // rgb emitted radiance, a roughness
+    vec4 params;             // x metallic
 };
 struct Frame {
     mat4 view_projection;
@@ -29,6 +34,7 @@ struct Frame {
     uvec4 ddgi_counts;    // xyz probes per axis, w rays per probe
     uvec4 rt_counts;      // x rect lights, y frame index, z history valid, w ddgi history valid
     vec4 rt_params;       // x sun cone half-angle (rad), yz jitter (pixels), w max ray distance
+    mat4 unjittered_view_projection; // this frame without TAA jitter (motion vectors)
 };
 struct PointLight { vec4 position_radius; vec4 color_intensity; vec4 source; /* x source radius */ };
 struct SdfShape {
@@ -41,6 +47,7 @@ struct SdfShape {
 
 ASTRAL_BUFFER(Vertices, Vertex);
 ASTRAL_BUFFER(Instances, Instance);
+ASTRAL_BUFFER(Materials, Material);
 ASTRAL_BUFFER(PointLights, PointLight);
 ASTRAL_BUFFER(SdfShapes, SdfShape);
 layout(buffer_reference, scalar, buffer_reference_align = 4) buffer FrameRef { Frame f; };

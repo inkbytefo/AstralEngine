@@ -13,6 +13,13 @@
 
 namespace astral {
 
+namespace {
+/// Internal component: the transform a MeshRenderer entity was drawn with last frame.
+struct RenderHistory {
+    Mat4 previous;
+};
+} // namespace
+
 struct App::Impl {
     AppDesc desc;
     Logger log;
@@ -46,7 +53,8 @@ struct App::Impl {
 
     std::unique_ptr<Context> context;
     std::array<std::vector<std::unique_ptr<System>>, 4> systems;
-    std::vector<DrawItem> draw_items; // scratch, reused every frame
+    std::vector<MeshInstance> draw_items; // scratch, reused every frame
+    std::vector<std::pair<Entity, Mat4>> new_histories;
     std::vector<std::pair<std::int32_t, SdfShape>> sdf_sorted;
     std::vector<SdfShape> sdf_shapes;
     std::vector<PointLight> point_lights;
@@ -114,6 +122,16 @@ App::~App() {
 }
 
 Context& App::context() noexcept { return *impl_->context; }
+
+MeshHandle Context::create_mesh(const MeshData& data) { return renderer ? renderer->create_mesh(data) : MeshHandle{}; }
+
+MaterialHandle Context::create_material(const MaterialDesc& desc) {
+    return renderer ? renderer->create_material(desc) : MaterialHandle{};
+}
+
+bool Context::update_material(MaterialHandle material, const MaterialDesc& desc) {
+    return renderer && renderer->update_material(material, desc);
+}
 
 std::span<const ContactEvent> Context::contacts() const noexcept {
     // Inside FixedUpdate: the previous physics step (possibly last frame's final step);
@@ -310,11 +328,21 @@ void App::Impl::frame(Game& game, float delta) {
     if (m.renderer && m.swapchain && !(m.window && m.window->minimized())) {
         gpu::TextureHandle image = m.swapchain->acquire();
         if (image.valid()) {
+            // Extract: one MeshInstance per entity, with last frame's transform for motion vectors.
             m.draw_items.clear();
+            m.new_histories.clear();
             m.world.each<const MeshRenderer, const WorldTransform>(
-                [&](const MeshRenderer& r, const WorldTransform& w) {
-                    m.draw_items.push_back({r.mesh, w.matrix, r.color, r.roughness, r.metallic, r.emissive});
+                [&](Entity e, const MeshRenderer& r, const WorldTransform& w) {
+                    MeshInstance inst{.mesh = r.mesh, .material = r.material, .transform = w.matrix};
+                    if (RenderHistory* h = m.world.get<RenderHistory>(e)) {
+                        inst.previous_transform = h->previous;
+                        h->previous = w.matrix;
+                    } else {
+                        m.new_histories.emplace_back(e, w.matrix);
+                    }
+                    m.draw_items.push_back(inst);
                 });
+            for (const auto& [e, matrix] : m.new_histories) m.world.add(e, RenderHistory{matrix});
             m.sdf_sorted.clear();
             m.world.each<const Sdf>([&](Entity e, const Sdf& s) {
                 SdfShape shape = s.shape;

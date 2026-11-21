@@ -75,13 +75,13 @@ public:
                 const float fz = static_cast<float>(z - grid / 2) * 1.6f;
                 const float hue = static_cast<float>(x + z) / (2.0f * grid);
                 ctx.world.create(Transform{.position = {fx, 0, fz}, .scale = {0.8f, 0.8f, 0.8f}},
-                                 MeshRenderer{ctx.meshes.cube, {0.9f - hue * 0.6f, 0.4f + hue * 0.4f, 0.3f + hue * 0.6f, 1}},
+                                 MeshRenderer{ctx.meshes.cube, ctx.create_material({.base_color = {0.9f - hue * 0.6f, 0.4f + hue * 0.4f, 0.3f + hue * 0.6f, 1}})},
                                  Spin{normalize(Vec3{fx, 3, fz}), 0.5f + hue * 2.0f},
                                  Bob{.height = 0.4f, .phase = fx * 0.3f + fz * 0.2f});
             }
         }
         ctx.world.create(Transform{.position = {0, -1, 0}, .scale = {60, 1, 60}},
-                         MeshRenderer{ctx.meshes.plane, {0.25f, 0.27f, 0.3f, 1}});
+                         MeshRenderer{ctx.meshes.plane, ctx.create_material({.base_color = {0.25f, 0.27f, 0.3f, 1}})});
         ctx.world.create(Transform{.position = {0, 9, 26}}, Camera{}, FlyCamera{});
 
         ctx.add_system<FlyCameraSystem>(Phase::PreUpdate);

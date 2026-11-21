@@ -3,7 +3,7 @@
 #define ASTRAL_PRIMARY_GLSL
 #include <astral/rt.glsl>
 
-struct GBufferIds { uint albedo, normal, emissive, depth, sdf_albedo, sdf_normal, sdf_depth; };
+struct GBufferIds { uint albedo, normal, emissive, depth, velocity, sdf_albedo, sdf_normal, sdf_depth, sdf_velocity; };
 
 vec4 fetch_texel(uint index, ivec2 p) {
     return texelFetch(sampler2D(astral_textures[index], astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]), p, 0);
@@ -39,6 +39,14 @@ bool load_primary(Frame f, GBufferIds g, ivec2 pixel, out Surface s, out float d
 vec3 camera_ray(Frame f, ivec2 pixel) {
     vec2 uv = (vec2(pixel) + 0.5) * f.screen.zw;
     return normalize(reconstruct_world(f, uv, 1.0) - f.camera_position.xyz);
+}
+
+// Motion of the pixel's surface since last frame (screen uv delta): per object for meshes.
+vec2 primary_velocity(Frame f, GBufferIds g, ivec2 pixel) {
+    if (f.counts.y > 0u && fetch_texel(g.sdf_depth, pixel).r < fetch_texel(g.depth, pixel).r) {
+        return fetch_texel(g.sdf_velocity, pixel).xy;
+    }
+    return fetch_texel(g.velocity, pixel).xy;
 }
 
 // Screen uv of a world point in the previous frame (unjittered). False if off screen.

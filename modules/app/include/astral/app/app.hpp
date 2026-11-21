@@ -72,6 +72,12 @@ public:
         register_system(phase, std::move(system));
         return ref;
     }
+    /// Render resources. Safe in headless mode: they return an invalid handle (nothing is drawn).
+    MeshHandle create_mesh(const MeshData& data);
+    MaterialHandle create_material(const MaterialDesc& desc);
+    /// False in headless mode or for a dead handle.
+    bool update_material(MaterialHandle material, const MaterialDesc& desc);
+
     /// Contacts that began or ended during this frame's physics steps.
     [[nodiscard]] std::span<const ContactEvent> contacts() const noexcept;
 

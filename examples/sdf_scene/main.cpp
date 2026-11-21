@@ -43,11 +43,11 @@ public:
     void on_start(Context& ctx) override {
         auto& w = ctx.world;
         // Ground and a few metallic mesh spheres.
-        w.create(Transform{.scale = {40, 1, 40}}, MeshRenderer{ctx.meshes.plane, {0.35f, 0.36f, 0.4f, 1}, 0.8f});
+        w.create(Transform{.scale = {40, 1, 40}}, MeshRenderer{ctx.meshes.plane, ctx.create_material({.base_color = {0.35f, 0.36f, 0.4f, 1}, .roughness = 0.8f})});
         for (int i = 0; i < 5; ++i) {
             const float a = static_cast<float>(i) * 1.2566f;
             w.create(Transform{.position = {std::cos(a) * 6.5f, 0.6f, std::sin(a) * 6.5f}, .scale = {1.2f, 1.2f, 1.2f}},
-                     MeshRenderer{ctx.meshes.sphere, {0.95f, 0.75f, 0.35f, 1}, 0.25f, 1.0f});
+                     MeshRenderer{ctx.meshes.sphere, ctx.create_material({.base_color = {0.95f, 0.75f, 0.35f, 1}, .roughness = 0.25f, .metallic = 1.0f})});
         }
 
         // Three blobs that melt together while orbiting (smooth union).

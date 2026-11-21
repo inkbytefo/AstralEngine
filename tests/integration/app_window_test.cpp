@@ -10,7 +10,7 @@ TEST_CASE("windowed app renders a scene of meshes") {
             if (!ctx.renderer) return;
             for (int i = 0; i < 50; ++i) {
                 ctx.world.create(Transform{.position = {static_cast<float>(i % 10) - 5, 0, -static_cast<float>(i / 10)}},
-                                 MeshRenderer{ctx.meshes.cube, {0.8f, 0.3f, 0.2f, 1}});
+                                 MeshRenderer{ctx.meshes.cube, ctx.create_material({.base_color = {0.8f, 0.3f, 0.2f, 1}})});
             }
             ctx.world.create(Transform{.position = {0, 3, 8}}, Camera{});
         }

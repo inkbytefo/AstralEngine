@@ -119,10 +119,11 @@ int capture(const char* path, std::uint32_t frames, std::uint32_t width, std::ui
     const MeshHandle cube = renderer.create_mesh(make_cube());
     const MeshHandle sphere = renderer.create_mesh(make_sphere(96, 64));
     const Room room = build_room();
-    std::vector<DrawItem> items;
+    std::vector<MeshInstance> items;
     for (const Object& o : room.objects) {
-        items.push_back({.mesh = o.shape == Shape::Cube ? cube : sphere, .transform = o.transform, .color = o.color,
-                         .roughness = o.roughness, .metallic = o.metallic});
+        const MaterialHandle material =
+            renderer.create_material({.base_color = o.color, .roughness = o.roughness, .metallic = o.metallic});
+        items.push_back({.mesh = o.shape == Shape::Cube ? cube : sphere, .material = material, .transform = o.transform});
     }
     const View& v = views[view_index];
     CameraData camera;
@@ -166,8 +167,9 @@ public:
     void on_start(Context& ctx) override {
         const Room room = build_room();
         for (const Object& o : room.objects) {
-            ctx.world.create(WorldTransform{o.transform},
-                             MeshRenderer{o.shape == Shape::Cube ? ctx.meshes.cube : sphere(ctx), o.color, o.roughness, o.metallic});
+            ctx.world.create(WorldTransform{o.transform}, // placed by matrix (no Transform: never recomputed)
+                             MeshRenderer{o.shape == Shape::Cube ? ctx.meshes.cube : sphere(ctx),
+                                          ctx.create_material({.base_color = o.color, .roughness = o.roughness, .metallic = o.metallic})});
         }
         for (std::size_t i = 0; i < room.sdf.size(); ++i) {
             const SdfShape& s = room.sdf[i];
@@ -186,7 +188,7 @@ public:
 
 private:
     MeshHandle sphere(Context& ctx) {
-        if (!smooth_sphere_.valid()) smooth_sphere_ = ctx.renderer ? ctx.renderer->create_mesh(make_sphere(96, 64)) : ctx.meshes.sphere;
+        if (!smooth_sphere_.valid()) smooth_sphere_ = ctx.create_mesh(make_sphere(96, 64));
         return smooth_sphere_;
     }
     MeshHandle smooth_sphere_{};

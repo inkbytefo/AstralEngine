@@ -106,8 +106,10 @@ struct Surface {
 };
 
 // Triangle hit -> interpolated surface. `dir` is the ray direction.
-Surface triangle_surface(Instances instances, uint instance, uint prim, vec2 bary, vec3 origin, vec3 dir, float t) {
+Surface triangle_surface(Instances instances, Materials materials, uint instance, uint prim, vec2 bary,
+                         vec3 origin, vec3 dir, float t) {
     Instance inst = instances.data[instance];
+    Material mat = materials.data[inst.material];
     Indices idx = Indices(address_of(inst.indices));
     Vertices verts = Vertices(address_of(inst.vertices));
     Vertex v0 = verts.data[idx.data[prim * 3u + 0u]];
@@ -124,10 +126,10 @@ Surface triangle_surface(Instances instances, uint instance, uint prim, vec2 bar
     s.p = origin + dir * t;
     s.backface = dot(ng, dir) > 0.0;
     s.n = dot(n, dir) > 0.0 ? -n : n;
-    s.albedo = inst.albedo.rgb;
-    s.roughness = clamp(inst.material.x, 0.02, 1.0);
-    s.metallic = inst.material.y;
-    s.emissive = inst.albedo.rgb * inst.material.z;
+    s.albedo = mat.base_color.rgb;
+    s.roughness = clamp(mat.emissive_roughness.a, 0.02, 1.0);
+    s.metallic = mat.params.x;
+    s.emissive = mat.emissive_roughness.rgb;
     return s;
 }
 

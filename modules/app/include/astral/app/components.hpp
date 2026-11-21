@@ -7,13 +7,12 @@
 
 namespace astral {
 
-/// Draws a mesh at the entity's WorldTransform with a simple PBR material.
+/// Draws a mesh at the entity's WorldTransform. Meshes and materials are shared resources
+/// (Context::create_mesh / create_material); an invalid material draws with the default one.
+/// The App tracks last frame's transform itself, so moving entities get motion vectors.
 struct MeshRenderer {
     MeshHandle mesh{};
-    Vec4 color{1, 1, 1, 1};
-    float roughness = 0.6f;
-    float metallic = 0.0f;
-    float emissive = 0.0f;
+    MaterialHandle material{};
 };
 
 /// A signed-distance-field shape at the entity's WorldTransform (position and rotation; use

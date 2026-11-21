@@ -4,7 +4,7 @@
 // G-buffer of its own. Lighting composites it with the mesh G-buffer by depth.
 layout(push_constant, scalar) uniform Push {
     FrameRef frame; SdfShapes shapes;
-    uint mesh_depth; uint out_albedo; uint out_normal; uint out_depth;
+    uint mesh_depth; uint out_albedo; uint out_normal; uint out_depth; uint out_velocity;
 } pc;
 layout(local_size_x = 8, local_size_y = 8) in;
 void main() {
@@ -42,6 +42,11 @@ void main() {
         depth = clamp(clip.z / clip.w, 0.0, 1.0);
         imageStore(astral_storage_images[pc.out_albedo], pixel, vec4(h.albedo, h.roughness));
         imageStore(astral_storage_images[pc.out_normal], pixel, vec4(n, h.metallic));
+        // SDF shapes are static between frames: only the camera moves them on screen.
+        vec4 now = f.unjittered_view_projection * vec4(p, 1.0);
+        vec4 prev = f.prev_view_projection * vec4(p, 1.0);
+        vec2 velocity = (now.xy / now.w - prev.xy / max(prev.w, 1e-6)) * 0.5;
+        imageStore(astral_storage_images[pc.out_velocity], pixel, vec4(velocity, 0, 0));
     }
     imageStore(astral_storage_images[pc.out_depth], pixel, vec4(depth));
 }

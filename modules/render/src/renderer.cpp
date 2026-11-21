@@ -37,11 +37,17 @@ struct GpuMesh {
 };
 struct GpuInstance {
     Mat4 model;
-    Vec4 albedo;
-    Vec4 material;
-    std::uint64_t vertices = 0, indices = 0;
+    Mat4 prev_model;
+    std::uint32_t material = 0;
+    std::uint32_t vertices[2] = {0, 0}; // 64-bit addresses as two words (4-byte aligned struct)
+    std::uint32_t indices[2] = {0, 0};
 };
-static_assert(sizeof(GpuInstance) == 112);
+static_assert(sizeof(GpuInstance) == 148);
+struct GpuMaterial {
+    Vec4 base_color;
+    Vec4 emissive_roughness;
+    Vec4 params;
+};
 struct GpuFrame {
     Mat4 view_projection;
     Mat4 inv_view_projection;
@@ -59,6 +65,7 @@ struct GpuFrame {
     std::uint32_t ddgi_counts[4];
     std::uint32_t rt_counts[4];
     Vec4 rt_params;
+    Mat4 unjittered_view_projection;
 };
 struct GpuPointLight {
     Vec4 position_radius;
@@ -72,16 +79,16 @@ struct GpuRectLight {
     Vec4 radiance;
 };
 struct GBufferIds {
-    std::uint32_t albedo, normal, emissive, depth, sdf_albedo, sdf_normal, sdf_depth;
+    std::uint32_t albedo, normal, emissive, depth, velocity, sdf_albedo, sdf_normal, sdf_depth, sdf_velocity;
 };
 struct RtLightingPush {
-    std::uint64_t frame, tlas, instances, lights, rects, shapes;
+    std::uint64_t frame, tlas, instances, materials, lights, rects, shapes;
     GBufferIds g;
     std::uint32_t irr, dist, out_diffuse, out_specular, out_geometry;
     float near_gi_radius;
 };
 struct DdgiTracePush {
-    std::uint64_t frame, tlas, instances, lights, rects, shapes, rays;
+    std::uint64_t frame, tlas, instances, materials, lights, rects, shapes, rays;
     std::uint32_t irr_prev, dist_prev;
 };
 struct DdgiUpdatePush {
@@ -90,6 +97,7 @@ struct DdgiUpdatePush {
 };
 struct TemporalPush {
     std::uint64_t frame;
+    GBufferIds g;
     std::uint32_t geometry, prev_geometry, diffuse, specular, prev_diffuse, prev_specular, out_diffuse, out_specular;
     float max_history;
     std::uint32_t prev_moments, out_moments;
@@ -126,6 +134,7 @@ struct BloomUpPush {
 };
 static_assert(sizeof(RtLightingPush) <= gpu::max_push_constant_size);
 static_assert(sizeof(DdgiTracePush) <= gpu::max_push_constant_size);
+static_assert(sizeof(TemporalPush) <= gpu::max_push_constant_size);
 struct GpuSdfShape {
     Vec4 position_blend;
     Vec4 rotation;
@@ -134,12 +143,12 @@ struct GpuSdfShape {
     Vec4 params;
 };
 struct MeshPush {
-    std::uint64_t vertices, instances, frame;
+    std::uint64_t vertices, instances, frame, materials;
     std::uint32_t first_instance;
 };
 struct SdfPush {
     std::uint64_t frame, shapes;
-    std::uint32_t mesh_depth, out_albedo, out_normal, out_depth;
+    std::uint32_t mesh_depth, out_albedo, out_normal, out_depth, out_velocity;
 };
 struct LightingPush {
     std::uint64_t frame, lights, shapes;
@@ -174,7 +183,7 @@ struct GrowBuffer {
 };
 
 struct FrameSlot {
-    GrowBuffer instances, lights, shapes, frame, rects;
+    GrowBuffer instances, lights, shapes, frame, rects, materials;
     std::shared_ptr<std::uint64_t> last_use = std::make_shared<std::uint64_t>(0);
 };
 
@@ -186,7 +195,7 @@ template <class MeshLookup>
 Mat4 light_view_projection(const RenderScene& scene, MeshLookup&& mesh_of, std::uint32_t map_size,
                            bool& valid, float& texel_world) {
     std::vector<Vec3> points;
-    for (const DrawItem& d : scene.meshes) {
+    for (const MeshInstance& d : scene.meshes) {
         const GpuMesh* mesh = mesh_of(d.mesh);
         if (!mesh) continue;
         for (int i = 0; i < 8; ++i) {
@@ -267,6 +276,10 @@ struct Renderer::Impl {
     RenderSettings settings;
     RenderGraph graph;
     HandlePool<GpuMesh, MeshTag> meshes;
+    HandlePool<MaterialDesc, MaterialTag> materials;
+    MaterialHandle default_material;
+    std::uint32_t material_slots = 0; ///< Highest material index + 1 (size of the GPU table).
+    std::vector<GpuMaterial> material_table;
     gpu::PipelineHandle gbuffer, shadow, sdf, lighting, tonemap;
     gpu::PipelineHandle rt_lighting, ddgi_trace, ddgi_update, temporal, atrous, composite, taa, bloom_down, bloom_up;
     gpu::TextureHandle shadow_map;
@@ -292,6 +305,11 @@ struct Renderer::Impl {
 
     Impl(gpu::Device& d, gpu::Format f, const RenderSettings& s) : device(d), target_format(f), settings(s), graph(d) {}
 
+    /// Sorted instance list (+ TLAS instances when `rt`) and the material table, into `slot`.
+    void prepare_instances(const RenderScene& scene, FrameSlot& slot, bool with_tlas);
+    bool create_rt_pipelines();
+    void destroy_rt_pipelines();
+
     void render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle target, const CameraData& camera,
                            const RenderScene& scene, std::uint32_t w, std::uint32_t h);
     void ensure_history(std::uint32_t w, std::uint32_t h);
@@ -304,7 +322,7 @@ Renderer::Renderer(gpu::Device& device, gpu::Format target_format, const RenderS
     m.gbuffer = device.create_graphics_pipeline({
         .vertex = {shaders::gbuffer_vert},
         .fragment = {shaders::gbuffer_frag},
-        .color_formats = {gpu::Format::RGBA8Unorm, gpu::Format::RGBA16Float, gpu::Format::RGBA16Float},
+        .color_formats = {gpu::Format::RGBA8Unorm, gpu::Format::RGBA16Float, gpu::Format::RGBA16Float, gpu::Format::RG16Float},
         .depth = {.format = gpu::Format::D32Float},
         .cull = gpu::CullMode::Back,
         .debug_name = "astral.gbuffer",
@@ -330,25 +348,81 @@ Renderer::Renderer(gpu::Device& device, gpu::Format target_format, const RenderS
                                           .format = gpu::Format::D32Float,
                                           .usage = gpu::TextureUsage::DepthTarget | gpu::TextureUsage::Sampled,
                                           .debug_name = "astral.shadow_map"});
-    m.rt = settings.ray_tracing && device.supports(gpu::Feature::RayTracing);
-    if (m.rt) {
-        auto compute = [&](std::span<const std::uint32_t> spirv, const char* name) {
-            return device.create_compute_pipeline({.shader = {spirv}, .debug_name = name});
-        };
-        m.rt_lighting = compute(shaders::rt_lighting_comp, "astral.rt_lighting");
-        m.ddgi_trace = compute(shaders::ddgi_trace_comp, "astral.ddgi_trace");
-        m.ddgi_update = compute(shaders::ddgi_update_comp, "astral.ddgi_update");
-        m.temporal = compute(shaders::denoise_temporal_comp, "astral.denoise_temporal");
-        m.atrous = compute(shaders::denoise_atrous_comp, "astral.denoise_atrous");
-        m.composite = compute(shaders::composite_comp, "astral.composite");
-        m.taa = compute(shaders::taa_comp, "astral.taa");
-        m.bloom_down = compute(shaders::bloom_down_comp, "astral.bloom_down");
-        m.bloom_up = compute(shaders::bloom_up_comp, "astral.bloom_up");
-        for (auto p : {m.rt_lighting, m.ddgi_trace, m.ddgi_update, m.temporal, m.atrous, m.composite, m.taa,
-                       m.bloom_down, m.bloom_up}) {
-            if (!p.valid()) m.rt = false; // fall back to the raster path
+    m.default_material = m.materials.create(MaterialDesc{});
+    m.material_slots = m.default_material.index + 1;
+    m.rt = settings.ray_tracing && device.supports(gpu::Feature::RayTracing) && m.create_rt_pipelines();
+}
+
+bool Renderer::Impl::create_rt_pipelines() {
+    if (rt_lighting.valid()) return true;
+    auto compute = [&](std::span<const std::uint32_t> spirv, const char* name) {
+        return device.create_compute_pipeline({.shader = {spirv}, .debug_name = name});
+    };
+    rt_lighting = compute(shaders::rt_lighting_comp, "astral.rt_lighting");
+    ddgi_trace = compute(shaders::ddgi_trace_comp, "astral.ddgi_trace");
+    ddgi_update = compute(shaders::ddgi_update_comp, "astral.ddgi_update");
+    temporal = compute(shaders::denoise_temporal_comp, "astral.denoise_temporal");
+    atrous = compute(shaders::denoise_atrous_comp, "astral.denoise_atrous");
+    composite = compute(shaders::composite_comp, "astral.composite");
+    taa = compute(shaders::taa_comp, "astral.taa");
+    bloom_down = compute(shaders::bloom_down_comp, "astral.bloom_down");
+    bloom_up = compute(shaders::bloom_up_comp, "astral.bloom_up");
+    for (auto p : {rt_lighting, ddgi_trace, ddgi_update, temporal, atrous, composite, taa, bloom_down, bloom_up}) {
+        if (!p.valid()) {
+            destroy_rt_pipelines(); // fall back to the raster path
+            return false;
         }
     }
+    return true;
+}
+
+void Renderer::Impl::destroy_rt_pipelines() {
+    for (auto* p : {&rt_lighting, &ddgi_trace, &ddgi_update, &temporal, &atrous, &composite, &taa, &bloom_down, &bloom_up}) {
+        device.destroy(*p);
+        *p = {};
+    }
+}
+
+void Renderer::Impl::prepare_instances(const RenderScene& scene, FrameSlot& slot, bool with_tlas) {
+    // Material table indexed by handle slot; dead slots keep the default material's values.
+    material_table.assign(material_slots, {});
+    const MaterialDesc* fallback = materials.get(default_material);
+    for (auto& entry : material_table) {
+        entry = {fallback->base_color, {fallback->emissive.x, fallback->emissive.y, fallback->emissive.z, fallback->roughness},
+                 {fallback->metallic, 0, 0, 0}};
+    }
+    materials.for_each([&](MaterialHandle h, MaterialDesc& d) {
+        material_table[h.index] = {d.base_color, {d.emissive.x, d.emissive.y, d.emissive.z, d.roughness}, {d.metallic, 0, 0, 0}};
+    });
+    slot.materials.write(device, material_table.data(), material_table.size() * sizeof(GpuMaterial));
+
+    order.clear();
+    for (std::uint32_t i = 0; i < scene.meshes.size(); ++i) {
+        if (meshes.get(scene.meshes[i].mesh)) order.push_back(i); // destroyed meshes are skipped
+    }
+    std::sort(order.begin(), order.end(), [&](std::uint32_t a, std::uint32_t b) {
+        return scene.meshes[a].mesh.index < scene.meshes[b].mesh.index;
+    });
+    instances.clear();
+    tlas_instances.clear();
+    for (std::uint32_t i : order) {
+        const MeshInstance& d = scene.meshes[i];
+        const GpuMesh* mesh = meshes.get(d.mesh);
+        const std::uint32_t material = materials.get(d.material) ? d.material.index : default_material.index;
+        const auto split = [](std::uint64_t a, std::uint32_t (&out)[2]) {
+            out[0] = static_cast<std::uint32_t>(a);
+            out[1] = static_cast<std::uint32_t>(a >> 32);
+        };
+        GpuInstance gi{d.transform, d.previous_transform.value_or(d.transform), material, {0, 0}, {0, 0}};
+        split(device.buffer_address(mesh->vertices), gi.vertices);
+        split(device.buffer_address(mesh->indices), gi.indices);
+        const auto index = static_cast<std::uint32_t>(instances.size());
+        instances.push_back(gi);
+        if (with_tlas && mesh->blas.valid()) {
+            tlas_instances.push_back({.blas = mesh->blas, .transform = row_major_3x4(d.transform), .custom_index = index});
+        }
+    }
+    slot.instances.write(device, instances.data(), instances.size() * sizeof(GpuInstance));
 }
 
 Renderer::~Renderer() {
@@ -359,7 +433,9 @@ Renderer::~Renderer() {
         m.device.destroy(mesh.blas);
     });
     for (auto& slot : m.ring) {
-        for (GrowBuffer* b : {&slot.instances, &slot.lights, &slot.shapes, &slot.frame, &slot.rects}) m.device.destroy(b->buffer);
+        for (GrowBuffer* b : {&slot.instances, &slot.lights, &slot.shapes, &slot.frame, &slot.rects, &slot.materials}) {
+            m.device.destroy(b->buffer);
+        }
     }
     for (auto p : {m.gbuffer, m.shadow, m.sdf, m.lighting, m.tonemap, m.rt_lighting, m.ddgi_trace, m.ddgi_update,
                    m.temporal, m.atrous, m.composite, m.taa, m.bloom_down, m.bloom_up}) {
@@ -416,6 +492,64 @@ void Renderer::destroy(MeshHandle handle) {
 
 const RenderStats& Renderer::stats() const noexcept { return impl_->stats; }
 
+MaterialHandle Renderer::create_material(const MaterialDesc& desc) {
+    auto& m = *impl_;
+    const MaterialHandle h = m.materials.create(desc);
+    m.material_slots = std::max(m.material_slots, h.index + 1);
+    return h;
+}
+
+bool Renderer::update_material(MaterialHandle material, const MaterialDesc& desc) {
+    MaterialDesc* d = impl_->materials.get(material);
+    if (!d) return false;
+    *d = desc;
+    return true;
+}
+
+void Renderer::destroy(MaterialHandle material) {
+    if (material == impl_->default_material) return; // always valid
+    impl_->materials.destroy(material);
+}
+
+const MaterialDesc* Renderer::material(MaterialHandle material) const noexcept { return impl_->materials.get(material); }
+
+MaterialHandle Renderer::default_material() const noexcept { return impl_->default_material; }
+
+const RenderSettings& Renderer::settings() const noexcept { return impl_->settings; }
+
+void Renderer::set_settings(const RenderSettings& settings) {
+    auto& m = *impl_;
+    const RenderSettings old = m.settings;
+    m.settings = settings;
+    const bool want_rt = settings.ray_tracing && m.device.supports(gpu::Feature::RayTracing);
+    if (want_rt != m.rt) {
+        m.rt = want_rt && m.create_rt_pipelines();
+        // Meshes created on the raster path have no BLAS yet.
+        if (m.rt) {
+            m.meshes.for_each([&](MeshHandle, GpuMesh& mesh) {
+                if (mesh.blas.valid()) return;
+                const auto vertex_count = static_cast<std::uint32_t>(m.device.buffer_size(mesh.vertices) / sizeof(Vertex));
+                mesh.blas = m.device.create_blas({.vertices = mesh.vertices, .vertex_count = vertex_count,
+                                                  .vertex_stride = sizeof(Vertex), .indices = mesh.indices,
+                                                  .index_count = mesh.index_count, .debug_name = "astral.mesh_blas"});
+            });
+        }
+        reset_history();
+    }
+    const GiSettings &a = old.gi, &b = settings.gi;
+    if (a.probes_x != b.probes_x || a.probes_y != b.probes_y || a.probes_z != b.probes_z ||
+        a.rays_per_probe != b.rays_per_probe || old.denoise_iterations != settings.denoise_iterations) {
+        reset_history();
+    }
+    if (old.shadow_map_size != settings.shadow_map_size && settings.shadow_map_size > 0) {
+        m.device.destroy(m.shadow_map);
+        m.shadow_map = m.device.create_texture({.width = settings.shadow_map_size, .height = settings.shadow_map_size,
+                                                .format = gpu::Format::D32Float,
+                                                .usage = gpu::TextureUsage::DepthTarget | gpu::TextureUsage::Sampled,
+                                                .debug_name = "astral.shadow_map"});
+    }
+}
+
 bool Renderer::ray_tracing() const noexcept { return impl_->rt; }
 
 void Renderer::reset_history() {
@@ -441,16 +575,7 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
     m.device.wait({*slot.last_use});
     cmd.on_submitted([use = slot.last_use](gpu::SubmitTicket t) { *use = t.value; });
 
-    m.order.resize(scene.meshes.size());
-    for (std::uint32_t i = 0; i < m.order.size(); ++i) m.order[i] = i;
-    std::sort(m.order.begin(), m.order.end(), [&](std::uint32_t a, std::uint32_t b) {
-        return scene.meshes[a].mesh.index < scene.meshes[b].mesh.index;
-    });
-    m.instances.clear();
-    for (std::uint32_t i : m.order) {
-        const DrawItem& d = scene.meshes[i];
-        m.instances.push_back({d.transform, d.color, {d.roughness, d.metallic, d.emissive, 0}, 0, 0});
-    }
+    m.prepare_instances(scene, slot, false);
     m.lights.clear();
     for (const PointLight& l : scene.lights) {
         m.lights.push_back({{l.position.x, l.position.y, l.position.z, l.radius},
@@ -465,7 +590,6 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
                             {s.color.x, s.color.y, s.color.z, s.roughness},
                             {s.metallic, static_cast<float>(s.operation), static_cast<float>(s.primitive), 0}});
     }
-    slot.instances.write(m.device, m.instances.data(), m.instances.size() * sizeof(GpuInstance));
     slot.lights.write(m.device, m.lights.data(), m.lights.size() * sizeof(GpuPointLight));
     slot.shapes.write(m.device, m.shapes.data(), m.shapes.size() * sizeof(GpuSdfShape));
 
@@ -489,10 +613,11 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
                    {static_cast<std::uint32_t>(m.lights.size()), counts_sdf,
                     shadows ? m.device.bindless_index(m.shadow_map) : no_shadow, 0},
                    {static_cast<float>(w), static_cast<float>(h), 1.0f / static_cast<float>(w), 1.0f / static_cast<float>(h)},
-                   Mat4::identity(), {}, {}, {}, {}, {}};
+                   Mat4::identity(), {}, {}, {}, {}, {}, view_projection};
     slot.frame.write(m.device, &frame, sizeof(frame));
 
     const std::uint64_t instance_address = m.device.buffer_address(slot.instances.buffer);
+    const std::uint64_t material_address = m.device.buffer_address(slot.materials.buffer);
     const std::uint64_t frame_address = m.device.buffer_address(slot.frame.buffer);
     const std::uint64_t light_address = m.device.buffer_address(slot.lights.buffer);
     const std::uint64_t shape_address = m.device.buffer_address(slot.shapes.buffer);
@@ -505,7 +630,7 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
             std::uint32_t end = start + 1;
             while (end < m.order.size() && scene.meshes[m.order[end]].mesh == handle) ++end;
             if (const GpuMesh* mesh = m.meshes.get(handle)) {
-                const MeshPush push{m.device.buffer_address(mesh->vertices), instance_address, frame_address, start};
+                const MeshPush push{m.device.buffer_address(mesh->vertices), instance_address, frame_address, material_address, start};
                 c.push_constants(&push, sizeof(push));
                 c.bind_index_buffer(mesh->indices, gpu::IndexType::Uint32);
                 c.draw_indexed(mesh->index_count, end - start);
@@ -529,8 +654,9 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
     const RGTexture normal = g.create("gbuffer.normal", {w, h, gpu::Format::RGBA16Float});
     const RGTexture emissive = g.create("gbuffer.emissive", {w, h, gpu::Format::RGBA16Float});
     const RGTexture depth = g.create("gbuffer.depth", {w, h, gpu::Format::D32Float});
+    const RGTexture velocity = g.create("gbuffer.velocity", {w, h, gpu::Format::RG16Float});
     const RGTexture hdr = g.create("hdr", {w, h, gpu::Format::RGBA16Float});
-    RGTexture sdf_albedo, sdf_normal, sdf_depth;
+    RGTexture sdf_albedo, sdf_normal, sdf_depth, sdf_velocity;
 
     if (shadows) {
         g.add_pass("shadow", [&](PassBuilder& b) {
@@ -545,6 +671,7 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
         b.color(albedo, gpu::LoadOp::Clear, {0, 0, 0, 1});
         b.color(normal, gpu::LoadOp::Clear, {0, 1, 0, 0});
         b.color(emissive, gpu::LoadOp::Clear, {0, 0, 0, 0});
+        b.color(velocity, gpu::LoadOp::Clear, {0, 0, 0, 0});
         b.depth(depth, gpu::LoadOp::Clear, 1.0f);
     }, [&](PassContext& ctx) {
         ctx.cmd.bind_pipeline(m.gbuffer);
@@ -554,14 +681,16 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
         sdf_albedo = g.create("sdf.albedo", {w, h, gpu::Format::RGBA8Unorm});
         sdf_normal = g.create("sdf.normal", {w, h, gpu::Format::RGBA16Float});
         sdf_depth = g.create("sdf.depth", {w, h, gpu::Format::R32Float});
+        sdf_velocity = g.create("sdf.velocity", {w, h, gpu::Format::RG16Float});
         g.add_pass("sdf", [&](PassBuilder& b) {
             b.read(depth);
             b.write_storage(sdf_albedo);
             b.write_storage(sdf_normal);
             b.write_storage(sdf_depth);
+            b.write_storage(sdf_velocity);
         }, [&](PassContext& ctx) {
             const SdfPush push{frame_address, shape_address, ctx.bindless(depth), ctx.bindless(sdf_albedo),
-                               ctx.bindless(sdf_normal), ctx.bindless(sdf_depth)};
+                               ctx.bindless(sdf_normal), ctx.bindless(sdf_depth), ctx.bindless(sdf_velocity)};
             ctx.cmd.bind_pipeline(m.sdf);
             ctx.cmd.push_constants(&push, sizeof(push));
             ctx.cmd.dispatch((w + 7) / 8, (h + 7) / 8);
@@ -636,7 +765,7 @@ void Renderer::Impl::ensure_ddgi(const RenderScene& scene) {
     if (lo.x == hi.x && lo.y == hi.y && lo.z == hi.z) {
         lo = {1e30f, 1e30f, 1e30f};
         hi = {-1e30f, -1e30f, -1e30f};
-        for (const DrawItem& d : scene.meshes) {
+        for (const MeshInstance& d : scene.meshes) {
             const GpuMesh* mesh = meshes.get(d.mesh);
             if (!mesh) continue;
             for (int i = 0; i < 8; ++i) {
@@ -701,23 +830,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
     ensure_ddgi(scene);
 
     // --- Scene data ------------------------------------------------------------------------
-    m.order.clear();
-    for (std::uint32_t i = 0; i < scene.meshes.size(); ++i) {
-        if (m.meshes.get(scene.meshes[i].mesh)) m.order.push_back(i);
-    }
-    std::sort(m.order.begin(), m.order.end(), [&](std::uint32_t a, std::uint32_t b) {
-        return scene.meshes[a].mesh.index < scene.meshes[b].mesh.index;
-    });
-    m.instances.clear();
-    m.tlas_instances.clear();
-    for (std::uint32_t i : m.order) {
-        const DrawItem& d = scene.meshes[i];
-        const GpuMesh* mesh = m.meshes.get(d.mesh);
-        const auto index = static_cast<std::uint32_t>(m.instances.size());
-        m.instances.push_back({d.transform, d.color, {d.roughness, d.metallic, d.emissive, 0},
-                               m.device.buffer_address(mesh->vertices), m.device.buffer_address(mesh->indices)});
-        if (mesh->blas.valid()) m.tlas_instances.push_back({.blas = mesh->blas, .transform = row_major_3x4(d.transform), .custom_index = index});
-    }
+    m.prepare_instances(scene, slot, true);
     m.lights.clear();
     for (const PointLight& l : scene.lights) {
         m.lights.push_back({{l.position.x, l.position.y, l.position.z, l.radius},
@@ -739,7 +852,6 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
                            {r.up.x, r.up.y, r.up.z, 0},
                            {r.color.x * r.intensity, r.color.y * r.intensity, r.color.z * r.intensity, 0}});
     }
-    slot.instances.write(m.device, m.instances.data(), m.instances.size() * sizeof(GpuInstance));
     slot.lights.write(m.device, m.lights.data(), m.lights.size() * sizeof(GpuPointLight));
     slot.shapes.write(m.device, m.shapes.data(), m.shapes.size() * sizeof(GpuSdfShape));
     slot.rects.write(m.device, m.rects.data(), m.rects.size() * sizeof(GpuRectLight));
@@ -789,10 +901,12 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
     frame.rt_counts[2] = m.history_valid ? 1u : 0u;
     frame.rt_counts[3] = ddgi.valid ? 1u : 0u;
     frame.rt_params = {std::max(scene.sun.angular_radius, 0.0f), jx, jy, settings.max_ray_distance};
+    frame.unjittered_view_projection = unjittered;
     slot.frame.write(m.device, &frame, sizeof(frame));
 
     const std::uint64_t frame_address = m.device.buffer_address(slot.frame.buffer);
     const std::uint64_t instance_address = m.device.buffer_address(slot.instances.buffer);
+    const std::uint64_t material_address = m.device.buffer_address(slot.materials.buffer);
     const std::uint64_t light_address = m.device.buffer_address(slot.lights.buffer);
     const std::uint64_t shape_address = m.device.buffer_address(slot.shapes.buffer);
     const std::uint64_t rect_address = m.device.buffer_address(slot.rects.buffer);
@@ -807,7 +921,8 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
     const RGTexture normal = g.create("gbuffer.normal", {w, h, gpu::Format::RGBA16Float});
     const RGTexture emissive = g.create("gbuffer.emissive", {w, h, gpu::Format::RGBA16Float});
     const RGTexture depth = g.create("gbuffer.depth", {w, h, gpu::Format::D32Float});
-    RGTexture sdf_albedo = albedo, sdf_normal = normal, sdf_depth = depth;
+    const RGTexture velocity = g.create("gbuffer.velocity", {w, h, gpu::Format::RG16Float});
+    RGTexture sdf_albedo = albedo, sdf_normal = normal, sdf_depth = depth, sdf_velocity = velocity;
     const RGTexture irr_prev = g.import(ddgi.irradiance[prev], "ddgi.irradiance.prev");
     const RGTexture irr = g.import(ddgi.irradiance[parity], "ddgi.irradiance");
     const RGTexture dist_prev = g.import(ddgi.distance[prev], "ddgi.distance.prev");
@@ -833,7 +948,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
             std::uint32_t end = start + 1;
             while (end < m.order.size() && scene.meshes[m.order[end]].mesh == handle) ++end;
             const GpuMesh* mesh = m.meshes.get(handle);
-            const MeshPush push{m.device.buffer_address(mesh->vertices), instance_address, frame_address, start};
+            const MeshPush push{m.device.buffer_address(mesh->vertices), instance_address, frame_address, material_address, start};
             c.push_constants(&push, sizeof(push));
             c.bind_index_buffer(mesh->indices, gpu::IndexType::Uint32);
             c.draw_indexed(mesh->index_count, end - start);
@@ -846,6 +961,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
         b.color(albedo, gpu::LoadOp::Clear, {0, 0, 0, 1});
         b.color(normal, gpu::LoadOp::Clear, {0, 1, 0, 0});
         b.color(emissive, gpu::LoadOp::Clear, {0, 0, 0, 0});
+        b.color(velocity, gpu::LoadOp::Clear, {0, 0, 0, 0});
         b.depth(depth, gpu::LoadOp::Clear, 1.0f);
     }, [&](PassContext& ctx) {
         ctx.cmd.bind_pipeline(m.gbuffer);
@@ -855,14 +971,16 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
         sdf_albedo = g.create("sdf.albedo", {w, h, gpu::Format::RGBA8Unorm});
         sdf_normal = g.create("sdf.normal", {w, h, gpu::Format::RGBA16Float});
         sdf_depth = g.create("sdf.depth", {w, h, gpu::Format::R32Float});
+        sdf_velocity = g.create("sdf.velocity", {w, h, gpu::Format::RG16Float});
         g.add_pass("sdf", [&](PassBuilder& b) {
             b.read(depth);
             b.write_storage(sdf_albedo);
             b.write_storage(sdf_normal);
             b.write_storage(sdf_depth);
+            b.write_storage(sdf_velocity);
         }, [&](PassContext& ctx) {
             const SdfPush push{frame_address, shape_address, ctx.bindless(depth), ctx.bindless(sdf_albedo),
-                               ctx.bindless(sdf_normal), ctx.bindless(sdf_depth)};
+                               ctx.bindless(sdf_normal), ctx.bindless(sdf_depth), ctx.bindless(sdf_velocity)};
             ctx.cmd.bind_pipeline(m.sdf);
             ctx.cmd.push_constants(&push, sizeof(push));
             ctx.cmd.dispatch((w + 7) / 8, (h + 7) / 8);
@@ -870,14 +988,15 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
     }
     const bool has_sdf = sdf_count > 0;
     auto gbuffer_reads = [&](PassBuilder& b) {
-        for (RGTexture t : {albedo, normal, emissive, depth}) b.read(t);
+        for (RGTexture t : {albedo, normal, emissive, depth, velocity}) b.read(t);
         if (has_sdf) {
-            for (RGTexture t : {sdf_albedo, sdf_normal, sdf_depth}) b.read(t);
+            for (RGTexture t : {sdf_albedo, sdf_normal, sdf_depth, sdf_velocity}) b.read(t);
         }
     };
     auto gbuffer_ids = [&](PassContext& ctx) {
         return GBufferIds{ctx.bindless(albedo), ctx.bindless(normal), ctx.bindless(emissive), ctx.bindless(depth),
-                          ctx.bindless(sdf_albedo), ctx.bindless(sdf_normal), ctx.bindless(sdf_depth)};
+                          ctx.bindless(velocity), ctx.bindless(sdf_albedo), ctx.bindless(sdf_normal),
+                          ctx.bindless(sdf_depth), ctx.bindless(sdf_velocity)};
     };
 
     // DDGI: trace probe rays (lit with last frame's probes), then blend into the atlases.
@@ -887,7 +1006,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
         b.read(dist_prev);
         b.side_effect(); // writes the probe ray buffer
     }, [&](PassContext& ctx) {
-        const DdgiTracePush push{frame_address, tlas_address, instance_address, light_address, rect_address,
+        const DdgiTracePush push{frame_address, tlas_address, instance_address, material_address, light_address, rect_address,
                                  shape_address, rays_address, ctx.bindless(irr_prev), ctx.bindless(dist_prev)};
         ctx.cmd.bind_pipeline(m.ddgi_trace);
         ctx.cmd.push_constants(&push, sizeof(push));
@@ -917,7 +1036,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
         b.write_storage(noisy_s);
         b.write_storage(geometry);
     }, [&](PassContext& ctx) {
-        const RtLightingPush push{frame_address, tlas_address, instance_address, light_address, rect_address, shape_address,
+        const RtLightingPush push{frame_address, tlas_address, instance_address, material_address, light_address, rect_address, shape_address,
                                   gbuffer_ids(ctx), ctx.bindless(irr), ctx.bindless(dist),
                                   ctx.bindless(noisy_d), ctx.bindless(noisy_s), ctx.bindless(geometry),
                                   std::max(settings.near_gi_radius, 0.0f)};
@@ -926,12 +1045,13 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
         ctx.cmd.dispatch((w + 7) / 8, (h + 7) / 8);
     });
     g.add_pass("denoise.temporal", [&](PassBuilder& b) {
+        gbuffer_reads(b);
         for (RGTexture t : {geometry, geometry_prev, noisy_d, noisy_s, hist_d_prev, hist_s_prev, moments_prev}) b.read(t);
         b.write_storage(hist_d);
         b.write_storage(hist_s);
         b.write_storage(moments);
     }, [&](PassContext& ctx) {
-        const TemporalPush push{frame_address, ctx.bindless(geometry), ctx.bindless(geometry_prev),
+        const TemporalPush push{frame_address, gbuffer_ids(ctx), ctx.bindless(geometry), ctx.bindless(geometry_prev),
                                 ctx.bindless(noisy_d), ctx.bindless(noisy_s), ctx.bindless(hist_d_prev),
                                 ctx.bindless(hist_s_prev), ctx.bindless(hist_d), ctx.bindless(hist_s),
                                 std::max(settings.max_history, 1.0f), ctx.bindless(moments_prev), ctx.bindless(moments)};

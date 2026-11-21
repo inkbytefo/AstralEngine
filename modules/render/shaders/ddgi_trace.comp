@@ -4,7 +4,7 @@
 // frame's probes (so bounces accumulate over frames); misses see the sky.
 // Output per ray: rgb radiance, a hit distance (shortened for backfaces: the probe is inside geometry).
 layout(push_constant, scalar) uniform Push {
-    FrameRef frame; uint64_t tlas; Instances instances; PointLights lights; RectLights rects; SdfShapes shapes;
+    FrameRef frame; uint64_t tlas; Instances instances; Materials materials; PointLights lights; RectLights rects; SdfShapes shapes;
     ProbeRays rays; uint irr_prev; uint dist_prev;
 } pc;
 layout(local_size_x = 64) in;
@@ -25,7 +25,7 @@ void main() {
         result = vec4(sky_radiance(f, dir), 1e4);
     } else {
         Surface s = h.sdf ? sdf_surface(pc.shapes, sdf_count, origin, dir, h.t)
-                          : triangle_surface(pc.instances, h.instance, h.prim, h.bary, origin, dir, h.t);
+                          : triangle_surface(pc.instances, pc.materials, h.instance, h.prim, h.bary, origin, dir, h.t);
         if (s.backface) {
             result = vec4(0, 0, 0, h.t * 0.2);
         } else {

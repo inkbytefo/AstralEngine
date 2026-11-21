@@ -6,7 +6,7 @@
 // Also accumulates the first two luminance moments of each signal: their variance tells the
 // spatial filter how much of a neighbour's difference is noise and how much is a real edge.
 layout(push_constant, scalar) uniform Push {
-    FrameRef frame;
+    FrameRef frame; GBufferIds g;
     uint geometry; uint prev_geometry;
     uint diffuse; uint specular; uint prev_diffuse; uint prev_specular;
     uint out_diffuse; uint out_specular;
@@ -32,7 +32,9 @@ void main() {
     vec2 uv;
     vec4 hist_d = vec4(0), hist_s = vec4(0), hist_m = vec4(0);
     float history = 0.0;
-    if (f.rt_counts.z != 0u && reproject(f, world, uv)) {
+    uv = (vec2(pixel) + 0.5) * f.screen.zw - primary_velocity(f, pc.g, pixel); // per-object motion
+    bool on_screen = all(greaterThanEqual(uv, vec2(0))) && all(lessThanEqual(uv, vec2(1)));
+    if (f.rt_counts.z != 0u && on_screen) {
         // Bilinear footprint, each tap validated against the previous geometry.
         vec2 size = f.screen.xy;
         vec2 pos = uv * size - 0.5;
