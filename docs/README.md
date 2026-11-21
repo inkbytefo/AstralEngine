@@ -9,6 +9,7 @@ kurallar [process.md](process.md)'de.
 | [roadmap.md](roadmap.md) | Fazlar, her fazın durumu ve bitiş kriterleri |
 | [process.md](process.md) | Geliştirme akışı ve "faz bitti" tanımı |
 | [guides/writing-a-game.md](guides/writing-a-game.md) | **Oyun nasıl yazılır** — buradan başla |
+| [guides/scenes-and-worlds.md](guides/scenes-and-worlds.md) | Sahne, harita ve dünya: bir oyun alanı nasıl tanımlanır (kod bilmeden okunur) |
 | [modules/](modules/) | Her modülün API özeti, tasarım kararları, bilinen sınırları |
 | [decisions/](decisions/) | Mimari karar kayıtları (ADR) — neyi neden seçtik |
 | [superpowers/plans/](superpowers/plans/) | Her fazın uygulama planı |

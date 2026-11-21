@@ -110,3 +110,9 @@ atlanır. Offscreen üçgen render edilip piksel okunarak doğrulanır; validati
   yalnız BC5/BC7 (BC1/BC4/BC6H, ASTC yok).
 - Mesh shader sadece `supports()` ile sorgulanabiliyor, kullanılmıyor.
 - BLAS'lar statik (refit/compaction yok); skinned mesh'ler için güncellenebilir BLAS sonraki iş.
+
+## Timestamp sorguları (M8)
+
+`Feature::Timestamps`; `create_timestamp_pool(n)`, `CommandList::reset_queries` / `write_timestamp`,
+`read_timestamps` (hazır değilse bekletmez). `hostQueryReset` zorunlu özellik. Render graph bunları pass
+başına kullanır; oyun kodu doğrudan görmez.

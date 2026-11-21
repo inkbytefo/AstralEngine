@@ -39,3 +39,9 @@ pencere + present testi `tests/integration` altında, CI'da Xvfb ile.
 
 - Gamepad, metin girişi (IME), dosya diyalogları, çoklu pencere henüz yok.
 - Pencere olayları (resize, focus) callback olarak verilmiyor; swapchain boyutu kendisi takip ediyor.
+
+## Metin girişi ve yollar (M8)
+
+- `Window::set_text_input(bool)`, `Input::text()` (UTF-8, kare başına), `clear_keyboard` / `clear_mouse`
+  (debug UI girdiyi yuttuğunda), `Window::mouse_captured()`, `pixel_density()`.
+- `executable_directory()`: paketli oyun `.apak`'ı exe'nin yanında arar.

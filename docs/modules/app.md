@@ -81,3 +81,25 @@ pencerede döngü işlemciyi yormaz.
   Parent + MeshRenderer) kurar; model yeniden yüklenip yapısı değişirse yeniden kurar; `ModelRef` silinir
   veya entity yok edilirse parçaları kaldırır. Parçalar kaydedilmez — yalnız `ModelRef` kaydedilir.
 - Yükleme asenkron: ilk karelerde model henüz yok olabilir; yükleme ekranı için `ctx.assets->wait_all()`.
+
+## Geliştirici araçları, HUD ve ses (M8)
+
+Kararlar: [ADR-0019](../decisions/0019-dev-tools-and-ui-overlay.md), [ADR-0020](../decisions/0020-audio.md).
+
+| `Context` alanı | Ne |
+|---|---|
+| `profiler` | CPU kapsam zamanlayıcıları: `ASTRAL_PROFILE_SCOPE(ctx.profiler, "ad")`. App kendi aşamalarını (assets, PreUpdate, Update, physics, PostUpdate, transforms, audio, render, debug ui) ölçer |
+| `debug` | `DebugDraw`: çizgi, kutu, küre, kapsül, silindir, ok, eksen, ızgara; `{.on_top, .seconds}` |
+| `debug_show` | `physics`, `lights`: hazır debug katmanları |
+| `show_debug_ui` | F1 paneli (Dear ImGui): performans, sahne, inspector, render ayarları |
+| `hud` | `UiCanvas`: `rect`, `frame`, `image`, `text` (`TextStyle{size, color, align, shadow}`) |
+| `font` | Varsayılan SDF font (gömülü Roboto, Türkçe karakterler) |
+| `screen_size()` | HUD için ekran boyutu (piksel) |
+| `audio` | `AudioEngine`; headless/offscreen'de sessiz mikser |
+| `sound(yol)` | Asset yolundan sesi bir kez yükler ([audio.md](audio.md)) |
+
+- `Game::on_debug_ui(ctx)`: oyunun kendi ImGui pencereleri (`#include <imgui.h>`, `Astral::ImGui`).
+- `AppDesc::debug_ui` (varsayılan açık; kapalıysa ImGui hiç kurulmaz), `AppDesc::audio`.
+- Debug UI açıkken klavye/fare ImGui'ye gidiyorsa oyunun `ctx.input`'u o kareyi görmez; fare yakalama F1
+  kapanınca geri gelir.
+- Yeni component'ler: `AudioSource`, `AudioListener` (reflect edilmiş, sahne dosyasında kullanılabilir).

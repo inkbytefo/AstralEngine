@@ -23,3 +23,9 @@ ADR eskisini "yerini aldı" diye işaretler.
 | [0016](0016-packaging.md) | Paketleme — aynı yolla cook, kullanıma göre BC7/BC5, artımlı önbellek, `.apak`, `astral_add_game` | Kabul |
 | [0017](0017-gameplay-scripting.md) | Oyun mantığı ve scripting — C++ motor + Luau kurallar, reflection'dan bağlama, dinamik component'ler | Kabul |
 | [0018](0018-terrain-and-sdf-world.md) | Arazi: heightfield (Terrain3D benzeri) + seyrek SDF hacimleri; aynı SDF altyapısıyla yıkım | Kabul |
+| [0019](0019-dev-tools-and-ui-overlay.md) | Geliştirici araçları: global olmayan profiler, pass başına GPU zamanı, veri olarak debug çizim, tek 2D katman (ImGui + HUD), SDF font | Kabul |
+| [0020](0020-audio.md) | Ses: miniaudio üstünde `Astral::Audio`, sessiz cihaz, `AudioSource`/`AudioListener` component'leri | Kabul |
+| [0021](0021-world-and-level-system.md) | Dünya ve harita: `.world`, nesne başına dosya, hücreler ve streaming, veri katmanları, bölüm örnekleri, kayan orijin | Kabul |
+| [0022](0022-shader-and-material-language.md) | Shader dili `.ashader` (gdshader benzeri) ve `.material`; tek shader → raster, RT, gölge, forward | Kabul |
+| [0023](0023-modular-game-code.md) | Modüler oyun kodu: özellik paketleri, SOLID kuralları, yapay zekâ dostu düzen | Kabul |
+| [0024](0024-volumetric-vfx.md) | VFX: CS2 tarzı hacimsel duman (deterministik ızgara + GPU görüntü hacmi), GPU partikülleri, `.vfx` | Kabul |

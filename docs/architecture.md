@@ -42,6 +42,10 @@ zorlar: bir modül, linklemediği modülün header'ını bulamaz.
 | Arayüz ayrımı | Küçük arayüzler: `ILogSink`, `ITimeSource`, `IWindow`… Oyun sadece ihtiyacı olanı linkler. |
 | Bağımlılığın tersine çevrilmesi | Bağımlılıklar constructor ile verilir. Singleton, service locator yok. |
 
+**Oyun tarafında** aynı ilkeler özellik paketleriyle uygulanır: component yalnızca veri, sistem tek iş,
+sistemler birbirini çağırmaz (olaylarla konuşur), servisler `Context` arayüzlerinden, global yok.
+Ayrıntı ve yapay zekâ dostu düzen: [ADR-0023](decisions/0023-modular-game-code.md).
+
 ## Değişmez kurallar
 
 - Global değiştirilebilir state yok. (Durumsuz sabitler serbest — örn. `default_time_source()`.)

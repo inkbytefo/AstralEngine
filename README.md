@@ -45,8 +45,10 @@ module (core, gpu, platform, world, render) is also usable directly as a plain l
 | Scenes and prefabs: stable ids, field-level overrides, nested prefabs/variants, live reload | ✅ M5c |
 | Packaging: `astral-cook` (BC7/BC5 textures, binary scenes, incremental), `.apak` (zstd), `astral_add_game` | ✅ M6 |
 | First game: 3D Pong (`examples/pong`) — rules in code, everything else in scene/prefab files | ✅ M7 |
-| Developer tools (debug UI, profiler, image tests), text/HUD, audio | 🔜 M8 |
-| Shader/material system, physics foundations + fields, Luau scripting → advanced PBR, atmosphere, terrain (heightfield + SDF), water, weather, destruction | ⬜ M9–M21 ([roadmap](docs/roadmap.md)) |
+| Developer tools: profiler (CPU + per-pass GPU), debug draw, Dear ImGui panel (F1, reflection inspector), SDF text/HUD, `Astral::Audio` (miniaudio, 3D, `AudioSource`) | 🚧 M8 (golden image tests left) |
+| World & map system (UE5 World Partition-style: `.world`, one file per entity, cell streaming, data layers, floating origin) | 🔜 M9 |
+| `.ashader` shader language (gdshader-like) + materials, modular game code + Luau scripting, physics fields | ⬜ M10–M12 |
+| Advanced PBR, atmosphere + volumetric VFX (CS2-style smoke), terrain (heightfield + SDF), water, weather, destruction, animation, world scale | ⬜ M13–M22 ([roadmap](docs/roadmap.md)) |
 
 ![RT showcase](docs/images/m3.5-rt-showcase.png)
 

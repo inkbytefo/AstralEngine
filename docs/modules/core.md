@@ -109,3 +109,10 @@ M0 incelemesinden devreden küçük maddeler (sonraki fazlarda kapatılacak):
 
 M1'de kapatılanlar: Threads bağımlılığı, kurulum dizinleri, sürümün `project(VERSION)`'dan
 üretilmesi, atomic log seviyesi, `Clock`'a geçici kaynak verilmesinin derleme hatası olması.
+
+## Profiler (M8)
+
+`Profiler` (global değil): `begin_frame` / `end_frame`, `ProfileScope` / `ASTRAL_PROFILE_SCOPE(profiler, "ad")`
+ile iç içe kapsamlar; `last_frame()` (`ProfileSample{name, depth, start_ms, ms}`), `frame_times()` geçmişi,
+`scope_ms(ad)`, `set_enabled`. Tek thread'den (ana döngü) kullanılır. `demangle` tip adlarını okunur yapar.
+`bytes.hpp`: küçük ikili okuma/yazma yardımcıları (little-endian).

@@ -2,7 +2,25 @@
 
 Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [Unreleased] — v3
+
+### Added
+- M8.1 profiler: `Profiler` / `ASTRAL_PROFILE_SCOPE` (core), GPU timestamp sorguları (gpu), render graph'ta
+  pass başına GPU süreleri (`Renderer::gpu_timings`).
+- M8.2 debug çizim: `DebugDraw` + `RenderScene::debug_lines`; App'te `ctx.debug`, fizik/ışık katmanları.
+- M8.3 debug UI: Dear ImGui 1.92.9 kendi arka ucumuzla (`Astral::ImGui`), F1 paneli (performans, sahne,
+  inspector, render ayarları), `Game::on_debug_ui`; world'de `component_to_json` / `component_from_json`.
+- M8.4 metin/HUD: SDF font atlası (`Font`, gömülü Roboto, Türkçe), `UiCanvas` (`ctx.hud`), tek 2D katman
+  (`UiLayer`); Pong'da ekranda skor ve sonuç.
+- M8.5 ses: `Astral::Audio` (miniaudio 0.11.26), `AssetManager::read`, `ctx.audio`, `ctx.sound`,
+  `AudioSource` / `AudioListener`; Pong'da `Bounced` olayı, `pong::Sounds`, kodla üretilen sesler.
+- Platform: metin girişi, `executable_directory`. Core: `bytes.hpp`.
+- Belgeler: ADR-0019…0024 (geliştirici araçları, ses, dünya/harita sistemi, `.ashader` dili, modüler oyun
+  kodu, hacimsel VFX), `guides/scenes-and-worlds.md`, `modules/audio.md`, yol haritası v4.
+
+### Changed
+- Yol haritası v4: M9 dünya/harita sistemi, M10 shader dili, M11 modüler oyun kodu + Luau, M12 fizik
+  alanları, M14 atmosfer + hacimsel VFX; sonraki fazlar birer kaydı (M22'ye kadar).
 
 ## [0.12.0] — 2026-11-21 — M7 (ilk oyun: 3D Pong)
 

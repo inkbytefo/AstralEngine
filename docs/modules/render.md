@@ -126,3 +126,14 @@ graph.add_pass("blur", [&](PassBuilder& b) { b.read(hdr); b.write_storage(blurre
   eski v2'deki seyrek brick bake + mesafe alanı önbelleği taşınacak.
 - Doku/materyal haritası, IBL (yalnız gökyüzü rengi yansıması), TAA, bloom, şeffaflık, frustum culling yok.
 - Nokta ışıklar gölge atmaz; tüm ışıklar her pikselde döngüyle hesaplanır (clustered/tiled yok).
+
+## Debug çizim, 2D katman, metin, GPU zamanları (M8)
+
+- `RenderScene::debug_lines` (`DebugLine{from, to, color, on_top}`): tonemap'ten sonra derinlik testli ya da
+  üstte çizilir. `DebugDraw` bunları üreten yardımcı (şekiller, süreli çizgiler, `advance(dt)`).
+- `RenderScene::ui` (`UiLayer`: `UiVertex` + index + `UiCommand{texture, clip, sdf_softness}`): tek `ui`
+  pass'i; ImGui, HUD ve ileride sprite'lar aynı biçimi üretir. Katmanlar sırayla çizilir.
+- `Font::create(ttf, FontDesc)`: stb_truetype ile SDF atlası; `measure`, kerning, `line_height`.
+  `UiCanvas`: `rect`, `frame`, `image`, `text`; `pack_color`.
+- `Renderer::gpu_timings()` / `gpu_frame_ms()`: render graph pass'lerinin GPU süreleri (timestamp yoksa boş).
+- `ImageData::format` + `levels` (cook edilmiş BC görüntüler ve hazır mip zinciri), `supports(ImageFormat)`.
