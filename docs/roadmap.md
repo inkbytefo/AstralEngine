@@ -8,8 +8,8 @@ Durum: ✅ bitti · 🚧 sürüyor · 🔜 sıradaki · ⬜ planlı
 | M1 | `Astral::Platform` (SDL3 pencere/input), `Astral::Gpu` (Vulkan RHI), core math | ✅ |
 | M2 | `Astral::World` (kendi ECS'imiz), `Astral::App` (Game + System), basit mesh render | ✅ |
 | M3 | `Astral::Render`: render graph, deferred/hibrit mesh + SDF (eski v2'den taşıma) | ✅ |
-| M4 | `Astral::Physics` (Jolt) | 🔜 |
-| M5 | `Astral::Assets`: glTF, PBR materyal, async yükleme, hot-reload | ⬜ |
+| M4 | `Astral::Physics` (Jolt) | ✅ |
+| M5 | `Astral::Assets`: glTF, PBR materyal, async yükleme, hot-reload | 🔜 |
 | M6 | İlk oyun dikey dilimi (kılıç arenası prototipi) | ⬜ |
 
 Oyun nasıl yazılır: [ADR-0006](decisions/0006-app-layer-for-games.md).
@@ -55,9 +55,13 @@ cascaded gölgeler sonraki alt fazlara kaldı ([render.md](modules/render.md)).
 **Bitiş kriterleri (karşılandı):** render graph pass ekleme/çıkarma mevcut pass'lere dokunmadan yapılır;
 eski v2'deki deferred + SDF teknikleri bu mimariye temiz yeniden yazılmış olur.
 
-## M4 — Fizik
+## M4 — Fizik ✅
 
-**Bitiş kriterleri:** `physics_demo` (düşen kutular, raycast); fizik renderer olmadan test edilir.
+**Sonuç:** Jolt üzerine `Astral::Physics` (body'ler, şekiller, sensörler, CCD, raycast, temas olayları,
+karakter kontrolcüsü); App'te `RigidBody`/`CharacterController`, sabit 60 Hz adım. `examples/physics_demo`.
+Ayrıntı: [physics.md](modules/physics.md).
+
+**Bitiş kriterleri (karşılandı):** `physics_demo` (düşen kutular, raycast); fizik renderer olmadan test edilir.
 
 ## M5 — Asset'ler
 

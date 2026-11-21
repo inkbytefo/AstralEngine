@@ -4,6 +4,15 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-11-21 — M4
+
+### Added
+- `Astral::Physics` (Jolt): kutu/küre/kapsül/silindir; statik/kinematik/dinamik body; sensör; CCD;
+  impulse/kuvvet/hız; raycast; temas olayları; karakter kontrolcüsü.
+- App: `RigidBody`, `CharacterController` component'leri; `Phase::FixedUpdate`; sabit zaman adımı
+  (`physics_rate`, `max_physics_steps`); `ctx.physics`, `ctx.contacts()`, `entity_of(RayHit)`.
+- `examples/physics_demo`; kurulan pakette Jolt bağımlılığı.
+
 ## [0.4.0] — 2026-11-21 — M3
 
 ### Added

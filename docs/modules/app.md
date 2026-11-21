@@ -16,10 +16,14 @@ Swapchain, Renderer, hazır mesh'ler. `Game` + `System`'ler bunlara `Context` ü
 | `validation` | false | Vulkan validation (yavaş, hata ayıklama) |
 | `fixed_timestep` | 0 | >0 ise her kare tam bu kadar ilerler (deterministik testler) |
 | `worker_threads` | 0 | 0 = çekirdek sayısı − 1 |
+| `physics_rate` | 60 | fizik adımı / saniye |
+| `max_physics_steps` | 4 | kare başına en fazla adım |
 
 ## Kare
 
-`poll → PreUpdate → on_update → Update → PostUpdate → update_transforms → render (MeshRenderer + Camera)`
+`poll → PreUpdate → on_update → Update → fizik (FixedUpdate system'leri + adım, 0..4 kez) → PostUpdate → update_transforms → render`
+
+Fizik component'leri: `RigidBody`, `CharacterController` ([physics.md](physics.md)).
 
 Kamera: ilk aktif `Camera` component'li entity'nin `WorldTransform`'u (−Z'ye bakar); yoksa varsayılan.
 
@@ -35,4 +39,3 @@ pencerede döngü işlemciyi yormaz.
 ## Bilinen sınırlar
 
 - Pencere yeniden boyutlanınca swapchain kendini yeniler; olay callback'i yok.
-- Sabit zaman adımlı fizik döngüsü (fixed update) M4'te fizikle gelecek.

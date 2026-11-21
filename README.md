@@ -37,7 +37,7 @@ module (core, gpu, platform, world, render) is also usable directly as a plain l
 | `Astral::Gpu` (Vulkan 1.3 RHI), `Astral::Platform` (SDL3) | ✅ M1 |
 | `Astral::World` (own ECS), `Astral::Render` (forward), `Astral::App` | ✅ M2 |
 | `RenderGraph`, hybrid deferred renderer (meshes + SDF, PBR, shadows) | ✅ M3 |
-| `Astral::Physics` (Jolt) | M4 |
+| `Astral::Physics` (Jolt: bodies, raycast, contacts, character controller) | ✅ M4 |
 | `Astral::Assets` (glTF) | M5 |
 
 ## Build
@@ -60,7 +60,7 @@ cmake --install build/release --prefix <install-dir>
 ```
 
 ```cmake
-find_package(Astral 0.4 CONFIG REQUIRED COMPONENTS Core)
+find_package(Astral 0.5 CONFIG REQUIRED COMPONENTS Core)
 target_link_libraries(MyGame PRIVATE Astral::Core)
 ```
 

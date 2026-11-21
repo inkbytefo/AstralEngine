@@ -87,9 +87,33 @@ ctx.environment.ambient = 0.5f;
 
 Tam örnek: `examples/sdf_scene/main.cpp`.
 
+## Fizik
+
+```cpp
+// Zemin (statik) ve düşen bir top
+ctx.world.create(Transform{.position = {0, -0.5f, 0}}, MeshRenderer{ctx.meshes.cube},
+                 RigidBody{.desc = {.shape = ShapeDesc::box({50, 0.5f, 50}), .motion = MotionType::Static}});
+ctx.world.create(Transform{.position = {0, 5, 0}}, MeshRenderer{ctx.meshes.sphere},
+                 RigidBody{.desc = {.shape = ShapeDesc::sphere(0.5f), .restitution = 0.4f}});
+
+// Oyuncu: her karede hareketi yaz, App sabit adımda yürütür
+ctx.world.each<CharacterController>([&](CharacterController& c) {
+    const Vec2 in = ctx.input.wasd();
+    c.move = Vec3{in.x, 0, -in.y} * 6.0f;
+    c.jump = ctx.input.pressed(Key::Space);
+});
+
+// Nişan alma
+if (auto hit = ctx.physics->raycast(origin, forward, 100.0f)) {
+    Entity target = entity_of(*hit);
+}
+```
+
+Tam örnek: `examples/physics_demo/main.cpp`.
+
 ## Kare sırası
 
-`input → PreUpdate → Game::on_update → Update → PostUpdate → transform hiyerarşisi → render`
+`input → PreUpdate → Game::on_update → Update → fizik (FixedUpdate + adım, sabit 60 Hz) → PostUpdate → transform hiyerarşisi → render`
 Her aşamadan sonra `commands()` uygulanır.
 
 ## Context'te neler var
@@ -104,6 +128,7 @@ Her aşamadan sonra `commands()` uygulanır.
 | `meshes` | hazır `cube`, `sphere`, `plane` |
 | `sun`, `environment` | güneş (yön, renk, gölge) ve gök/yer ambient, pozlama |
 | `renderer`, `window`, `device` | alt katman (headless'ta `nullptr`) |
+| `physics`, `contacts()` | fizik dünyası (raycast, impulse…) ve bu karenin temasları |
 | `quit()` | oyundan çık |
 
 ## Hiyerarşi
