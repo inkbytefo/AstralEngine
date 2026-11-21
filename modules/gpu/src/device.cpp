@@ -483,9 +483,15 @@ Device::Device(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 
 Device::~Device() {
     if (!impl_ || !impl_->device) return;
-    vkDeviceWaitIdle(impl_->device);
-    // Destroy everything still alive; the pools only know live records.
-    impl_->collect_garbage();
+    auto& s = *impl_;
+    vkDeviceWaitIdle(s.device);
+    s.collect_garbage();
+    // Resources the user never destroyed are released here.
+    s.buffers.for_each([&](BufferHandle, BufferRecord& r) { destroy_buffer_record(s, r); });
+    s.textures.for_each([&](TextureHandle, TextureRecord& r) { destroy_texture_record(s, r); });
+    s.pipelines.for_each([&](PipelineHandle, PipelineRecord& r) {
+        vkDestroyPipeline(s.device, r.pipeline, nullptr);
+    });
 }
 
 std::string_view Device::adapter_name() const noexcept { return impl_->adapter; }

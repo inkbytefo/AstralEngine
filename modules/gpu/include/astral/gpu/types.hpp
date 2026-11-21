@@ -6,6 +6,7 @@
 #include <span>
 #include <string_view>
 #include <type_traits>
+#include <vector>
 
 namespace astral::gpu {
 
@@ -156,7 +157,7 @@ struct DepthState {
 struct GraphicsPipelineDesc {
     ShaderBlob vertex;
     ShaderBlob fragment;
-    std::span<const Format> color_formats = {};
+    std::vector<Format> color_formats = {};
     DepthState depth = {};
     Topology topology = Topology::TriangleList;
     CullMode cull = CullMode::None;

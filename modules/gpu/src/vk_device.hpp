@@ -80,9 +80,9 @@ struct Device::Impl {
     std::uint32_t next_bindless = 0;
     std::vector<std::uint32_t> free_bindless;
 
-    HandlePool<BufferRecord> buffers;
-    HandlePool<TextureRecord> textures;
-    HandlePool<PipelineRecord> pipelines;
+    HandlePool<BufferRecord, BufferTag> buffers;
+    HandlePool<TextureRecord, TextureTag> textures;
+    HandlePool<PipelineRecord, PipelineTag> pipelines;
 
     // Deferred destruction: run `destroy` once the timeline reaches `value`.
     struct Garbage {
@@ -119,5 +119,10 @@ struct StateInfo {
     VkAccessFlags2 access;
 };
 StateInfo state_info(ResourceState state, bool depth) noexcept;
+
+void destroy_buffer_record(Device::Impl& s, const BufferRecord& r);
+void destroy_texture_record(Device::Impl& s, const TextureRecord& r);
+VkImageView create_view(Device::Impl& s, VkImage image, VkFormat format, bool depth,
+                        std::uint32_t mips);
 
 } // namespace astral::gpu

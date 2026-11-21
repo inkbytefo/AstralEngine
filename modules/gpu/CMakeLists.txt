@@ -41,3 +41,9 @@ if(TARGET astral_gpu_tests)
         tests/shaders/triangle.vert
         tests/shaders/solid.frag)
 endif()
+
+# `VkFooInfo info{VK_STRUCTURE_TYPE_FOO}` (zero-initialise the rest) is the idiomatic Vulkan
+# pattern; -Wextra would flag every one of them.
+if(NOT MSVC)
+    target_compile_options(astral_gpu PRIVATE -Wno-missing-field-initializers)
+endif()
