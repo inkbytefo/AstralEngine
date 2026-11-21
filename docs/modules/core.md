@@ -30,6 +30,9 @@ Reflect<Health>::name  // "Health" — dosyalardaki kimlik; derleyiciden bağım
 
 - Kimlik makroya **yazıldığı gibi** ad: `ASTRAL_REFLECT(game::Health, …)` → `"game::Health"`. Tipi yeniden
   adlandırmak = dosyalardaki anahtarı değiştirmek.
+- `ASTRAL_REFLECT_ENUM(game::Team, Red, Blue)`: enum'u isimle dosyaya yazdırır; `enum_name(v)`,
+  `enum_from_name<T>("Red")`. Açık değerli ve sırasız enumerator'lar da olur (`using enum` ile değer alınır).
+- `Json::erase(key)`; `dump(indent)` kısa sayı dizilerini tek satırda yazar (`[0, 1.5, 2]`).
 - `Json`: nesneler ekleme sırasını korur (kaydedilen dosyalar temiz diff'lenir); okuma yanlış tipte varsayılan
   döner; `Json::parse` hatada satır/sütun verir; sayılar en kısa ve tam geri dönüşen biçimde yazılır.
 

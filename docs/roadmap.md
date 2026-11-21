@@ -13,8 +13,8 @@ Durum: ✅ bitti · 🚧 sürüyor · 🔜 sıradaki · ⬜ planlı
 | M3.6 | Render API v2: materyal handle'ları, nesne başına hareket vektörü, çalışma anında ayarlar | ✅ |
 | M5a | ECS tamamlama: reflection, `without`/`added`/`changed`, olaylar, serileştirme | ✅ |
 | M5b | `Astral::Assets`: AssetId, async yükleme, hot-reload, glTF, texture'lı materyal | ✅ |
-| M5c | Sahne + prefab (JSON yazım, ikili çalışma zamanı) | 🔜 |
-| M6 | Paketleme: `astral-cook`, `.apak`, `astral_add_game` | ⬜ |
+| M5c | Sahne + prefab: kalıcı kimlikler, alan bazlı override, iç içe/varyant, hot-reload | ✅ |
+| M6 | Paketleme: `astral-cook`, `.apak`, `astral_add_game` (ikili sahne dahil) | 🔜 |
 | M7 | İlk oyun dikey dilimi (kılıç arenası prototipi) | ⬜ |
 
 Oyun nasıl yazılır: [ADR-0006](decisions/0006-app-layer-for-games.md).
@@ -112,6 +112,20 @@ sahnede `ModelRef`. `examples/model_viewer`.
 
 ![model viewer](images/m5b-model-viewer.png)
 
+
+## M5c — Sahne ve prefab ✅
+
+**Sonuç:** `astral.scene` v1 biçimi (sahne ve prefab aynı biçimde). Kayıtlar kalıcı `id` taşıyor, tekrar
+kaydetmede diff yalnızca değişen satırlarda çıkıyor. Prefab örnekleri yalnızca farklarını saklıyor
+(`components`/`parts` yamaları, `removed`, `deleted`); farklar kayıt anında hesaplanıyor, yani koddan
+yapılan değişiklik de override oluyor. İç içe prefab ve varyant, örnek içine referans (`"2/5"`),
+hot-reload'da override'ları koruyan yeniden açılış var. Ek olarak isimle yazılan enum'lar,
+`PrimitiveMesh`, App'te `load_scene`/`save_scene`/`spawn_prefab` ve offscreen render. RGB oda artık bir
+`.scene` dosyası (`examples/scene_viewer`). Testler: debug 10/10, TSan temiz.
+Ayrıntı: [ADR-0015](decisions/0015-scenes-and-prefabs.md), [modules/world.md](modules/world.md#sahneler-ve-prefablar).
+
+**Devreden borç:** ikili sahne biçimi (M6 cook), açık dünya hücreleri/streaming (sonraki faz), sahne
+başına render ayarları dosyada değil, bağımsız inceleme yapılmadı.
 ## M5 — Asset'ler
 
 **Bitiş kriterleri:** glTF sahnesi PBR ile yüklenir; asset'ler handle ile tutulur, diskte değişince

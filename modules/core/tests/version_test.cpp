@@ -2,5 +2,5 @@
 #include <doctest/doctest.h>
 
 TEST_CASE("version reports the engine version") {
-    CHECK(astral::version() == "0.9.0");
+    CHECK(astral::version() == "0.10.0");
 }

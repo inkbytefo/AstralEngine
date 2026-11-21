@@ -15,6 +15,17 @@ struct MeshRenderer {
     MaterialHandle material{};
 };
 
+/// Built-in shapes for PrimitiveMesh (unit size: scale them with the Transform).
+enum class Primitive : std::uint8_t { Cube, Sphere, Plane };
+
+/// A built-in shape with its material written inline: the way to place meshes from a scene file
+/// (MeshRenderer holds runtime handles, which files cannot). The App fills in a MeshRenderer and
+/// shares one material between identical descriptions; editing the component updates it.
+struct PrimitiveMesh {
+    Primitive shape = Primitive::Cube;
+    MaterialDesc material{};
+};
+
 /// A signed-distance-field shape at the entity's WorldTransform (position and rotation; use
 /// `shape.size` for dimensions). Shapes combine in ascending `order` (ties: any order), so a
 /// SmoothUnion melts into earlier shapes and a Subtract carves them.
@@ -79,5 +90,7 @@ struct Time {
 
 } // namespace astral
 
+ASTRAL_REFLECT_ENUM(astral::Primitive, Cube, Sphere, Plane)
+ASTRAL_REFLECT(astral::PrimitiveMesh, shape, material)
 ASTRAL_REFLECT(astral::Sdf, shape, order)
 ASTRAL_REFLECT(astral::Camera, fov_y, near_plane, far_plane, active)

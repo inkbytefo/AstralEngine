@@ -26,3 +26,8 @@ astral_set_warnings(rt_showcase)
 add_executable(model_viewer model_viewer/main.cpp)
 target_link_libraries(model_viewer PRIVATE Astral::App)
 astral_set_warnings(model_viewer)
+
+add_executable(scene_viewer scene_viewer/main.cpp)
+target_link_libraries(scene_viewer PRIVATE Astral::App)
+target_compile_definitions(scene_viewer PRIVATE ASTRAL_SCENE_VIEWER_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/scene_viewer/assets")
+astral_set_warnings(scene_viewer)

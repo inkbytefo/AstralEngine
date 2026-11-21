@@ -9,6 +9,8 @@
 //     LoadResult r = load_world(other, types, doc);   // appends; r.errors lists problems
 //
 // Format: {"format": "astral.world", "version": 1, "entities": [{"id": N, "components": {...}}]}.
+// This is a flat snapshot (savegames, tools): prefab instances are saved as plain entities. Scenes
+// and prefabs, which keep instance links and overrides, use scene.hpp.
 // Loading is lenient: unknown fields are ignored, missing fields keep their defaults, unknown
 // components and bad values are reported in LoadResult::errors and skipped.
 
@@ -19,6 +21,8 @@
 #include <astral/world/world.hpp>
 
 #include <array>
+#include <charconv>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -32,19 +36,20 @@ ASTRAL_REFLECT(astral::Parent, entity)
 
 namespace astral {
 
-/// Entity -> file id while saving.
+/// How entity references are written while saving (file ids, scene paths...). Unset or returning
+/// null: the reference is saved as null (the entity is not part of the document).
 struct SaveContext {
-    std::unordered_map<std::uint64_t, std::uint32_t> ids;
+    std::function<Json(Entity)> ref;
     [[nodiscard]] Json entity(Entity e) const {
-        if (!e.valid()) return nullptr;
-        auto it = ids.find((std::uint64_t{e.generation} << 32) | e.index);
-        return it == ids.end() ? Json(nullptr) : Json(it->second); // not saved: null
+        if (!e.valid() || !ref) return nullptr;
+        return ref(e);
     }
 };
 
-/// File id -> new entity while loading; collects problems with a readable path.
+/// How entity references are read while loading; collects problems with a readable path.
 struct LoadContext {
-    std::vector<Entity> entities;
+    /// Non-null reference -> entity. False: the reference names nothing in this document.
+    std::function<bool(const Json&, Entity&)> resolve;
     std::vector<std::string>* errors = nullptr;
     std::string path;
     void error(std::string_view message) const {
@@ -65,9 +70,17 @@ template <class T> Json to_json(const T& value, const SaveContext& ctx);
 template <class T> bool from_json(const Json& j, T& value, const LoadContext& ctx);
 
 namespace detail {
+/// The shortest decimal that reads back as the same float (0.6f saves as 0.6, not 0.6000000238...).
+inline double float_value(float f) {
+    char buf[32];
+    const auto [end, ec] = std::to_chars(buf, buf + sizeof buf, f);
+    double d = f;
+    if (ec == std::errc{}) std::from_chars(buf, end, d);
+    return d;
+}
 inline Json floats(const float* f, std::size_t n) {
     Json a = Json::array();
-    for (std::size_t i = 0; i < n; ++i) a.push_back(f[i]);
+    for (std::size_t i = 0; i < n; ++i) a.push_back(float_value(f[i]));
     return a;
 }
 inline bool read_floats(const Json& j, float* f, std::size_t n, const LoadContext& ctx) {
@@ -94,7 +107,12 @@ template <class T> Json to_json(const T& v, const SaveContext& ctx) {
     } else if constexpr (std::is_same_v<T, bool>) {
         return v;
     } else if constexpr (std::is_enum_v<T>) {
+        if constexpr (is_reflected_enum_v<T>) {
+            if (const std::string_view name = enum_name(v); !name.empty()) return name;
+        }
         return static_cast<double>(static_cast<std::underlying_type_t<T>>(v));
+    } else if constexpr (std::is_same_v<T, float>) {
+        return detail::float_value(v);
     } else if constexpr (std::is_arithmetic_v<T>) {
         return static_cast<double>(v);
     } else if constexpr (std::is_same_v<T, std::string>) {
@@ -130,14 +148,10 @@ template <class T> bool from_json(const Json& j, T& v, const LoadContext& ctx) {
             v = {};
             return true;
         }
-        const double id = j.as_number(-1);
-        if (!j.is_number() || id < 0 || id >= static_cast<double>(ctx.entities.size()) || id != static_cast<double>(static_cast<std::size_t>(id))) {
-            ctx.error("entity reference to an entity not in this document");
-            v = {};
-            return false;
-        }
-        v = ctx.entities[static_cast<std::size_t>(id)];
-        return true;
+        if (ctx.resolve && ctx.resolve(j, v)) return true;
+        ctx.error("reference " + j.dump() + " names no entity in this document");
+        v = {};
+        return false;
     } else if constexpr (is_handle<T>::value) {
         v = {};
         return true;
@@ -146,6 +160,14 @@ template <class T> bool from_json(const Json& j, T& v, const LoadContext& ctx) {
         v = j.as_bool();
         return true;
     } else if constexpr (std::is_enum_v<T> || std::is_arithmetic_v<T>) {
+        if constexpr (is_reflected_enum_v<T>) {
+            if (j.is_string()) {
+                const auto value = enum_from_name<T>(j.as_string());
+                if (!value) return ctx.error("unknown enumerator \"" + j.as_string() + "\""), false;
+                v = *value;
+                return true;
+            }
+        }
         if (!j.is_number()) return ctx.error("expected a number"), false;
         if constexpr (std::is_enum_v<T>) {
             v = static_cast<T>(static_cast<std::underlying_type_t<T>>(j.as_number()));
@@ -219,6 +241,10 @@ public:
         bool (*has)(World&, Entity) = nullptr;
         Json (*save)(World&, Entity, const SaveContext&) = nullptr;
         void (*load)(World&, Entity, const Json&, const LoadContext&) = nullptr;
+        void (*remove)(World&, Entity) = nullptr;
+        /// Reads `j` as T and writes it back: fills missing fields with defaults, rounds numbers to the
+        /// field's type, and lets the two contexts rewrite entity references. Errors go to `in`.
+        Json (*transcode)(const Json& j, const LoadContext& in, const SaveContext& out) = nullptr;
     };
 
     /// T must be ASTRAL_REFLECT'ed. Registering again is a no-op.
@@ -233,6 +259,12 @@ public:
                 T value{};
                 from_json(j, value, ctx); // partial values are kept: errors were reported
                 w.add(e, std::move(value));
+            },
+            [](World& w, Entity e) { w.remove<T>(e); },
+            [](const Json& j, const LoadContext& in, const SaveContext& out) {
+                T value{};
+                from_json(j, value, in);
+                return to_json(value, out);
             }});
     }
 
@@ -255,7 +287,7 @@ private:
     std::vector<bool (*)(World&, Entity)> excluded_;
 };
 
-/// Registers the world module's own components (Transform, Parent).
+/// Registers the world module's own components (Name, Transform, Parent).
 void register_world_types(TypeRegistry& types);
 
 struct LoadResult {

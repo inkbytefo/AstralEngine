@@ -76,3 +76,38 @@ TEST_CASE("hot reload: edited files reload; same structure keeps the version, a 
     CHECK(assets.state(id) == AssetState::Ready);
     CHECK(assets.model(id)->nodes.size() == 1);
 }
+
+TEST_CASE("documents load at once and hot-reload; a broken edit keeps the last good version") {
+    const auto dir = test::temp_dir("assets_documents");
+    auto write = [&](std::string_view text) {
+        const auto path = dir / "level.scene";
+        const auto before = std::filesystem::exists(path) ? std::filesystem::last_write_time(path) : std::filesystem::file_time_type{};
+        do {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            test::write_bytes(path, std::vector<std::uint8_t>(text.begin(), text.end()));
+        } while (std::filesystem::last_write_time(path) == before);
+    };
+    write(R"({"name": "one"})");
+    AssetManager assets({.root = dir, .hot_reload = true, .reload_poll_seconds = 0.0f});
+    const AssetId id = assets.load_document("level.scene");
+    REQUIRE(assets.state(id) == AssetState::Ready);
+    REQUIRE(assets.document(id) != nullptr);
+    CHECK(assets.document(id)->json["name"].as_string() == "one");
+    CHECK(assets.document(id)->version == 1);
+    CHECK(assets.load_document("LEVEL.scene") == id);
+
+    write(R"({"name": "two"})");
+    assets.update();
+    CHECK(assets.document(id)->json["name"].as_string() == "two");
+    CHECK(assets.document(id)->version == 2);
+
+    write("{ broken");
+    assets.update();
+    CHECK(assets.document(id)->json["name"].as_string() == "two");
+    CHECK(assets.document(id)->version == 2);
+
+    const AssetId missing = assets.load_document("nope.prefab");
+    CHECK(assets.state(missing) == AssetState::Failed);
+    CHECK(assets.document(missing) == nullptr);
+    CHECK_FALSE(assets.error(missing).empty());
+}

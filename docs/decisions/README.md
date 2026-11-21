@@ -19,3 +19,4 @@ ADR eskisini "yerini aldı" diye işaretler.
 | [0012](0012-render-api-contract.md) | Render API sözleşmesi; ECS, sahne ve paketleme yönü | Kabul |
 | [0013](0013-ecs-change-detection-reflection.md) | Değişiklik takibi, reflection ve JSON serileştirme | Kabul |
 | [0014](0014-assets.md) | Asset sistemi — AssetId, iki katmanlı yükleme, yerinde hot-reload | Kabul |
+| [0015](0015-scenes-and-prefabs.md) | Sahneler ve prefab'lar — kalıcı kimlikler, fark olarak override, iç içe/varyant | Kabul |

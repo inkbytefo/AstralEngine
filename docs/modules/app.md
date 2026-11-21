@@ -43,6 +43,9 @@ pencerede döngü işlemciyi yormaz.
 ## Bilinen sınırlar
 
 - Pencere yeniden boyutlanınca swapchain kendini yeniler; olay callback'i yok.
+- Offscreen modda her kare GPU'yu bekler (yakalama için basit; gerçek zamanlı kullanım için değil).
+- `PrimitiveMesh` materyalleri önbellekte kalır, hiç silinmez (tanım başına bir materyal).
+- Sahne dosyası render kalite ayarlarını taşımaz (GI hacmi mesh'lere kendiliğinden oturur).
 
 ## ECS entegrasyonu (M5a)
 
@@ -51,6 +54,21 @@ pencerede döngü işlemciyi yormaz.
 - Kare başında `world.update_events()`; `ctx.world.send(...)` / `EventReader<T>`.
 - `ctx.types`: `astral::Transform`, `Parent`, `Camera`, `PointLight`, `RectLight`, `Sdf` kayıtlı;
   oyun kendi component'lerini `ctx.types.add<T>()` ile ekler. `save_world(ctx.world, ctx.types)`.
+
+## Sahneler ve prefab'lar (M5c)
+
+- `ctx.load_scene("levels/arena.scene")`: sahneyi dünyaya ekler; belgedeki `sun` / `environment` varsa
+  `ctx.sun` / `ctx.environment`'ı değiştirir. `ctx.save_scene(path)`: dünyayı (+ güneş/ortam) asset
+  köküne yazar.
+- `ctx.spawn_prefab("enemies/goblin.prefab", Transform{...})`: örneği **hemen** açar (parçalar dönüşte var).
+  `world.create(Transform{}, PrefabInstance{...})` da olur; parçalar bir sonraki kare başında gelir.
+- Kare başı: `assets->update()` → `prefabs->refresh()` → `sync_prefabs` → `sync_models`. Prefab dosyası
+  diskte değişince örnekler override'larıyla yeniden açılır.
+- `PrimitiveMesh{shape, material}`: dosyaya yazılabilen mesh. App `MeshRenderer` üretir, aynı tanımlı
+  materyalleri paylaşır, component değişince günceller, silinince kaldırır.
+- `ctx.types` artık `Name`, `PrimitiveMesh`, `ModelRef` de içeriyor; `ctx.prefabs` hep var.
+- `AppDesc::offscreen = true`: pencere yerine `width×height` iç görüntüye çizer, `App::read_frame(rgba)`
+  son kareyi verir (yakalama, görüntü testleri). `examples/scene_viewer --capture` bunu kullanır.
 
 ## Asset'ler (M5b)
 

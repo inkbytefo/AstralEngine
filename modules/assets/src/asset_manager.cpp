@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cstdio>
 #include <system_error>
 #include <unordered_map>
 
@@ -49,6 +50,8 @@ struct AssetManager::Impl {
         AssetState state = AssetState::Unknown;
         std::string error;
         std::unique_ptr<Model> model;
+        std::unique_ptr<Document> document; ///< Set for documents (kind decided by the first load call).
+        bool is_document = false;
         // Renderer resources this asset owns, in ModelData order (reused in place on reload).
         std::vector<MeshHandle> meshes;
         std::vector<MaterialHandle> materials;
@@ -68,6 +71,38 @@ struct AssetManager::Impl {
     }
     void log_warn(const std::string& message) const {
         if (desc.logger) desc.logger->log(LogLevel::Warn, message);
+    }
+
+    /// Documents load synchronously: read, parse, keep the last good version on failure.
+    void read_document(Entry& e) {
+        std::string text, error;
+        if (std::FILE* f = std::fopen(e.full.string().c_str(), "rb")) {
+            char buffer[65536];
+            for (std::size_t n; (n = std::fread(buffer, 1, sizeof buffer, f)) > 0;) text.append(buffer, n);
+            std::fclose(f);
+            if (auto json = Json::parse(text, &error)) {
+                const bool reload = e.document != nullptr;
+                const std::uint32_t version = reload ? e.document->version + 1 : 1;
+                e.document = std::make_unique<Document>(Document{std::move(*json), version});
+                e.state = AssetState::Ready;
+                e.error.clear();
+                if (reload) ++reload_count;
+            } else {
+                error = e.path + ": " + error;
+            }
+        } else {
+            error = e.path + ": cannot open " + e.full.string();
+        }
+        if (!error.empty()) {
+            if (e.document) {
+                log_error("hot reload failed, keeping the previous version: " + error);
+            } else {
+                e.state = AssetState::Failed;
+                e.error = error;
+                log_error(error);
+            }
+        }
+        e.watched = {{e.full, mtime(e.full)}};
     }
 
     void start(AssetId id, const std::filesystem::path& full) {
@@ -213,6 +248,10 @@ struct AssetManager::Impl {
             const bool changed = std::any_of(e.watched.begin(), e.watched.end(),
                                              [](const auto& w) { return mtime(w.first) != w.second; });
             if (!changed) continue;
+            if (e.is_document) {
+                read_document(e);
+                continue;
+            }
             e.reloading = true;
             if (e.state == AssetState::Failed) e.state = AssetState::Loading;
             start(AssetId{key}, e.full);
@@ -241,6 +280,24 @@ AssetId AssetManager::load_model(std::string_view relative_path) {
     e.state = AssetState::Loading;
     m.start(id, e.full);
     return id;
+}
+
+AssetId AssetManager::load_document(std::string_view relative_path) {
+    auto& m = *impl_;
+    const AssetId id = AssetId::from_path(relative_path);
+    auto [it, inserted] = m.entries.try_emplace(id.value);
+    if (!inserted) return id;
+    Impl::Entry& e = it->second;
+    e.path = std::string(relative_path);
+    e.full = m.desc.root / relative_path;
+    e.is_document = true;
+    m.read_document(e);
+    return id;
+}
+
+const Document* AssetManager::document(AssetId id) const noexcept {
+    auto it = impl_->entries.find(id.value);
+    return it == impl_->entries.end() ? nullptr : it->second.document.get();
 }
 
 AssetState AssetManager::state(AssetId id) const noexcept {

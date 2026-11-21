@@ -42,9 +42,15 @@ module (core, gpu, platform, world, render) is also usable directly as a plain l
 | Ray-traced lighting: RT shadows, area lights, DDGI + near-field RTGI, RT reflections, denoiser, TAA, bloom | ✅ M3.5 |
 | ECS: change detection, filtered queries, events, reflection, JSON save/load | ✅ M5a |
 | `Astral::Assets`: glTF/GLB, textured PBR materials, async loading, hot reload | ✅ M5b |
+| Scenes and prefabs: stable ids, field-level overrides, nested prefabs/variants, live reload | ✅ M5c |
 
 ![RT showcase](docs/images/m3.5-rt-showcase.png)
-| `Astral::Assets` (glTF) | M5 |
+
+The same room as data: [`examples/scene_viewer/assets/showcase.scene`](examples/scene_viewer/assets/showcase.scene)
+places three prefabs (room, mirror pedestal, box ×3 with per-instance overrides) — edit the files while
+`scene_viewer` runs and the room updates.
+
+![Scene viewer](docs/images/m5c-scene-viewer.png)
 
 ## Build
 

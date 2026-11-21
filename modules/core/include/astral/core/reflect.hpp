@@ -8,8 +8,10 @@
 // The name given to the macro (as written, e.g. "game::Health") is the type's stable identity in
 // files: it does not depend on the compiler and survives rebuilds. Rename a type = rename its key.
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string_view>
 #include <tuple>
 #include <type_traits>
@@ -33,6 +35,45 @@ template <class T> inline constexpr bool is_reflected_v = Reflect<std::remove_cv
 /// Calls fn(field) for every reflected field of T, in declaration order.
 template <class T, class Fn> constexpr void for_each_field(Fn&& fn) {
     std::apply([&](const auto&... f) { (fn(f), ...); }, Reflect<std::remove_cvref_t<T>>::fields());
+}
+
+/// Specialised by ASTRAL_REFLECT_ENUM: enumerators by name (files say "Sphere", not 0).
+template <class E> struct ReflectEnum {
+    static constexpr bool reflected = false;
+};
+template <class E> inline constexpr bool is_reflected_enum_v = ReflectEnum<std::remove_cvref_t<E>>::reflected;
+
+namespace detail {
+/// The i-th name of a comma-separated list ("A, B, C"), trimmed.
+constexpr std::string_view nth_name(std::string_view list, std::size_t i) noexcept {
+    for (;; --i) {
+        const std::size_t comma = list.find(',');
+        std::string_view item = list.substr(0, comma);
+        while (!item.empty() && (item.front() == ' ' || item.front() == '\n')) item.remove_prefix(1);
+        while (!item.empty() && (item.back() == ' ' || item.back() == '\n')) item.remove_suffix(1);
+        if (i == 0) return item;
+        if (comma == std::string_view::npos) return {};
+        list.remove_prefix(comma + 1);
+    }
+}
+} // namespace detail
+
+/// Name of a reflected enumerator; empty if `value` is not one of the listed enumerators.
+template <class E> constexpr std::string_view enum_name(E value) noexcept {
+    constexpr auto values = ReflectEnum<E>::values();
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        if (values[i] == value) return detail::nth_name(ReflectEnum<E>::names, i);
+    }
+    return {};
+}
+
+/// Enumerator by (exact) name.
+template <class E> constexpr std::optional<E> enum_from_name(std::string_view name) noexcept {
+    constexpr auto values = ReflectEnum<E>::values();
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        if (detail::nth_name(ReflectEnum<E>::names, i) == name) return values[i];
+    }
+    return std::nullopt;
 }
 
 /// Stable 64-bit id from a name (FNV-1a): the same everywhere, every build.
@@ -109,4 +150,17 @@ constexpr std::uint64_t stable_hash(std::string_view text) noexcept {
         static constexpr std::string_view name = #Type;                                                              \
         static constexpr std::uint64_t id = ::astral::stable_hash(#Type);                                            \
         static constexpr auto fields() { return std::tuple<>{}; }                                                    \
+    };
+
+/// Lists an enum's enumerators so files can name them ("SmoothUnion" instead of 3). Any order and
+/// explicit values are fine; unlisted values still save as numbers. Use at global namespace scope:
+///     ASTRAL_REFLECT_ENUM(game::Team, Red, Blue)
+#define ASTRAL_REFLECT_ENUM(Type, ...)                                                                               \
+    template <> struct astral::ReflectEnum<Type> {                                                                   \
+        static constexpr bool reflected = true;                                                                      \
+        static constexpr std::string_view names = #__VA_ARGS__;                                                      \
+        static constexpr auto values() {                                                                             \
+            using enum Type;                                                                                         \
+            return std::array<Type, ASTRAL_DETAIL_NARGS(__VA_ARGS__)>{__VA_ARGS__};                                  \
+        }                                                                                                            \
     };

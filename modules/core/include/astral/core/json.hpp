@@ -69,6 +69,8 @@ public:
     Json& operator[](const char* key) { return (*this)[std::string_view(key)]; }
     /// Appends (turns a null into an array first).
     void push_back(Json value);
+    /// Removes an object member; false if absent (or not an object).
+    bool erase(std::string_view key);
 
     /// Compact (indent < 0... = 0) or pretty-printed with `indent` spaces.
     [[nodiscard]] std::string dump(int indent = 0) const;

@@ -91,6 +91,5 @@ TEST_CASE("engine and game components save and load through ctx.types") {
     const Json& first = game.saved["entities"][0]["components"];
     CHECK(first["Health"]["value"].as_number() == 42.0);
     CHECK(first["astral::PointLight"]["radius"].as_number() == 8.0);
-    CHECK(game.saved["entities"][2]["components"]["astral::Sdf"]["shape"]["primitive"].as_number() ==
-          static_cast<double>(SdfPrimitive::Torus));
+    CHECK(game.saved["entities"][2]["components"]["astral::Sdf"]["shape"]["primitive"].as_string() == "Torus"); // enums by name
 }

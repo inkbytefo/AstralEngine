@@ -6,12 +6,16 @@
 #include <astral/platform/input.hpp>
 #include <astral/assets/asset_manager.hpp>
 #include <astral/render/renderer.hpp>
+#include <astral/world/scene.hpp>
 #include <astral/world/serialize.hpp>
+#include <astral/world/transform.hpp>
 #include <astral/world/world.hpp>
 
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <string>
+#include <vector>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -71,9 +75,12 @@ public:
     PhysicsWorld* physics = nullptr; ///< Always available (also headless).
     /// Always available. Paths are relative to AppDesc::asset_root. Headless: model data, no GPU resources.
     AssetManager* assets = nullptr;
+    /// Prefab templates (from asset documents). Always available.
+    PrefabLibrary* prefabs = nullptr;
     BuiltinMeshes meshes{};
-    /// Components that save_world/load_world know: the engine's own (Transform, Parent, Camera,
-    /// PointLight, RectLight, Sdf) are registered; add your ASTRAL_REFLECT'ed ones with types.add<T>().
+    /// Components that scenes, prefabs and save_world/load_world know: the engine's own (Name,
+    /// Transform, Parent, Camera, PointLight, RectLight, Sdf, PrimitiveMesh, ModelRef) are registered;
+    /// add your ASTRAL_REFLECT'ed ones with types.add<T>().
     TypeRegistry types;
     DirectionalLight sun{};   ///< The sun (direction, color, shadows).
     Environment environment{}; ///< Sky/ground ambient and exposure.
@@ -89,6 +96,15 @@ public:
     MaterialHandle create_material(const MaterialDesc& desc);
     /// False in headless mode or for a dead handle.
     bool update_material(MaterialHandle material, const MaterialDesc& desc);
+
+    /// Appends a scene file (relative to the asset root) to the world. Its "sun" and "environment",
+    /// if present, replace ctx.sun / ctx.environment. Problems are logged and returned.
+    LoadResult load_scene(std::string_view path);
+    /// Writes the world as a scene file (with ctx.sun / ctx.environment). False if it cannot be written.
+    bool save_scene(std::string_view path);
+    /// Creates an instance of a prefab now: its parts exist when this returns. Components of the
+    /// prefab's root other than Transform come from the prefab.
+    Entity spawn_prefab(std::string_view path, const Transform& transform = {});
 
     /// Contacts that began or ended during this frame's physics steps.
     [[nodiscard]] std::span<const ContactEvent> contacts() const noexcept;
@@ -120,6 +136,9 @@ struct AppDesc {
     RenderSettings render = {};   ///< Renderer quality/technique settings (ray tracing, GI, denoiser...).
     std::string_view asset_root = "assets"; ///< Folder that asset paths (ModelRef, ctx.assets) are relative to.
     bool hot_reload = true;       ///< Reload assets when their files change on disk.
+    /// Render into an internal width x height image instead of a window (captures, image tests);
+    /// read it with App::read_frame(). Ignored when headless.
+    bool offscreen = false;
 };
 
 /// Owns the main loop and every engine service; your Game plugs into it.
@@ -148,6 +167,8 @@ public:
     [[nodiscard]] Context& context() noexcept;
     [[nodiscard]] World& world() noexcept;
     [[nodiscard]] const Time& time() const noexcept;
+    /// Offscreen mode: the last rendered frame, RGBA8, width*height*4 bytes. False otherwise.
+    bool read_frame(std::vector<std::uint8_t>& rgba) const;
 
 private:
     friend class Context;

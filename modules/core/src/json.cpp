@@ -1,4 +1,5 @@
 #include <astral/core/json.hpp>
+#include <algorithm>
 
 #include <charconv>
 #include <cmath>
@@ -61,13 +62,17 @@ void write(std::string& out, const Json& j, int indent, int depth) {
     case Json::Type::String: escape(out, j.as_string()); break;
     case Json::Type::Array: {
         const auto& a = j.as_array();
+        // Short arrays of numbers (vectors, colours, quaternions) stay on one line: readable diffs.
+        const bool inline_numbers = a.size() <= 16 && std::all_of(a.begin(), a.end(), [](const Json& v) {
+            return v.is_number() || v.is_bool() || v.is_null();
+        });
         out += '[';
         for (std::size_t i = 0; i < a.size(); ++i) {
-            if (i) out += ',';
-            newline(depth + 1);
+            if (i) out += inline_numbers && indent > 0 ? ", " : ",";
+            if (!inline_numbers) newline(depth + 1);
             write(out, a[i], indent, depth + 1);
         }
-        if (!a.empty()) newline(depth);
+        if (!a.empty() && !inline_numbers) newline(depth);
         out += ']';
         break;
     }
@@ -385,6 +390,18 @@ Json& Json::operator[](std::string_view key) {
     }
     o->emplace_back(std::string(key), Json{});
     return o->back().second;
+}
+
+bool Json::erase(std::string_view key) {
+    auto* object = std::get_if<Object>(&value_);
+    if (!object) return false;
+    for (auto it = object->begin(); it != object->end(); ++it) {
+        if (it->first == key) {
+            object->erase(it);
+            return true;
+        }
+    }
+    return false;
 }
 
 void Json::push_back(Json value) {

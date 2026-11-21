@@ -7,6 +7,9 @@
 #include <astral/world/transform.hpp>
 
 #include <array>
+#include <filesystem>
+#include <fstream>
+#include <unordered_map>
 #include <chrono>
 #include <thread>
 #include <vector>
@@ -27,6 +30,8 @@ struct SpawnedModel {
 struct ModelPiece {
     Entity owner;
 };
+/// Internal: this entity's MeshRenderer was made from its PrimitiveMesh.
+struct PrimitiveDrawn {};
 } // namespace
 
 struct App::Impl {
@@ -46,6 +51,11 @@ struct App::Impl {
 
     std::unique_ptr<PhysicsWorld> physics;
     std::unique_ptr<AssetManager> assets;
+    std::unique_ptr<PrefabLibrary> prefabs;
+    Tick primitives_seen = 0;
+    std::unordered_map<std::string, MaterialHandle> primitive_materials; // shared by identical descriptions
+    gpu::TextureHandle offscreen_target;
+    gpu::BufferHandle offscreen_readback;
     float physics_accumulator = 0.0f;
     std::vector<ContactEvent> frame_contacts;
     struct BodyLink {
@@ -75,6 +85,8 @@ struct App::Impl {
     void sync_physics_bodies();
     void sync_models();
     void spawn_model(Entity owner, const Model& model);
+    void sync_primitives();
+    void log_problems(std::string_view what, const std::vector<std::string>& problems);
     void step_physics(Game& game, float delta);
 
     explicit Impl(const AppDesc& d) : desc(d), jobs(d.worker_threads) {}
@@ -97,12 +109,28 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
     types.add<RectLight>();
     types.add<Sdf>();
     types.add<ModelRef>();
+    types.add<PrimitiveMesh>();
     types.exclude<ModelPiece>();
     m.physics = std::make_unique<PhysicsWorld>(PhysicsDesc{.logger = &m.log});
     m.context->physics = m.physics.get();
     m.time.fixed_delta = 1.0f / std::max(desc.physics_rate, 1.0f);
 
-    if (!desc.headless) {
+    if (!desc.headless && desc.offscreen) {
+        m.device = gpu::Device::create({.app_name = desc.title, .validation = desc.validation, .logger = &m.log});
+        if (m.device) {
+            m.renderer = std::make_unique<Renderer>(*m.device, gpu::Format::RGBA8Unorm, m.desc.render);
+            m.context->meshes = {m.renderer->create_mesh(make_cube()), m.renderer->create_mesh(make_sphere(64, 32)),
+                                 m.renderer->create_mesh(make_plane(1.0f))};
+            m.offscreen_target = m.device->create_texture({.width = desc.width, .height = desc.height,
+                                                           .format = gpu::Format::RGBA8Unorm,
+                                                           .usage = gpu::TextureUsage::ColorTarget | gpu::TextureUsage::TransferSrc});
+            m.offscreen_readback = m.device->create_buffer({.size = std::uint64_t{desc.width} * desc.height * 4,
+                                                            .usage = gpu::BufferUsage::TransferDst,
+                                                            .memory = gpu::MemoryUsage::GpuToCpu});
+        } else {
+            m.log.error("App: no usable GPU for offscreen rendering; running without rendering");
+        }
+    } else if (!desc.headless) {
         m.window = Window::create({.title = desc.title, .width = desc.width, .height = desc.height});
         if (!m.window) {
             m.log.error("App: could not create a window; running headless");
@@ -130,6 +158,12 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
                                                                .renderer = m.renderer.get(), .jobs = &m.jobs,
                                                                .logger = &m.log, .hot_reload = desc.hot_reload});
     m.context->assets = m.assets.get();
+    m.prefabs = std::make_unique<PrefabLibrary>(types, [&m](std::string_view path) {
+        const AssetId id = m.assets->load_document(path);
+        if (const Document* d = m.assets->document(id)) return SourceDocument{.json = &d->json, .version = d->version, .error = {}};
+        return SourceDocument{.json = nullptr, .version = 0, .error = std::string(m.assets->error(id))};
+    });
+    m.context->prefabs = m.prefabs.get();
 }
 
 App::~App() {
@@ -140,6 +174,8 @@ App::~App() {
     for (auto& phase : m.systems) phase.clear();
     m.context->physics = nullptr;
     m.physics.reset();
+    m.context->prefabs = nullptr;
+    m.prefabs.reset();
     m.context->assets = nullptr;
     m.assets.reset(); // owns renderer resources: before the renderer
     m.renderer.reset();
@@ -166,6 +202,99 @@ std::span<const ContactEvent> Context::contacts() const noexcept {
     return m.in_fixed_update ? m.physics->contacts() : std::span<const ContactEvent>(m.frame_contacts);
 }
 World& App::world() noexcept { return impl_->world; }
+
+bool App::read_frame(std::vector<std::uint8_t>& rgba) const {
+    const auto& m = *impl_;
+    if (!m.offscreen_readback.valid()) return false;
+    rgba.resize(std::size_t{m.desc.width} * m.desc.height * 4);
+    return m.device->read_buffer(m.offscreen_readback, rgba.data(), rgba.size());
+}
+
+void App::Impl::log_problems(std::string_view what, const std::vector<std::string>& problems) {
+    for (const std::string& p : problems) log.log(LogLevel::Error, std::string(what) + ": " + p);
+}
+
+LoadResult Context::load_scene(std::string_view path) {
+    auto& m = *app_.impl_;
+    const AssetId id = assets->load_document(path);
+    const Document* doc = assets->document(id);
+    if (!doc) {
+        LoadResult failed;
+        failed.errors.push_back(std::string(assets->error(id)));
+        m.log_problems("load_scene", failed.errors);
+        return failed;
+    }
+    LoadResult result = astral::load_scene(world, *prefabs, doc->json);
+    LoadContext settings;
+    settings.errors = &result.errors;
+    if (const Json* j = doc->json.find("sun")) {
+        settings.path = "sun";
+        from_json(*j, sun, settings);
+    }
+    if (const Json* j = doc->json.find("environment")) {
+        settings.path = "environment";
+        from_json(*j, environment, settings);
+    }
+    m.log_problems(std::string("load_scene ") + std::string(path), result.errors);
+    return result;
+}
+
+bool Context::save_scene(std::string_view path) {
+    auto& m = *app_.impl_;
+    Json doc = astral::save_scene(world, *prefabs);
+    doc["sun"] = to_json(sun, {});
+    doc["environment"] = to_json(environment, {});
+    const std::filesystem::path file = std::filesystem::path(m.desc.asset_root) / path;
+    std::error_code ec;
+    if (file.has_parent_path()) std::filesystem::create_directories(file.parent_path(), ec);
+    std::ofstream out(file, std::ios::binary);
+    out << doc.dump(2) << '\n';
+    if (!out) {
+        log.log(LogLevel::Error, "save_scene: cannot write " + file.string());
+        return false;
+    }
+    return true;
+}
+
+Entity Context::spawn_prefab(std::string_view path, const Transform& transform) {
+    const Entity e = world.create(transform, PrefabInstance{std::string(path)});
+    app_.impl_->log_problems("spawn_prefab", instantiate_prefab(world, *prefabs, e).errors);
+    return e;
+}
+
+/// PrimitiveMesh -> MeshRenderer for new and edited components; drops the renderer when it is removed.
+void App::Impl::sync_primitives() {
+    std::vector<Entity> gone;
+    world.query<const PrimitiveDrawn>().without<PrimitiveMesh>().each([&](Entity e, const PrimitiveDrawn&) { gone.push_back(e); });
+    for (Entity e : gone) {
+        world.remove<PrimitiveDrawn>(e);
+        world.remove<MeshRenderer>(e);
+    }
+    world.set_change_baseline(primitives_seen);
+    std::vector<std::pair<Entity, MeshRenderer>> updates;
+    world.query<const PrimitiveMesh>().changed<PrimitiveMesh>().each([&](Entity e, const PrimitiveMesh& p) {
+        const BuiltinMeshes& meshes = context->meshes;
+        const MeshHandle mesh = p.shape == Primitive::Sphere ? meshes.sphere : p.shape == Primitive::Plane ? meshes.plane : meshes.cube;
+        MaterialHandle material;
+        if (renderer) {
+            const MaterialDesc& d = p.material;
+            std::string key = to_json(d, {}).dump();
+            for (TextureHandle t : {d.base_color_texture, d.metallic_roughness_texture, d.normal_texture, d.emissive_texture}) {
+                key += "/" + std::to_string(t.index) + "." + std::to_string(t.generation);
+            }
+            auto [it, inserted] = primitive_materials.try_emplace(key);
+            if (inserted) it->second = renderer->create_material(d);
+            material = it->second;
+        }
+        updates.emplace_back(e, MeshRenderer{mesh, material});
+    });
+    for (const auto& [e, r] : updates) {
+        world.add(e, r);
+        world.add(e, PrimitiveDrawn{});
+    }
+    primitives_seen = world.tick();
+    world.advance_tick();
+}
 const Time& App::time() const noexcept { return impl_->time; }
 
 namespace {
@@ -406,6 +535,12 @@ void App::Impl::step_physics(Game&, float delta) {
 void App::Impl::frame(Game& game, float delta) {
     world.update_events(); // events sent last frame are still readable this frame, then dropped
     assets->update();      // finished loads, hot reloads
+    prefabs->refresh();    // templates whose documents reloaded are rebuilt on next use
+    {
+        std::vector<std::string> problems;
+        sync_prefabs(world, *prefabs, &problems); // instances spawned by code / prefabs that changed
+        log_problems("prefab", problems);
+    }
     sync_models();         // ModelRef entities get (or refresh) their pieces before any system runs
     Impl& m = *this;
     Context& ctx = *m.context;
@@ -422,9 +557,11 @@ void App::Impl::frame(Game& game, float delta) {
     run_phase(m.systems[static_cast<std::size_t>(Phase::PostUpdate)], ctx);
     m.world.apply_commands();
     update_transforms(m.world);
+    m.sync_primitives();
 
-    if (m.renderer && m.swapchain && !(m.window && m.window->minimized())) {
-        gpu::TextureHandle image = m.swapchain->acquire();
+    const bool offscreen = m.offscreen_target.valid();
+    if (m.renderer && (offscreen || (m.swapchain && !(m.window && m.window->minimized())))) {
+        gpu::TextureHandle image = offscreen ? m.offscreen_target : m.swapchain->acquire();
         if (image.valid()) {
             // Extract: one MeshInstance per entity, with last frame's transform for motion vectors.
             m.draw_items.clear();
@@ -475,15 +612,21 @@ void App::Impl::frame(Game& game, float delta) {
                 }
                 m.rect_lights.push_back(light);
             });
-            const gpu::Extent2D extent = m.swapchain->extent();
+            const gpu::Extent2D extent = offscreen ? gpu::Extent2D{m.desc.width, m.desc.height} : m.swapchain->extent();
             const float aspect = extent.height ? static_cast<float>(extent.width) / static_cast<float>(extent.height) : 1.0f;
             const CameraData camera = find_camera(m.world, aspect);
             auto cmd = m.device->begin_commands();
             m.renderer->render(cmd, image, camera,
                                {.meshes = m.draw_items, .sdf = m.sdf_shapes, .lights = m.point_lights,
                                 .rect_lights = m.rect_lights, .sun = ctx.sun, .environment = ctx.environment});
-            cmd.transition(image, gpu::ResourceState::Present);
-            m.swapchain->present(cmd);
+            if (offscreen) {
+                cmd.transition(image, gpu::ResourceState::TransferSrc);
+                cmd.copy_texture_to_buffer(image, m.offscreen_readback);
+                m.device->wait(m.device->submit(cmd));
+            } else {
+                cmd.transition(image, gpu::ResourceState::Present);
+                m.swapchain->present(cmd);
+            }
         }
     }
 

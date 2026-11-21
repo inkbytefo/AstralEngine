@@ -229,6 +229,8 @@ private:
 
 } // namespace astral
 
+ASTRAL_REFLECT_ENUM(astral::SdfPrimitive, Sphere, Box, Torus, Capsule, Cylinder)
+ASTRAL_REFLECT_ENUM(astral::SdfOperation, Union, Subtract, Intersect, SmoothUnion, SmoothSubtract)
 ASTRAL_REFLECT(astral::SdfShape, primitive, operation, position, rotation, size, blend, color, roughness, metallic)
 ASTRAL_REFLECT(astral::PointLight, position, color, intensity, radius, source_radius)
 ASTRAL_REFLECT(astral::RectLight, position, right, up, color, intensity, two_sided)

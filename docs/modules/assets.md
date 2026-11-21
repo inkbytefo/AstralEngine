@@ -52,6 +52,12 @@ aralıkla kontrol eder; değişince arka planda yeniden yükler:
   entity'lerinin parçalarını yeniden oluşturur.
 - Bozuk bir düzenleme son çalışan sürümü korur (hata loglanır), dosya tekrar değişince yeniden dener.
 
+## Belgeler (M5c)
+
+`AssetId load_document(path)` + `const Document* document(id)` → `{Json json; uint32_t version}`. JSON
+(sahne, prefab, ayar) **senkron** okunur (küçük dosyalar), hot-reload'da yeniden okunur ve `version`
+artar; ayrıştırılamayan düzenleme son sağlam sürümü korur. Prefab kütüphanesi bunu kullanır.
+
 ## Bilinen sınırlar
 
 - Texture'lar sıkıştırılmamış RGBA8 (BC7/BC5 sıkıştırma cook adımında, M6).

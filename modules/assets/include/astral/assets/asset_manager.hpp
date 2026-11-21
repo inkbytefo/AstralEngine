@@ -9,6 +9,7 @@
 
 #include <astral/assets/model.hpp>
 #include <astral/core/jobs.hpp>
+#include <astral/core/json.hpp>
 #include <astral/core/log.hpp>
 #include <astral/core/reflect.hpp>
 
@@ -53,6 +54,12 @@ struct Model {
     std::uint32_t version = 1;
 };
 
+/// A parsed JSON document (scene, prefab, settings). `version` increments on every reload.
+struct Document {
+    Json json;
+    std::uint32_t version = 1;
+};
+
 struct AssetManagerDesc {
     std::filesystem::path root = ".";
     Renderer* renderer = nullptr; ///< Null = headless: models load (data only) but have no GPU resources.
@@ -74,6 +81,12 @@ public:
     [[nodiscard]] AssetState state(AssetId id) const noexcept;
     /// Null until Ready.
     [[nodiscard]] const Model* model(AssetId id) const noexcept;
+
+    /// Reads and parses a JSON document now (small files: no worker); later calls return the same id.
+    /// Hot reload re-reads it when the file changes; a file that no longer parses keeps the last good version.
+    AssetId load_document(std::string_view relative_path);
+    /// Null if it failed to load (see error()).
+    [[nodiscard]] const Document* document(AssetId id) const noexcept;
     /// The load error of a Failed asset.
     [[nodiscard]] std::string_view error(AssetId id) const noexcept;
     [[nodiscard]] std::string_view path(AssetId id) const noexcept;

@@ -176,3 +176,34 @@ Json save = save_world(ctx.world, ctx.types);       // save.dump(2) → dosyaya
 ```
 
 Salt okuduğun component'i `const` yaz (`each<const Health>`): const olmayan erişim "değişti" sayılır.
+
+## Sahneler ve prefab'lar
+
+Seviyeyi kodda kurmak yerine dosyaya yaz; kod yalnız davranışı tutsun.
+
+```cpp
+void on_start(Context& ctx) override {
+    ctx.load_scene("levels/arena.scene");                      // asset_root'a göre
+    Entity goblin = ctx.spawn_prefab("enemies/goblin.prefab", {.position = {0, 0, 5}});
+    Entity sword = find_part(ctx.world, goblin, "sword");      // prefab içindeki parça, Name ile
+}
+```
+
+```json
+{"format": "astral.scene", "version": 1, "entities": [
+  {"id": 1, "components": {"astral::Name": {"value": "floor"},
+                           "astral::Transform": {"scale": [20, 1, 20]},
+                           "astral::PrimitiveMesh": {"shape": "Plane", "material": {"roughness": 0.8}}}},
+  {"id": 2, "prefab": "enemies/goblin.prefab",
+   "components": {"astral::Transform": {"position": [3, 0, 0]}},
+   "parts": {"4": {"components": {"game::Health": {"value": 150}}}}}]}
+```
+
+- Prefab = tek köklü sahne dosyası. Örnek yalnız farklarını saklar; prefab'ı düzenleyince bütün örnekler
+  güncellenir (çalışırken de), örneklerin kendi değişiklikleri korunur.
+- Oyunda bir parçayı değiştirip `ctx.save_scene(...)` dersen değişiklik override olarak yazılır.
+- Kendi component'lerin dosyada görünsün diye: `ASTRAL_REFLECT(...)` + `ctx.types.add<T>()`.
+  Enum alanları isimle yazılsın diye `ASTRAL_REFLECT_ENUM(game::Team, Red, Blue)`.
+- Mesh'i dosyadan: `PrimitiveMesh` (küp/küre/düzlem + materyal) veya `ModelRef` (glTF).
+- Örnek: `examples/scene_viewer` — RGB oda `assets/showcase.scene` + üç prefab; dosyaları çalışırken düzenle.
+

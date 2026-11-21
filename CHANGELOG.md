@@ -4,6 +4,26 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-11-21 — M5c (sahne ve prefab)
+
+### Added
+- World: `astral/world/scene.hpp` — `astral.scene` v1 biçimi; `load_scene` / `save_scene` (kalıcı kayıt
+  kimlikleri, `SceneId`), prefab örnekleri (`PrefabInstance`, `PrefabPart`) alan bazlı override'larla
+  (`components`/`parts` yamaları, `removed`, `deleted`; farklar kayıt anında hesaplanır), iç içe prefab ve
+  varyant, örnek içine referans (`"2/5"`), `PrefabLibrary` (şablon önbelleği, `refresh`), `instantiate_prefab`,
+  `sync_prefabs` (kodla oluşturulan örnekler; hot-reload override'ları korur), `Name`, `find_by_name`, `find_part`.
+- Core: `ASTRAL_REFLECT_ENUM`, `enum_name`, `enum_from_name`; `Json::erase`.
+- Assets: `load_document` / `document` (senkron JSON belgeleri, hot-reload, sürüm sayacı).
+- App: `ctx.load_scene` / `save_scene` / `spawn_prefab`, `ctx.prefabs`, `PrimitiveMesh` component'i,
+  `AppDesc::offscreen` + `App::read_frame`. `SdfPrimitive` / `SdfOperation` / `Primitive` isimle yazılır.
+- `examples/scene_viewer` (RGB oda prefab'lı bir `.scene` dosyası olarak; pencere + `--capture`, çalışırken
+  sahne ve prefab dosyalarını yeniden yükler).
+
+### Changed
+- `SaveContext` / `LoadContext` referansları geri çağrıyla çözüyor (`ref`, `resolve`); `TypeRegistry::Entry`
+  `remove` ve `transcode` kazandı. `register_world_types` artık `Name`'i de kaydediyor.
+- JSON çıktısı: enum'lar isimle, float'lar en kısa geri dönüşen ondalıkla, kısa sayı dizileri tek satırda.
+
 ## [0.9.0] — 2026-11-21 — M5b (asset'ler)
 
 ### Added
