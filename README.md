@@ -45,7 +45,8 @@ module (core, gpu, platform, world, render) is also usable directly as a plain l
 | Scenes and prefabs: stable ids, field-level overrides, nested prefabs/variants, live reload | ✅ M5c |
 | Packaging: `astral-cook` (BC7/BC5 textures, binary scenes, incremental), `.apak` (zstd), `astral_add_game` | ✅ M6 |
 | First game: 3D Pong (`examples/pong`) — rules in code, everything else in scene/prefab files | ✅ M7 |
-| Audio + text/HUD | 🔜 M8 |
+| Developer tools (debug UI, profiler, image tests), text/HUD, audio | 🔜 M8 |
+| Shader/material system, physics foundations + fields, Luau scripting → advanced PBR, atmosphere, water, weather | ⬜ M9–M19 ([roadmap](docs/roadmap.md)) |
 
 ![RT showcase](docs/images/m3.5-rt-showcase.png)
 

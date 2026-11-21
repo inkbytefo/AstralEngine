@@ -21,3 +21,4 @@ ADR eskisini "yerini aldı" diye işaretler.
 | [0014](0014-assets.md) | Asset sistemi — AssetId, iki katmanlı yükleme, yerinde hot-reload | Kabul |
 | [0015](0015-scenes-and-prefabs.md) | Sahneler ve prefab'lar — kalıcı kimlikler, fark olarak override, iç içe/varyant | Kabul |
 | [0016](0016-packaging.md) | Paketleme — aynı yolla cook, kullanıma göre BC7/BC5, artımlı önbellek, `.apak`, `astral_add_game` | Kabul |
+| [0017](0017-gameplay-scripting.md) | Oyun mantığı ve scripting — C++ motor + Luau kurallar, reflection'dan bağlama, dinamik component'ler | Kabul |

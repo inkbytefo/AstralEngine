@@ -2,37 +2,161 @@
 
 Durum: ✅ bitti · 🚧 sürüyor · 🔜 sıradaki · ⬜ planlı
 
+## Neredeyiz
+
 | Faz | Kapsam | Durum |
 |---|---|---|
-| M0 | İskelet, `Astral::Core` (log, handle, clock, jobs), kurulum, CI | ✅ |
-| M1 | `Astral::Platform` (SDL3 pencere/input), `Astral::Gpu` (Vulkan RHI), core math | ✅ |
-| M2 | `Astral::World` (kendi ECS'imiz), `Astral::App` (Game + System), basit mesh render | ✅ |
-| M3 | `Astral::Render`: render graph, deferred/hibrit mesh + SDF (eski v2'den taşıma) | ✅ |
-| M4 | `Astral::Physics` (Jolt) | ✅ |
-| M3.5 | Fotogerçekçi render: RT (ray query), DDGI, RT yansıma/gölge, alan ışıkları, denoise, TAA, bloom | ✅ |
-| M3.6 | Render API v2: materyal handle'ları, nesne başına hareket vektörü, çalışma anında ayarlar | ✅ |
-| M5a | ECS tamamlama: reflection, `without`/`added`/`changed`, olaylar, serileştirme | ✅ |
-| M5b | `Astral::Assets`: AssetId, async yükleme, hot-reload, glTF, texture'lı materyal | ✅ |
-| M5c | Sahne + prefab: kalıcı kimlikler, alan bazlı override, iç içe/varyant, hot-reload | ✅ |
-| M6 | Paketleme: `astral-cook`, `.apak`, `astral_add_game` (ikili sahne dahil) | ✅ |
-| M7 | İlk oyun: 3D Pong (`examples/pong`) — motoru uçtan uca sınayan küçük oyun | ✅ |
-| M8 | Oyunun temel eksikleri: `Astral::Audio` (ses) + metin/HUD (yazı, debug UI) | 🔜 |
-| M9 | Atmosfer: fiziksel gökyüzü, hacimsel bulut/sis, hava durumu haritaları | ⬜ |
-| M10 | Animasyon: iskelet/skin, blend, root motion; ardından motion matching | ⬜ |
-| M11 | Dünya: hücrelere bölünmüş haritalar, streaming, HLOD | ⬜ |
-| — | Kılıç arenası: yer tutucu — motor (animasyon, aktif ragdoll) olgunlaşınca | ⬜ |
+| M0–M2 | Core, Platform, Vulkan RHI, kendi ECS'imiz, App | ✅ |
+| M3, M3.5, M3.6 | Render graph; ray-traced aydınlatma (RT gölge, DDGI, RT yansıma, denoiser, TAA, bloom); render API v2 | ✅ |
+| M4 | Fizik (Jolt): body'ler, raycast, temaslar, karakter | ✅ |
+| M5a–c | ECS tamamlama, asset'ler (glTF, hot-reload), sahne ve prefab | ✅ |
+| M6 | Paketleme: cook, BC7/BC5, `.apak`, `astral_add_game` | ✅ |
+| M7 | İlk oyun: 3D Pong | ✅ |
 
-Oyun nasıl yazılır: [ADR-0006](decisions/0006-app-layer-for-games.md).
+## Plan (2026-11-21)
 
-Sıra ve gerekçe: [ADR-0012](decisions/0012-render-api-contract.md).
+Hedef: shader/materyal, fizik, su ve hava sistemlerini **ortak altyapıların üstüne** kurmak. Su ve hava
+tek başına özellik değil; dört temel mekanizmanın birleşimi: materyal/shader sistemi, şeffaf geçiş,
+fizikte alanlar (fields) ve kuvvetler, GPU partikülleri. Bu yüzden önce temeller (M8–M11), sonra
+özellikler (M12–M19).
 
-**Yön (2026-11-21):** oyun tarafı küçük tutuluyor, enerji motorun gücüne. İlk oyun kılıç arenası yerine
-3D Pong oldu (M7); kılıç arenası motor olgunlaşınca yapılacak.
+| Faz | Kapsam | Bağımlı | Durum |
+|---|---|---|---|
+| M8 | Geliştirici altyapısı: debug UI, debug çizim, profiler, görüntü testleri; metin/HUD, ses | — | 🔜 |
+| M9 | Shader ve materyal altyapısı: çalışma anında derleme, `.material`, özel yüzey fonksiyonu, alfa testi, şeffaf geçiş | M8 | ⬜ |
+| M10 | Fizik altyapısı: katmanlar, mesh/heightfield, eklemler, sorgular; **alan sistemi** (rüzgâr, su hacmi) ve kuvvetler | M8 | ⬜ |
+| M11 | Oyun mantığı ve scripting: Luau, oyun çatısı ([ADR-0017](decisions/0017-gameplay-scripting.md)) | M8 | ⬜ |
+| M12 | Gelişmiş PBR: clearcoat, sheen, anizotropi, transmission, subsurface, decal, path tracer referansı | M9 | ⬜ |
+| M13 | Atmosfer ve partiküller: fiziksel gökyüzü, IBL, hacimsel sis, GPU partikülleri | M9, M10 | ⬜ |
+| M14 | Su I: okyanus ve göller (FFT dalga, kırılma, köpük, su altı) + dalgayı izleyen kaldırma kuvveti | M9, M10, M13 | ⬜ |
+| M15 | Hava II: hacimsel bulutlar, hava durumu (yağmur, ıslaklık), ileri aerodinamik | M12, M13 | ⬜ |
+| M16 | Su II: etkileşimli su (GPU sığ su simülasyonu, iz, sıçrama, nehir akışı) | M14 | ⬜ |
+| M17 | Animasyon: iskelet, GPU skinning, blend, root motion, skinned RT | M9 | ⬜ |
+| M18 | Fizik II: ragdoll + aktif ragdoll, araçlar, kumaş/soft body (rüzgârla), yıkım | M10, M17 | ⬜ |
+| M19 | Dünya ölçeği: arazi, bitki örtüsü, streaming, HLOD, GPU culling | M10, M13 | ⬜ |
+| — | Kılıç arenası (yer tutucu): animasyon ve aktif ragdoll olgunlaşınca | M17, M18 | ⬜ |
 
-**RAGE araştırmasından gelen sistemler** ([research/rage.md](research/rage.md)) — sıra: render (M3.5) →
-asset'ler (M5) → atmosfer (dünya ölçekli bulut/sis/hava haritaları, fiziksel gökyüzü) → animasyon (parça
-havuzu / motion matching) + kendi aktif ragdoll'umuz → AI (node navigasyonu, rutinler, hafıza) → dünya
-streaming + görünmez LOD.
+### İlkeler
+
+1. **Önce mekanizma, sonra özellik.** Su render'ı "şeffaf geçiş + materyal fonksiyonu + alan" üstüne
+   yazılır, kendi özel yolunu açmaz. Sonraki her özellik bu mekanizmaları yeniden kullanır.
+2. **Tek veri, iki tüketici.** Rüzgâr ve su gibi alanlar bir kez tanımlanır; fizik (CPU) ve partikül,
+   bitki, kumaş, bulut (GPU) aynı tanımı örnekler. Görünen dalga ile fiziğin hissettiği dalga aynıdır.
+3. **Veri ECS'te, davranış sistemlerde, içerik dosyalarda.** Yeni her component reflect edilir: sahne
+   dosyası, editör paneli ve script bağlaması kendiliğinden gelir.
+4. **Her şey çalışırken değişir.** Shader, materyal, script, sahne, prefab hot-reload. Tasarım döngüsü
+   saniyeler.
+5. **Ölçmeden optimize yok, görmeden kabul yok.** M8'den itibaren her faz profiler verisi ve görüntü
+   testiyle (offscreen, CI'da lavapipe) biter; her fazın bir demo sahnesi olur.
+6. **Doğruluk referansı.** M12'den itibaren gerçek zamanlı sonuçlar birikimli path tracer referansıyla
+   karşılaştırılır.
+
+### Faz ayrıntıları
+
+**M8 — Geliştirici altyapısı ve oyun temelleri.** Sonraki her şeyi ayarlamak ve ölçmek için.
+- Debug UI (Dear ImGui, kendi RHI'mizle çizilir): ayar panelleri; reflection'dan otomatik entity/component
+  inspector'ı.
+- Debug çizim: çizgi, kutu, küre, ok; fizik şekilleri, ışık ve alan hacimleri.
+- Profiler: CPU kapsam zamanlayıcıları + GPU timestamp sorguları (pass başına), kare grafiği.
+- Metin/HUD: MSDF font atlası, ekran uzayı 2D katmanı (metin, sprite, basit kutular).
+- Ses: `Astral::Audio` (miniaudio). 2D/3D ses, mikser kanalları, streaming; `AudioSource`/`AudioListener`.
+- Görüntü testleri: offscreen golden image karşılaştırması (tolerans ve fark görüntüsü).
+- *Çıkış:* Pong'da ekranda skor ve sesler; profiler paneli; 3 sahnelik golden test.
+
+**M9 — Shader ve materyal altyapısı.**
+- Çalışma anında GLSL derleme (glslang) + shader hot-reload. Dağıtımda cook SPIR-V'yi önceden derler.
+  Diskte pipeline önbelleği.
+- `.material` asset'i: shading model + parametreler + texture'lar. Model, materyalleri bu dosyalara
+  bağlar; materyal düzenlenince anında güncellenir.
+- Özel yüzey fonksiyonu: `void surface(inout Surface s, in SurfaceInput i)`. Raster G-buffer'a ve RT vuruş
+  uber-shader'ına derlenir (materyal id'ye göre dal). Aynı materyal iki yolda da aynı görünür.
+- Vertex deformasyon kancası (rüzgârda sallanma, dalga). Deforme olan mesh'ler için BLAS güncelleme
+  politikası.
+- Alfa testi (yaprak, çit): raster, RT gölge ve RT vuruşlarında.
+- Şeffaf/forward geçiş: sıralı şeffaflar, RT yansıma ve ekran uzayı kırılma. Su, cam ve partiküllerin
+  ortak evi.
+- *Çıkış:* cam, yaprak ve animasyonlu özel shader'lı materyaller dosyadan geliyor; shader düzenlenince
+  oyun durmadan değişiyor.
+
+**M10 — Fizik altyapısı ve alanlar.**
+- Çarpışma katmanları ve filtreleri; mesh, convex hull, heightfield ve compound şekiller; eklemler
+  (fixed, hinge, slider, distance, cone, 6DOF); shape cast ve overlap sorguları.
+- Fizik materyalleri: yüzey tipi; ses ve VFX için temas bilgisi.
+- Görsel interpolasyon (60 Hz üstü ekranlar); Jolt'u motorun JobSystem'ine bağlama.
+- **Alan sistemi:** dünya uzayında örneklenen vektör/skalar alanlar. Rüzgâr (genel yön + yerel hacimler +
+  türbülans gürültüsü + esintiler), su hacimleri (yüzey yüksekliği, akış, yoğunluk). CPU'da ve GPU'da
+  aynı fonksiyon.
+- Kuvvet üreticileri: kaldırma kuvveti + su içi sürükleme (batan hacim, şekilden), aerodinamik
+  sürükleme/kaldırma (şekil katsayıları).
+- *Çıkış:* yüzen kutular, rüzgârla sürüklenen nesneler, eklemli köprü, heightfield zemin.
+
+**M11 — Oyun mantığı ve scripting.** Ayrıntı: [ADR-0017](decisions/0017-gameplay-scripting.md).
+- `Astral::Script` (Luau): reflection'dan otomatik bağlama; sistem script'leri ve entity davranışları;
+  script'te tanımlanan component'ler; olaylar; hot-reload; sandbox; tip tanımı üretimi (editör ve
+  yapay zekâ için).
+- Oyun çatısı: input eylemleri (tuş eşleme, gamepad), zamanlayıcılar/tween, tetik hacimleri, durum
+  makinesi yardımcıları, kayıt sistemi.
+- *Çıkış:* Pong'un kuralları Luau'ya taşınıyor ve aynı testleri geçiyor; script düzenlenince oyun
+  durmadan değişiyor.
+
+**M12 — Gelişmiş PBR.**
+- Shading modelleri: clearcoat (araba boyası), sheen (kumaş), anizotropi (fırçalanmış metal),
+  transmission (cam, ince ve kalın), subsurface (deri, mum, yaprak), ıslaklık parametresi.
+- Enerji koruyan çoklu saçılma; detay haritaları, parallax occlusion, decal'lar.
+- Path tracer referans modu (aynı sahne, birikimli).
+- *Çıkış:* materyal test sahnesi, gerçek zamanlı ve referans görüntüler yan yana.
+
+**M13 — Atmosfer ve partiküller.**
+- Fiziksel gökyüzü (transmittance, çoklu saçılma ve gökyüzü LUT'ları), günün saati, aerial perspective.
+  Gökyüzünden IBL; DDGI'a besleme.
+- Hacimsel sis (froxel) ve ışık huzmeleri; rüzgârla taşınan yerel sis hacimleri.
+- GPU partikülleri: emitter'lar, alan örnekleme (rüzgâr, su akışı), derinlik/SDF çarpışması, DDGI ile
+  aydınlatma, şeffaf geçişte çizim.
+- *Çıkış:* günün saati döngüsü; rüzgârda savrulan toz ve duman.
+
+**M14 — Su I: okyanus ve göller.**
+- Su hacmi (M10 alanı) + materyal: FFT okyanus (kademeli), göl/havuz yüzeyleri, kırılma, RT yansıma,
+  derinliğe göre emilim ve renk, köpük, su altı (sis, huzme, kostik yaklaşımı).
+- Fizik: kaldırma kuvveti dalga yüksekliğini CPU'da aynı fonksiyondan örnekler; görünen dalga ile
+  hissedilen dalga aynı.
+- *Çıkış:* dalgalı denizde sallanan tekne ve yüzen kasalar.
+
+**M15 — Hava II: bulutlar ve hava durumu.**
+- Hacimsel bulutlar (hava durumu haritası), bulut gölgeleri, rüzgârla sürüklenme.
+- Hava durumu sistemi: bulutluluk, yağış, rüzgâr ve ıslaklık zamanla değişir; bunlar bulutları, sisi,
+  yağmur partiküllerini, ıslak yüzeyleri ve su birikintilerini sürer.
+- İleri aerodinamik: balistik (mermi, ok), kanat kaldırma kuvveti (planör).
+- *Çıkış:* açık havadan fırtınaya geçiş; ıslanan yüzeyler.
+
+**M16 — Su II: etkileşimli su.**
+- GPU sığ su simülasyonu (yerel ızgara): nesne izleri ve dalgalar, sıçrama partikülleri, nehir akış
+  haritaları, kıyı dalgaları; akış fizikte kuvvete dönüşür.
+- Araştırma: yerel 3D akışkan efektleri (FLIP/SPH).
+- *Çıkış:* suya düşen nesne dalga yapıyor; nehirde sürüklenen kütükler.
+
+**M17 — Animasyon.** İskelet, GPU skinning, glTF animasyonları, blend ağaçları, root motion, morph
+target, skinned mesh için BLAS güncelleme. *Çıkış:* animasyonlu karakter RT gölge ve yansımada doğru.
+
+**M18 — Fizik II.** Ragdoll ve aktif ragdoll (animasyon hedefli motorlar), araçlar (tekerlek,
+süspansiyon), kumaş ve soft body (rüzgâr alanıyla), önceden kırılmış parçalarla yıkım. *Çıkış:* rüzgârda
+dalgalanan bayrak, düşerek tepki veren karakter, sürülebilir araç.
+
+**M19 — Dünya ölçeği.** Arazi (fizikle aynı heightfield + materyal karışımı), rüzgârla sallanan bitki
+örtüsü, hücre tabanlı streaming, HLOD, GPU culling ve meshlet LOD. *Çıkış:* birkaç km² açık dünya.
+
+### Neden bu sıra
+
+- **M8 önce:** atmosfer, su ve materyaller panelsiz ayarlanamaz, profiler'sız optimize edilemez,
+  görüntü testleri olmadan bozulduğu fark edilmez.
+- **M9 ve M10 iki omurga:** görsel tarafın her yeni özelliği materyal + şeffaf geçişe, simülasyon
+  tarafının her yeni özelliği alanlar + kuvvetlere dayanıyor.
+- **M11 temellerin hemen ardından:** su ve hava demoları script'le hızlı kurulur ve yapay zekâyla
+  yazılır; component'ler reflect edildiği için yeni her özellik script'e kendiliğinden açılır.
+- **Su ve hava iki dalgada:** önce render ve kuvvet (M14, M15), sonra etkileşim ve simülasyon (M16).
+  İlk dalga ortak temelleri sınar; ikinci dalga onların üstüne kurulur.
+- **Animasyon ve ragdoll sonra:** karakter içeriği gerektiriyor, kılıç arenası bunlara bağlı.
+
+## Tamamlanan fazlar
 
 ## M0 — İskelet ve Core ✅
 
@@ -170,8 +294,3 @@ maçı 2 saniyede, kurallar ayrı ayrı. `pong_package` ile paketleniyor. Görü
 - Yakalama her kareyi çiziyor; mantığı hızlıca ileri sarıp yalnız son kareleri çizmek mümkün değil.
 - Bir component'in materyalini değiştirmek yeni bir materyal oluşturuyor; önbellek hiç boşalmıyor
   (`PrimitiveMesh`).
-
-## M5 — Asset'ler
-
-**Bitiş kriterleri:** glTF sahnesi PBR ile yüklenir; asset'ler handle ile tutulur, diskte değişince
-yeniden yüklenir.
