@@ -57,7 +57,7 @@ class ArenaGame final : public Game {
 public:
     void on_start(Context& ctx) override {
         ctx.world.create(Transform{.position = {0, 0, 0}},
-                         MeshRenderer{ctx.meshes.cube, {0.8f, 0.2f, 0.2f, 1}},
+                         MeshRenderer{ctx.meshes.cube, ctx.create_material({.base_color = {0.8f, 0.2f, 0.2f, 1}})},
                          Player{}, Health{});
         ctx.world.create(Transform{.position = {0, 3, 8}}, Camera{});
 
@@ -69,8 +69,14 @@ public:
 ## Görünüm: materyal, SDF, ışık
 
 ```cpp
-// PBR materyal
-ctx.world.create(Transform{}, MeshRenderer{ctx.meshes.sphere, {0.9f, 0.7f, 0.3f, 1}, /*roughness*/ 0.2f, /*metallic*/ 1.0f});
+// PBR materyal: paylaşılan bir kaynak. Bir kez oluştur, istediğin kadar entity'de kullan;
+// update_material hepsini birden değiştirir. Headless modda geçersiz handle döner (çizim yok).
+const MaterialHandle gold = ctx.create_material({.base_color = {0.9f, 0.7f, 0.3f, 1}, .roughness = 0.2f, .metallic = 1.0f});
+ctx.world.create(Transform{}, MeshRenderer{ctx.meshes.sphere, gold});
+// Işık yayan yüzey (ray-traced yolda sahneyi aydınlatır)
+ctx.world.create(Transform{}, MeshRenderer{ctx.meshes.cube, ctx.create_material({.emissive = {4, 3, 2}})});
+// Alan ışığı (tavan paneli, pencere): ray-traced yolda yumuşak gölge, yansımalarda görünür
+ctx.world.create(Transform{.position = {0, 4, 0}}, RectLight{.right = {1, 0, 0}, .up = {0, 0, 1}, .intensity = 15});
 
 // SDF: matematiksel şekiller, birbirine eriyerek birleşir (order küçük olan önce)
 ctx.world.create(Transform{.position = {0, 1, 0}},

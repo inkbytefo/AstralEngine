@@ -4,6 +4,25 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-11-21 — Render API v2
+
+### Changed (kırıcı)
+- `DrawItem` → `MeshInstance{mesh, material, transform, previous_transform}`; materyal artık satır içi değil,
+  paylaşılan `MaterialHandle` (`create_material`, `update_material`, `destroy`, `default_material`).
+  `MaterialDesc` glTF metallic-roughness modeli; `emissive` artık renkli ışıma (Vec3).
+- App: `MeshRenderer{mesh, material}`; `Context::create_mesh`, `create_material`, `update_material`
+  (headless'ta güvenli).
+
+### Added
+- Nesne başına hareket vektörleri (G-buffer'da hız hedefi); TAA ve denoiser bunları kullanır.
+  App her `MeshRenderer` entity'sinin önceki transform'unu kendiliğinden tutar.
+- `Renderer::set_settings` / `settings()`: ray tracing, GI, denoiser vb. çalışma anında değişir;
+  raster yolunda oluşturulmuş mesh'lere RT açılınca BLAS kurulur.
+- `DebugView::Motion`; ADR-0012 (render API sözleşmesi, ECS/sahne/paketleme planı).
+
+### Fixed
+- Sürüm testi 0.6.0 yükseltmesinde güncellenmemişti.
+
 ## [0.6.0] — 2026-11-21 — M3.5 (fotogerçekçi render)
 
 ### Added

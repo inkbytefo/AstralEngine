@@ -3,11 +3,25 @@
 Katman 2. GPU üzerinde çizim. **ECS'i bilmez**: `RenderScene` (mesh'ler, SDF şekilleri, ışıklar,
 güneş, ortam) çizer; App bunu component'lerden doldurur.
 
+## API sözleşmesi ([ADR-0012](../decisions/0012-render-api-contract.md))
+
 ```cpp
-astral::Renderer renderer(device, swapchain->format());
-MeshHandle cube = renderer.create_mesh(astral::make_cube());
-renderer.render(cmd, image, camera, {.meshes = items, .sdf = shapes, .lights = lights, .sun = sun});
+astral::Renderer renderer(device, swapchain->format(), settings);
+MeshHandle cube = renderer.create_mesh(astral::make_cube());                     // kaynak: bir kez
+MaterialHandle red = renderer.create_material({.base_color = {1, 0, 0, 1}, .roughness = 0.4f});
+// her kare: çıkar (extract) → çiz. Renderer sahneyi saklamaz; span'ler render() bitene kadar geçerli.
+MeshInstance inst{.mesh = cube, .material = red, .transform = world, .previous_transform = world_last_frame};
+renderer.render(cmd, image, camera, {.meshes = std::span(&inst, 1), .lights = lights, .sun = sun});
+renderer.set_settings(s);   // çalışma anında; teknik/GI değişirse geçmiş sıfırlanır
 ```
+
+| Kavram | Kural |
+|---|---|
+| Kaynaklar | `MeshHandle`, `MaterialHandle`: Renderer'ın sahip olduğu handle'lar. Silinmiş handle güvenli: mesh atlanır, materyal varsayılana düşer |
+| Kare verisi | `RenderScene` saf veri (span'ler). ECS'i bilmez; App veya kendi motorun doldurur |
+| Hareket | `previous_transform` verilirse nesne başına hareket vektörü (TAA/denoiser hayalet bırakmaz); verilmezse hareketsiz sayılır |
+| Ayarlar | `RenderSettings` hem kurucuda hem `set_settings` ile; `settings()` ile okunur |
+| Işıklar | `PointLight`, `RectLight`, `DirectionalLight`, `Environment` saf veri; App'te component olarak da kullanılır |
 
 İki yol var: cihaz ray tracing destekliyorsa ve `RenderSettings::ray_tracing` açıksa (varsayılan)
 **ray-traced yol** ([ADR-0011](../decisions/0011-hybrid-ray-traced-lighting.md)), değilse **raster yol**.
@@ -89,7 +103,7 @@ graph.add_pass("blur", [&](PassBuilder& b) { b.read(hdr); b.write_storage(blurre
 ## Bilinen sınırlar
 
 ### Ray-traced yol
-- Hız vektörleri yalnız kameradan türetilir: hareket eden nesnelerde TAA/denoiser hafif iz bırakabilir.
+- SDF'lerin hareket vektörü yalnız kameradan türetilir (SDF'ler kareler arası durağan varsayılır).
 - Yansımaların reprojeksiyonu yüzey hareketine göre (sanal derinlik yok): hızlı kamera hareketinde ayna
   yansımaları kısa süre bulanıklaşır.
 - Alan ışıklarının speküler parlaması doğrudan değil yansıma ışınıyla gelir; ikincil vuruşlarda alan ışığı

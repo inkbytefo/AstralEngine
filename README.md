@@ -18,7 +18,8 @@ class SpinSystem final : public System {
 
 class MyGame final : public Game {
     void on_start(Context& ctx) override {
-        ctx.world.create(Transform{}, MeshRenderer{ctx.meshes.cube}, Spin{2.0f});
+        const MaterialHandle red = ctx.create_material({.base_color = {0.9f, 0.2f, 0.2f, 1}});
+        ctx.world.create(Transform{}, MeshRenderer{ctx.meshes.cube, red}, Spin{2.0f});
         ctx.add_system<SpinSystem>(Phase::Update);
     }
 };

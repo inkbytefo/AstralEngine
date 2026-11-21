@@ -28,7 +28,9 @@ Fizik component'leri: `RigidBody`, `CharacterController` ([physics.md](physics.m
 
 Kamera: ilk aktif `Camera` component'li entity'nin `WorldTransform`'u (−Z'ye bakar); yoksa varsayılan.
 
-Render component'leri: `MeshRenderer` (mesh + PBR materyal), `Sdf` (SDF şekli + sıra; konum/dönüş
+Render component'leri: `MeshRenderer{mesh, material}` (ikisi de paylaşılan kaynak handle'ı;
+`ctx.create_mesh`/`ctx.create_material` headless'ta da güvenli; App her entity'nin önceki karedeki
+transform'unu kendisi tutar → nesne başına hareket vektörü), `Sdf` (SDF şekli + sıra; konum/dönüş
 entity'den), `PointLight` (konum entity'den), `RectLight` (alan ışığı; konum entity'den, eksenleri
 entity'nin dönüşü/ölçeğiyle döner — yalnız ray-traced yolda). Güneş ve ortam: `ctx.sun`, `ctx.environment`.
 

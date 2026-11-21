@@ -10,10 +10,16 @@ Durum: ✅ bitti · 🚧 sürüyor · 🔜 sıradaki · ⬜ planlı
 | M3 | `Astral::Render`: render graph, deferred/hibrit mesh + SDF (eski v2'den taşıma) | ✅ |
 | M4 | `Astral::Physics` (Jolt) | ✅ |
 | M3.5 | Fotogerçekçi render: RT (ray query), DDGI, RT yansıma/gölge, alan ışıkları, denoise, TAA, bloom | ✅ |
-| M5 | `Astral::Assets`: glTF, PBR materyal, async yükleme, hot-reload | 🔜 |
-| M6 | İlk oyun dikey dilimi (kılıç arenası prototipi) | ⬜ |
+| M3.6 | Render API v2: materyal handle'ları, nesne başına hareket vektörü, çalışma anında ayarlar | ✅ |
+| M5a | ECS tamamlama: reflection, `without`/`added`/`changed`, olaylar, serileştirme | 🔜 |
+| M5b | `Astral::Assets`: AssetId, async yükleme, hot-reload, glTF, texture'lı materyal | ⬜ |
+| M5c | Sahne + prefab (JSON yazım, ikili çalışma zamanı) | ⬜ |
+| M6 | Paketleme: `astral-cook`, `.apak`, `astral_add_game` | ⬜ |
+| M7 | İlk oyun dikey dilimi (kılıç arenası prototipi) | ⬜ |
 
 Oyun nasıl yazılır: [ADR-0006](decisions/0006-app-layer-for-games.md).
+
+Sıra ve gerekçe: [ADR-0012](decisions/0012-render-api-contract.md).
 
 **RAGE araştırmasından gelen sistemler** ([research/rage.md](research/rage.md)) — sıra: render (M3.5) →
 asset'ler (M5) → kılıç arenası + kendi aktif ragdoll'umuz (M6) → atmosfer (dünya ölçekli bulut/sis/hava
@@ -82,6 +88,12 @@ korunuyor. Shader include bağımlılık hatası bulundu ve düzeltildi.
 
 **Bitiş kriterleri (karşılandı):** RT destekli cihazda (lavapipe dahil) gölge, alan ışığı, ayna yansıması,
 renk taşması ve SDF katılımı testlerle doğrulanır; validation temiz; RT yoksa raster yoluna düşer.
+
+## M3.6 — Render API v2 ✅
+
+**Sonuç:** Kaynak/kare ayrımı netleşti: mesh ve materyal paylaşılan handle'lar, kare verisi saf `RenderScene`.
+Materyal tablosu raster ve RT yollarında ortak. G-buffer hız hedefi; App transform geçmişini kendisi tutar.
+`set_settings` ile çalışma anında teknik değişimi. 27 render testi (materyal, ayar, hareket dahil).
 
 ## M5 — Asset'ler
 
