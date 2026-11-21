@@ -4,7 +4,8 @@
 //   scene_viewer [path/to/level.scene]                       window
 //   scene_viewer [scene] --capture out.ppm [--frames 48] [--width 1280] [--height 720]
 //
-// Without a path it opens the RGB room next to the executable's sources (assets/showcase.scene).
+// Without a path it opens the RGB room (showcase.scene): from assets/ while developing, from
+// scene_viewer.apak once packaged (`cmake --build ... --target scene_viewer_package`).
 
 #include <astral/astral.hpp>
 
@@ -60,7 +61,7 @@ bool write_ppm(const char* path, const std::vector<std::uint8_t>& rgba, std::uin
 } // namespace
 
 int main(int argc, char** argv) {
-    std::filesystem::path scene = std::filesystem::path(ASTRAL_SCENE_VIEWER_ASSETS) / "showcase.scene";
+    std::filesystem::path scene;
     const char* out = nullptr;
     std::uint32_t frames = 48, width = 1280, height = 720;
     for (int i = 1; i < argc; ++i) {
@@ -71,14 +72,21 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--height")) height = static_cast<std::uint32_t>(std::atoi(next()));
         else scene = argv[i];
     }
-    scene = std::filesystem::absolute(scene);
-    const std::string root = scene.parent_path().string();
+    // A scene given on the command line is read from its folder; otherwise the game's own assets.
+    std::string root = ASTRAL_GAME_ASSETS, file = "showcase.scene";
+    std::string_view pack = ASTRAL_GAME_PACK;
+    if (!scene.empty()) {
+        scene = std::filesystem::absolute(scene);
+        root = scene.parent_path().string();
+        file = scene.filename().string();
+        pack = {};
+    }
 
     RenderSettings render;
     render.bloom_strength = 0.05f;
     App app({.title = "Astral — scene viewer", .width = width, .height = height, .render = render,
-             .asset_root = root, .offscreen = out != nullptr});
-    SceneViewer viewer(scene.filename().string());
+             .asset_root = root, .pack = pack, .offscreen = out != nullptr});
+    SceneViewer viewer(file);
     if (!out) return app.run(viewer);
 
     app.run_frames(viewer, frames);

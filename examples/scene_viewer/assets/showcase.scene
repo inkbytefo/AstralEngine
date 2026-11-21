@@ -134,6 +134,22 @@
       }
     },
     {
+      "id": 10,
+      "components": {
+        "astral::Name": {
+          "value": "crate"
+        },
+        "astral::Transform": {
+          "position": [-2.05, 0.275, 2.35],
+          "rotation": [0, -0.3007, 0, 0.9537],
+          "scale": [0.55, 0.55, 0.55]
+        },
+        "astral::ModelRef": {
+          "path": "props/crate.glb"
+        }
+      }
+    },
+    {
       "id": 9,
       "components": {
         "astral::Name": {

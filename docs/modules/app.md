@@ -19,6 +19,10 @@ Swapchain, Renderer, hazır mesh'ler. `Game` + `System`'ler bunlara `Context` ü
 | `physics_rate` | 60 | fizik adımı / saniye |
 | `max_physics_steps` | 4 | kare başına en fazla adım |
 | `render` | `{}` | `RenderSettings`: ray tracing, GI, denoiser, TAA, bloom ([render.md](render.md)) |
+| `asset_root` | "assets" | gevşek asset klasörü (geliştirme, hot-reload) |
+| `pack` | boş | `.apak` (göreli = exe'nin yanında); **varsa** asset'ler ondan okunur, yoksa `asset_root` |
+| `hot_reload` | true | gevşek dosyalar değişince yeniden yükle |
+| `offscreen` | false | pencere yerine iç görüntüye çiz (`App::read_frame`) |
 
 ## Kare
 

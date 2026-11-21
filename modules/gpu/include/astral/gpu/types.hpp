@@ -54,9 +54,15 @@ enum class Format : std::uint8_t {
     RGBA32Float,
     R11G11B10Float,
     D32Float,
+    BC5Unorm,  ///< Two channels (normal map XY), 4x4 blocks of 16 bytes. Needs Feature::TextureCompressionBC.
+    BC7Unorm,  ///< RGBA, 4x4 blocks of 16 bytes.
+    BC7Srgb,
 };
 
-std::uint32_t format_size(Format format) noexcept; ///< Bytes per texel.
+std::uint32_t format_size(Format format) noexcept; ///< Bytes per texel (0 for block-compressed formats).
+bool is_compressed(Format format) noexcept;      ///< Block-compressed (BC*).
+/// Bytes of one tightly packed mip level of `width` x `height` texels (blocks for compressed formats).
+std::uint64_t texture_data_size(Format format, std::uint32_t width, std::uint32_t height) noexcept;
 bool is_depth(Format format) noexcept;
 
 enum class BufferUsage : std::uint8_t {
@@ -113,6 +119,7 @@ enum class Feature : std::uint8_t {
     Validation,          ///< Validation layer active.
     Presentation,        ///< Device can present to a window surface.
     RayTracing,  ///< Acceleration structures + ray queries in any shader (GLSL_EXT_ray_query).
+    TextureCompressionBC, ///< BC5/BC7 textures can be sampled (every desktop GPU).
     MeshShaders,
 };
 

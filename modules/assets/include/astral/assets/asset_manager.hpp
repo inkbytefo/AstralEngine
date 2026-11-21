@@ -67,6 +67,9 @@ struct AssetManagerDesc {
     Logger* logger = nullptr;
     bool hot_reload = true;
     float reload_poll_seconds = 0.5f;
+    /// A .apak to read every asset from (shipped games). Empty: files under `root` — source files
+    /// (.gltf/.glb, text JSON) or cooked ones, told apart by their contents. Packs never hot-reload.
+    std::filesystem::path pack{};
 };
 
 class AssetManager {
@@ -97,6 +100,8 @@ public:
     void wait_all();
     /// Number of reloads applied so far (hot reload).
     [[nodiscard]] std::uint32_t reloads() const noexcept;
+    /// True when assets come from a .apak (AssetManagerDesc::pack opened successfully).
+    [[nodiscard]] bool from_pack() const noexcept;
 
 private:
     struct Impl;

@@ -473,7 +473,7 @@ TEST_CASE("moving meshes get per-object motion vectors") {
 
 namespace {
 ImageData solid_halves(std::array<std::uint8_t, 4> left, std::array<std::uint8_t, 4> right, bool srgb = true) {
-    ImageData img{.width = 16, .height = 16, .rgba = {}, .srgb = srgb};
+    ImageData img{.width = 16, .height = 16, .rgba = {}, .srgb = srgb, .format = ImageFormat::RGBA8, .levels = {}};
     for (std::uint32_t y = 0; y < 16; ++y) {
         for (std::uint32_t x = 0; x < 16; ++x) {
             const auto& c = x < 8 ? left : right;
@@ -502,7 +502,7 @@ TEST_CASE("base colour textures are sampled with the mesh uvs, and can be replac
     CHECK(rgb(f.at(pixels, {-0.5f, 0, 1})).g > 120);
     CHECK(rgb(f.at(pixels, {0.5f, 0, 1})).g > 120);
     // Bad images are refused; destroying a texture used by a material just drops the texture.
-    CHECK_FALSE(f.renderer->create_texture({.width = 4, .height = 4, .rgba = {1, 2, 3}, .srgb = true}).valid());
+    CHECK_FALSE(f.renderer->create_texture({.width = 4, .height = 4, .rgba = {1, 2, 3}, .srgb = true, .format = ImageFormat::RGBA8, .levels = {}}).valid());
     f.renderer->destroy(tex);
     CHECK(rgb(Fixture::center(f.draw(scene))).g > 120); // material colour (white) under the sun: bright
 }
@@ -538,4 +538,49 @@ TEST_CASE("update_mesh swaps geometry behind the same handle") {
     REQUIRE(f.renderer->update_mesh(mesh, wide));
     CHECK(rgb(Fixture::center(f.draw(scene))).r > 120);
     CHECK_FALSE(f.renderer->update_mesh(MeshHandle{}, wide));
+}
+
+namespace {
+/// A BC5 image whose every texel is (x, y): BC4 blocks with both endpoints equal and index 0.
+ImageData constant_bc5(std::uint8_t x, std::uint8_t y) {
+    ImageData img{.width = 16, .height = 16, .rgba = {}, .srgb = false, .format = ImageFormat::BC5, .levels = {}};
+    for (std::uint32_t side = 16;; side /= 2) {
+        const std::uint32_t blocks = ((side + 3) / 4) * ((side + 3) / 4);
+        std::vector<std::uint8_t> level;
+        for (std::uint32_t b = 0; b < blocks; ++b) {
+            for (std::uint8_t v : {x, y}) {
+                const std::uint8_t block[8] = {v, v, 0, 0, 0, 0, 0, 0};
+                level.insert(level.end(), block, block + 8);
+            }
+        }
+        img.levels.push_back(std::move(level));
+        if (side == 1) break;
+    }
+    return img;
+}
+} // namespace
+
+TEST_CASE("ready-made compressed mip chains: two-channel normal maps get their Z rebuilt") {
+    Fixture f;
+    if (!f.device || !f.renderer->supports(ImageFormat::BC5)) return;
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const TextureHandle flat = f.renderer->create_texture(constant_bc5(128, 128));
+    const TextureHandle tilted = f.renderer->create_texture(constant_bc5(250, 128));
+    REQUIRE(flat.valid());
+    REQUIRE(tilted.valid());
+    const MaterialHandle a = f.renderer->create_material({.roughness = 1.0f, .normal_texture = flat});
+    const MaterialHandle b = f.renderer->create_material({.roughness = 1.0f, .normal_texture = tilted});
+    const DirectionalLight sun{.direction = {0, 0, -1}, .intensity = 1.0f, .shadows = false};
+    const Environment dark{.sky = {}, .ground = {}, .ambient = 0};
+    const MeshInstance ia{.mesh = cube, .material = a};
+    const MeshInstance ib{.mesh = cube, .material = b};
+    const int lit_flat = luminance(Fixture::center(f.draw({.meshes = std::span(&ia, 1), .sun = sun, .environment = dark})));
+    const int lit_tilted = luminance(Fixture::center(f.draw({.meshes = std::span(&ib, 1), .sun = sun, .environment = dark})));
+    CHECK(lit_flat > 150);                 // (0, 0) -> Z = 1: facing the light
+    CHECK(lit_tilted < lit_flat - 60);
+
+    // A level of the wrong size is refused.
+    ImageData broken = constant_bc5(128, 128);
+    broken.levels[1].pop_back();
+    CHECK_FALSE(f.renderer->create_texture(broken).valid());
 }

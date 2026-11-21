@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -76,6 +77,14 @@ public:
     [[nodiscard]] std::string dump(int indent = 0) const;
     /// nullopt on invalid input; `error` gets "line L, column C: message".
     static std::optional<Json> parse(std::string_view text, std::string* error = nullptr);
+
+    /// Compact binary form ("AJB1" + tagged values): what the cook step ships instead of text.
+    /// Same values, same member order; several times faster to read than parse().
+    [[nodiscard]] std::vector<std::uint8_t> to_binary() const;
+    /// nullopt on damaged input (never crashes, never over-allocates; nesting limited to 512 levels).
+    static std::optional<Json> from_binary(std::span<const std::uint8_t> data, std::string* error = nullptr);
+    /// True if `data` starts with the binary form's magic.
+    static bool is_binary(std::span<const std::uint8_t> data) noexcept;
 
     friend bool operator==(const Json& a, const Json& b) noexcept { return a.value_ == b.value_; }
 

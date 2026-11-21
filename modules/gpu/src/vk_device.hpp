@@ -60,6 +60,7 @@ struct Device::Impl {
     bool validation = false;
     bool presentation = false;
     bool anisotropy = false;
+    bool texture_compression_bc = false;
     bool debug_utils = false;
     VkSurfaceKHR surface = VK_NULL_HANDLE; ///< Created from DeviceDesc::surface, owned here.
 

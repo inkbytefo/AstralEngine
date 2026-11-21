@@ -14,8 +14,8 @@ Durum: ✅ bitti · 🚧 sürüyor · 🔜 sıradaki · ⬜ planlı
 | M5a | ECS tamamlama: reflection, `without`/`added`/`changed`, olaylar, serileştirme | ✅ |
 | M5b | `Astral::Assets`: AssetId, async yükleme, hot-reload, glTF, texture'lı materyal | ✅ |
 | M5c | Sahne + prefab: kalıcı kimlikler, alan bazlı override, iç içe/varyant, hot-reload | ✅ |
-| M6 | Paketleme: `astral-cook`, `.apak`, `astral_add_game` (ikili sahne dahil) | 🔜 |
-| M7 | İlk oyun dikey dilimi (kılıç arenası prototipi) | ⬜ |
+| M6 | Paketleme: `astral-cook`, `.apak`, `astral_add_game` (ikili sahne dahil) | ✅ |
+| M7 | İlk oyun dikey dilimi (kılıç arenası prototipi) | 🔜 |
 
 Oyun nasıl yazılır: [ADR-0006](decisions/0006-app-layer-for-games.md).
 
@@ -126,6 +126,23 @@ Ayrıntı: [ADR-0015](decisions/0015-scenes-and-prefabs.md), [modules/world.md](
 
 **Devreden borç:** ikili sahne biçimi (M6 cook), açık dünya hücreleri/streaming (sonraki faz), sahne
 başına render ayarları dosyada değil, bağımsız inceleme yapılmadı.
+
+## M6 — Paketleme ✅
+
+**Sonuç:** `astral-cook` aracı (`cook_directory`): kaynak klasörü aynı yollarla cook eder. glTF → `AMDL`
+(texture'lar kullanıma göre BC7 sRGB / BC7 / BC5, hazır mip zinciri; `.bin` ve görüntüler modele katılır),
+sahne/prefab → ikili JSON, geri kalanı kopya. İçerik hash'li artımlı önbellek var. `.apak`: dosya başına zstd,
+okumada boyut ve hash doğrulaması. `AssetManager` pack'ten ya da gevşek (kaynak veya cook edilmiş)
+klasörden içeriğe bakarak okur; BC'siz GPU'da RGBA8'e açar. GPU'ya BC5/BC7, renderer'a hazır mip zinciri
+eklendi; normal map Z'si shader'da. `AppDesc::pack` (exe'nin yanında varsa kullanılır), `astral_add_game`
++ `<oyun>_package` (çalıştırılabilir klasör), kurulu pakette `Astral::astral_cook`. Paketli RGB oda gevşek
+modla aynı görüntüyü veriyor (ortalama fark 0.006/255). Testler: debug 12/12, release `-Werror`, TSan temiz,
+`tests/consumer` kurulu paketle oyunu cook edip çalıştırıyor.
+Ayrıntı: [ADR-0016](decisions/0016-packaging.md), [modules/assets.md](modules/assets.md#cook-ve-paket-m6).
+
+**Devreden borç:** memory-map ve kısmi okuma yok, prefab şablon cook'u yok (sahne yine JSON
+değerlendirmesi), ASTC/mobil yok, bağımsız inceleme yapılmadı.
+
 ## M5 — Asset'ler
 
 **Bitiş kriterleri:** glTF sahnesi PBR ile yüklenir; asset'ler handle ile tutulur, diskte değişince

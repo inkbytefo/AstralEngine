@@ -4,6 +4,32 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-11-21 — M6 (paketleme)
+
+### Added
+- `astral-cook` (tools/) ve `cook_directory`: glTF → cook edilmiş model (`AMDL`, texture'lar BC7 sRGB / BC7 /
+  BC5 + mip zinciri; buffer ve görüntüler içine katılır), `.scene`/`.prefab`/`.json` → ikili JSON, diğerleri
+  kopya; içerik hash'li artımlı önbellek (`.astral-cook.json`), silinen kaynakların çıktısı silinir.
+- `.apak`: `write_pack`, `Pack` (dosya başına zstd, boyut/hash doğrulaması, thread-safe okuma).
+- Assets: `cook_image`, `decompress_image`, `cook_model_images`, `write_cooked_model` / `read_cooked_model`;
+  `AssetManagerDesc::pack`, `AssetManager::from_pack`; gevşek klasörde cook edilmiş dosyalar içerikten tanınır;
+  BC desteklemeyen GPU'da RGBA8'e açma.
+- GPU: `Format::BC5Unorm/BC7Unorm/BC7Srgb`, `Feature::TextureCompressionBC`, `is_compressed`, `texture_data_size`.
+- Render: `ImageFormat`, `ImageData::levels` (hazır mip zinciri), public `build_mips`, `Renderer::supports(ImageFormat)`.
+- Core: `ByteWriter` / `ByteReader`; `Json::to_binary` / `from_binary` / `is_binary`.
+- Platform: `executable_directory()`.
+- App: `AppDesc::pack` (göreli = exe'nin yanı; varsa kullanılır, yoksa `asset_root`).
+- CMake: `astral_add_game(name SOURCES … ASSETS dir)` + `<name>_package` (exe + `.apak` → `build/packages/<name>/`),
+  `ASTRAL_PACKAGE_GAMES`; kurulu pakette `Astral::astral_cook` ve `AstralGame.cmake`.
+- `examples/scene_viewer` artık `astral_add_game` ile; sahneye cook edilen texture'lı kasa modeli eklendi.
+
+### Changed
+- Normal map'lerin Z'si shader'da X/Y'den kurulur (BC5 için; birim uzunluktaki RGBA8 haritalarda sonuç aynı).
+
+### Fixed
+- `tests/consumer` `find_package(Astral 0.5)` istiyordu (`SameMinorVersion` ile 0.10'da bulunamazdı) → 0.11.
+- GCC 13 `-O2`'de test yardımcısındaki yanlış pozitif `-Wstringop-overflow` (release `-Werror` derlemesini kırıyordu).
+
 ## [0.10.0] — 2026-11-21 — M5c (sahne ve prefab)
 
 ### Added

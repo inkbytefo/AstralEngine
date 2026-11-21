@@ -7,6 +7,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -29,7 +30,13 @@ namespace astral::test {
 
 inline std::vector<std::uint8_t> png(std::uint8_t r, std::uint8_t g, std::uint8_t b, int size = 4) {
     std::vector<std::uint8_t> pixels;
-    for (int i = 0; i < size * size; ++i) pixels.insert(pixels.end(), {r, g, b, 255});
+    pixels.reserve(static_cast<std::size_t>(size * size * 4));
+    for (int i = 0; i < size * size; ++i) { // push_back, not insert({...}): GCC 13 -O2 warns falsely on that
+        pixels.push_back(r);
+        pixels.push_back(g);
+        pixels.push_back(b);
+        pixels.push_back(255);
+    }
     std::vector<std::uint8_t> out;
     stbi_write_png_to_func([](void* ctx, void* data, int n) {
         auto* v = static_cast<std::vector<std::uint8_t>*>(ctx);
@@ -41,6 +48,11 @@ inline std::vector<std::uint8_t> png(std::uint8_t r, std::uint8_t g, std::uint8_
 inline void write_bytes(const std::filesystem::path& p, const std::vector<std::uint8_t>& bytes) {
     std::ofstream f(p, std::ios::binary);
     f.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+}
+
+inline std::vector<std::uint8_t> read_bytes(const std::filesystem::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    return std::vector<std::uint8_t>(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
 }
 
 struct GltfOptions {
@@ -157,6 +169,7 @@ inline Json quad_json(const GltfOptions& o, std::size_t buf_len, std::size_t pos
 
 /// dir/name.gltf + name.bin + name_color.png + name_normal.png
 inline std::filesystem::path write_gltf(const std::filesystem::path& dir, const std::string& name, const GltfOptions& o = {}) {
+    std::filesystem::create_directories(dir);
     std::size_t p, n, u, i;
     const auto buf = quad_buffer(o, p, n, u, i);
     write_bytes(dir / (name + ".bin"), buf);

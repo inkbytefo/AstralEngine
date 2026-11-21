@@ -135,6 +135,10 @@ struct AppDesc {
     std::uint32_t max_physics_steps = 4; ///< Per frame; slower frames drop time instead of stalling.
     RenderSettings render = {};   ///< Renderer quality/technique settings (ray tracing, GI, denoiser...).
     std::string_view asset_root = "assets"; ///< Folder that asset paths (ModelRef, ctx.assets) are relative to.
+    /// A .apak to read assets from instead (shipped games; relative = next to the executable). Used
+    /// when the file exists, so a development build without one reads asset_root with hot reload.
+    /// astral_add_game() defines ASTRAL_GAME_ASSETS and ASTRAL_GAME_PACK for these two fields.
+    std::string_view pack = {};
     bool hot_reload = true;       ///< Reload assets when their files change on disk.
     /// Render into an internal width x height image instead of a window (captures, image tests);
     /// read it with App::read_frame(). Ignored when headless.

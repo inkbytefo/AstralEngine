@@ -54,6 +54,13 @@ programa gömülür; `#include <shaders/a.vert.hpp>` → `astral::shaders::a_ver
 `#include <astral/bindless.glsl>` ile ortak tabloyu ve `ASTRAL_BUFFER(Ad, Tip)` makrosunu alır.
 Push constant sınırı 128 byte.
 
+## Sıkıştırılmış texture'lar (M6)
+
+`Format::BC5Unorm`, `BC7Unorm`, `BC7Srgb`: 4×4 blok, blok başına 16 bayt. Yalnız `Sampled` olabilir
+(render hedefi veya storage olamaz); `supports(Feature::TextureCompressionBC)` gerekir (masaüstü GPU'ların
+hepsinde ve lavapipe'ta var). `write_texture` her mip'e `texture_data_size(format, w, h)` bayt bekler;
+kısmi bloklar yukarı yuvarlanır (2×2 mip = 1 blok). `is_compressed(format)`.
+
 ## Ray tracing ([ADR-0011](../decisions/0011-hybrid-ray-traced-lighting.md))
 
 `supports(Feature::RayTracing)` ise (`VK_KHR_acceleration_structure` + `VK_KHR_ray_query`; lavapipe dahil):
@@ -99,6 +106,7 @@ atlanır. Offscreen üçgen render edilip piksel okunarak doğrulanır; validati
 ## Bilinen sınırlar
 
 - API tek thread'den kullanılmalı (çok thread'li komut kaydı sonraki fazda).
-- Mip zinciri üretimi, cube/3D texture, MSAA, sorgu (timestamp) yok.
+- GPU'da mip zinciri üretimi, cube/3D texture, MSAA, sorgu (timestamp) yok. Sıkıştırılmış formatlardan
+  yalnız BC5/BC7 (BC1/BC4/BC6H, ASTC yok).
 - Mesh shader sadece `supports()` ile sorgulanabiliyor, kullanılmıyor.
 - BLAS'lar statik (refit/compaction yok); skinned mesh'ler için güncellenebilir BLAS sonraki iş.

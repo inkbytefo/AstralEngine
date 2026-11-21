@@ -377,6 +377,8 @@ bool create_logical_device(Device::Impl& s) {
     vkGetPhysicalDeviceFeatures(s.physical, &supported);
     s.anisotropy = supported.samplerAnisotropy == VK_TRUE;
     f2.features.samplerAnisotropy = s.anisotropy ? VK_TRUE : VK_FALSE;
+    s.texture_compression_bc = supported.textureCompressionBC == VK_TRUE;
+    f2.features.textureCompressionBC = s.texture_compression_bc ? VK_TRUE : VK_FALSE;
     f2.features.shaderStorageImageWriteWithoutFormat = VK_TRUE;
 
     std::vector<const char*> extensions;
@@ -585,6 +587,7 @@ bool Device::supports(Feature feature) const noexcept {
     case Feature::Validation: return impl_->validation;
     case Feature::Presentation: return impl_->presentation;
     case Feature::RayTracing: return impl_->ray_tracing;
+    case Feature::TextureCompressionBC: return impl_->texture_compression_bc;
     case Feature::MeshShaders:
         return has_device_extension(impl_->physical, "VK_EXT_mesh_shader");
     }

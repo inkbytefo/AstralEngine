@@ -22,6 +22,7 @@ write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/AstralConfigVersion
     COMPATIBILITY SameMinorVersion)
 install(FILES
     ${CMAKE_CURRENT_LIST_DIR}/AstralShaders.cmake
+    ${CMAKE_CURRENT_LIST_DIR}/AstralGame.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/AstralConfig.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/AstralConfigVersion.cmake
     DESTINATION ${astral_cmake_dir})

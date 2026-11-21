@@ -22,7 +22,7 @@ renderer.set_settings(s);   // çalışma anında; teknik/GI değişirse geçmi�
 | Hareket | `previous_transform` verilirse nesne başına hareket vektörü (TAA/denoiser hayalet bırakmaz); verilmezse hareketsiz sayılır |
 | Ayarlar | `RenderSettings` hem kurucuda hem `set_settings` ile; `settings()` ile okunur |
 | Işıklar | `PointLight`, `RectLight`, `DirectionalLight`, `Environment` saf veri; App'te component olarak da kullanılır |
-| Texture | `create_texture(ImageData)` (mip zinciri otomatik, sRGB'de lineer uzayda filtrelenir), `update_texture` handle'ı korur. `MaterialDesc`: `base_color_texture`, `metallic_roughness_texture` (G pürüzlülük, B metal), `normal_texture` (+`normal_scale`, tangent gerekmez), `emissive_texture` |
+| Texture | `create_texture(ImageData)` (mip zinciri otomatik, sRGB'de lineer uzayda filtrelenir; ya da `ImageData::levels` + `format` ile cook edilmiş hazır zincir: RGBA8, BC7, BC5 — `supports(ImageFormat)`), `update_texture` handle'ı korur. Normal map'in Z'si shader'da X/Y'den kurulur (iki kanallı BC5 için). `MaterialDesc`: `base_color_texture`, `metallic_roughness_texture` (G pürüzlülük, B metal), `normal_texture` (+`normal_scale`, tangent gerekmez), `emissive_texture` |
 | Hot-reload | `update_mesh`, `update_texture`, `update_material`: aynı handle, yeni veri |
 
 İki yol var: cihaz ray tracing destekliyorsa ve `RenderSettings::ray_tracing` açıksa (varsayılan)
@@ -103,6 +103,9 @@ graph.add_pass("blur", [&](PassBuilder& b) { b.read(hdr); b.write_storage(blurre
 ```
 
 ## Bilinen sınırlar
+
+- `build_mips` box filtre (normal map mip'lerini cook adımı ayrıca normalize eder). Daha keskin filtreler
+  (Kaiser) ileride.
 
 ### Ray-traced yol
 - SDF'lerin hareket vektörü yalnız kameradan türetilir (SDF'ler kareler arası durağan varsayılır).

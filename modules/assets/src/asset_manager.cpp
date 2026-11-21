@@ -1,8 +1,13 @@
 #include <astral/assets/asset_manager.hpp>
+#include <astral/assets/cook.hpp>
+#include <astral/assets/pack.hpp>
+
+#include "file_util.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <fstream>
 #include <cstdio>
 #include <system_error>
 #include <unordered_map>
@@ -34,6 +39,7 @@ FileTime mtime(const std::filesystem::path& p) {
 /// A load running (or finished) on a worker.
 struct Pending {
     AssetId id;
+    std::string path;
     std::filesystem::path full;
     JobCounter counter;
     std::optional<ModelData> data;
@@ -64,7 +70,49 @@ struct AssetManager::Impl {
     std::uint32_t reload_count = 0;
     std::chrono::steady_clock::time_point last_poll = std::chrono::steady_clock::now();
 
-    explicit Impl(const AssetManagerDesc& d) : desc(d) {}
+    std::unique_ptr<Pack> pack;
+
+    explicit Impl(const AssetManagerDesc& d) : desc(d) {
+        if (!desc.pack.empty()) {
+            std::string error;
+            pack = Pack::open(desc.pack, &error);
+            if (!pack) log_error("assets: " + error + " (every load will fail)");
+            desc.hot_reload = false;
+        }
+    }
+
+    /// Bytes of an asset, from the pack or the file under the root.
+    std::optional<std::vector<std::uint8_t>> read_bytes(const std::string& path, const std::filesystem::path& full,
+                                                        std::string* error) const {
+        if (!desc.pack.empty()) {
+            if (!pack) {
+                *error = path + ": the asset pack could not be opened";
+                return std::nullopt;
+            }
+            return pack->read(path, error);
+        }
+        auto bytes = detail::read_file(full, error);
+        if (!bytes) *error = path + ": " + *error;
+        return bytes;
+    }
+
+    /// A model from a cooked file (pack or loose) or a glTF source.
+    std::optional<ModelData> load_model_data(const std::string& path, const std::filesystem::path& full, std::string* error) const {
+        bool cooked = !desc.pack.empty();
+        if (!cooked) { // peek at the header: a cooked file keeps the source's name
+            std::ifstream in(full, std::ios::binary);
+            std::uint8_t head[4] = {};
+            in.read(reinterpret_cast<char*>(head), 4);
+            cooked = in.gcount() == 4 && is_cooked_model(head);
+        }
+        if (!cooked) return load_gltf(full, error);
+        auto bytes = read_bytes(path, full, error);
+        if (!bytes) return std::nullopt;
+        auto model = read_cooked_model(*bytes, error);
+        if (!model && error) *error = path + ": " + *error;
+        if (model && desc.pack.empty()) model->files = {full}; // hot reload watches the cooked file
+        return model;
+    }
 
     void log_error(const std::string& message) const {
         if (desc.logger) desc.logger->log(LogLevel::Error, message);
@@ -75,12 +123,12 @@ struct AssetManager::Impl {
 
     /// Documents load synchronously: read, parse, keep the last good version on failure.
     void read_document(Entry& e) {
-        std::string text, error;
-        if (std::FILE* f = std::fopen(e.full.string().c_str(), "rb")) {
-            char buffer[65536];
-            for (std::size_t n; (n = std::fread(buffer, 1, sizeof buffer, f)) > 0;) text.append(buffer, n);
-            std::fclose(f);
-            if (auto json = Json::parse(text, &error)) {
+        std::string error;
+        if (auto bytes = read_bytes(e.path, e.full, &error)) {
+            auto json = Json::is_binary(*bytes)
+                            ? Json::from_binary(*bytes, &error)
+                            : Json::parse(std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()), &error);
+            if (json) {
                 const bool reload = e.document != nullptr;
                 const std::uint32_t version = reload ? e.document->version + 1 : 1;
                 e.document = std::make_unique<Document>(Document{std::move(*json), version});
@@ -90,8 +138,6 @@ struct AssetManager::Impl {
             } else {
                 error = e.path + ": " + error;
             }
-        } else {
-            error = e.path + ": cannot open " + e.full.string();
         }
         if (!error.empty()) {
             if (e.document) {
@@ -102,15 +148,16 @@ struct AssetManager::Impl {
                 log_error(error);
             }
         }
-        e.watched = {{e.full, mtime(e.full)}};
+        if (desc.pack.empty()) e.watched = {{e.full, mtime(e.full)}};
     }
 
-    void start(AssetId id, const std::filesystem::path& full) {
+    void start(AssetId id, const std::string& path, const std::filesystem::path& full) {
         auto p = std::make_unique<Pending>();
         p->id = id;
+        p->path = path;
         p->full = full;
         Pending* raw = p.get();
-        auto job = [raw] { raw->data = load_gltf(raw->full, &raw->error); };
+        auto job = [this, raw] { raw->data = load_model_data(raw->path, raw->full, &raw->error); };
         if (desc.jobs) desc.jobs->submit(raw->counter, job);
         else job();
         pending.push_back(std::move(p));
@@ -147,7 +194,8 @@ struct AssetManager::Impl {
         std::vector<MeshHandle> meshes;
         if (r) {
             for (std::size_t i = 0; i < data.images.size(); ++i) {
-                const ImageData& img = data.images[i].image;
+                ImageData& img = data.images[i].image;
+                if (!img.levels.empty() && !r->supports(img.format)) img = decompress_image(img); // GPU without BC
                 if (img.width == 0) { // declared but unused by any material
                     textures.push_back(keep_textures ? e.textures[i] : TextureHandle{});
                     continue;
@@ -254,7 +302,7 @@ struct AssetManager::Impl {
             }
             e.reloading = true;
             if (e.state == AssetState::Failed) e.state = AssetState::Loading;
-            start(AssetId{key}, e.full);
+            start(AssetId{key}, e.path, e.full);
         }
     }
 };
@@ -278,7 +326,7 @@ AssetId AssetManager::load_model(std::string_view relative_path) {
     e.path = std::string(relative_path);
     e.full = m.desc.root / relative_path;
     e.state = AssetState::Loading;
-    m.start(id, e.full);
+    m.start(id, e.path, e.full);
     return id;
 }
 
@@ -328,5 +376,7 @@ void AssetManager::update() {
 void AssetManager::wait_all() { impl_->collect(true); }
 
 std::uint32_t AssetManager::reloads() const noexcept { return impl_->reload_count; }
+
+bool AssetManager::from_pack() const noexcept { return impl_->pack != nullptr; }
 
 } // namespace astral

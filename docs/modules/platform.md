@@ -20,6 +20,11 @@ while (window->poll(input)) {             // olayları işler, input'u güncelle
 - `Input` saf veridir (SDL bilmez) → oyun mantığı pencere açmadan test edilebilir.
 - FPS kamerası için `window->set_mouse_captured(true)`.
 
+## Yollar
+
+`executable_directory()`: çalışan exe'nin klasörü (SDL_GetBasePath). Paketlenmiş oyunun `.apak`'ı
+burada aranır.
+
 ## GPU'ya bağlanma
 
 `window->surface_source()` bir `gpu::SurfaceSource` döner; `gpu::Device` ve `gpu::Swapchain` bunu

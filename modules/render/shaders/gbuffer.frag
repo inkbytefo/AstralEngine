@@ -43,7 +43,11 @@ void main() {
         roughness *= mr.g;
         metallic *= mr.b;
     }
-    if (m.textures.z != NO_TEXTURE) n = perturb(n, tex(m.textures.z, in_uv).xyz * 2.0 - 1.0, m.params.y);
+    if (m.textures.z != NO_TEXTURE) {
+        // X/Y from the map, Z rebuilt: works for RGBA8 and two-channel (BC5) normal maps alike.
+        const vec2 xy = tex(m.textures.z, in_uv).xy * 2.0 - 1.0;
+        n = perturb(n, vec3(xy, sqrt(max(0.0, 1.0 - dot(xy, xy)))), m.params.y);
+    }
     if (m.textures.w != NO_TEXTURE) emissive *= tex(m.textures.w, in_uv).rgb;
     out_albedo = vec4(albedo, roughness);
     out_normal = vec4(n, metallic);

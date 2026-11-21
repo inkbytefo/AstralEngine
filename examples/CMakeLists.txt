@@ -27,7 +27,5 @@ add_executable(model_viewer model_viewer/main.cpp)
 target_link_libraries(model_viewer PRIVATE Astral::App)
 astral_set_warnings(model_viewer)
 
-add_executable(scene_viewer scene_viewer/main.cpp)
-target_link_libraries(scene_viewer PRIVATE Astral::App)
-target_compile_definitions(scene_viewer PRIVATE ASTRAL_SCENE_VIEWER_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/scene_viewer/assets")
-astral_set_warnings(scene_viewer)
+# A game in the shape every game takes: exe + assets folder; `scene_viewer_package` cooks and packs.
+astral_add_game(scene_viewer SOURCES scene_viewer/main.cpp ASSETS scene_viewer/assets)

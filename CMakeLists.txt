@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(Astral VERSION 0.10.0 LANGUAGES CXX)
+project(Astral VERSION 0.11.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -14,6 +14,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(AstralWarnings)
 include(AstralModule)
 include(AstralShaders)
+include(GNUInstallDirs)
 
 if(ASTRAL_BUILD_TESTS)
     enable_testing()
@@ -35,6 +36,8 @@ add_subdirectory(modules/physics)
 add_subdirectory(modules/render)
 add_subdirectory(modules/assets)
 add_subdirectory(modules/app)
+add_subdirectory(tools)
+include(AstralGame)
 
 if(ASTRAL_BUILD_TESTS)
     add_subdirectory(tests/integration)

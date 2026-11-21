@@ -69,7 +69,7 @@ struct PrefabPart {
 struct SourceDocument {
     const Json* json = nullptr; ///< Null: missing or unreadable (`error` says why).
     std::uint32_t version = 0;
-    std::string error;
+    std::string error{};
 };
 using DocumentSource = std::function<SourceDocument(std::string_view path)>;
 

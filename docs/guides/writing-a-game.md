@@ -207,3 +207,28 @@ void on_start(Context& ctx) override {
 - Mesh'i dosyadan: `PrimitiveMesh` (küp/küre/düzlem + materyal) veya `ModelRef` (glTF).
 - Örnek: `examples/scene_viewer` — RGB oda `assets/showcase.scene` + üç prefab; dosyaları çalışırken düzenle.
 
+## Paketleme
+
+Oyunu CMake'te `astral_add_game` ile tanımla; asset klasörü yanında:
+
+```cmake
+find_package(Astral 0.11 CONFIG REQUIRED COMPONENTS App)   # ya da motorun içinden: add_subdirectory
+astral_add_game(arena SOURCES src/main.cpp src/combat.cpp ASSETS content)
+```
+
+```cpp
+int main() {
+    App app({.title = "Arena", .asset_root = ASTRAL_GAME_ASSETS, .pack = ASTRAL_GAME_PACK});
+    return app.run<ArenaGame>();
+}
+```
+
+- **Geliştirme:** `arena` hedefi exe'yi derler; yanında paket yoktur → `content/` klasöründen gevşek
+  dosyalar, hot-reload açık.
+- **Dağıtım:** `cmake --build build --target arena_package` → `build/packages/arena/` içinde `arena` ve
+  `arena.apak`. Klasörü olduğu gibi kopyala; oyun paketi exe'nin yanında bulur, kaynak klasöre bakmaz.
+- Cook artımlı: yalnız değişen asset'ler yeniden işlenir. Texture'lar BC7/BC5'e sıkıştırılır (yaklaşık
+  4 kat daha az bellek), sahneler ikili JSON olur; yollar aynı kalır, kodunda hiçbir şey değişmez.
+- Elle: `astral-cook content -o build/cooked --pack arena.apak`.
+- Örnek: `examples/scene_viewer` (`scene_viewer_package`).
+

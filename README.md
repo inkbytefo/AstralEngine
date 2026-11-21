@@ -43,6 +43,7 @@ module (core, gpu, platform, world, render) is also usable directly as a plain l
 | ECS: change detection, filtered queries, events, reflection, JSON save/load | ✅ M5a |
 | `Astral::Assets`: glTF/GLB, textured PBR materials, async loading, hot reload | ✅ M5b |
 | Scenes and prefabs: stable ids, field-level overrides, nested prefabs/variants, live reload | ✅ M5c |
+| Packaging: `astral-cook` (BC7/BC5 textures, binary scenes, incremental), `.apak` (zstd), `astral_add_game` | ✅ M6 |
 
 ![RT showcase](docs/images/m3.5-rt-showcase.png)
 
@@ -55,7 +56,7 @@ places three prefabs (room, mirror pedestal, box ×3 with per-instance overrides
 ## Build
 
 Requires CMake ≥ 3.24, Ninja, a C++20 compiler (GCC 13, Clang 18, MSVC 2022) and the Vulkan SDK
-(headers, loader, `glslc`). SDL3 and VMA are fetched automatically.
+(headers, loader, `glslc`). SDL3, VMA, Jolt, stb, zstd and bc7enc are fetched automatically.
 
 ```sh
 cmake --preset debug
@@ -64,6 +65,18 @@ ctest --preset debug
 ```
 
 Presets: `debug`, `release`, `tsan` (ThreadSanitizer).
+
+## Shipping a game
+
+```cmake
+astral_add_game(arena SOURCES src/main.cpp ASSETS content)   # exe reads content/ while developing
+```
+
+`cmake --build build --target arena_package` cooks the assets (BC7/BC5 textures, binary scenes; only
+what changed) and stages `build/packages/arena/` = `arena` + `arena.apak`, ready to copy anywhere.
+The packaged showcase below renders the same image as the loose files:
+
+![Packaged scene](docs/images/m6-packaged-scene.png)
 
 ## Use in your game
 

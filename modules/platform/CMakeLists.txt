@@ -20,6 +20,7 @@ astral_add_module(NAME platform
     SOURCES
         src/window.cpp
         src/input.cpp
+        src/paths.cpp
     DEPS
         Astral::Core
         Astral::Gpu
@@ -31,4 +32,5 @@ astral_add_tests(MODULE platform
     SOURCES
         tests/test_main.cpp
         tests/input_test.cpp
-        tests/window_test.cpp)
+        tests/window_test.cpp
+        tests/paths_test.cpp)

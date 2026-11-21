@@ -20,6 +20,9 @@ VkFormat to_vk(Format format) noexcept {
     case Format::RGBA32Float: return VK_FORMAT_R32G32B32A32_SFLOAT;
     case Format::R11G11B10Float: return VK_FORMAT_B10G11R11_UFLOAT_PACK32;
     case Format::D32Float: return VK_FORMAT_D32_SFLOAT;
+    case Format::BC5Unorm: return VK_FORMAT_BC5_UNORM_BLOCK;
+    case Format::BC7Unorm: return VK_FORMAT_BC7_UNORM_BLOCK;
+    case Format::BC7Srgb: return VK_FORMAT_BC7_SRGB_BLOCK;
     }
     return VK_FORMAT_UNDEFINED;
 }
@@ -48,8 +51,20 @@ std::uint32_t format_size(Format format) noexcept {
     case Format::D32Float: return 4;
     case Format::RGBA16Float: return 8;
     case Format::RGBA32Float: return 16;
+    case Format::BC5Unorm:
+    case Format::BC7Unorm:
+    case Format::BC7Srgb: return 0;
     }
     return 0;
+}
+
+bool is_compressed(Format format) noexcept {
+    return format == Format::BC5Unorm || format == Format::BC7Unorm || format == Format::BC7Srgb;
+}
+
+std::uint64_t texture_data_size(Format format, std::uint32_t width, std::uint32_t height) noexcept {
+    if (is_compressed(format)) return std::uint64_t{(width + 3) / 4} * ((height + 3) / 4) * 16;
+    return std::uint64_t{width} * height * format_size(format);
 }
 
 bool is_depth(Format format) noexcept { return format == Format::D32Float; }
@@ -291,6 +306,12 @@ TextureHandle Device::create_texture(const TextureDesc& desc) {
         s.log_error("create_texture: invalid description");
         return {};
     }
+    if (is_compressed(desc.format) &&
+        (!s.texture_compression_bc || has_flag(desc.usage, TextureUsage::ColorTarget) ||
+         has_flag(desc.usage, TextureUsage::Storage) || has_flag(desc.usage, TextureUsage::DepthTarget))) {
+        s.log_error("create_texture: block-compressed textures are sampled only, and need Feature::TextureCompressionBC");
+        return {};
+    }
     TextureRecord record;
     record.desc = desc;
     record.desc.debug_name = {};
@@ -355,7 +376,7 @@ bool Device::write_texture(TextureHandle texture, const void* data, std::uint64_
     TextureRecord* r = s.textures.get(texture);
     if (!r || !data || mip >= r->desc.mip_levels) return false;
     const std::uint32_t mw = std::max(1u, r->desc.width >> mip), mh = std::max(1u, r->desc.height >> mip);
-    const std::uint64_t expected = std::uint64_t{mw} * mh * format_size(r->desc.format);
+    const std::uint64_t expected = texture_data_size(r->desc.format, mw, mh);
     if (size != expected) return false;
     if (!s.can_run_immediate("write_texture")) return false;
 

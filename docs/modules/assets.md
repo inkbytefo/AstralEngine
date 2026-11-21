@@ -58,9 +58,40 @@ aralıkla kontrol eder; değişince arka planda yeniden yükler:
 (sahne, prefab, ayar) **senkron** okunur (küçük dosyalar), hot-reload'da yeniden okunur ve `version`
 artar; ayrıştırılamayan düzenleme son sağlam sürümü korur. Prefab kütüphanesi bunu kullanır.
 
+## Cook ve paket (M6)
+
+Karar: [ADR-0016](../decisions/0016-packaging.md).
+
+```cpp
+CookReport r = cook_directory({.source = "content", .output = "build/cooked", .jobs = &jobs});
+write_pack("build/cooked", "build/game.apak");
+AssetManager assets({.root = "content", .renderer = &renderer, .jobs = &jobs, .pack = "build/game.apak"});
+```
+
+| Kaynak | Cook çıktısı (aynı yol) |
+|---|---|
+| `.gltf` / `.glb` | `AMDL` cook edilmiş model: texture'lar kullanıma göre BC7 sRGB (renk), BC7 (veri), BC5 (normal) + tam mip zinciri; `.bin` ve görüntüler içine katılır |
+| `.scene` / `.prefab` / `.json` | ikili JSON (`AJB1`) |
+| diğer | kopya |
+
+- `AssetManager` türü içerikten anlar: gevşek klasörde kaynak da cook edilmiş dosya da açılır;
+  `pack` verilirse her şey `.apak`'tan okunur (hot-reload yok). `from_pack()`.
+- Artımlı: `.astral-cook.json` içerik hash'leri ve model bağımlılıkları; değişmeyen atlanır, kaynağı
+  silinen çıktı silinir, seçenek değişirse hepsi yeniden.
+- `.apak`: dosya başına zstd (kazandırmıyorsa ham), okumada boyut + hash doğrulaması; `Pack::open/read/find`
+  thread-safe. Hasarlı paket hata verir, çökmez.
+- BC desteklemeyen GPU: yüklemede `decompress_image` ile RGBA8'e açılır.
+- Komut satırı: `astral-cook <kaynak> -o <cook> [--pack oyun.apak] [--uncompressed] [--quality 0..4] [--level N] [--jobs N] [-q]`.
+- CMake: `astral_add_game(oyun SOURCES … ASSETS içerik/)` → `oyun_package` hedefi `build/packages/oyun/`
+  altına exe + `oyun.apak` koyar ([guides/writing-a-game.md](../guides/writing-a-game.md#paketleme)).
+
 ## Bilinen sınırlar
 
-- Texture'lar sıkıştırılmamış RGBA8 (BC7/BC5 sıkıştırma cook adımında, M6).
+- Gevşek kaynak modda texture'lar sıkıştırılmamış RGBA8 (cook edilince BC7/BC5).
+- Paket okuması dosya başına `ifstream` (memory-map yok); okumalar tek seferlik ve tam (kısmi/streaming
+  okuma yok).
+- Cook tek makinede; dağıtık/önbellek paylaşımlı cook yok. BC7 kodlaması yavaş kısım (kalite 1 varsayılan).
+- Mobil formatlar (ASTC/ETC2) yok.
 - Yükleme sırasında GPU aktarımı ana thread'de ve bloklayıcı (büyük modellerde kare takılması; ileride
   kademeli aktarım).
 - Asset'ler hiç boşaltılmaz (referans sayımı yok); `AssetManager` yok edilince hepsi gider.

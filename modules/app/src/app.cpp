@@ -3,6 +3,7 @@
 #include <astral/core/clock.hpp>
 #include <astral/gpu/device.hpp>
 #include <astral/gpu/swapchain.hpp>
+#include <astral/platform/paths.hpp>
 #include <astral/platform/window.hpp>
 #include <astral/world/transform.hpp>
 
@@ -154,9 +155,18 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
     m.context->window = m.window.get();
     m.context->device = m.device.get();
     m.context->renderer = m.renderer.get();
+    std::filesystem::path pack;
+    if (!desc.pack.empty()) {
+        pack = std::filesystem::path(desc.pack);
+        if (pack.is_relative()) pack = executable_directory() / pack;
+        std::error_code ec;
+        if (std::filesystem::is_regular_file(pack, ec)) m.log.info("App: assets from {}", pack.string());
+        else pack.clear(); // development: loose files
+    }
     m.assets = std::make_unique<AssetManager>(AssetManagerDesc{.root = std::filesystem::path(desc.asset_root),
                                                                .renderer = m.renderer.get(), .jobs = &m.jobs,
-                                                               .logger = &m.log, .hot_reload = desc.hot_reload});
+                                                               .logger = &m.log, .hot_reload = desc.hot_reload,
+                                                               .reload_poll_seconds = 0.5f, .pack = pack});
     m.context->assets = m.assets.get();
     m.prefabs = std::make_unique<PrefabLibrary>(types, [&m](std::string_view path) {
         const AssetId id = m.assets->load_document(path);

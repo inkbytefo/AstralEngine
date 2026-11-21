@@ -59,6 +59,8 @@ struct GpuTexture {
 float srgb_to_linear(float c) { return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f); }
 float linear_to_srgb(float c) { return c <= 0.0031308f ? c * 12.92f : 1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f; }
 
+} // namespace
+
 /// Box-filtered mip chain (colour images are averaged in linear space, then re-encoded).
 std::vector<std::vector<std::uint8_t>> build_mips(const ImageData& image) {
     std::vector<std::vector<std::uint8_t>> mips{image.rgba};
@@ -90,6 +92,8 @@ std::vector<std::vector<std::uint8_t>> build_mips(const ImageData& image) {
     }
     return mips;
 }
+
+namespace {
 struct GpuFrame {
     Mat4 view_projection;
     Mat4 inv_view_projection;
@@ -411,10 +415,21 @@ GpuMaterial Renderer::Impl::gpu_material(const MaterialDesc& d) {
 }
 
 gpu::TextureHandle Renderer::Impl::upload_texture(const ImageData& image) {
-    if (image.width == 0 || image.height == 0 || image.rgba.size() != std::size_t{image.width} * image.height * 4) return {};
-    const auto mips = build_mips(image);
+    if (image.width == 0 || image.height == 0) return {};
+    gpu::Format format = image.srgb ? gpu::Format::RGBA8Srgb : gpu::Format::RGBA8Unorm;
+    if (!image.levels.empty()) {
+        if (image.format == ImageFormat::BC7) format = image.srgb ? gpu::Format::BC7Srgb : gpu::Format::BC7Unorm;
+        if (image.format == ImageFormat::BC5) format = gpu::Format::BC5Unorm;
+        for (std::size_t l = 0; l < image.levels.size(); ++l) {
+            const std::uint32_t w = std::max(1u, image.width >> l), h = std::max(1u, image.height >> l);
+            if (image.levels[l].size() != gpu::texture_data_size(format, w, h)) return {};
+        }
+    } else if (image.rgba.size() != std::size_t{image.width} * image.height * 4) {
+        return {};
+    }
+    const auto mips = image.levels.empty() ? build_mips(image) : image.levels;
     const gpu::TextureHandle t = device.create_texture({.width = image.width, .height = image.height,
-                                                        .format = image.srgb ? gpu::Format::RGBA8Srgb : gpu::Format::RGBA8Unorm,
+                                                        .format = format,
                                                         .usage = gpu::TextureUsage::Sampled,
                                                         .mip_levels = static_cast<std::uint32_t>(mips.size()),
                                                         .debug_name = "astral.material_texture"});
@@ -516,6 +531,10 @@ Renderer::~Renderer() {
     m.device.destroy(m.tlas);
     m.history.destroy(m.device);
     m.ddgi.destroy(m.device);
+}
+
+bool Renderer::supports(ImageFormat format) const noexcept {
+    return format == ImageFormat::RGBA8 || impl_->device.supports(gpu::Feature::TextureCompressionBC);
 }
 
 TextureHandle Renderer::create_texture(const ImageData& image) {

@@ -94,3 +94,25 @@ TEST_CASE("textures take uploads per mip level") {
     CHECK_FALSE(device->write_texture(t, mip3.data(), mip3.size() * 4, 4));  // no such mip
     CHECK_FALSE(device->write_texture(t, mip0.data(), mip0.size() * 4, 1));  // wrong size for mip 1
 }
+
+TEST_CASE("block-compressed textures upload whole 4x4 blocks per mip") {
+    using astral::gpu::Format;
+    CHECK(astral::gpu::texture_data_size(Format::BC7Srgb, 10, 6) == 3 * 2 * 16); // partial blocks round up
+    CHECK(astral::gpu::texture_data_size(Format::BC5Unorm, 1, 1) == 16);
+    CHECK(astral::gpu::texture_data_size(Format::RGBA8Unorm, 10, 6) == 240);
+    auto device = astral::test::make_device();
+    if (!device || !device->supports(astral::gpu::Feature::TextureCompressionBC)) return;
+    auto t = device->create_texture({.width = 8, .height = 8, .format = Format::BC7Srgb,
+                                     .usage = astral::gpu::TextureUsage::Sampled, .mip_levels = 4});
+    REQUIRE(t.valid());
+    std::vector<std::uint8_t> mip0(2 * 2 * 16), small(16);
+    CHECK(device->write_texture(t, mip0.data(), mip0.size(), 0));
+    CHECK(device->write_texture(t, small.data(), small.size(), 1)); // 4x4
+    CHECK(device->write_texture(t, small.data(), small.size(), 2)); // 2x2: still one block
+    CHECK(device->write_texture(t, small.data(), small.size(), 3)); // 1x1
+    CHECK_FALSE(device->write_texture(t, small.data(), small.size(), 0));
+    // Compressed formats cannot be render targets.
+    device.expect_errors(1);
+    CHECK_FALSE(device->create_texture({.width = 8, .height = 8, .format = Format::BC7Unorm,
+                                        .usage = astral::gpu::TextureUsage::ColorTarget}).valid());
+}
