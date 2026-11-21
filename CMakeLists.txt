@@ -31,6 +31,7 @@ add_subdirectory(modules/core)
 add_subdirectory(modules/gpu)
 add_subdirectory(modules/platform)
 add_subdirectory(modules/world)
+add_subdirectory(modules/physics)
 add_subdirectory(modules/render)
 add_subdirectory(modules/app)
 
