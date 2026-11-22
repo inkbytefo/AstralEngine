@@ -16,8 +16,9 @@
 
 - [ ] Tüm testler geçiyor: debug, release (`ASTRAL_WARNINGS_AS_ERRORS=ON`, uyarı yok) ve tsan (core, world,
   physics, script test hedefleri). Oyun örneklerinde `astral-features check` (CTest `*_features_check`).
-- [ ] Görüntü testleri geçiyor (`ctest -L golden`); görüntüyü bilerek değiştiren faz referansları
-  `ASTRAL_UPDATE_GOLDEN=1 ctest -L golden` ile günceller ve yeni PNG'leri gözle kontrol edip commit'ler.
+- [ ] Görüntü testleri geçiyor: lavapipe/CI üzerinde `ctest -L '^golden$'`, donanım GPU'sunda `ctest -L '^golden-hw$'`
+  ([ADR-0031](decisions/0031-hardware-independent-golden-tests.md)); görüntüyü bilerek değiştiren faz referansları
+  yalnız lavapipe üzerinde `ASTRAL_UPDATE_GOLDEN=1 ctest -L '^golden$'` ile günceller ve yeni PNG'leri gözle kontrol edip commit'ler.
 - [ ] `docs/roadmap.md`: fazın durumu ✅, bir sonraki faz 🔜, kısa sonuç notu.
 - [ ] `docs/modules/<modül>.md`: yeni/değişen modüllerin API özeti ve bilinen sınırları.
 - [ ] `docs/decisions/`: fazda alınan her mimari karar için bir ADR.

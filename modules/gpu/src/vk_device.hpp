@@ -61,7 +61,15 @@ struct Device::Impl {
     VkQueue queue = VK_NULL_HANDLE;
     std::uint32_t queue_family = 0;
     VmaAllocator allocator = nullptr;
-    std::string adapter;
+    struct AdapterRecord {
+        std::string name;
+        std::string driver_name;
+        std::uint32_t vendor_id = 0;
+        std::uint32_t device_id = 0;
+        std::uint32_t driver_id = 0;
+        AdapterType type = AdapterType::Other;
+    };
+    AdapterRecord adapter;
     bool validation = false;
     bool presentation = false;
     bool anisotropy = false;

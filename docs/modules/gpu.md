@@ -11,7 +11,7 @@ target_link_libraries(MyGame PRIVATE Astral::Gpu)
 
 | Kavram | Açıklama |
 |---|---|
-| `Device` | GPU. Tüm kaynakların sahibi, komut listesi verir, gönderir. `Device::create()` cihaz yoksa `nullptr`. |
+| `Device` | GPU. Tüm kaynakların sahibi, komut listesi verir, gönderir; `adapter_name()` / `adapter_info()` adaptör kimliğini verir. `Device::create()` cihaz yoksa `nullptr`. |
 | Handle'lar | `BufferHandle`, `TextureHandle`, `PipelineHandle` — ham pointer yok; silinen handle hiçbir şeye çözülmez. |
 | `CommandList` | Komut kaydı. `begin_commands()` → kaydet → `submit()` → `SubmitTicket`. |
 | `SubmitTicket` | Gönderim numarası; `wait(ticket)` / `is_complete(ticket)`; `cmd.on_submitted(fn)` listenin numarasını bildirir. |
@@ -101,7 +101,9 @@ durum değişikliklerini geri alır. Kayıt sürerken bloklayan yükleme (`write
 GPU testleri gerçek Vulkan ile koşar ve **validation hatası testi başarısız yapar**; makinede GPU
 yoksa Mesa **lavapipe** (yazılımsal Vulkan) yeter:
 `VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json ctest --preset debug`. Cihaz yoksa testler
-atlanır. Offscreen üçgen render edilip piksel okunarak doğrulanır; validation katmanı açık.
+atlanır. Offscreen üçgen render edilip piksel okunarak doğrulanır; validation katmanı açık. Görüntü
+testleri lavapipe'ta `ctest -L '^golden$'`, donanım GPU'sunda `ctest -L '^golden-hw$'` ile koşar
+([ADR-0031](../decisions/0031-hardware-independent-golden-tests.md)).
 
 ## Bilinen sınırlar
 

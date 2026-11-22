@@ -127,6 +127,25 @@ enum class Feature : std::uint8_t {
     MeshShaders,
 };
 
+/// Physical graphics adapter kind.
+enum class AdapterType : std::uint8_t {
+    Other,
+    IntegratedGpu,
+    DiscreteGpu,
+    VirtualGpu,
+    Cpu,
+};
+
+/// Identity of the physical graphics adapter (diagnostics and test classification).
+struct AdapterInfo {
+    std::string_view name;
+    std::uint32_t vendor_id = 0;  ///< PCI / Khronos vendor id (e.g. 0x10DE NVIDIA, 0x10005 Mesa).
+    std::uint32_t device_id = 0;
+    std::uint32_t driver_id = 0;  ///< Backend driver id (e.g. 13 = Mesa llvmpipe).
+    std::string_view driver_name; ///< Driver name reported by the backend, if available.
+    AdapterType type = AdapterType::Other;
+};
+
 // --- Descriptions ----------------------------------------------------------------------
 struct Extent2D {
     std::uint32_t width = 0;

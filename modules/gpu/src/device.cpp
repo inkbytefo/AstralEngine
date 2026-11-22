@@ -86,6 +86,22 @@ int device_score(VkPhysicalDevice device) {
     }
 }
 
+AdapterType to_adapter_type(VkPhysicalDeviceType type) noexcept {
+    switch (type) {
+    case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: return AdapterType::IntegratedGpu;
+    case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU: return AdapterType::DiscreteGpu;
+    case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU: return AdapterType::VirtualGpu;
+    case VK_PHYSICAL_DEVICE_TYPE_CPU: return AdapterType::Cpu;
+    default: return AdapterType::Other;
+    }
+}
+
+std::string bounded_string(const char* text, std::size_t max_len) {
+    std::size_t len = 0;
+    while (len < max_len && text[len] != '\0') ++len;
+    return std::string(text, len);
+}
+
 } // namespace
 
 // --- Impl helpers ----------------------------------------------------------------------
@@ -346,9 +362,16 @@ bool pick_physical_device(Device::Impl& s) {
         }
     }
     if (!s.physical) return false;
-    VkPhysicalDeviceProperties props;
-    vkGetPhysicalDeviceProperties(s.physical, &props);
-    s.adapter = props.deviceName;
+    VkPhysicalDeviceVulkan12Properties p12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES};
+    VkPhysicalDeviceProperties2 p2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &p12};
+    vkGetPhysicalDeviceProperties2(s.physical, &p2);
+    const VkPhysicalDeviceProperties& props = p2.properties;
+    s.adapter.name = props.deviceName;
+    s.adapter.vendor_id = props.vendorID;
+    s.adapter.device_id = props.deviceID;
+    s.adapter.driver_id = static_cast<std::uint32_t>(p12.driverID);
+    s.adapter.driver_name = bounded_string(p12.driverName, VK_MAX_DRIVER_NAME_SIZE);
+    s.adapter.type = to_adapter_type(props.deviceType);
     s.presentation = s.surface != VK_NULL_HANDLE;
     {
         std::uint32_t family_count = 0;
@@ -590,7 +613,19 @@ Device::~Device() {
     });
 }
 
-std::string_view Device::adapter_name() const noexcept { return impl_->adapter; }
+std::string_view Device::adapter_name() const noexcept { return impl_->adapter.name; }
+
+AdapterInfo Device::adapter_info() const noexcept {
+    const auto& a = impl_->adapter;
+    return AdapterInfo{
+        .name = a.name,
+        .vendor_id = a.vendor_id,
+        .device_id = a.device_id,
+        .driver_id = a.driver_id,
+        .driver_name = a.driver_name,
+        .type = a.type,
+    };
+}
 
 void Device::report_error(std::string_view message) const { impl_->log_error(message); }
 

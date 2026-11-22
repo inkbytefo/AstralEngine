@@ -148,11 +148,12 @@ yükü demek. İlk Windows/MSVC derlemesi de CI'ın yakalamadığı dört hata b
 - **doctest 2.4.11 → 2.5.x:** CMake 4 (`cmake_minimum_required < 3.5`) ve MSVC 14.51 STL uyumsuzluğu biter;
   yerel `CMAKE_POLICY_VERSION_MINIMUM` ve `DOCTEST_CONFIG_USE_STD_HEADERS` geçici çözümleri kalkar. README'deki
   araç sürümleri (CMake 4, VS 2026) güncellenir.
-- **Görüntü testleri donanımdan bağımsız (ADR-0031):** referanslar lavapipe'ta üretiliyor; gerçek GPU'larda
+- **Görüntü testleri donanımdan bağımsız ([ADR-0031](decisions/0031-hardware-independent-golden-tests.md)):** referanslar lavapipe'ta üretiliyor; gerçek GPU'larda
   (ör. RTX 3060) beş test sürekli kırmızı (`scene_viewer`, `open_world` ×3, `shader_showcase`). İkiye ayır:
-  `golden` = lavapipe, CI'da zorunlu, bit bit; `golden-hw` = donanım GPU'su, algısal metrik (SSIM/FLIP eşiği)
-  ve RT gürültüsü için sabit tohum + yeterli birikim. Yerelde `ctest -L golden` lavapipe yoksa atlanır ve
-  bunu söyler. Yanlış alarm veren test güveni bitirir: amaç "kırmızı = gerçek hata".
+  `golden` (`ctest -L '^golden$'`) = lavapipe, CI'da zorunlu, piksel toleranslı; `golden-hw` (`ctest -L '^golden-hw$'`) = donanım GPU'su,
+  algısal metrik (parlaklık SSIM + güçlü piksel farkı sınırı) ve RT gürültüsü için sabit tohum + yeterli birikim. Yerelde `ctest -L '^golden$'`
+  lavapipe yoksa atlanır ve nedenini söyler; referans güncelleme yalnız lavapipe üzerinde `ASTRAL_UPDATE_GOLDEN=1 ctest -L '^golden$'`.
+  Yanlış alarm veren test güveni bitirir: amaç "kırmızı = gerçek hata".
 - **Boyut bütçesi denetimi:** `tools/check_sizes.py` + CTest `code_size_check` (dosya/fonksiyon/`Impl` üye
   sayısı, istisna listesi `tools/size_budget.json`). Önce uyarı, R1–R3 bitince hata.
 - **Include hijyeni:** CI'da clang-tidy `misc-include-cleaner` (yalnız bizim kaynaklar). `std::clamp` için
@@ -552,10 +553,9 @@ dosyası okuma ana iş parçacığında; gökyüzü arka planı ortam rengini iz
   perde), sayı ve maç sonu sesleri, sahne dosyasında ortam uğultusu. Sesler kodla üretiliyor
   (`examples/pong/tools/make_sounds.py`), lisans derdi yok.
 
-- **Görüntü testleri (M8.6):** `tests/golden`: örnek oyun ekran dışında bir kare yakalar, `astral-golden`
-  kayıtlı referansla karşılaştırır (kanal başına eşik + izin verilen kötü piksel oranı), fark varsa kırmızı
-  işaretli fark görüntüsü yazar. Üç sahne: scene_viewer, rt_showcase, Pong (320×180, lavapipe). GPU yoksa
-  test atlanır. Referans güncelleme: `ASTRAL_UPDATE_GOLDEN=1 ctest -L golden`.
+- **Görüntü testleri (M8.6, güncellendi: [ADR-0031](decisions/0031-hardware-independent-golden-tests.md)):** `tests/golden`: örnek oyun ekran dışında bir kare yakalar, `astral-golden`
+  kayıtlı lavapipe referansıyla karşılaştırır (`golden`: lavapipe'ta kanal başına eşik + kötü piksel oranı; `golden-hw`: donanım GPU'sunda parlaklık SSIM + güçlü piksel sınırı), fark varsa kırmızı
+  işaretli fark görüntüsü yazar. GPU yoksa veya cihaz türü eşleşmiyorsa test atlanır. Referans güncelleme (yalnız lavapipe): `ASTRAL_UPDATE_GOLDEN=1 ctest -L '^golden$'`.
 
 **Bilinen sınırlar:** referanslar lavapipe ile üretildi; farklı sürücü/GPU'da tolerans aşılırsa referansı o
 ortam için güncellemek gerekir. Bağımsız kod incelemesi token bütçesi nedeniyle bu fazda yapılmadı.

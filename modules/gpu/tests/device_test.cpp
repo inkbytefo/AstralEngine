@@ -6,6 +6,9 @@ TEST_CASE("headless device is created with the required features") {
     auto device = test::make_device();
     if (!device) return;
     CHECK_FALSE(device->adapter_name().empty());
+    const gpu::AdapterInfo info = device->adapter_info();
+    CHECK(info.name == device->adapter_name());
+    CHECK(info.vendor_id != 0);
     CHECK(device->supports(gpu::Feature::BufferDeviceAddress));
     CHECK(device->supports(gpu::Feature::Bindless));
 }

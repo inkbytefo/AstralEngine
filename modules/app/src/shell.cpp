@@ -1,4 +1,5 @@
 #include <astral/app/shell.hpp>
+#include <astral/gpu/device.hpp>
 
 #include <algorithm>
 #include <cstdio>
@@ -77,6 +78,16 @@ private:
     const ShellOptions& options_;
 };
 
+const char* adapter_type_name(gpu::AdapterType type) noexcept {
+    switch (type) {
+    case gpu::AdapterType::IntegratedGpu: return "integrated";
+    case gpu::AdapterType::DiscreteGpu: return "discrete";
+    case gpu::AdapterType::VirtualGpu: return "virtual";
+    case gpu::AdapterType::Cpu: return "cpu";
+    default: return "other";
+    }
+}
+
 bool write_ppm(const std::string& path, const std::vector<std::uint8_t>& rgba, std::uint32_t w, std::uint32_t h) {
 #if defined(_MSC_VER)
     std::FILE* f = _fsopen(path.c_str(), "wb", _SH_DENYNO);
@@ -116,6 +127,13 @@ int run_game(const ShellOptions& options, AppDesc desc, Game& game, std::uint32_
     if (!app.read_frame(rgba) || !write_ppm(options.capture, rgba, desc.width, desc.height)) {
         std::fprintf(stderr, "capture failed (no GPU?)\n");
         return 1;
+    }
+    if (const gpu::Device* device = app.context().device) {
+        const gpu::AdapterInfo info = device->adapter_info();
+        std::printf("capture device: name=%.*s | vendor=0x%04x | device=0x%04x | driver=%u | driver_name=%.*s | type=%s\n",
+                    static_cast<int>(info.name.size()), info.name.data(), info.vendor_id, info.device_id,
+                    info.driver_id, static_cast<int>(info.driver_name.size()), info.driver_name.data(),
+                    adapter_type_name(info.type));
     }
     std::printf("wrote %s\n", options.capture.c_str());
     return 0;

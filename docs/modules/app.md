@@ -62,7 +62,8 @@ Hot reload yalnız geliştirmede (paket yokken) ve `AppDesc::hot_reload` açıkk
 
 Standart oyun kabuğu (`shell.hpp`): `parse_shell_args` + `run_game(options, AppDesc, game, varsayılan_kare)`; `--capture`, `--frames`,
 `--width`, `--height`, `--script-api` ortak bayraklar, gerisi `options.has/value/positional` ile oyuna kalır. Capture'da `offscreen` +
-sabit 60 Hz adım; pencerede Esc çıkar. `templates/blank` ve bütün örnekler bunu kullanır.
+sabit 60 Hz adım, yakalamayı üreten GPU adaptör kimliği raporlanır (`ctest -L '^golden$'` / `ctest -L '^golden-hw$'`,
+[ADR-0031](../decisions/0031-hardware-independent-golden-tests.md)); pencerede Esc çıkar. `templates/blank` ve bütün örnekler bunu kullanır.
 
 Kurulum örneği (Pong): `FeatureSet game; game.add("pong_rules", install_rules); game.add("pong_audio",
 install_audio); if (!game.install(ctx)) ctx.quit();`
