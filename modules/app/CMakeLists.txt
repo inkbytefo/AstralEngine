@@ -19,6 +19,13 @@ endif()
 astral_add_module(NAME app
     SOURCES
         src/app.cpp
+        src/services/audio_bridge.cpp
+        src/services/dev_tools.cpp
+        src/services/frame_loop.cpp
+        src/services/physics_bridge.cpp
+        src/services/render_bridge.cpp
+        src/services/script_bridge.cpp
+        src/services/world_bridge.cpp
         src/input_actions.cpp
         src/feature.cpp
         src/feature_check.cpp
@@ -44,6 +51,8 @@ astral_add_tests(MODULE app
         tests/actions_test.cpp
         tests/actions_crlf_test.cpp
         tests/app_test.cpp
+        tests/frame_order_test.cpp
+        tests/services_test.cpp
         tests/physics_app_test.cpp
         tests/ecs_app_test.cpp
         tests/assets_app_test.cpp

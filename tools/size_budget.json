@@ -12,42 +12,6 @@
     "reason": "M13.5 R2: to be split"
   },
   {
-    "path": "modules/app/src/app.cpp",
-    "kind": "file",
-    "name": "app.cpp",
-    "reason": "M13.5 R2: to be split"
-  },
-  {
-    "path": "modules/app/src/app.cpp",
-    "kind": "members",
-    "name": "App::Impl",
-    "reason": "M13.5 R2: to be split"
-  },
-  {
-    "path": "modules/app/src/app.cpp",
-    "kind": "function",
-    "name": "App::App",
-    "reason": "M13.5 R2: to be split"
-  },
-  {
-    "path": "modules/app/src/app.cpp",
-    "kind": "function",
-    "name": "App::Impl::step_physics",
-    "reason": "M13.5 R2: to be split"
-  },
-  {
-    "path": "modules/app/src/app.cpp",
-    "kind": "function",
-    "name": "App::Impl::frame",
-    "reason": "M13.5 R2: to be split"
-  },
-  {
-    "path": "modules/app/src/app.cpp",
-    "kind": "function",
-    "name": "App::Impl::draw_debug_overlays",
-    "reason": "M13.5 R2: to be split"
-  },
-  {
     "path": "modules/app/src/debug_ui.cpp",
     "kind": "function",
     "name": "edit_json",

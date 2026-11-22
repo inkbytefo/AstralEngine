@@ -6,6 +6,22 @@ Rehber: [writing-a-game.md](../guides/writing-a-game.md).
 `App` şunları kurar ve sahiplenir: Logger (konsol), JobSystem, World, Input, Clock, Window, Device,
 Swapchain, Renderer, hazır mesh'ler. `Game` + `System`'ler bunlara `Context` üzerinden erişir.
 
+## Dosya düzeni (M13.5 R2)
+
+`modules/app/src/app.cpp` yalnızca sahip ve bağlayıcıdır (`App::App` servisleri bağımlılık sırasıyla kurar, `App::~App` belgelenmiş sırada yıkar, `Context` metotları ilgili servise yönlendirilir). Her sorumluluk kendi iç servisinde (`modules/app/src/services/`) yaşar ve yalnızca kullandığı bağımlılıkları kurucudan alır:
+
+| Dosya | Sorumluluk |
+|---|---|
+| `src/app.cpp` | `App` yaşam döngüsü, grafik yığını kurulum/yıkım sırası, `Context` yönlendirmeleri |
+| `src/services/frame_loop.{hpp,cpp}` | Sıralı kare boru hattı (`run_frame`), sistem fazları, kare saati |
+| `src/services/render_bridge.{hpp,cpp}` | `PrimitiveMesh`/`ModelRef` senkronizasyonu, sahne çıkarma, kamera, `MaterialLibrary`, offscreen okuma |
+| `src/services/physics_bridge.{hpp,cpp}` | `RigidBody`/`CharacterController`/`Joint` senkronizasyonu, alan kuvvetleri, sabit adım, temas olayları, `ScriptPhysics` |
+| `src/services/audio_bridge.{hpp,cpp}` | `AudioSource`/`AudioListener` senkronizasyonu, ses önbelleği |
+| `src/services/script_bridge.{hpp,cpp}` | `ScriptHost`, eylem/kayıt bağdaştırıcıları, girdi yönlendirme, script/eylem hot-reload |
+| `src/services/world_bridge.{hpp,cpp}` | `MapRuntime` açık dünya streaming'i, kayan orijin, sahne/prefab G/Ç |
+| `src/services/dev_tools.{hpp,cpp}` | `Profiler`, `DebugUi`, varsayılan font, debug katman çizimleri, UI katman birleştirme |
+| `src/map_runtime.*`, `src/material_library.*`, `src/input_actions.*`, `src/debug_ui.*` | Köprülerin kullandığı yardımcı alt bileşenler |
+
 ## AppDesc
 
 | Alan | Varsayılan | |
