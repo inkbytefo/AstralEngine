@@ -70,11 +70,17 @@ struct Device::Impl {
         AdapterType type = AdapterType::Other;
     };
     AdapterRecord adapter;
-    bool validation = false;
-    bool presentation = false;
-    bool anisotropy = false;
-    bool texture_compression_bc = false;
-    bool debug_utils = false;
+    struct Capabilities {
+        bool validation = false;
+        bool presentation = false;
+        bool anisotropy = false;
+        bool texture_compression_bc = false;
+        bool debug_utils = false;
+        bool timestamps = false;
+        double timestamp_period = 1.0;       ///< Nanoseconds per tick.
+        std::uint64_t timestamp_mask = ~0ull; ///< Valid bits of a timestamp.
+    };
+    Capabilities caps;
     VkSurfaceKHR surface = VK_NULL_HANDLE; ///< Created from DeviceDesc::surface, owned here.
 
     // Synchronization: one timeline semaphore, value = submission count.
@@ -91,32 +97,35 @@ struct Device::Impl {
     std::vector<CommandSlot> command_slots;
 
     // Bindless: one descriptor set shared by every pipeline.
-    VkDescriptorSetLayout set_layout = VK_NULL_HANDLE;
-    VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
-    VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
-    VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
-    VkSampler samplers[3] = {};
-    std::uint32_t max_textures = 0;
-    std::uint32_t next_bindless = 0;
-    std::vector<std::uint32_t> free_bindless;
+    struct BindlessState {
+        VkDescriptorSetLayout set_layout = VK_NULL_HANDLE;
+        VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
+        VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
+        VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
+        VkSampler samplers[3] = {};
+        std::uint32_t max_textures = 0;
+        std::uint32_t next_bindless = 0;
+        std::vector<std::uint32_t> free_bindless;
+    };
+    BindlessState bindless;
 
     HandlePool<BufferRecord, BufferTag> buffers;
     HandlePool<TextureRecord, TextureTag> textures;
     HandlePool<PipelineRecord, PipelineTag> pipelines;
     HandlePool<AccelRecord, AccelerationStructureTag> accels;
     HandlePool<QueryRecord, QueryPoolTag> queries;
-    bool timestamps = false;
-    double timestamp_period = 1.0;      ///< Nanoseconds per tick.
-    std::uint64_t timestamp_mask = ~0ull; ///< Valid bits of a timestamp.
 
     // Ray tracing (VK_KHR_acceleration_structure + VK_KHR_ray_query), when supported.
-    bool ray_tracing = false;
-    std::uint32_t scratch_alignment = 256;
-    PFN_vkCreateAccelerationStructureKHR create_as = nullptr;
-    PFN_vkDestroyAccelerationStructureKHR destroy_as = nullptr;
-    PFN_vkGetAccelerationStructureBuildSizesKHR as_build_sizes = nullptr;
-    PFN_vkCmdBuildAccelerationStructuresKHR cmd_build_as = nullptr;
-    PFN_vkGetAccelerationStructureDeviceAddressKHR as_address = nullptr;
+    struct RayTracingDispatch {
+        bool supported = false;
+        std::uint32_t scratch_alignment = 256;
+        PFN_vkCreateAccelerationStructureKHR create_as = nullptr;
+        PFN_vkDestroyAccelerationStructureKHR destroy_as = nullptr;
+        PFN_vkGetAccelerationStructureBuildSizesKHR as_build_sizes = nullptr;
+        PFN_vkCmdBuildAccelerationStructuresKHR cmd_build_as = nullptr;
+        PFN_vkGetAccelerationStructureDeviceAddressKHR as_address = nullptr;
+    };
+    RayTracingDispatch rt;
 
     // Deferred destruction: run `destroy` once the timeline reaches `value`.
     struct Garbage {
@@ -125,9 +134,12 @@ struct Device::Impl {
     };
     std::deque<Garbage> garbage;
 
-    PFN_vkCmdBeginDebugUtilsLabelEXT cmd_begin_label = nullptr;
-    PFN_vkCmdEndDebugUtilsLabelEXT cmd_end_label = nullptr;
-    PFN_vkSetDebugUtilsObjectNameEXT set_object_name = nullptr;
+    struct DebugUtilsDispatch {
+        PFN_vkCmdBeginDebugUtilsLabelEXT cmd_begin_label = nullptr;
+        PFN_vkCmdEndDebugUtilsLabelEXT cmd_end_label = nullptr;
+        PFN_vkSetDebugUtilsObjectNameEXT set_object_name = nullptr;
+    };
+    DebugUtilsDispatch debug;
 
     ~Impl();
 
@@ -146,6 +158,9 @@ struct Device::Impl {
     /// Refuses (with a log) blocking uploads/readbacks while a CommandList records.
     bool can_run_immediate(const char* operation) const;
 };
+
+bool has_device_extension(VkPhysicalDevice device, const char* name);
+bool init_vulkan_device(Device::Impl& s, const DeviceDesc& desc);
 
 VkFormat to_vk(Format format) noexcept;
 Format from_vk(VkFormat format) noexcept;

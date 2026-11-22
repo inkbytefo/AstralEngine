@@ -79,10 +79,13 @@ Bkz. yukarıdaki **Fizik ve alanlar** maddesi ve [physics.md](physics.md). Scrip
 
 ## İçeride
 
-`Impl` (host_impl.hpp) Luau durumunu ve modülleri tutar: her modül kendi global tablosuyla (`luaL_sandboxthread`)
-çalışır, `astral.*` kayıtları o an yüklenen modüle yazılır. Entity ve component vekilleri etiketli
-userdata'dır; vekil her erişimde `world.get_raw` ile çözülür (ölü entity → hata). Sistem çalıştırma önce
-entity'leri toplar, sonra çağırır (script yapısal değişiklik yapabilir).
+`Impl` (`host_impl.hpp`) Luau durumunu ve modülleri tutar: her modül kendi global tablosuyla (`luaL_sandboxthread`)
+çalışır, `astral.*` kayıtları o an yüklenen modüle yazılır. Bağlamalar iki dosyaya ayrılmıştır:
+`bindings.cpp` (entity, component vekili, sistem/olay/davranış kaydı, zamanlayıcılar ve log) ve
+`bindings_services.cpp` (`astral.save/load/has_save`, `astral.physics`, `astral.fields`, `astral.quat`,
+`astral.input`). `api.cpp` hem `astral.d.luau` tip tanımlarını hem de `API.md` referansını üretir. Entity ve
+component vekilleri etiketli userdata'dır; vekil her erişimde `world.get_raw` ile çözülür (ölü entity → hata).
+Sistem çalıştırma önce entity'leri toplar, sonra çağırır (script yapısal değişiklik yapabilir).
 
 ## Bilinen sınırlar
 

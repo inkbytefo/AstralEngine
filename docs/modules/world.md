@@ -102,9 +102,11 @@ Entity bulb = find_part(world, lamp, "bulb");   // Name ile
   (varyant — parçalar temelin yollarını korur). Kendini içeren prefab hata verir.
 - **Çalışma anı:** kökte `PrefabInstance`, parçalarda `PrefabPart{instance, path}`. Parçalar örnekle yok
   edilir, ayrı kayıt olmaz. Kökün kendi component'leri prefab'ınkine üstün gelir.
-- **Hot-reload:** `PrefabLibrary::refresh()` belgesi değişen şablonları düşürür; `sync_prefabs` o örnekleri
+- Hot-reload: `PrefabLibrary::refresh()` belgesi değişen şablonları düşürür; `sync_prefabs` o örnekleri
   eski şablona göre fark alıp yeni şablonla yeniden açar — override'lar ve dışarıya referanslar korunur.
 - World dosya sistemini bilmez: belgeler `DocumentSource` ile gelir (App'te `AssetManager::load_document`).
+- İçeride `prefab.cpp` (`PrefabLibrary`, örnek planlama, `Spawner`, override fark hesabı) ve `scene.cpp`
+  (`instantiate_prefab`, `sync_prefabs`, `load_scene`, `save_scene`, `save_entities`) olarak ayrılmıştır.
 
 ## Haritalar ve streaming (M9)
 

@@ -66,11 +66,7 @@ std::string enum_values(const FieldInfo& f) {
     return out;
 }
 
-} // namespace
-
-ScriptApi generate_script_api(const TypeRegistry& types, const EventRegistry& events, const std::map<std::string, std::string>& owners) {
-    ScriptApi api;
-    std::string& d = api.luau_types;
+void write_luau_component_types(std::string& d, const TypeRegistry& types, const EventRegistry& events) {
     d += "-- astral.d.luau: generated from the registered components and events. Do not edit.\n"
          "export type Vec2 = {x: number, y: number}\n"
          "export type Vec4 = {x: number, y: number, z: number, w: number}\n"
@@ -94,6 +90,10 @@ ScriptApi generate_script_api(const TypeRegistry& types, const EventRegistry& ev
         d += "    [\"" + std::string(e.name) + "\"]: " + (e.dynamic ? std::string("{[string]: any}") : "E_" + ident(e.name)) + ",\n";
     }
     d += "}\n\n";
+}
+
+void write_luau_definitions(std::string& d, const TypeRegistry& types, const EventRegistry& events) {
+    write_luau_component_types(d, types, events);
     d += "export type Entity = {\n"
          "    get: <K>(self: Entity, name: K & keyof<Components>) -> index<Components, K>?,\n"
          "    add: <K>(self: Entity, name: K & keyof<Components>, values: {[string]: any}?) -> index<Components, K>,\n"
@@ -155,9 +155,10 @@ ScriptApi generate_script_api(const TypeRegistry& types, const EventRegistry& ev
          "    input: {\n"
          "        down: (action: string) -> boolean,\n        pressed: (action: string) -> boolean,\n        released: (action: string) -> boolean,\n"
          "        value: (action: string) -> number,\n        axis: (action: string) -> vector,\n    },\n}\n";
+}
 
-    // Markdown reference.
-    std::string& m = api.markdown;
+void write_markdown_reference(std::string& m, const TypeRegistry& types, const EventRegistry& events,
+                              const std::map<std::string, std::string>& owners) {
     m += "# Script API\n\nGenerated from the registered components and events (do not edit). Scripts are Luau files; "
          "`astral.d.luau` has the same information as types for luau-lsp.\n\n"
          "State lives in components, behaviour in systems. A script never keeps game state in its own variables "
@@ -221,6 +222,14 @@ ScriptApi generate_script_api(const TypeRegistry& types, const EventRegistry& ev
         }
         m += "\n";
     }
+}
+
+} // namespace
+
+ScriptApi generate_script_api(const TypeRegistry& types, const EventRegistry& events, const std::map<std::string, std::string>& owners) {
+    ScriptApi api;
+    write_luau_definitions(api.luau_types, types, events);
+    write_markdown_reference(api.markdown, types, events, owners);
     return api;
 }
 

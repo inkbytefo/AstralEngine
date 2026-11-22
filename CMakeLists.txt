@@ -9,7 +9,7 @@ option(ASTRAL_BUILD_TESTS "Build unit tests" ${PROJECT_IS_TOP_LEVEL})
 option(ASTRAL_BUILD_EXAMPLES "Build examples" ${PROJECT_IS_TOP_LEVEL})
 option(ASTRAL_INSTALL "Generate install rules" ${PROJECT_IS_TOP_LEVEL})
 option(ASTRAL_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
-option(ASTRAL_SIZE_BUDGET_STRICT "Fail code_size_check when unexcepted offenders exceed the M13.5 size budget" OFF)
+option(ASTRAL_SIZE_BUDGET_STRICT "Fail code_size_check when unexcepted offenders exceed the M13.5 size budget" ON)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(AstralWarnings)

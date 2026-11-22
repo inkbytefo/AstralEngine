@@ -193,7 +193,7 @@ void CommandList::push_constants(const void* data, std::uint32_t size, std::uint
         device_->impl().log_error("push_constants: exceeds 128 bytes");
         return;
     }
-    vkCmdPushConstants(native(native_), device_->impl().pipeline_layout, VK_SHADER_STAGE_ALL,
+    vkCmdPushConstants(native(native_), device_->impl().bindless.pipeline_layout, VK_SHADER_STAGE_ALL,
                        offset, size, data);
 }
 
@@ -309,16 +309,16 @@ void CommandList::on_submitted(std::function<void(SubmitTicket)> callback) {
 void CommandList::begin_debug_label(const char* name) {
     if (!usable()) return;
     auto& s = device_->impl();
-    if (!s.cmd_begin_label) return;
+    if (!s.debug.cmd_begin_label) return;
     VkDebugUtilsLabelEXT label{VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT};
     label.pLabelName = name;
-    s.cmd_begin_label(native(native_), &label);
+    s.debug.cmd_begin_label(native(native_), &label);
 }
 
 void CommandList::end_debug_label() {
     if (!usable()) return;
     auto& s = device_->impl();
-    if (s.cmd_end_label) s.cmd_end_label(native(native_));
+    if (s.debug.cmd_end_label) s.debug.cmd_end_label(native(native_));
 }
 
 } // namespace astral::gpu

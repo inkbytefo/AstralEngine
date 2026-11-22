@@ -1,86 +1,8 @@
 [
   {
-    "path": "examples/physics_playground/src/game.cpp",
-    "kind": "function",
-    "name": "PlaygroundGame::on_start",
-    "reason": "M13.5 R3: to be split"
-  },
-  {
     "path": "modules/app/include/astral/app/app.hpp",
     "kind": "members",
     "name": "Context",
     "reason": "M13.5 R2: public Context fields kept for source compatibility until M14"
-  },
-  {
-    "path": "modules/assets/src/cook.cpp",
-    "kind": "function",
-    "name": "cook_directory",
-    "reason": "M13.5 R3: to be split"
-  },
-  {
-    "path": "modules/assets/src/cooked_model.cpp",
-    "kind": "function",
-    "name": "read_cooked_model",
-    "reason": "M13.5 R3: to be split"
-  },
-  {
-    "path": "modules/gpu/src/device.cpp",
-    "kind": "file",
-    "name": "device.cpp",
-    "reason": "M13.5 R3: to be split"
-  },
-  {
-    "path": "modules/gpu/src/device.cpp",
-    "kind": "function",
-    "name": "create_logical_device",
-    "reason": "M13.5 R3: to be split"
-  },
-  {
-    "path": "modules/gpu/src/pipelines.cpp",
-    "kind": "function",
-    "name": "Device::create_graphics_pipeline",
-    "reason": "M13.5 R3: to be split"
-  },
-  {
-    "path": "modules/gpu/src/vk_device.hpp",
-    "kind": "members",
-    "name": "Device::Impl",
-    "reason": "M13.5 R3: to be split"
-  },
-  {
-    "path": "modules/physics/src/physics.cpp",
-    "kind": "file",
-    "name": "physics.cpp",
-    "reason": "M13.5 R3: to be split"
-  },
-  {
-    "path": "modules/physics/src/physics.cpp",
-    "kind": "function",
-    "name": "PhysicsWorld::create_joint",
-    "reason": "M13.5 R3: to be split"
-  },
-  {
-    "path": "modules/script/src/api.cpp",
-    "kind": "function",
-    "name": "generate_script_api",
-    "reason": "M13.5 R3: to be split"
-  },
-  {
-    "path": "modules/script/src/bindings.cpp",
-    "kind": "file",
-    "name": "bindings.cpp",
-    "reason": "M13.5 R3: to be split"
-  },
-  {
-    "path": "modules/world/include/astral/world/serialize.hpp",
-    "kind": "function",
-    "name": "from_json",
-    "reason": "M13.5 R3: to be split"
-  },
-  {
-    "path": "modules/world/src/scene.cpp",
-    "kind": "file",
-    "name": "scene.cpp",
-    "reason": "M13.5 R3: to be split"
   }
 ]

@@ -12,7 +12,7 @@ VkCommandBuffer native(void* p) { return static_cast<VkCommandBuffer>(p); }
 std::uint64_t as_device_address(Device::Impl& s, VkAccelerationStructureKHR as) {
     VkAccelerationStructureDeviceAddressInfoKHR info{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR};
     info.accelerationStructure = as;
-    return s.as_address(s.device, &info);
+    return s.rt.as_address(s.device, &info);
 }
 
 /// Allocates the structure's backing buffer and the structure itself.
@@ -25,7 +25,7 @@ bool create_structure(Device::Impl& s, VkAccelerationStructureTypeKHR type, std:
     info.buffer = out.storage.buffer;
     info.size = size;
     info.type = type;
-    if (s.create_as(s.device, &info, nullptr, &out.handle) != VK_SUCCESS) {
+    if (s.rt.create_as(s.device, &info, nullptr, &out.handle) != VK_SUCCESS) {
         destroy_buffer_record(s, out.storage);
         return false;
     }
@@ -61,14 +61,14 @@ constexpr VkPipelineStageFlags2 shader_stages =
 } // namespace
 
 void destroy_accel_record(Device::Impl& s, const AccelRecord& r) {
-    if (r.handle) s.destroy_as(s.device, r.handle, nullptr);
+    if (r.handle) s.rt.destroy_as(s.device, r.handle, nullptr);
     if (r.storage.buffer) destroy_buffer_record(s, r.storage);
     if (r.scratch.buffer) destroy_buffer_record(s, r.scratch);
 }
 
 AccelerationStructureHandle Device::create_blas(const BlasDesc& desc) {
     auto& s = *impl_;
-    if (!s.ray_tracing) {
+    if (!s.rt.supported) {
         s.log_error("create_blas: ray tracing is not supported on this device");
         return {};
     }
@@ -103,13 +103,13 @@ AccelerationStructureHandle Device::create_blas(const BlasDesc& desc) {
     build.pGeometries = &geometry;
     const std::uint32_t triangles = desc.index_count / 3;
     VkAccelerationStructureBuildSizesInfoKHR sizes{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR};
-    s.as_build_sizes(s.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build, &triangles, &sizes);
+    s.rt.as_build_sizes(s.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build, &triangles, &sizes);
 
     AccelRecord record;
     BufferRecord scratch;
     if (!create_structure(s, VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR, sizes.accelerationStructureSize, record) ||
         !create_buffer_raw_usage(s, sizes.buildScratchSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, MemoryUsage::GpuOnly,
-                                 s.scratch_alignment, scratch)) {
+                                 s.rt.scratch_alignment, scratch)) {
         destroy_accel_record(s, record);
         s.log_error("create_blas: allocation failed");
         return {};
@@ -118,7 +118,7 @@ AccelerationStructureHandle Device::create_blas(const BlasDesc& desc) {
     build.scratchData.deviceAddress = scratch.address;
     VkAccelerationStructureBuildRangeInfoKHR range{triangles, 0, 0, 0};
     const VkAccelerationStructureBuildRangeInfoKHR* ranges = &range;
-    s.immediate([&](VkCommandBuffer cmd) { s.cmd_build_as(cmd, 1, &build, &ranges); });
+    s.immediate([&](VkCommandBuffer cmd) { s.rt.cmd_build_as(cmd, 1, &build, &ranges); });
     destroy_buffer_record(s, scratch);
     s.name_object(VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR, reinterpret_cast<std::uint64_t>(record.handle),
                   desc.debug_name);
@@ -127,7 +127,7 @@ AccelerationStructureHandle Device::create_blas(const BlasDesc& desc) {
 
 AccelerationStructureHandle Device::create_tlas(const TlasDesc& desc) {
     auto& s = *impl_;
-    if (!s.ray_tracing) {
+    if (!s.rt.supported) {
         s.log_error("create_tlas: ray tracing is not supported on this device");
         return {};
     }
@@ -143,13 +143,13 @@ AccelerationStructureHandle Device::create_tlas(const TlasDesc& desc) {
     build.geometryCount = 1;
     build.pGeometries = &geometry;
     VkAccelerationStructureBuildSizesInfoKHR sizes{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR};
-    s.as_build_sizes(s.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build, &desc.max_instances, &sizes);
+    s.rt.as_build_sizes(s.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build, &desc.max_instances, &sizes);
 
     AccelRecord record;
     record.max_instances = desc.max_instances;
     if (!create_structure(s, VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR, sizes.accelerationStructureSize, record) ||
         !create_buffer_raw_usage(s, sizes.buildScratchSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, MemoryUsage::GpuOnly,
-                                 s.scratch_alignment, record.scratch)) {
+                                 s.rt.scratch_alignment, record.scratch)) {
         destroy_accel_record(s, record);
         s.log_error("create_tlas: allocation failed");
         return {};
@@ -222,7 +222,7 @@ void CommandList::build_tlas(AccelerationStructureHandle tlas, std::span<const T
                VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
                VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
                VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR);
-    s.cmd_build_as(cmd, 1, &build, &ranges);
+    s.rt.cmd_build_as(cmd, 1, &build, &ranges);
     as_barrier(cmd, VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
                VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR, shader_stages,
                VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR);

@@ -10,7 +10,7 @@ VkCommandBuffer native(void* p) { return static_cast<VkCommandBuffer>(p); }
 
 QueryPoolHandle Device::create_timestamp_pool(std::uint32_t count) {
     auto& s = *impl_;
-    if (!s.timestamps || count == 0) {
+    if (!s.caps.timestamps || count == 0) {
         s.log_error("create_timestamp_pool: timestamps are not supported (or count is 0)");
         return {};
     }
@@ -39,7 +39,7 @@ bool Device::read_timestamps(QueryPoolHandle pool, std::uint32_t first, std::uin
         if (raw[std::size_t{i} * 2 + 1] == 0) return false;
     }
     for (std::uint32_t i = 0; i < count; ++i) {
-        out_ns[i] = static_cast<std::uint64_t>(static_cast<double>(raw[std::size_t{i} * 2] & s.timestamp_mask) * s.timestamp_period);
+        out_ns[i] = static_cast<std::uint64_t>(static_cast<double>(raw[std::size_t{i} * 2] & s.caps.timestamp_mask) * s.caps.timestamp_period);
     }
     return true;
 }

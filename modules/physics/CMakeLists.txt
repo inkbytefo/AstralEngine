@@ -30,6 +30,7 @@ FetchContent_MakeAvailable(JoltPhysics)
 astral_add_module(NAME physics
     SOURCES
         src/physics.cpp
+        src/physics_queries_joints.cpp
         src/fields.cpp
     DEPS
         Astral::Core

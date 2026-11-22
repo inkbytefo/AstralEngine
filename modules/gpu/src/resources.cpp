@@ -164,7 +164,7 @@ bool create_raw_buffer(Device::Impl& s, std::uint64_t size, BufferUsage usage, M
                        BufferRecord& out) {
     VkBufferUsageFlags flags = buffer_usage(usage);
     // Any buffer may feed an acceleration structure build (vertices, indices).
-    if (s.ray_tracing) flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+    if (s.rt.supported) flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
     if (!create_buffer_raw_usage(s, size, flags, memory, 1, out)) return false;
     out.usage = usage;
     return true;
@@ -307,7 +307,7 @@ TextureHandle Device::create_texture(const TextureDesc& desc) {
         return {};
     }
     if (is_compressed(desc.format) &&
-        (!s.texture_compression_bc || has_flag(desc.usage, TextureUsage::ColorTarget) ||
+        (!s.caps.texture_compression_bc || has_flag(desc.usage, TextureUsage::ColorTarget) ||
          has_flag(desc.usage, TextureUsage::Storage) || has_flag(desc.usage, TextureUsage::DepthTarget))) {
         s.log_error("create_texture: block-compressed textures are sampled only, and need Feature::TextureCompressionBC");
         return {};

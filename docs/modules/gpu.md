@@ -118,3 +118,10 @@ testleri lavapipe'ta `ctest -L '^golden$'`, donanım GPU'sunda `ctest -L '^golde
 `Feature::Timestamps`; `create_timestamp_pool(n)`, `CommandList::reset_queries` / `write_timestamp`,
 `read_timestamps` (hazır değilse bekletmez). `hostQueryReset` zorunlu özellik. Render graph bunları pass
 başına kullanır; oyun kodu doğrudan görmez.
+
+## Dosya düzeni (M13.5)
+
+- `vk_device.hpp`: modül içi paylaşılan Vulkan kayıtları (`BufferRecord`, `TextureRecord`, `PipelineRecord`, `AccelRecord`, `QueryRecord`) ve gruplanmış `Device::Impl` durumu (`Capabilities`, `BindlessState`, `RayTracingDispatch`, `DebugUtilsDispatch`).
+- `device_init.cpp`: Vulkan instance, yüzey, fiziksel cihaz seçimi, mantıksal cihaz, senkronizasyon ve bindless descriptor kurulumu (`init_vulkan_device`).
+- `device.cpp`: `Device` yaşam döngüsü, komut gönderimi, zaman çizelgesi beklemesi ve gecikmeli çöp toplama.
+- `resources.cpp`, `pipelines.cpp`, `command_list.cpp`, `swapchain.cpp`, `ray_tracing.cpp`, `queries.cpp`, `vma.cpp`: kaynak, pipeline, komut kaydı, swapchain, BLAS/TLAS ve timestamp uygulamaları.

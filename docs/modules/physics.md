@@ -77,3 +77,10 @@ Sensör (`BodyDesc::sensor`) giriş/çıkışları ve çarpışmalar World olay�
 - Jolt kendi iş parçacığı havuzunu kullanır (motorun JobSystem'iyle paylaşılmıyor; `Jolt::JobSystem` bağlama ertelendi, ADR-0029).
 - Jolt'un tip kaydı süreç genelinde (ilk `PhysicsWorld` kurar, sonuncusu kaldırır).
 - Görsel interpolasyon isteğe bağlı (`AppDesc::physics_interpolation`, varsayılan kapalı): kapalıyken 60 Hz'den yüksek ekranlarda hareket adım adım görünebilir.
+
+## Dosya düzeni (M13.5)
+
+- `physics_internal.hpp`: modül içi paylaşılan Jolt katman filtreleri, dönüşümler ve `PhysicsWorld::Impl` tanımı.
+- `physics.cpp`: Jolt yaşam döngüsü, şekil doğrulama/üretimi (`make_jolt_shape`), gövde (`BodyHandle`) yönetimi, adım (`step`) ve katman çarpışma matrisi.
+- `physics_queries_joints.cpp`: dar faz sorguları (`raycast`, `shape_cast`, `overlap`), eklemler (`create_joint`, `build_jolt_constraint`) ve sanal karakter kontrolcüsü (`CharacterVirtual`).
+- `fields.cpp`: rüzgâr ve su hacmi (`FieldWorld`) değerlendirmesi.

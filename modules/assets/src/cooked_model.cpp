@@ -32,6 +32,102 @@ bool u32s(ByteReader& r, std::vector<std::uint32_t>& v) {
 }
 std::int32_t index(ByteReader& r) { return static_cast<std::int32_t>(r.u32()); }
 
+const char* read_primitives(ByteReader& r, std::vector<ModelPrimitive>& primitives) {
+    const std::uint64_t n = r.varint();
+    if (n > max_count) return "damaged primitive count";
+    primitives.resize(static_cast<std::size_t>(n));
+    for (ModelPrimitive& p : primitives) {
+        p.material = index(r);
+        const std::uint64_t vertices = r.varint();
+        if (vertices * 32 > r.remaining()) return "truncated vertices";
+        p.mesh.vertices.resize(static_cast<std::size_t>(vertices));
+        for (Vertex& v : p.mesh.vertices) {
+            vec(r, &v.position.x, 3);
+            vec(r, &v.normal.x, 3);
+            vec(r, &v.uv.x, 2);
+        }
+        const std::uint64_t indices = r.varint();
+        if (indices * 4 > r.remaining()) return "truncated indices";
+        p.mesh.indices.resize(static_cast<std::size_t>(indices));
+        for (std::uint32_t& i : p.mesh.indices) {
+            i = r.u32();
+            if (i >= vertices) return "index out of range";
+        }
+    }
+    return nullptr;
+}
+
+const char* read_materials(ByteReader& r, std::vector<ModelMaterial>& materials) {
+    const std::uint64_t n = r.varint();
+    if (n > max_count) return "damaged material count";
+    materials.resize(static_cast<std::size_t>(n));
+    for (ModelMaterial& mat : materials) {
+        mat.name = r.string();
+        vec(r, &mat.base_color.x, 4);
+        mat.roughness = r.f32();
+        mat.metallic = r.f32();
+        vec(r, &mat.emissive.x, 3);
+        mat.normal_scale = r.f32();
+        mat.base_color_image = index(r);
+        mat.metallic_roughness_image = index(r);
+        mat.normal_image = index(r);
+        mat.emissive_image = index(r);
+    }
+    return nullptr;
+}
+
+const char* read_images(ByteReader& r, std::vector<ModelImage>& images) {
+    const std::uint64_t n = r.varint();
+    if (n > max_count) return "damaged image count";
+    images.resize(static_cast<std::size_t>(n));
+    for (ModelImage& img : images) {
+        ImageData& d = img.image;
+        img.source = r.string();
+        d.width = r.u32();
+        d.height = r.u32();
+        d.srgb = r.u8() != 0;
+        const std::uint8_t format = r.u8();
+        if (format > static_cast<std::uint8_t>(ImageFormat::BC7)) return "unknown image format";
+        d.format = static_cast<ImageFormat>(format);
+        if (r.u8() != 0) {
+            const std::uint64_t levels = r.varint();
+            if (levels > 32) return "damaged level count";
+            for (std::uint64_t l = 0; l < levels; ++l) {
+                const auto bytes = r.bytes(r.varint());
+                d.levels.emplace_back(bytes.begin(), bytes.end());
+            }
+        } else {
+            const auto bytes = r.bytes(r.varint());
+            d.rgba.assign(bytes.begin(), bytes.end());
+        }
+    }
+    return nullptr;
+}
+
+const char* read_nodes(ByteReader& r, ModelData& m) {
+    const std::uint64_t n = r.varint();
+    if (n > max_count) return "damaged node count";
+    m.nodes.resize(static_cast<std::size_t>(n));
+    for (ModelNode& node : m.nodes) {
+        node.name = r.string();
+        vec(r, &node.translation.x, 3);
+        vec(r, &node.rotation.x, 4);
+        vec(r, &node.scale.x, 3);
+        if (!u32s(r, node.primitives) || !u32s(r, node.children)) return "truncated node";
+        for (std::uint32_t p : node.primitives) {
+            if (p >= m.primitives.size()) return "node refers to a missing primitive";
+        }
+        for (std::uint32_t c : node.children) {
+            if (c >= m.nodes.size()) return "node refers to a missing child";
+        }
+    }
+    if (!u32s(r, m.roots)) return "truncated roots";
+    for (std::uint32_t root : m.roots) {
+        if (root >= m.nodes.size()) return "missing root node";
+    }
+    return nullptr;
+}
+
 } // namespace
 
 bool is_cooked_model(std::span<const std::uint8_t> data) noexcept {
@@ -117,90 +213,12 @@ std::optional<ModelData> read_cooked_model(std::span<const std::uint8_t> data, s
     if (r.u32() != format_version) return fail("unsupported version (cook again)");
     ModelData m;
 
-    std::uint64_t n = r.varint();
-    if (n > max_count) return fail("damaged primitive count");
-    m.primitives.resize(static_cast<std::size_t>(n));
-    for (ModelPrimitive& p : m.primitives) {
-        p.material = index(r);
-        const std::uint64_t vertices = r.varint();
-        if (vertices * 32 > r.remaining()) return fail("truncated vertices");
-        p.mesh.vertices.resize(static_cast<std::size_t>(vertices));
-        for (Vertex& v : p.mesh.vertices) {
-            vec(r, &v.position.x, 3);
-            vec(r, &v.normal.x, 3);
-            vec(r, &v.uv.x, 2);
-        }
-        const std::uint64_t indices = r.varint();
-        if (indices * 4 > r.remaining()) return fail("truncated indices");
-        p.mesh.indices.resize(static_cast<std::size_t>(indices));
-        for (std::uint32_t& i : p.mesh.indices) {
-            i = r.u32();
-            if (i >= vertices) return fail("index out of range");
-        }
-    }
+    if (const char* err = read_primitives(r, m.primitives)) return fail(err);
+    if (const char* err = read_materials(r, m.materials)) return fail(err);
+    if (const char* err = read_images(r, m.images)) return fail(err);
+    if (const char* err = read_nodes(r, m)) return fail(err);
 
-    n = r.varint();
-    if (n > max_count) return fail("damaged material count");
-    m.materials.resize(static_cast<std::size_t>(n));
-    for (ModelMaterial& mat : m.materials) {
-        mat.name = r.string();
-        vec(r, &mat.base_color.x, 4);
-        mat.roughness = r.f32();
-        mat.metallic = r.f32();
-        vec(r, &mat.emissive.x, 3);
-        mat.normal_scale = r.f32();
-        mat.base_color_image = index(r);
-        mat.metallic_roughness_image = index(r);
-        mat.normal_image = index(r);
-        mat.emissive_image = index(r);
-    }
-
-    n = r.varint();
-    if (n > max_count) return fail("damaged image count");
-    m.images.resize(static_cast<std::size_t>(n));
-    for (ModelImage& img : m.images) {
-        ImageData& d = img.image;
-        img.source = r.string();
-        d.width = r.u32();
-        d.height = r.u32();
-        d.srgb = r.u8() != 0;
-        const std::uint8_t format = r.u8();
-        if (format > static_cast<std::uint8_t>(ImageFormat::BC7)) return fail("unknown image format");
-        d.format = static_cast<ImageFormat>(format);
-        if (r.u8() != 0) {
-            const std::uint64_t levels = r.varint();
-            if (levels > 32) return fail("damaged level count");
-            for (std::uint64_t l = 0; l < levels; ++l) {
-                const auto bytes = r.bytes(r.varint());
-                d.levels.emplace_back(bytes.begin(), bytes.end());
-            }
-        } else {
-            const auto bytes = r.bytes(r.varint());
-            d.rgba.assign(bytes.begin(), bytes.end());
-        }
-    }
-
-    n = r.varint();
-    if (n > max_count) return fail("damaged node count");
-    m.nodes.resize(static_cast<std::size_t>(n));
-    for (ModelNode& node : m.nodes) {
-        node.name = r.string();
-        vec(r, &node.translation.x, 3);
-        vec(r, &node.rotation.x, 4);
-        vec(r, &node.scale.x, 3);
-        if (!u32s(r, node.primitives) || !u32s(r, node.children)) return fail("truncated node");
-        for (std::uint32_t p : node.primitives) {
-            if (p >= m.primitives.size()) return fail("node refers to a missing primitive");
-        }
-        for (std::uint32_t c : node.children) {
-            if (c >= m.nodes.size()) return fail("node refers to a missing child");
-        }
-    }
-    if (!u32s(r, m.roots)) return fail("truncated roots");
-    for (std::uint32_t root : m.roots) {
-        if (root >= m.nodes.size()) return fail("missing root node");
-    }
-    n = r.varint();
+    const std::uint64_t n = r.varint();
     if (n > max_count) return fail("damaged warning count");
     for (std::uint64_t i = 0; i < n; ++i) m.warnings.push_back(r.string());
     if (!r.ok()) return fail("truncated");

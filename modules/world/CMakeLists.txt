@@ -5,6 +5,7 @@ astral_add_module(NAME world
         src/serialize.cpp
         src/fields.cpp
         src/dynamic.cpp
+        src/prefab.cpp
         src/scene.cpp
         src/map.cpp
         src/streaming.cpp

@@ -41,28 +41,8 @@ MeshData terrain_mesh(const std::vector<float>& heights) {
     return mesh;
 }
 
-} // namespace
-
-float terrain_height(float x, float z) {
-    const float r = std::sqrt(x * x + z * z);
-    const float ripple = 0.4f * std::sin(x * 0.35f) * std::cos(z * 0.3f);
-    return -2.5f + 5.5f * smooth(10.0f, 28.0f, r) + ripple * smooth(8.0f, 20.0f, r);
-}
-
-bool install_features(Context& ctx) {
-    FeatureSet game;
-    game.add("fly_camera", fly::install_fly_camera);
-    game.add("playground", playground::install_playground);
-    return game.install(ctx);
-}
-
-void PlaygroundGame::on_start(Context& ctx) {
-    if (!install_features(ctx)) {
-        ctx.quit();
-        return;
-    }
+void spawn_basin_and_fields(Context& ctx) {
     World& w = ctx.world;
-
     // Terrain: one height field for physics, the same heights as a mesh.
     std::vector<float> heights(std::size_t{grid} * grid);
     for (std::uint32_t z = 0; z < grid; ++z) {
@@ -81,7 +61,10 @@ void PlaygroundGame::on_start(Context& ctx) {
 
     // Wind: gusty and turning (the rule is in playground.luau).
     w.create(Name{"wind"}, Transform{}, WindZone{.velocity = {6, 0, 0}, .gust_strength = 3.0f, .gust_frequency = 0.3f, .turbulence = 1.0f, .global = true});
+}
 
+void spawn_floaters(Context& ctx) {
+    World& w = ctx.world;
     // Floaters on the lake: light crates float, stones sink, beach balls drift in the wind.
     const BodyDesc crate{.shape = ShapeDesc::box({0.3f, 0.3f, 0.3f}), .friction = 0.7f, .surface = 2};
     for (int i = 0; i < 6; ++i) {
@@ -104,7 +87,10 @@ void PlaygroundGame::on_start(Context& ctx) {
                  RigidBody{.desc = {.shape = ShapeDesc::sphere(0.4f), .mass = 1.2f, .restitution = 0.6f, .linear_damping = 0.02f, .surface = 2}},
                  Buoyant{.volume = 0.0f, .height = 0.8f, .area = 0.5f, .drag = 0.8f}, AirDrag{.area = 0.5f, .drag = 0.47f});
     }
+}
 
+void spawn_bridge_and_gadgets(Context& ctx) {
+    World& w = ctx.world;
     // A plank bridge across the lake, each plank hinged to the next, both ends to posts on the shore.
     const float bridge_z = 17.0f, bridge_y = terrain_height(-14.0f, bridge_z) + 0.4f;
     constexpr int planks = 14;
@@ -134,9 +120,34 @@ void PlaygroundGame::on_start(Context& ctx) {
              MeshRenderer{ctx.meshes.cube, ctx.materials().create_material({.base_color = {0.95f, 0.95f, 0.9f, 1}, .roughness = 0.6f})},
              RigidBody{.desc = {.shape = ShapeDesc::box({1.2f, 0.04f, 0.45f}), .linear_velocity = {0, 0, -9.0f}, .mass = 4.0f, .linear_damping = 0.0f}},
              Airfoil{.area = 2.0f, .lift_slope = 6.0f}, AirDrag{.area = 0.2f, .drag = 0.3f});
+}
 
-    w.create(Transform{.position = {0, 12, 38}, .rotation = Quat::from_axis_angle({1, 0, 0}, -0.28f)}, Camera{.far_plane = 400.0f},
-             fly::FlyCamera{.speed = 10.0f, .fast_speed = 30.0f, .pitch = -0.28f});
+} // namespace
+
+float terrain_height(float x, float z) {
+    const float r = std::sqrt(x * x + z * z);
+    const float ripple = 0.4f * std::sin(x * 0.35f) * std::cos(z * 0.3f);
+    return -2.5f + 5.5f * smooth(10.0f, 28.0f, r) + ripple * smooth(8.0f, 20.0f, r);
+}
+
+bool install_features(Context& ctx) {
+    FeatureSet game;
+    game.add("fly_camera", fly::install_fly_camera);
+    game.add("playground", playground::install_playground);
+    return game.install(ctx);
+}
+
+void PlaygroundGame::on_start(Context& ctx) {
+    if (!install_features(ctx)) {
+        ctx.quit();
+        return;
+    }
+    spawn_basin_and_fields(ctx);
+    spawn_floaters(ctx);
+    spawn_bridge_and_gadgets(ctx);
+
+    ctx.world.create(Transform{.position = {0, 12, 38}, .rotation = Quat::from_axis_angle({1, 0, 0}, -0.28f)}, Camera{.far_plane = 400.0f},
+                     fly::FlyCamera{.speed = 10.0f, .fast_speed = 30.0f, .pitch = -0.28f});
     ctx.sun = {.direction = {-0.45f, -0.8f, -0.4f}, .intensity = 1.5f};
     ctx.environment.exposure = 0.5f;
     ctx.log.info("physics playground: WASD/QE fly, right mouse look; F1 -> physics/fields overlays");

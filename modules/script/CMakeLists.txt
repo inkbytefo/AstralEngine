@@ -20,6 +20,7 @@ astral_add_module(NAME script
     SOURCES
         src/host.cpp
         src/bindings.cpp
+        src/bindings_services.cpp
         src/convert.cpp
         src/api.cpp
         src/compile.cpp

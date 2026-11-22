@@ -49,6 +49,24 @@ VkCullModeFlags to_vk(CullMode c) {
     return VK_CULL_MODE_NONE;
 }
 
+std::vector<VkPipelineColorBlendAttachmentState> make_blend_attachments(const GraphicsPipelineDesc& desc) {
+    std::vector<VkPipelineColorBlendAttachmentState> blends(desc.color_formats.size());
+    for (auto& b : blends) {
+        b.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                           VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        if (desc.alpha_blend || desc.additive_blend) {
+            b.blendEnable = VK_TRUE;
+            b.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+            b.dstColorBlendFactor = desc.additive_blend ? VK_BLEND_FACTOR_ONE : VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            b.colorBlendOp = VK_BLEND_OP_ADD;
+            b.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            b.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            b.alphaBlendOp = VK_BLEND_OP_ADD;
+        }
+    }
+    return blends;
+}
+
 } // namespace
 
 PipelineHandle Device::create_compute_pipeline(const ComputePipelineDesc& desc) {
@@ -64,7 +82,7 @@ PipelineHandle Device::create_compute_pipeline(const ComputePipelineDesc& desc) 
     info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
     info.stage.module = module;
     info.stage.pName = entry.c_str();
-    info.layout = s.pipeline_layout;
+    info.layout = s.bindless.pipeline_layout;
     PipelineRecord record{VK_NULL_HANDLE, VK_PIPELINE_BIND_POINT_COMPUTE};
     const VkResult result = vkCreateComputePipelines(s.device, VK_NULL_HANDLE, 1, &info, nullptr, &record.pipeline);
     vkDestroyShaderModule(s.device, module, nullptr);
@@ -86,20 +104,14 @@ PipelineHandle Device::create_graphics_pipeline(const GraphicsPipelineDesc& desc
         s.log_error("create_graphics_pipeline: invalid SPIR-V");
         return {};
     }
-    const std::string vs_entry(desc.vertex.entry);
-    const std::string fs_entry(desc.fragment.entry);
-    VkPipelineShaderStageCreateInfo stages[2]{};
-    stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
-                 VK_SHADER_STAGE_VERTEX_BIT, vs, vs_entry.c_str(), nullptr};
-    stages[1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
-                 VK_SHADER_STAGE_FRAGMENT_BIT, fs, fs_entry.c_str(), nullptr};
+    const std::string vs_entry(desc.vertex.entry), fs_entry(desc.fragment.entry);
+    VkPipelineShaderStageCreateInfo stages[2] = {
+        {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vs, vs_entry.c_str(), nullptr},
+        {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fs, fs_entry.c_str(), nullptr}};
 
     VkPipelineVertexInputStateCreateInfo vertex_input{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-    VkPipelineInputAssemblyStateCreateInfo assembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-    assembly.topology = to_vk(desc.topology);
-    VkPipelineViewportStateCreateInfo viewport{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
-    viewport.viewportCount = 1;
-    viewport.scissorCount = 1;
+    VkPipelineInputAssemblyStateCreateInfo assembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO, nullptr, 0, to_vk(desc.topology), VK_FALSE};
+    VkPipelineViewportStateCreateInfo viewport{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO, nullptr, 0, 1, nullptr, 1, nullptr};
     VkPipelineRasterizationStateCreateInfo raster{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
     raster.polygonMode = VK_POLYGON_MODE_FILL;
     raster.cullMode = to_vk(desc.cull);
@@ -113,28 +125,13 @@ PipelineHandle Device::create_graphics_pipeline(const GraphicsPipelineDesc& desc
     depth.depthWriteEnable = has_depth && desc.depth.write;
     depth.depthCompareOp = to_vk(desc.depth.compare);
 
-    std::vector<VkPipelineColorBlendAttachmentState> blends(desc.color_formats.size());
-    for (auto& b : blends) {
-        b.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                           VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-        if (desc.alpha_blend || desc.additive_blend) {
-            b.blendEnable = VK_TRUE;
-            b.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-            b.dstColorBlendFactor = desc.additive_blend ? VK_BLEND_FACTOR_ONE : VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-            b.colorBlendOp = VK_BLEND_OP_ADD;
-            b.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-            b.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-            b.alphaBlendOp = VK_BLEND_OP_ADD;
-        }
-    }
+    const std::vector<VkPipelineColorBlendAttachmentState> blends = make_blend_attachments(desc);
     VkPipelineColorBlendStateCreateInfo blend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
     blend.attachmentCount = static_cast<std::uint32_t>(blends.size());
     blend.pAttachments = blends.data();
 
     const VkDynamicState dynamic_states[2] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-    VkPipelineDynamicStateCreateInfo dynamic{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
-    dynamic.dynamicStateCount = 2;
-    dynamic.pDynamicStates = dynamic_states;
+    VkPipelineDynamicStateCreateInfo dynamic{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO, nullptr, 0, 2, dynamic_states};
 
     std::vector<VkFormat> color_formats;
     for (Format f : desc.color_formats) color_formats.push_back(to_vk(f));
@@ -154,7 +151,7 @@ PipelineHandle Device::create_graphics_pipeline(const GraphicsPipelineDesc& desc
     info.pDepthStencilState = &depth;
     info.pColorBlendState = &blend;
     info.pDynamicState = &dynamic;
-    info.layout = s.pipeline_layout;
+    info.layout = s.bindless.pipeline_layout;
 
     PipelineRecord record{VK_NULL_HANDLE, VK_PIPELINE_BIND_POINT_GRAPHICS};
     const VkResult result = vkCreateGraphicsPipelines(s.device, VK_NULL_HANDLE, 1, &info, nullptr, &record.pipeline);

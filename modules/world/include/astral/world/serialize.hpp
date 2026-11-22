@@ -99,6 +99,44 @@ inline bool read_floats(const Json& j, float* f, std::size_t n, const LoadContex
     for (std::size_t i = 0; i < n; ++i) f[i] = static_cast<float>(j[i].as_number());
     return true;
 }
+inline bool read_entity(const Json& j, Entity& v, const LoadContext& ctx) {
+    if (j.is_null()) {
+        v = {};
+        return true;
+    }
+    if (ctx.resolve && ctx.resolve(j, v)) return true;
+    ctx.error("reference " + j.dump() + " names no entity in this document");
+    v = {};
+    return false;
+}
+template <class T> bool read_number_or_enum(const Json& j, T& v, const LoadContext& ctx) {
+    if constexpr (is_reflected_enum_v<T>) {
+        if (j.is_string()) {
+            const auto value = enum_from_name<T>(j.as_string());
+            if (!value) return ctx.error("unknown enumerator \"" + j.as_string() + "\""), false;
+            v = *value;
+            return true;
+        }
+    }
+    if (!j.is_number()) return ctx.error("expected a number"), false;
+    if constexpr (std::is_enum_v<T>) v = static_cast<T>(static_cast<std::underlying_type_t<T>>(j.as_number()));
+    else v = static_cast<T>(j.as_number());
+    return true;
+}
+template <class T> bool read_reflected(const Json& j, T& v, const LoadContext& ctx) {
+    if (!j.is_object()) return ctx.error("expected an object"), false;
+    bool ok = true;
+    for_each_field<T>([&](const auto& f) {
+        const Json* member = j.find(f.name);
+        if (!member) return; // missing: keep the default (older files)
+        LoadContext inner = ctx;
+        inner.path = ctx.path + "." + std::string(f.name);
+        auto value = v.*(f.member);
+        if (from_json(*member, value, inner)) v.*(f.member) = std::move(value);
+        else ok = false;
+    });
+    return ok;
+}
 } // namespace detail
 
 template <class T> Json to_json(const T& v, const SaveContext& ctx) {
@@ -146,14 +184,7 @@ template <class T> Json to_json(const T& v, const SaveContext& ctx) {
 
 template <class T> bool from_json(const Json& j, T& v, const LoadContext& ctx) {
     if constexpr (std::is_same_v<T, Entity>) {
-        if (j.is_null()) {
-            v = {};
-            return true;
-        }
-        if (ctx.resolve && ctx.resolve(j, v)) return true;
-        ctx.error("reference " + j.dump() + " names no entity in this document");
-        v = {};
-        return false;
+        return detail::read_entity(j, v, ctx);
     } else if constexpr (is_handle<T>::value) {
         v = {};
         return true;
@@ -162,21 +193,7 @@ template <class T> bool from_json(const Json& j, T& v, const LoadContext& ctx) {
         v = j.as_bool();
         return true;
     } else if constexpr (std::is_enum_v<T> || std::is_arithmetic_v<T>) {
-        if constexpr (is_reflected_enum_v<T>) {
-            if (j.is_string()) {
-                const auto value = enum_from_name<T>(j.as_string());
-                if (!value) return ctx.error("unknown enumerator \"" + j.as_string() + "\""), false;
-                v = *value;
-                return true;
-            }
-        }
-        if (!j.is_number()) return ctx.error("expected a number"), false;
-        if constexpr (std::is_enum_v<T>) {
-            v = static_cast<T>(static_cast<std::underlying_type_t<T>>(j.as_number()));
-        } else {
-            v = static_cast<T>(j.as_number());
-        }
-        return true;
+        return detail::read_number_or_enum(j, v, ctx);
     } else if constexpr (std::is_same_v<T, std::string>) {
         if (!j.is_string()) return ctx.error("expected a string"), false;
         v = j.as_string();
@@ -190,10 +207,7 @@ template <class T> bool from_json(const Json& j, T& v, const LoadContext& ctx) {
     } else if constexpr (std::is_same_v<T, Mat4>) {
         return detail::read_floats(j, &v[0].x, 16, ctx);
     } else if constexpr (is_optional<T>::value) {
-        if (j.is_null()) {
-            v.reset();
-            return true;
-        }
+        if (j.is_null()) return v.reset(), true;
         typename T::value_type inner{};
         if (!from_json(j, inner, ctx)) return false;
         v = std::move(inner);
@@ -216,18 +230,7 @@ template <class T> bool from_json(const Json& j, T& v, const LoadContext& ctx) {
         for (std::size_t i = 0; i < v.size(); ++i) ok = from_json(j[i], v[i], ctx) && ok;
         return ok;
     } else if constexpr (is_reflected_v<T>) {
-        if (!j.is_object()) return ctx.error("expected an object"), false;
-        bool ok = true;
-        for_each_field<T>([&](const auto& f) {
-            const Json* member = j.find(f.name);
-            if (!member) return; // missing: keep the default (older files)
-            LoadContext inner = ctx;
-            inner.path = ctx.path + "." + std::string(f.name);
-            auto value = v.*(f.member);
-            if (from_json(*member, value, inner)) v.*(f.member) = std::move(value);
-            else ok = false;
-        });
-        return ok;
+        return detail::read_reflected(j, v, ctx);
     } else {
         static_assert(sizeof(T) == 0, "type is not serializable: ASTRAL_REFLECT it");
     }

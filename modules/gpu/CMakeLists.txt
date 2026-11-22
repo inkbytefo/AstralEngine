@@ -13,6 +13,7 @@ endif()
 astral_add_module(NAME gpu
     SOURCES
         src/device.cpp
+        src/device_init.cpp
         src/resources.cpp
         src/pipelines.cpp
         src/command_list.cpp
