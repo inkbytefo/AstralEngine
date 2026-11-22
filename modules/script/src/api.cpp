@@ -85,23 +85,20 @@ ScriptApi generate_script_api(const TypeRegistry& types, const EventRegistry& ev
         if (!e.dynamic) d += "export type E_" + ident(e.name) + " = " + table_type(e.fields, "") + "\n";
     }
 
-    // Entity with one overload per component.
-    const auto overloads = [&](const char* method, const char* returns_suffix, bool with_value) {
-        std::string out;
-        for (const auto& t : types.entries()) {
-            if (!out.empty()) out += " &\n        ";
-            out += "((self: Entity, name: \"" + std::string(t.name) + "\"";
-            if (with_value) out += ", values: " + std::string("{") + "}?";
-            out += ") -> " + std::string(returns_suffix == std::string("?") ? "C_" + ident(t.name) + "?" : (returns_suffix == std::string("!") ? "C_" + ident(t.name) : "boolean")) + ")";
-        }
-        if (out.empty()) out = "(self: Entity, name: string) -> any";
-        return std::string("    ") + method + ": " + out + ",\n";
-    };
-    d += "\nexport type Entity = {\n";
-    d += overloads("get", "?", false);
-    d += overloads("add", "!", true);
-    d += overloads("has", "b", false);
-    d += "    remove: (self: Entity, name: string) -> (),\n"
+    // Name -> type maps; Entity and astral.on/send index them by the string literal that is passed in, so a typo in a
+    // component or event name, or in a field, is a type error (type functions keyof / index).
+    d += "\nexport type Components = {\n";
+    for (const auto& t : types.entries()) d += "    [\"" + std::string(t.name) + "\"]: C_" + ident(t.name) + ",\n";
+    d += "}\nexport type Events = {\n";
+    for (const auto& e : events.entries()) {
+        d += "    [\"" + std::string(e.name) + "\"]: " + (e.dynamic ? std::string("{[string]: any}") : "E_" + ident(e.name)) + ",\n";
+    }
+    d += "}\n\n";
+    d += "export type Entity = {\n"
+         "    get: <K>(self: Entity, name: K & keyof<Components>) -> index<Components, K>?,\n"
+         "    add: <K>(self: Entity, name: K & keyof<Components>, values: {[string]: any}?) -> index<Components, K>,\n"
+         "    has: (self: Entity, name: keyof<Components>) -> boolean,\n"
+         "    remove: (self: Entity, name: keyof<Components>) -> (),\n"
          "    destroy: (self: Entity) -> (),\n"
          "    alive: (self: Entity) -> boolean,\n"
          "    id: (self: Entity) -> number,\n}\n\n";
@@ -114,20 +111,15 @@ ScriptApi generate_script_api(const TypeRegistry& types, const EventRegistry& ev
          "    on_start: ((self: Entity, ctx: Ctx) -> ())?,\n    on_update: ((self: Entity, ctx: Ctx) -> ())?,\n"
          "    on_fixed_update: ((self: Entity, ctx: Ctx) -> ())?,\n}\n\n";
 
-    std::string on, send;
-    for (const auto& e : events.entries()) {
-        const std::string payload = e.dynamic ? "{[string]: any}" : "E_" + ident(e.name);
-        on += (on.empty() ? "" : " &\n        ") + std::string("((event: \"") + std::string(e.name) + "\", fn: (ctx: Ctx, event: " + payload + ") -> (), phase: Phase?) -> ())";
-        send += (send.empty() ? "" : " &\n        ") + std::string("((event: \"") + std::string(e.name) + "\", payload: " + (e.dynamic ? "{[string]: any}?" : "{}?") + ") -> ())";
-    }
-    if (on.empty()) on = "(event: string, fn: (ctx: Ctx, event: any) -> (), phase: Phase?) -> ()";
-    if (send.empty()) send = "(event: string, payload: any?) -> ()";
-
+    d += "export type StateDef = {\n    enter: ((from: string?) -> ())?,\n    update: ((dt: number) -> ())?,\n    exit: ((to: string) -> ())?,\n    on: {[string]: string}?,\n}\n"
+         "export type StateMachineDef = {\n    initial: string?,\n    states: {[string]: StateDef},\n    store: {get: () -> string?, set: (name: string) -> ()}?,\n}\n"
+         "export type StateMachine = {\n    state: (self: StateMachine) -> string,\n    go: (self: StateMachine, name: string) -> (),\n"
+         "    send: (self: StateMachine, event: string) -> boolean,\n    update: (self: StateMachine, dt: number) -> (),\n}\n\n";
     d += "declare astral: {\n"
          "    system: (def: SystemDef) -> (),\n"
          "    behaviour: (def: Behaviour) -> Behaviour,\n"
-         "    on: " + on + ",\n"
-         "    send: " + send + ",\n"
+         "    on: <K>(event: K & keyof<Events>, fn: (ctx: Ctx, event: index<Events, K>) -> (), phase: Phase?) -> (),\n"
+         "    send: <K>(event: K & keyof<Events>, payload: {[string]: any}?) -> (),\n"
          "    define_component: (name: string, fields: {[string]: string | {type: string, default: any?}}) -> (),\n"
          "    define_event: (name: string) -> (),\n"
          "    spawn: (components: {[string]: any}) -> Entity,\n"
@@ -139,6 +131,13 @@ ScriptApi generate_script_api(const TypeRegistry& types, const EventRegistry& ev
          "    random: () -> number,\n"
          "    seed: (seed: number) -> (),\n"
          "    log: (...any) -> (),\n    warn: (...any) -> (),\n    error: (...any) -> (),\n"
+         "    save: (slot: string, components: {string}) -> boolean,\n"
+         "    load: (slot: string) -> boolean,\n"
+         "    has_save: (slot: string) -> boolean,\n"
+         "    ease: (name: string, t: number) -> number,\n"
+         "    lerp: <T>(a: T, b: T, t: number) -> T,\n"
+         "    tween: (duration: number, step: (t: number) -> (), options: {ease: string?, on_done: (() -> ())?}?) -> number,\n"
+         "    state_machine: (def: StateMachineDef) -> StateMachine,\n"
          "    quat: {\n"
          "        axis_angle: (axis: vector, radians: number) -> Quat,\n        mul: (a: Quat, b: Quat) -> Quat,\n"
          "        normalize: (q: Quat) -> Quat,\n        rotate: (q: Quat, v: vector) -> vector,\n    },\n"
@@ -165,6 +164,9 @@ ScriptApi generate_script_api(const TypeRegistry& types, const EventRegistry& ev
          "| `astral.query{\"A\", \"B\"}` | `{ {entity, a, b}, ... }`: every entity with all of them, with live component proxies |\n"
          "| `entity:get(name)`, `:has`, `:add(name, fields)`, `:remove`, `:destroy()`, `:alive()` | component access (`get` returns a live proxy: `c.field = v` writes) |\n"
          "| `astral.after(s, fn)`, `astral.every(s, fn)`, `astral.cancel(id)` | timers |\n"
+         "| `astral.tween(seconds, step, {ease, on_done})`, `astral.ease(name, t)`, `astral.lerp(a, b, t)` | animate a value: `step(t)` each frame, t 0..1 eased (linear, in_quad, out_quad, in_out_quad, in_cubic, out_cubic, in_out_cubic, out_back); the tween's progress lives in a closure |\n"
+         "| `astral.state_machine{initial, states = {name = {enter, update, exit, on = {event = \"next\"}}}, store}` | `m:send(event)`, `m:go(name)`, `m:update(dt)`, `m:state()`; `store = {get, set}` keeps the state in a component |\n"
+         "| `astral.save(slot, {components})`, `astral.load(slot)`, `astral.has_save(slot)` | save the listed components of every entity that has them; load destroys those entities and brings the slot's back |\n"
          "| `astral.quat.axis_angle(axis, radians)`, `.mul(a, b)`, `.rotate(q, v)`, `.normalize(q)` | quaternion math on `{x,y,z,w}` tables (`mul(a, b)` applies b first, like C++) |\n"
          "| `astral.random()`, `astral.seed(n)` | deterministic random in [0, 1) |\n"
          "| `astral.input.down/pressed/released/value/axis(action)` | named input actions |\n"

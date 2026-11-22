@@ -13,6 +13,13 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 - Görüntü testleri: blank, hello_triangle, spinning_cubes, sdf_scene.
 - ADR-0027.
 
+### Added (M11 follow-ups, ADR-0028)
+- script: `astral-luau-check` (Luau çözümleyicisiyle tip denetimi), `astral_check_scripts` (CTest `<oyun>_script_types`), `astral.d.luau` `keyof`/`index`
+  ile adlara göre tipli; `--script-api-only`; Luau bytecode cook (`compile_script`, `astral-cook`); `astral.tween/ease/lerp`, `astral.state_machine`,
+  `astral.save/load/has_save` (`ScriptStorage`, `AppDesc::save_folder`).
+- platform/app: gamepad (`Input`, SDL3 olayları, `.actions` anahtarları); `fly_camera`, pong ve physics_demo eylemlerine gamepad eşlemesi.
+- `features/` ortak özellikler + `tools/sync_features.py` (CTest `shared_features_in_sync`).
+
 ### Fixed
 - render: ışın izleme gölge/yansıma ışınlarının yüzeyden başlangıç payı sabitti (2 mm); derinlikten yeniden kurulan konumun hatası uzaklıkla
   büyüdüğü için uzak zemin kamera konumuna göre rastgele aydınlık/kendi gölgesinde çıkıyordu (open_world'de kamera 1e-4 m kayınca zemin

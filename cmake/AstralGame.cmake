@@ -10,6 +10,8 @@
 #                     Built with ALL when ASTRAL_PACKAGE_GAMES is ON.
 option(ASTRAL_PACKAGE_GAMES "Build every game's package (cook + .apak) with ALL" OFF)
 
+set(ASTRAL_CHECK_SCRIPTS_CMAKE ${CMAKE_CURRENT_LIST_DIR}/CheckScripts.cmake)
+
 function(astral_add_game name)
     cmake_parse_arguments(ARG "" "ASSETS" "SOURCES" ${ARGN})
     if(NOT ARG_SOURCES OR NOT ARG_ASSETS)
@@ -73,4 +75,28 @@ function(astral_check_features name)
         message(FATAL_ERROR "astral_check_features(${name}): astral-features is not available")
     endif()
     add_test(NAME ${name}_features_check COMMAND ${tool} check ${sources} ${manifests})
+endfunction()
+
+# astral_check_scripts(<name> GAME <game target> SCRIPTS <folder with .luau files>)
+#
+#   Adds the CTest test <name>_script_types: the game writes astral.d.luau (`--script-api-only`, headless) and
+#   astral-luau-check type-checks every script against it, so a wrong component, field or event name, or a wrong
+#   type, fails the build. Needs astral-luau-check (built with the engine's tests); does nothing without it.
+function(astral_check_scripts name)
+    cmake_parse_arguments(ARG "" "GAME;SCRIPTS" "" ${ARGN})
+    if(NOT ARG_GAME OR NOT ARG_SCRIPTS)
+        message(FATAL_ERROR "astral_check_scripts(${name}): GAME and SCRIPTS are required")
+    endif()
+    if(TARGET astral_luau_check)
+        set(checker astral_luau_check)
+    elseif(TARGET Astral::astral_luau_check)
+        set(checker Astral::astral_luau_check)
+    else()
+        return()
+    endif()
+    get_filename_component(scripts ${ARG_SCRIPTS} ABSOLUTE)
+    add_test(NAME ${name}_script_types
+        COMMAND ${CMAKE_COMMAND} -DGAME=$<TARGET_FILE:${ARG_GAME}> -DCHECK=$<TARGET_FILE:${checker}>
+                -DOUT=${CMAKE_CURRENT_BINARY_DIR}/${name}_script_api -DSCRIPTS=${scripts}
+                -P ${ASTRAL_CHECK_SCRIPTS_CMAKE})
 endfunction()

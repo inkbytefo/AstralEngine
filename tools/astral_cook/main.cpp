@@ -13,6 +13,7 @@
 #include <astral/assets/cook.hpp>
 #include <astral/assets/pack.hpp>
 #include <astral/core/log.hpp>
+#include <astral/script/compile.hpp>
 
 #include <chrono>
 #include <cstdio>
@@ -84,7 +85,11 @@ int main(int argc, char** argv) {
     if (quiet) log.set_level(LogLevel::Error);
     JobSystem jobs(workers);
     const auto start = std::chrono::steady_clock::now();
-    const CookReport report = cook_directory({.source = source, .output = output, .textures = textures, .jobs = &jobs, .logger = &log});
+    const CookReport report = cook_directory({.source = source, .output = output, .textures = textures, .jobs = &jobs,
+                                             .compile_script = [](std::string_view name, const std::vector<std::uint8_t>& text, std::vector<std::uint8_t>& out, std::string* error) {
+                                                 return compile_script(name, std::string_view(reinterpret_cast<const char*>(text.data()), text.size()), out, error);
+                                             },
+                                             .logger = &log});
     if (!report.ok()) {
         std::fprintf(stderr, "astral-cook: %zu error(s)\n", report.errors.size());
         return 1;

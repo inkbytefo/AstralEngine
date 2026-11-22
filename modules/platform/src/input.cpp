@@ -15,6 +15,7 @@ void Input::apply(ButtonState& state, bool down) noexcept {
 void Input::begin_frame() noexcept {
     for (auto& k : keys_) k.pressed = k.released = false;
     for (auto& b : mouse_) b.pressed = b.released = false;
+    for (auto& b : pad_buttons_) b.pressed = b.released = false;
     mouse_delta_ = {};
     scroll_ = {};
     text_.clear();
@@ -32,6 +33,29 @@ void Input::clear_mouse() noexcept {
     mouse_delta_ = {};
     scroll_ = {};
 }
+
+void Input::set_gamepad_connected(bool connected) noexcept {
+    gamepad_connected_ = connected;
+    if (!connected) {
+        pad_buttons_ = {};
+        pad_axes_ = {};
+    }
+}
+
+void Input::set_gamepad_button(GamepadButton button, bool down) noexcept {
+    if (button == GamepadButton::Count) return;
+    apply(at(pad_buttons_, button), down);
+}
+
+void Input::set_gamepad_axis(GamepadAxis axis, float value) noexcept {
+    if (axis == GamepadAxis::Count) return;
+    at(pad_axes_, axis) = value < -1.0f ? -1.0f : value > 1.0f ? 1.0f : value;
+}
+
+bool Input::down(GamepadButton b) const noexcept { return at(pad_buttons_, b).down; }
+bool Input::pressed(GamepadButton b) const noexcept { return at(pad_buttons_, b).pressed; }
+bool Input::released(GamepadButton b) const noexcept { return at(pad_buttons_, b).released; }
+float Input::axis(GamepadAxis a) const noexcept { return at(pad_axes_, a); }
 
 void Input::set_key(Key key, bool down) noexcept {
     if (key == Key::Unknown || key == Key::Count) return;

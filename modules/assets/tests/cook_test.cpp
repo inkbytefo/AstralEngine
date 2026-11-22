@@ -305,3 +305,31 @@ TEST_CASE("cook_directory: .material becomes binary JSON; a shader that does not
     CHECK(line_reported);
     CHECK(header_reported);
 }
+
+TEST_CASE("cook_directory: .luau goes through the script compiler when one is given, a failing script is reported with its name") {
+    namespace fs = std::filesystem;
+    const fs::path source = test::temp_dir("cook_scripts_src"), output = test::temp_dir("cook_scripts_out");
+    const auto write = [&](const char* name, std::string_view text) {
+        std::ofstream(source / name, std::ios::binary) << text;
+    };
+    write("good.luau", "print('hi')");
+    write("bad.luau", "syntax error here");
+    CookOptions options{.source = source, .output = output,
+                        .compile_script = [](std::string_view name, const std::vector<std::uint8_t>& text, std::vector<std::uint8_t>& out, std::string* error) {
+                            if (std::string(text.begin(), text.end()).find("error") != std::string::npos) {
+                                *error = std::string(name) + ":1: bad script";
+                                return false;
+                            }
+                            out = {'B', 'C'};
+                            return true;
+                        }};
+    const CookReport report = cook_directory(options);
+    REQUIRE(report.errors.size() == 1);
+    CHECK(report.errors[0] == "bad.luau:1: bad script");
+    CHECK(fs::file_size(output / "good.luau") == 2); // the compiled form, not the source
+    options.compile_script = nullptr; // without a compiler: copied as source
+    fs::remove(source / "bad.luau");
+    options.output = test::temp_dir("cook_scripts_out2");
+    CHECK(cook_directory(options).ok());
+    CHECK(fs::file_size(options.output / "good.luau") == 11);
+}

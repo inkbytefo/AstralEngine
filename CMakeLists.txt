@@ -45,6 +45,11 @@ include(AstralGame)
 
 if(ASTRAL_BUILD_TESTS)
     add_subdirectory(tests/integration)
+    find_package(Python3 COMPONENTS Interpreter)
+    if(Python3_Interpreter_FOUND)
+        # The shared features (features/) and their copies inside the games must be identical.
+        add_test(NAME shared_features_in_sync COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/tools/sync_features.py --check)
+    endif()
     add_test(NAME astral_public_headers_clean
         COMMAND ${CMAKE_COMMAND} -DROOT=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/CheckPublicHeaders.cmake)
 endif()

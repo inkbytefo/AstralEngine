@@ -18,9 +18,9 @@ namespace {
 constexpr std::string_view cache_name = ".astral-cook.json";
 constexpr int cache_version = 1;
 /// Bump when cooked formats or the cook's decisions change: everything is cooked again.
-constexpr std::string_view cook_version = "astral-cook 1";
+constexpr std::string_view cook_version = "astral-cook 2";
 
-enum class Kind { Model, World, Shader, Document, Copy };
+enum class Kind { Model, World, Shader, Document, Script, Copy };
 
 Kind kind_of(const std::filesystem::path& p) {
     std::string ext = p.extension().string();
@@ -28,6 +28,7 @@ Kind kind_of(const std::filesystem::path& p) {
     if (ext == ".gltf" || ext == ".glb") return Kind::Model;
     if (ext == ".world") return Kind::World;
     if (ext == ".ashader") return Kind::Shader;
+    if (ext == ".luau") return Kind::Script;
     if (ext == ".scene" || ext == ".prefab" || ext == ".json" || ext == ".material") return Kind::Document;
     return Kind::Copy;
 }
@@ -38,6 +39,7 @@ const char* kind_name(Kind k) {
     case Kind::World: return "world";
     case Kind::Shader: return "shader";
     case Kind::Document: return "document";
+    case Kind::Script: return "script";
     case Kind::Copy: break;
     }
     return "copy";
@@ -275,6 +277,12 @@ CookReport cook_directory(const CookOptions& o) {
             for (const ShaderError& e : problems) error(rel + ":" + std::to_string(e.line) + ": " + e.message);
             if (!problems.empty()) continue;
             out = std::move(*bytes);
+        } else if (kind == Kind::Script && o.compile_script) {
+            std::string compile_error;
+            if (!o.compile_script(rel, *bytes, out, &compile_error)) {
+                error(compile_error);
+                continue;
+            }
         } else if (kind == Kind::Document && !Json::is_binary(*bytes)) {
             std::string parse_error;
             auto doc = Json::parse(std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()), &parse_error);
@@ -290,7 +298,7 @@ CookReport cook_directory(const CookOptions& o) {
             error(io_error);
             continue;
         }
-        if (kind == Kind::Document) ++report.cooked;
+        if (kind == Kind::Document || (kind == Kind::Script && o.compile_script)) ++report.cooked;
         else ++report.copied;
         cache[rel] = CacheEntry{kind_name(kind), hex(h), {}};
     }

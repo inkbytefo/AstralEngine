@@ -22,6 +22,7 @@ astral_add_module(NAME script
         src/bindings.cpp
         src/convert.cpp
         src/api.cpp
+        src/compile.cpp
         ${luau_sources}
     DEPS
         Astral::Core
@@ -35,4 +36,5 @@ astral_add_tests(MODULE script
     SOURCES
         ${CMAKE_SOURCE_DIR}/modules/core/tests/test_main.cpp
         tests/script_test.cpp
-        tests/api_test.cpp)
+        tests/api_test.cpp
+        tests/compile_test.cpp)

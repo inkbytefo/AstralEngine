@@ -43,6 +43,26 @@ Key to_key(SDL_Scancode code) {
     }
 }
 
+bool to_pad_button(Uint8 button, GamepadButton& out) {
+    switch (button) {
+    case SDL_GAMEPAD_BUTTON_SOUTH: out = GamepadButton::A; return true;
+    case SDL_GAMEPAD_BUTTON_EAST: out = GamepadButton::B; return true;
+    case SDL_GAMEPAD_BUTTON_WEST: out = GamepadButton::X; return true;
+    case SDL_GAMEPAD_BUTTON_NORTH: out = GamepadButton::Y; return true;
+    case SDL_GAMEPAD_BUTTON_BACK: out = GamepadButton::Back; return true;
+    case SDL_GAMEPAD_BUTTON_START: out = GamepadButton::Start; return true;
+    case SDL_GAMEPAD_BUTTON_LEFT_STICK: out = GamepadButton::LeftStick; return true;
+    case SDL_GAMEPAD_BUTTON_RIGHT_STICK: out = GamepadButton::RightStick; return true;
+    case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: out = GamepadButton::LeftShoulder; return true;
+    case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: out = GamepadButton::RightShoulder; return true;
+    case SDL_GAMEPAD_BUTTON_DPAD_UP: out = GamepadButton::DpadUp; return true;
+    case SDL_GAMEPAD_BUTTON_DPAD_DOWN: out = GamepadButton::DpadDown; return true;
+    case SDL_GAMEPAD_BUTTON_DPAD_LEFT: out = GamepadButton::DpadLeft; return true;
+    case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: out = GamepadButton::DpadRight; return true;
+    default: return false;
+    }
+}
+
 MouseButton to_button(Uint8 button) {
     switch (button) {
     case SDL_BUTTON_RIGHT: return MouseButton::Right;
@@ -55,15 +75,19 @@ MouseButton to_button(Uint8 button) {
 
 struct Window::Impl {
     SDL_Window* window = nullptr;
+    SDL_Gamepad* gamepad = nullptr; ///< The first connected gamepad.
     bool vulkan = true; ///< False when the video driver cannot create Vulkan surfaces.
     ~Impl() {
+        if (gamepad) SDL_CloseGamepad(gamepad);
         if (window) SDL_DestroyWindow(window);
+        SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
         SDL_QuitSubSystem(SDL_INIT_VIDEO); // reference counted by SDL
     }
 };
 
 std::unique_ptr<Window> Window::create(const WindowDesc& desc) {
     if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) return nullptr;
+    SDL_InitSubSystem(SDL_INIT_GAMEPAD); // optional: without it there are no gamepad events
     auto impl = std::make_unique<Impl>();
     SDL_WindowFlags flags = SDL_WINDOW_VULKAN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     if (desc.resizable) flags |= SDL_WINDOW_RESIZABLE;
@@ -106,6 +130,38 @@ bool Window::poll(Input& input) {
             break;
         case SDL_EVENT_MOUSE_WHEEL: input.add_scroll({event.wheel.x, event.wheel.y}); break;
         case SDL_EVENT_TEXT_INPUT: input.add_text(event.text.text); break;
+        case SDL_EVENT_GAMEPAD_ADDED:
+            if (!impl_->gamepad) {
+                impl_->gamepad = SDL_OpenGamepad(event.gdevice.which);
+                input.set_gamepad_connected(impl_->gamepad != nullptr);
+            }
+            break;
+        case SDL_EVENT_GAMEPAD_REMOVED:
+            if (impl_->gamepad && SDL_GetGamepadID(impl_->gamepad) == event.gdevice.which) {
+                SDL_CloseGamepad(impl_->gamepad);
+                impl_->gamepad = nullptr;
+                input.set_gamepad_connected(false);
+            }
+            break;
+        case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+        case SDL_EVENT_GAMEPAD_BUTTON_UP: {
+            GamepadButton b;
+            if (to_pad_button(event.gbutton.button, b)) input.set_gamepad_button(b, event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN);
+            break;
+        }
+        case SDL_EVENT_GAMEPAD_AXIS_MOTION: {
+            const float v = static_cast<float>(event.gaxis.value) / 32767.0f;
+            switch (event.gaxis.axis) {
+            case SDL_GAMEPAD_AXIS_LEFTX: input.set_gamepad_axis(GamepadAxis::LeftX, v); break;
+            case SDL_GAMEPAD_AXIS_LEFTY: input.set_gamepad_axis(GamepadAxis::LeftY, -v); break; // up is positive
+            case SDL_GAMEPAD_AXIS_RIGHTX: input.set_gamepad_axis(GamepadAxis::RightX, v); break;
+            case SDL_GAMEPAD_AXIS_RIGHTY: input.set_gamepad_axis(GamepadAxis::RightY, -v); break;
+            case SDL_GAMEPAD_AXIS_LEFT_TRIGGER: input.set_gamepad_axis(GamepadAxis::LeftTrigger, v); break;
+            case SDL_GAMEPAD_AXIS_RIGHT_TRIGGER: input.set_gamepad_axis(GamepadAxis::RightTrigger, v); break;
+            default: break;
+            }
+            break;
+        }
         default: break;
         }
     }

@@ -9,7 +9,7 @@ Bu dosya, motoru kullanarak **oyun** yazan ajanlar içindir (motorun kendisini d
    üretilir (`ctx.write_script_api`). Her component, alan, enum ve olay orada; kodu tahmin etme.
 2. Önce başarısız test yaz (başsız `App`, `fixed_timestep = 1/60`), sonra kuralı yaz, sonra testi geçir.
 3. Derle ve koş: `cmake --preset debug && cmake --build --preset debug && xvfb-run -a ctest --preset debug`.
-4. Sınır denetimi: `ctest -R features` (`astral-features check`). Hata mesajı ne yapacağını söyler.
+4. Sınır ve tip denetimi: `ctest -R "features|script_types"` (özellik sınırları; script'ler `astral.d.luau`'ya karşı `--!strict` tip denetimi) (`astral-features check`). Hata mesajı ne yapacağını söyler.
 5. Script hataları `dosya:satır: mesaj` ile loglanır; o modül durur, oyun sürer. Dosyayı düzelt, kendiliğinden yeniden yüklenir.
 
 ## Bir özelliğin iskeleti
@@ -53,6 +53,9 @@ astral.input.axis("move")  astral.input.pressed("fire")
 Değerler: `vector` (Vec3), `{x=,y=}` (Vec2), `{x=,y=,z=,w=}` (Vec4/Quat), enum = ad (string), entity alanı = entity ya da `nil`.
 Fazlar: `PreUpdate`, `Update`, `FixedUpdate`, `PostUpdate`. Aynı fazda önce C++ sistemleri, sonra script modülleri
 (yükleme sırasıyla). Sıra önemliyse ayrı dosya yap (`feature.json` `scripts` sırası).
+
+Yardımcılar: `astral.tween(s, step, {ease})`, `astral.state_machine{...}`, `astral.save(slot, {components})` / `astral.load(slot)`, `astral.quat.*`.
+Ortak özellikler `features/` altında (`fly_camera`): oyuna kopyalanır (`python3 tools/sync_features.py`), kopyayı elle düzenleme.
 
 ## Yapma
 

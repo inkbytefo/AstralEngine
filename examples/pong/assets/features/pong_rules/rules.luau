@@ -185,8 +185,8 @@ astral.system({
 
             local start = transform.position
             local radius = ball.radius
-            local px, py, pz = start.x + v.x * dt, start.y + v.y * dt, start.z + v.z * dt
-            local vx, vy, vz = v.x, v.y, v.z
+            local px: number, py: number, pz: number = start.x + v.x * dt, start.y + v.y * dt, start.z + v.z * dt
+            local vx: number, vy: number, vz: number = v.x, v.y, v.z
             -- Tunnel walls.
             local lx, ly = court.half_extents.x - radius, court.half_extents.y - radius
             local wall = false

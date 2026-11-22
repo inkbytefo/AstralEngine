@@ -281,6 +281,10 @@ public:
     /// valid until the next add; keep the Entry's index (entries()) for longer.
     const Entry* add_dynamic(std::string_view name, std::vector<FieldDef> fields, std::string* error = nullptr);
 
+    /// Adds a copy of an entry of another registry (a subset registry for partial saves). No-op if the name exists.
+    void add_copy(const Entry& entry) {
+        if (!find(entry.name)) entries_.push_back(entry);
+    }
     [[nodiscard]] const Entry* find(std::string_view name) const noexcept;
     [[nodiscard]] std::span<const Entry> entries() const noexcept { return entries_; }
 

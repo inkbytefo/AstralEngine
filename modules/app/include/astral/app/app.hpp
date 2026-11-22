@@ -241,6 +241,8 @@ struct AppDesc {
     float origin_shift_distance = 2000.0f;
     /// Open maps: time per frame for spawning streamed cells (at least one cell per frame).
     float world_stream_budget_ms = 1.0f;
+    /// Folder of save slots (astral.save from scripts): one `<slot>.json` each. Relative = the working folder.
+    std::string_view save_folder = "saves";
 };
 
 /// Owns the main loop and every engine service; your Game plugs into it.

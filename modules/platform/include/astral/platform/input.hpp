@@ -22,6 +22,13 @@ enum class Key : std::uint8_t {
 
 enum class MouseButton : std::uint8_t { Left, Right, Middle, Count };
 
+/// Buttons of the first connected gamepad (Xbox layout; A is the bottom face button).
+enum class GamepadButton : std::uint8_t {
+    A, B, X, Y, Back, Start, LeftStick, RightStick, LeftShoulder, RightShoulder, DpadUp, DpadDown, DpadLeft, DpadRight, Count
+};
+/// Sticks run -1..1 with up and right positive; triggers 0..1.
+enum class GamepadAxis : std::uint8_t { LeftX, LeftY, RightX, RightY, LeftTrigger, RightTrigger, Count };
+
 /// Keyboard and mouse state for the current frame. Pure data: the window feeds it events,
 /// game code reads it. `pressed`/`released` are true only in the frame the change happened.
 class Input {
@@ -33,6 +40,9 @@ public:
     void set_mouse_button(MouseButton button, bool down) noexcept;
     void add_mouse_motion(Vec2 position, Vec2 delta) noexcept;
     void add_scroll(Vec2 amount) noexcept;
+    void set_gamepad_connected(bool connected) noexcept;
+    void set_gamepad_button(GamepadButton button, bool down) noexcept;
+    void set_gamepad_axis(GamepadAxis axis, float value) noexcept;
     /// Typed text (UTF-8), for text fields. Only arrives while Window::set_text_input(true).
     void add_text(std::string_view utf8);
     /// Forget keyboard / mouse state (a UI that took the input hides it from the game).
@@ -45,6 +55,12 @@ public:
     [[nodiscard]] bool down(MouseButton button) const noexcept;
     [[nodiscard]] bool pressed(MouseButton button) const noexcept;
     [[nodiscard]] bool released(MouseButton button) const noexcept;
+
+    [[nodiscard]] bool gamepad_connected() const noexcept { return gamepad_connected_; }
+    [[nodiscard]] bool down(GamepadButton button) const noexcept;
+    [[nodiscard]] bool pressed(GamepadButton button) const noexcept;
+    [[nodiscard]] bool released(GamepadButton button) const noexcept;
+    [[nodiscard]] float axis(GamepadAxis axis) const noexcept;
 
     [[nodiscard]] Vec2 mouse_position() const noexcept { return mouse_position_; }
     [[nodiscard]] Vec2 mouse_delta() const noexcept { return mouse_delta_; }
@@ -67,6 +83,9 @@ private:
 
     std::array<ButtonState, static_cast<std::size_t>(Key::Count)> keys_{};
     std::array<ButtonState, static_cast<std::size_t>(MouseButton::Count)> mouse_{};
+    std::array<ButtonState, static_cast<std::size_t>(GamepadButton::Count)> pad_buttons_{};
+    std::array<float, static_cast<std::size_t>(GamepadAxis::Count)> pad_axes_{};
+    bool gamepad_connected_ = false;
     Vec2 mouse_position_{};
     Vec2 mouse_delta_{};
     Vec2 scroll_{};

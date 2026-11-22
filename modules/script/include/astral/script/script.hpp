@@ -17,6 +17,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -50,6 +51,14 @@ public:
     [[nodiscard]] virtual Vec2 axis(std::string_view action) const = 0;
 };
 
+/// Where saves go (named slots of text). The App stores files; a test can keep them in memory.
+class ScriptStorage {
+public:
+    virtual ~ScriptStorage() = default;
+    virtual bool write(std::string_view slot, std::string_view text) = 0;
+    [[nodiscard]] virtual std::optional<std::string> read(std::string_view slot) const = 0;
+};
+
 /// Everything the host reaches, handed in at construction (no globals). All must outlive the host.
 struct ScriptEnv {
     World& world;
@@ -57,6 +66,7 @@ struct ScriptEnv {
     EventRegistry& events;
     Logger& log;
     ScriptInput* input = nullptr; ///< Null: every action reads as idle.
+    ScriptStorage* storage = nullptr; ///< Null: astral.save / astral.load report that saving is not available.
 };
 
 struct ScriptLimits {

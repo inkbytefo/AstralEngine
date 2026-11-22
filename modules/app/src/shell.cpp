@@ -43,6 +43,10 @@ ShellOptions parse_shell_args(int argc, const char* const* argv) {
         else if (a == "--width") o.width = static_cast<std::uint32_t>(std::atoi(next().c_str()));
         else if (a == "--height") o.height = static_cast<std::uint32_t>(std::atoi(next().c_str()));
         else if (a == "--script-api") o.script_api = next();
+        else if (a == "--script-api-only") {
+            o.script_api = next();
+            o.script_api_only = true;
+        }
         else o.args.push_back(a);
     }
     return o;
@@ -85,6 +89,14 @@ int run_game(const ShellOptions& options, AppDesc desc, Game& game, std::uint32_
     if (options.width) desc.width = options.width;
     if (options.height) desc.height = options.height;
     ShellGame shell(game, options);
+    if (options.script_api_only) { // the API documents need the registered types only: a headless frame is enough
+        desc.headless = true;
+        desc.audio = false;
+        desc.hot_reload = false;
+        App app(desc);
+        app.run_frames(shell, 1);
+        return 0;
+    }
     if (!options.capturing()) {
         App app(desc);
         return app.run(shell);

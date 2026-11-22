@@ -21,6 +21,14 @@ TEST_CASE("the shell reads capture options and leaves the rest to the game") {
     CHECK(o.positional({"--view"}) == std::vector<std::string>{"level.scene"});
 }
 
+TEST_CASE("--script-api-only names the folder and asks to exit after writing") {
+    const char* argv[] = {"game", "--script-api-only", "docs/api"};
+    const ShellOptions o = parse_shell_args(3, argv);
+    CHECK(o.script_api == "docs/api");
+    CHECK(o.script_api_only);
+    CHECK_FALSE(o.capturing());
+}
+
 TEST_CASE("no arguments means a window run with the game's defaults") {
     const char* argv[] = {"game"};
     const ShellOptions o = parse_shell_args(1, argv);

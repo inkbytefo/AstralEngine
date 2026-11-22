@@ -53,7 +53,7 @@ Script modülü: [script.md](script.md).
 |---|---|
 | `feature.hpp` | `FeatureManifest` + `parse_feature_manifest`; `FeatureSet::add(ad, install)` / `install(ctx)` (manifestleri `assets/features/<ad>/feature.json`'dan okur, bağımlılık sırasıyla kurar, döngü/eksik bağımlılık/ad uyuşmazlığı/manifestte olmayan kayıt hata verir, sonra `actions` ve `scripts` dosyalarını yükler); `FeatureContext` (`component<T>()`, `event<T>()`, `system<S>(faz)`, `number/text/flag` ayarları) |
 | `feature_check.hpp` | `check_features(kaynaklar, manifestler)`; CLI: `astral-features check <kaynak klasörü> <manifest klasörü>` (Pong'da CTest `pong_features_check`) |
-| `input_actions.hpp` | `InputActions`: `.actions` dosyası (`button`, `axis`, `axis2`, `mouse_delta`) → adlandırılmış eylemler; `down/pressed/released/value/axis` |
+| `input_actions.hpp` | `InputActions`: `.actions` dosyası (`button`, `axis`, `axis2`, `mouse_delta`) → adlandırılmış eylemler; `down/pressed/released/value/axis`. Gamepad: `"gamepad": ["A"]`, `"gamepad_axis": "RightTrigger"`, `"stick": "left"`, `"dpad": true`, `"stick_scale"`; ölü bölge 0.15 |
 
 `Context` yeni üyeleri: `scripts`, `events` (`EventRegistry`), `actions`, `load_script(yol)` (hata listesi döner;
 dosya değişince yeniden yüklenir), `load_actions(yol)`, `write_script_api(klasör)`, `api_owners`.
@@ -174,5 +174,5 @@ kontrol yok). Materyal handle'ları sabit kalır (yerinde güncellenir). Derlenm
 `.material` (ebeveynli) kullan. glTF materyalleri yerleşik standart yolda kalır (`standard.ashader` örneği
 olarak yüklenmiyor). Doku dosyaları hot reload edilmez. Shader derleme ana iş parçacığında (yüklemede ve
 düzenlemede kısa takılma).
-- Gamepad eylemi yok. Script'ler her karede ve fazda çalışır (profiler'da "scripts" kapsamı); script başına süre
+- Tek gamepad (ilk bağlı olan), titreşim yok. Script'ler her karede ve fazda çalışır (profiler'da "scripts" kapsamı); script başına süre
   ayrımı yok. `.actions` ve script dosyalarının hot reload'u içerik karşılaştırır (dosya sistemi izleme yok).

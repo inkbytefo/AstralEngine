@@ -291,6 +291,10 @@ astral.system {
 - **Script'i çalışırken düzenle:** dosyayı kaydet, ~yarım saniyede yeni kural çalışır; bozuk dosya eskisini bırakır
   ve hata `dosya:satır` ile loglanır.
 - **Girdi:** tuş kodlarını değil eylemleri kullan (`.actions` dosyası: `button`, `axis`, `axis2`, `mouse_delta`).
+- **Tip denetimi:** `ctest -R script_types` script'lerini `astral.d.luau`'ya karşı `--!strict` denetler (component/olay/alan adı yazım hatası = hata).
+  Paketlemede script'ler bytecode'a derlenir. Hazır yardımcılar: `astral.tween`, `astral.state_machine`, `astral.save/load`, `astral.quat.*`.
+- **Gamepad:** `.actions` içinde `"gamepad": ["A"]`, `"stick": "left"` vb.; oyun kodu değişmez.
+- **Ortak özellikler:** `features/` altındakiler (şimdilik `fly_camera`) birden çok oyunun tek kaynağı; `tools/sync_features.py` kopyalar.
 - **API belgesi:** `ctx.write_script_api("docs/api")` her component, alan ve olayı `astral.d.luau` (editör/AI tip
   tanımı) ve `API.md` olarak yazar. `examples/pong --script-api klasör` ile dene.
 - **Örnek:** `examples/pong` — `pong_rules` (Luau kuralları), `pong_scorelights`, `pong_audio`. Yapay zekâ ajanları

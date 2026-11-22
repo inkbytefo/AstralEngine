@@ -43,7 +43,14 @@ astral.behaviour { on_start = function(self, ctx) end, on_update = function(self
   Quat alanları `{x,y,z,w}` tablolarıdır. Kamera/hareket kuralları için yeter.
 - **Rastgele:** `astral.random()`/`astral.seed(n)`. Oyun kuralı için durumu component'te tutan kendi üretecini
   yaz (Pong: `Match.serve_rng`) — yeniden yüklemede ve kayıtta kaybolmaz.
-- **Girdi:** `astral.input.down/pressed/released/value/axis(eylem)`.
+- **Girdi:** `astral.input.down/pressed/released/value/axis(eylem)` (klavye, fare ve gamepad `.actions` dosyasından gelir).
+- **Animasyon:** `astral.tween(saniye, step, {ease, on_done})` (her karede `step(t)`, t 0..1 yumuşatılmış), `astral.ease(ad, t)`, `astral.lerp(a, b, t)`.
+  Eğriler: linear, in_quad, out_quad, in_out_quad, in_cubic, out_cubic, in_out_cubic, out_back. İlerleme closure'da durur (yeniden yüklemede
+  kaybolur): kayda girmesi gereken animasyonu component + sistemle yaz.
+- **Durum makinesi:** `astral.state_machine{initial, states = {Ad = {enter, update, exit, on = {olay = "Sonraki"}}}, store = {get, set}}` →
+  `m:send(olay)`, `m:go(ad)`, `m:update(dt)`, `m:state()`. `store` durumu bir component alanında tutar (yeniden yükleme ve kayda dayanıklı).
+- **Kayıt:** `astral.save(yuva, {"Component", ...})` listedeki component'lere sahip her entity'yi yazar; `astral.load(yuva)` bu component'lere
+  sahip entity'leri yok edip kaydedilenleri geri getirir; `astral.has_save(yuva)`. Dosya: `<AppDesc::save_folder>/<yuva>.json`.
 
 ## Çalışma kuralları
 
@@ -55,6 +62,13 @@ astral.behaviour { on_start = function(self, ctx) end, on_update = function(self
   Sonsuz döngü zaman bütçesiyle kesilir. Bilinmeyen component/alan/olay adı, bilinen adları sayan hata verir.
 - Sandbox: `os`, `io`, `require`, `loadstring` yok; kütüphane tabloları salt okunur.
 
+## Tip denetimi ve bytecode
+
+- `astral_check_scripts(<ad> GAME <exe> SCRIPTS <klasör>)` (AstralGame.cmake): oyun `--script-api-only` ile API'yi yazar, `astral-luau-check` her script'i
+  `--!strict` ile denetler. `astral.d.luau` component/olay adlarını `keyof`/`index` tip işlevleriyle indeksler: `e:get("pong::Paddle").speeed` tip hatasıdır.
+- `astral-cook` `.luau` dosyalarını bytecode'a derler (`"ALBC"` + Luau bytecode; `compile_script`): sözdizimi hatası paketleme sırasında `dosya:satır` ile
+  bulunur, paketli oyunda kaynak yoktur. `ScriptHost::load` kaynak ve bytecode'u ayırt eder; geliştirmede kaynak, hot reload'la.
+
 ## İçeride
 
 `Impl` (host_impl.hpp) Luau durumunu ve modülleri tutar: her modül kendi global tablosuyla (`luaL_sandboxthread`)
@@ -64,10 +78,11 @@ entity'leri toplar, sonra çağırır (script yapısal değişiklik yapabilir).
 
 ## Bilinen sınırlar
 
-- Gamepad, tween, durum makinesi, tetik hacmi, kayıt yardımcıları, bytecode cook, luau-lsp entegrasyonu yok
-  (ADR-0026).
+- Tetik hacmi yok (fizik sensörleri M12'de); luau-lsp için hazır proje ayarı yok (tip tanımı üretiliyor, bkz. aşağıdaki denetim).
+- Tween/durum makinesi Luau'da yazılmış yardımcılar (`src/prelude.hpp`): durumları closure'da; sıcak döngüde değil, oyun mantığında kullan.
+- Kayıt yalnız listelenen component'leri saklar; entity referansları kayıt içinde yeniden eşlenir, kayıt dışındaki entity'ye giden referans `nil` olur.
 - Sistem başına entity başına vekil oluşturulur: yüzlerce entity iyi, binlerce entity C++'a ait.
-- `astral.d.luau` makine tarafından üretilir ama `luau-analyze` ile doğrulanmadı.
+- `astral.d.luau` Luau'nun kendi çözümleyicisiyle doğrulanır: `astral-luau-check` aracı (`tools/astral_luau_check`) tanımı yükler ve oyunun bütün `.luau` dosyalarını denetler (`astral_check_scripts` → CTest `<oyun>_script_types`). Component/olay/alan adı yazım hatası ve yanlış tip build hatasıdır.
 - Dinamik component: düz veri, en çok 256 bayt, alanları çalışırken değişmez; string/iç içe yapı yok.
 - İç içe reflection (ör. `PrimitiveMesh.material`) script'ten yazılamaz.
 - Olay yükü JSON üzerinden gider (sıcak döngüde pahalı; sık olaylar için C++ sistemi kullan).

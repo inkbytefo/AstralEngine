@@ -13,6 +13,9 @@
 #include <astral/world/transform.hpp>
 
 #include <array>
+#include <cctype>
+#include <iterator>
+#include <optional>
 #include <typeinfo>
 #include <filesystem>
 #include <fstream>
@@ -59,6 +62,36 @@ public:
 
 private:
     const InputActions& actions_;
+};
+
+/// Save slots as files: `<folder>/<slot>.json`. Slot names are letters, digits, '_' and '-' only.
+class FileStorage final : public ScriptStorage {
+public:
+    explicit FileStorage(std::filesystem::path folder) : folder_(std::move(folder)) {}
+    bool write(std::string_view slot, std::string_view text) override {
+        if (!valid(slot)) return false;
+        std::error_code ec;
+        std::filesystem::create_directories(folder_, ec);
+        std::ofstream out(folder_ / (std::string(slot) + ".json"), std::ios::binary);
+        out.write(text.data(), static_cast<std::streamsize>(text.size()));
+        return static_cast<bool>(out);
+    }
+    std::optional<std::string> read(std::string_view slot) const override {
+        if (!valid(slot)) return std::nullopt;
+        std::ifstream in(folder_ / (std::string(slot) + ".json"), std::ios::binary);
+        if (!in) return std::nullopt;
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
+
+private:
+    static bool valid(std::string_view slot) {
+        if (slot.empty()) return false;
+        for (char c : slot) {
+            if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '-') return false;
+        }
+        return true;
+    }
+    std::filesystem::path folder_;
 };
 } // namespace
 
@@ -112,6 +145,7 @@ struct App::Impl {
 
     std::unique_ptr<ScriptHost> scripts;
     std::unique_ptr<ScriptInput> script_input;
+    std::unique_ptr<ScriptStorage> script_storage;
     struct Watched {
         std::uint64_t hash = 0;
         bool is_actions = false;
@@ -261,7 +295,8 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
     if (m.font && m.renderer) m.font->upload(*m.renderer);
     m.context->font = m.font.get();
     m.script_input = std::make_unique<ActionInput>(m.context->actions);
-    m.scripts = std::make_unique<ScriptHost>(ScriptEnv{m.world, m.context->types, m.context->events, m.log, m.script_input.get()});
+    m.script_storage = std::make_unique<FileStorage>(std::filesystem::path(std::string(desc.save_folder)));
+    m.scripts = std::make_unique<ScriptHost>(ScriptEnv{m.world, m.context->types, m.context->events, m.log, m.script_input.get(), m.script_storage.get()});
     m.context->scripts = m.scripts.get();
 }
 

@@ -40,8 +40,9 @@ TEST_CASE("the type definitions and the reference list every component, field an
     CHECK(d.find("half: Vec2") != std::string::npos);
     CHECK(d.find("owner: Entity?") != std::string::npos);
     CHECK(d.find("export type C_game__Health") != std::string::npos);
-    CHECK(d.find("((self: Entity, name: \"Paddle\") -> C_Paddle?)") != std::string::npos);
-    CHECK(d.find("(event: \"Scored\", fn: (ctx: Ctx, event: E_Scored) -> ()") != std::string::npos);
+    CHECK(d.find("[\"Paddle\"]: C_Paddle") != std::string::npos);
+    CHECK(d.find("get: <K>(self: Entity, name: K & keyof<Components>) -> index<Components, K>?") != std::string::npos);
+    CHECK(d.find("[\"Scored\"]: E_Scored") != std::string::npos);
     CHECK(d.find("declare astral: {") != std::string::npos);
 
     const std::string& m = api.markdown;

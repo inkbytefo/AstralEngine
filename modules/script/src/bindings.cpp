@@ -407,6 +407,85 @@ int quat_rotate(lua_State* L) {
     return 1;
 }
 
+// --- saves: selected components of the world as a named slot ---------------------------------------
+
+/// A registry with only the listed component types (a table of names at `index`).
+TypeRegistry subset_registry(lua_State* L, Impl& impl, int index, std::vector<std::string>& names) {
+    luaL_checktype(L, index, LUA_TTABLE);
+    TypeRegistry subset;
+    const int n = lua_objlen(L, index);
+    for (int i = 1; i <= n; ++i) {
+        lua_rawgeti(L, index, i);
+        if (lua_type(L, -1) != LUA_TSTRING) luaL_error(L, "save: expected a list of component names");
+        const std::string name = lua_tostring(L, -1);
+        lua_pop(L, 1);
+        const std::uint32_t t = require_type(L, impl, name);
+        subset.add_copy(entry_of(impl, t));
+        names.push_back(name);
+    }
+    return subset;
+}
+
+ScriptStorage& require_storage(lua_State* L, Impl& impl) {
+    if (!impl.env.storage) luaL_error(L, "saving is not available in this game (no storage)");
+    return *impl.env.storage;
+}
+
+int astral_save(lua_State* L) {
+    Impl& impl = Impl::of(L);
+    const std::string slot = luaL_checkstring(L, 1);
+    std::vector<std::string> names;
+    const TypeRegistry subset = subset_registry(L, impl, 2, names);
+    Json doc = Json::object();
+    doc["format"] = "astral.save";
+    doc["version"] = 1;
+    Json list = Json::array();
+    for (const std::string& n : names) list.push_back(n);
+    doc["components"] = std::move(list);
+    doc["world"] = save_world(impl.env.world, subset);
+    lua_pushboolean(L, require_storage(L, impl).write(slot, doc.dump(2)));
+    return 1;
+}
+
+int astral_has_save(lua_State* L) {
+    Impl& impl = Impl::of(L);
+    lua_pushboolean(L, require_storage(L, impl).read(luaL_checkstring(L, 1)).has_value());
+    return 1;
+}
+
+/// Replaces the entities that have any saved component with the slot's: they are destroyed, then loaded again.
+int astral_load(lua_State* L) {
+    Impl& impl = Impl::of(L);
+    const std::string slot = luaL_checkstring(L, 1);
+    const auto text = require_storage(L, impl).read(slot);
+    if (!text) {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+    std::string parse_error;
+    const auto doc = Json::parse(*text, &parse_error);
+    if (!doc || (*doc)["format"].as_string() != "astral.save") luaL_error(L, "save \"%s\" is not a valid save (%s)", slot.c_str(), parse_error.c_str());
+    TypeRegistry subset;
+    std::vector<ComponentId> ids;
+    for (const Json& n : (*doc)["components"].as_array()) {
+        const TypeRegistry::Entry* e = impl.env.types.find(n.as_string());
+        if (!e) luaL_error(L, "save \"%s\" has the unknown component \"%s\" (the game changed since it was saved)", slot.c_str(), n.as_string().c_str());
+        subset.add_copy(*e);
+        ids.push_back(e->component);
+    }
+    std::vector<Entity> doomed;
+    for (const auto& e : subset.entries()) {
+        impl.env.world.each_raw(std::span<const ComponentId>(&e.component, 1), [&](Entity x) { doomed.push_back(x); });
+    }
+    for (Entity e : doomed) {
+        if (impl.env.world.alive(e)) impl.env.world.destroy(e);
+    }
+    const LoadResult r = load_world(impl.env.world, subset, (*doc)["world"]);
+    if (!r.errors.empty()) luaL_error(L, "loading \"%s\": %s", slot.c_str(), r.errors.front().c_str());
+    lua_pushboolean(L, true);
+    return 1;
+}
+
 int astral_find(lua_State* L) {
     Impl& impl = Impl::of(L);
     const Entity e = find_by_name(impl.env.world, luaL_checkstring(L, 1));
@@ -558,6 +637,9 @@ void open_astral(lua_State* L, ScriptHost::Impl&) {
     set_function(L, "spawn", astral_spawn);
     set_function(L, "find", astral_find);
     set_function(L, "query", astral_query);
+    set_function(L, "save", astral_save);
+    set_function(L, "load", astral_load);
+    set_function(L, "has_save", astral_has_save);
     set_function(L, "send", astral_send);
     set_function(L, "after", astral_after);
     set_function(L, "every", astral_every);

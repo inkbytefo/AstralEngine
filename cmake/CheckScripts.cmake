@@ -1,0 +1,15 @@
+# Run by astral_check_scripts (CTest): writes the game's script API with `<game> --script-api-only`, then type-checks
+# every .luau under SCRIPTS against it with astral-luau-check. Variables: GAME, CHECK, OUT, SCRIPTS.
+file(REMOVE_RECURSE ${OUT})
+execute_process(COMMAND ${GAME} --script-api-only ${OUT} RESULT_VARIABLE rc OUTPUT_VARIABLE log ERROR_VARIABLE log)
+if(NOT rc EQUAL 0 OR NOT EXISTS ${OUT}/astral.d.luau)
+    message(FATAL_ERROR "${GAME} --script-api-only failed (${rc}):\n${log}")
+endif()
+file(GLOB_RECURSE scripts ${SCRIPTS}/*.luau)
+if(NOT scripts)
+    message(FATAL_ERROR "no .luau files under ${SCRIPTS}")
+endif()
+execute_process(COMMAND ${CHECK} ${OUT}/astral.d.luau ${scripts} RESULT_VARIABLE rc OUTPUT_VARIABLE out ERROR_VARIABLE err)
+if(NOT rc EQUAL 0)
+    message(FATAL_ERROR "Luau type errors:\n${err}${out}")
+endif()

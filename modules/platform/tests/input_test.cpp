@@ -74,3 +74,21 @@ TEST_CASE("typed text collects for one frame") {
     in.begin_frame();
     CHECK(in.text().empty());
 }
+
+TEST_CASE("gamepad state: buttons with edges, clamped axes, cleared on disconnect") {
+    Input input;
+    input.begin_frame();
+    CHECK_FALSE(input.gamepad_connected());
+    input.set_gamepad_connected(true);
+    input.set_gamepad_button(GamepadButton::X, true);
+    input.set_gamepad_axis(GamepadAxis::LeftX, 1.7f);
+    CHECK(input.down(GamepadButton::X));
+    CHECK(input.pressed(GamepadButton::X));
+    CHECK(input.axis(GamepadAxis::LeftX) == 1.0f);
+    input.begin_frame();
+    CHECK(input.down(GamepadButton::X));
+    CHECK_FALSE(input.pressed(GamepadButton::X));
+    input.set_gamepad_connected(false);
+    CHECK_FALSE(input.down(GamepadButton::X));
+    CHECK(input.axis(GamepadAxis::LeftX) == 0.0f);
+}

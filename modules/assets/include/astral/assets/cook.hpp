@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -51,6 +52,9 @@ struct CookOptions {
     std::filesystem::path output; ///< Folder of cooked files (created; stale files from earlier cooks removed).
     TextureCookOptions textures{};
     JobSystem* jobs = nullptr;    ///< Cook assets in parallel.
+    /// Compiles .luau scripts (astral-cook plugs in the Script module's compiler); a script that does not compile is
+    /// reported as `file:line: message`. Unset: scripts are copied as source.
+    std::function<bool(std::string_view name, const std::vector<std::uint8_t>& source, std::vector<std::uint8_t>& out, std::string* error)> compile_script = nullptr;
     Logger* logger = nullptr;
 };
 
@@ -65,7 +69,7 @@ struct CookReport {
 
 /// Cooks a folder incrementally: .gltf/.glb -> cooked model (the buffers and images they use are
 /// folded in and not copied), .world + "<name>.entities/" -> index + "<name>.cells/*.cell" (ADR-0021),
-/// .scene/.prefab/.json -> binary JSON, anything else copied. Files and
+/// .scene/.prefab/.json -> binary JSON, .luau -> bytecode (when `compile_script` is set), anything else copied. Files and
 /// folders starting with '.' are skipped. A cache in the output folder remembers content hashes.
 CookReport cook_directory(const CookOptions& options);
 

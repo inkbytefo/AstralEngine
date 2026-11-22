@@ -1,5 +1,9 @@
 #include "host_impl.hpp"
 
+#include <astral/script/compile.hpp>
+
+#include "prelude.hpp"
+
 #include <luacode.h>
 
 #include <algorithm>
@@ -92,6 +96,15 @@ ScriptHost::ScriptHost(const ScriptEnv& env, const ScriptLimits& limits) : impl_
     lua_callbacks(L)->userdata = impl_.get();
     lua_callbacks(L)->interrupt = interrupt;
     open_astral(L, *impl_);
+    {   // helpers written in Luau (tween, state machine): run once, before the globals become read-only
+        std::size_t size = 0;
+        char* bytecode = luau_compile(script_prelude, std::char_traits<char>::length(script_prelude), nullptr, &size);
+        if (luau_load(L, "=astral prelude", bytecode, size, 0) != 0 || lua_pcall(L, 0, 0, 0) != 0) {
+            env.log.log(LogLevel::Error, std::string("script prelude: ") + (lua_tostring(L, -1) ? lua_tostring(L, -1) : "?"));
+            lua_pop(L, 1);
+        }
+        std::free(bytecode);
+    }
     luaL_sandbox(L);
     lua_newtable(L);
     impl_->ctx_ref = lua_ref(L, -1);
@@ -112,11 +125,17 @@ std::vector<std::string> ScriptHost::load(std::string_view name, std::string_vie
     lua_pop(L, 1);
     luaL_sandboxthread(T);
 
-    std::size_t size = 0;
-    char* bytecode = luau_compile(source.data(), source.size(), nullptr, &size);
     const std::string chunk = "=" + std::string(name);
-    const int loaded = luau_load(T, chunk.c_str(), bytecode, size, 0);
-    std::free(bytecode);
+    int loaded;
+    if (is_compiled_script(source)) { // cooked: bytecode after the magic
+        const std::string_view code = source.substr(4);
+        loaded = luau_load(T, chunk.c_str(), code.data(), code.size(), 0);
+    } else {
+        std::size_t size = 0;
+        char* bytecode = luau_compile(source.data(), source.size(), nullptr, &size);
+        loaded = luau_load(T, chunk.c_str(), bytecode, size, 0);
+        std::free(bytecode);
+    }
     std::string failure;
     if (loaded != 0) {
         failure = lua_tostring(T, -1) ? lua_tostring(T, -1) : "cannot load";

@@ -4,6 +4,8 @@
 
 #include <doctest/doctest.h>
 
+#include <map>
+
 namespace {
 enum class Mode : std::uint8_t { Idle, Run };
 struct Mover {
@@ -403,4 +405,126 @@ TEST_CASE("astral.quat composes and rotates like the C++ Quat") {
     CHECK(t->rotation.y == doctest::Approx(expected.y).epsilon(1e-4));
     CHECK(t->rotation.w == doctest::Approx(expected.w).epsilon(1e-4));
     CHECK(t->position.x == doctest::Approx(-1.0f).epsilon(1e-4)); // -z turned by +90 degrees about y
+}
+
+// --- helpers written in Luau: tween, state machine, saves ---------------------------------------
+
+namespace {
+struct MemoryStorage final : ScriptStorage {
+    std::map<std::string, std::string> slots;
+    bool write(std::string_view slot, std::string_view text) override {
+        slots[std::string(slot)] = std::string(text);
+        return true;
+    }
+    std::optional<std::string> read(std::string_view slot) const override {
+        const auto it = slots.find(std::string(slot));
+        return it == slots.end() ? std::nullopt : std::optional<std::string>(it->second);
+    }
+};
+} // namespace
+
+TEST_CASE("astral.tween steps an eased value over time, then calls on_done once; cancel stops it") {
+    Fixture f;
+    const Entity e = f.world.create(Mover{}, Name{"t"});
+    REQUIRE(f.host->load("tween.luau", R"(
+        local started = false
+        astral.system { run = function(ctx)
+            if started then return end
+            started = true
+            local m = astral.find("t"):get("Mover")
+            astral.tween(1.0, function(t) m.speed = astral.lerp(0, 10, t) end, {ease = "in_quad", on_done = function() m.steps = m.steps + 1 end})
+            local id = astral.tween(1.0, function(t) m.size = {x = t, y = 0} end)
+            astral.cancel(id)
+            assert(not pcall(astral.tween, 1, function() end, {ease = "nope"}))
+        end }
+    )").empty());
+    for (int i = 0; i < 2; ++i) f.host->run(ScriptPhase::Update, {.delta = 0.25f}); // half way: t = 0.5, in_quad = 0.25
+    CHECK(f.world.get<Mover>(e)->speed == doctest::Approx(2.5f));
+    for (int i = 0; i < 6; ++i) f.host->run(ScriptPhase::Update, {.delta = 0.25f});
+    CHECK(f.world.get<Mover>(e)->speed == doctest::Approx(10.0f));
+    CHECK(f.world.get<Mover>(e)->steps == 1); // on_done ran exactly once
+    CHECK(f.world.get<Mover>(e)->size.x == 1.0f); // the cancelled tween never stepped (Mover::size starts at {1, 2})
+    CHECK(f.first_error().empty());
+}
+
+TEST_CASE("astral.state_machine: enter/exit/update, events move between states, a store keeps the state in a component") {
+    Fixture f;
+    const Entity e = f.world.create(Mover{}, Name{"sm"});
+    REQUIRE(f.host->load("sm.luau", R"(
+        local machine
+        astral.system { run = function(ctx)
+            local m = astral.find("sm"):get("Mover")
+            if not machine then
+                machine = astral.state_machine {
+                    initial = "Idle",
+                    states = {
+                        Idle = { enter = function(from) m.steps = m.steps + 1 end, on = {go = "Run"} },
+                        Run = { enter = function(from) m.steps = m.steps + 10 end, update = function(dt) m.speed = m.speed + dt end,
+                                exit = function(to) m.steps = m.steps + 100 end, on = {stop = "Idle"} },
+                    },
+                    store = { get = function() return m.label ~= "" and m.label or nil end, set = function(s) m.label = s end },
+                }
+                assert(not pcall(machine.go, machine, "Nope"))
+                return
+            end
+            machine:update(ctx.delta)
+            if ctx.time == 1 then assert(machine:send("go")) end
+            if ctx.time == 2 then assert(machine:send("stop")); assert(not machine:send("fly")) end
+        end }
+    )").empty());
+    f.world.get<Mover>(e)->label = ""; // the store reads an empty label as "no state yet"
+    f.host->run(ScriptPhase::Update, {.delta = 0.5f, .elapsed = 0.0});
+    CHECK(f.world.get<Mover>(e)->label == "Idle");
+    CHECK(f.world.get<Mover>(e)->steps == 1);
+    f.host->run(ScriptPhase::Update, {.delta = 0.5f, .elapsed = 1.0}); // Idle -> Run
+    CHECK(f.world.get<Mover>(e)->label == "Run");
+    f.host->run(ScriptPhase::Update, {.delta = 0.5f, .elapsed = 1.5}); // Run.update adds dt
+    CHECK(f.world.get<Mover>(e)->speed == doctest::Approx(2.5f)); // Mover::speed starts at 2; Run.update added 0.5
+    f.host->run(ScriptPhase::Update, {.delta = 0.5f, .elapsed = 2.0}); // updates once more, then Run -> Idle
+    CHECK(f.world.get<Mover>(e)->label == "Idle");
+    CHECK(f.world.get<Mover>(e)->steps == 1 + 10 + 100 + 1);
+    CHECK(f.first_error().empty());
+}
+
+TEST_CASE("astral.save / astral.load: selected components round-trip, loading replaces the entities that have them") {
+    MemoryStorage storage;
+    World world;
+    TypeRegistry types;
+    EventRegistry events;
+    Logger log;
+    register_world_types(types);
+    types.add<Mover>();
+    ScriptHost host({world, types, events, log, nullptr, &storage});
+    const Entity a = world.create(Mover{.steps = 7}, Name{"a"});
+    world.create(Mover{.steps = 9}, Name{"b"});
+    REQUIRE(host.load("save.luau", R"(
+        astral.system { run = function(ctx)
+            if ctx.time == 0 then
+                assert(not astral.has_save("slot1"))
+                assert(astral.save("slot1", {"Mover", "astral::Name"}))
+                assert(astral.has_save("slot1"))
+                astral.find("a"):get("Mover").steps = 999
+                astral.spawn { ["Mover"] = {steps = 1}, ["astral::Name"] = {value = "extra"} }
+            else
+                assert(astral.load("slot1"))
+                assert(not astral.load("empty"))
+            end
+        end }
+    )").empty());
+    host.run(ScriptPhase::Update, {.delta = 0.1f, .elapsed = 0.0});
+    CHECK(world.get<Mover>(a)->steps == 999);
+    CHECK(find_by_name(world, "extra").valid());
+    host.run(ScriptPhase::Update, {.delta = 0.1f, .elapsed = 1.0});
+    CHECK(host.take_errors().empty());
+    CHECK_FALSE(find_by_name(world, "extra").valid()); // not in the save: gone
+    CHECK(world.get<Mover>(find_by_name(world, "a"))->steps == 7); // as saved
+    CHECK(world.get<Mover>(find_by_name(world, "b"))->steps == 9);
+    CHECK(world.count<Mover>() == 2);
+}
+
+TEST_CASE("saving without storage is an error that says so") {
+    Fixture f;
+    REQUIRE(f.host->load("nosave.luau", "astral.system { run = function() astral.save('x', {'Mover'}) end }").empty());
+    f.run();
+    CHECK(contains(f.first_error(), "saving is not available"));
 }

@@ -33,11 +33,33 @@ bool read_keys(const Json* list, std::vector<Key>& out, const std::string& where
     return true;
 }
 
+constexpr std::array<std::string_view, static_cast<std::size_t>(GamepadButton::Count)> pad_button_names{
+    "A", "B", "X", "Y", "Back", "Start", "LeftStick", "RightStick", "LeftShoulder", "RightShoulder", "DpadUp", "DpadDown", "DpadLeft", "DpadRight"};
+constexpr std::array<std::string_view, static_cast<std::size_t>(GamepadAxis::Count)> pad_axis_names{
+    "LeftX", "LeftY", "RightX", "RightY", "LeftTrigger", "RightTrigger"};
+constexpr float deadzone = 0.15f;
+
+float dead(float v) { return std::abs(v) < deadzone ? 0.0f : v; }
+
 bool pressed_any(const Input& in, const std::vector<Key>& keys) {
     return std::any_of(keys.begin(), keys.end(), [&](Key k) { return in.down(k); });
 }
 
 } // namespace
+
+std::optional<GamepadButton> gamepad_button_from_name(std::string_view name) noexcept {
+    for (std::size_t i = 0; i < pad_button_names.size(); ++i) {
+        if (pad_button_names[i] == name) return static_cast<GamepadButton>(i);
+    }
+    return std::nullopt;
+}
+
+std::optional<GamepadAxis> gamepad_axis_from_name(std::string_view name) noexcept {
+    for (std::size_t i = 0; i < pad_axis_names.size(); ++i) {
+        if (pad_axis_names[i] == name) return static_cast<GamepadAxis>(i);
+    }
+    return std::nullopt;
+}
 
 Key key_from_name(std::string_view name) noexcept {
     for (std::size_t i = 1; i < key_names.size(); ++i) {
@@ -81,6 +103,35 @@ bool InputActions::load(const Json& document, std::string* error) {
             }
         }
         if (!ok) return false;
+        if (const Json* pad = spec.find("gamepad")) {
+            for (const Json& b : pad->as_array()) {
+                const auto button = gamepad_button_from_name(b.as_string());
+                if (!button) {
+                    if (error) *error = where + ": unknown gamepad button " + b.dump() + " (A B X Y Back Start LeftStick RightStick LeftShoulder RightShoulder DpadUp DpadDown DpadLeft DpadRight)";
+                    return false;
+                }
+                a.pad_buttons.push_back(*button);
+            }
+        }
+        if (const Json* axis = spec.find("gamepad_axis")) {
+            a.pad_axis = gamepad_axis_from_name(axis->as_string());
+            if (!a.pad_axis) {
+                if (error) *error = where + ": unknown gamepad axis " + axis->dump() + " (LeftX LeftY RightX RightY LeftTrigger RightTrigger)";
+                return false;
+            }
+        }
+        if (const Json* stick = spec.find("stick")) {
+            if (stick->as_string() == "left") a.stick = 1;
+            else if (stick->as_string() == "right") a.stick = 2;
+            else {
+                if (error) *error = where + ": stick is \"left\" or \"right\"";
+                return false;
+            }
+        }
+        a.dpad = spec["dpad"].as_bool();
+        if (const Json* scale = spec.find("stick_scale"); scale && scale->is_array() && scale->size() == 2) {
+            a.stick_scale = {static_cast<float>((*scale)[0].as_number()), static_cast<float>((*scale)[1].as_number())};
+        }
         if (const Json* mouse = spec.find("mouse")) {
             for (const Json& b : mouse->as_array()) {
                 const std::string& n = b.as_string();
@@ -106,12 +157,15 @@ void InputActions::update(const Input& in) {
         case Action::Type::Button: {
             bool d = pressed_any(in, a.keys);
             for (MouseButton b : a.mouse) d = d || in.down(b);
+            for (GamepadButton b : a.pad_buttons) d = d || in.down(b);
             a.is_down = d;
             a.current = {d ? 1.0f : 0.0f, 0.0f};
             break;
         }
         case Action::Type::Axis: {
-            const float v = (pressed_any(in, a.x.positive) ? 1.0f : 0.0f) - (pressed_any(in, a.x.negative) ? 1.0f : 0.0f);
+            float v = (pressed_any(in, a.x.positive) ? 1.0f : 0.0f) - (pressed_any(in, a.x.negative) ? 1.0f : 0.0f);
+            if (a.pad_axis) v += dead(in.axis(*a.pad_axis));
+            v = std::clamp(v, -1.0f, 1.0f);
             a.current = {v, 0.0f};
             a.is_down = v != 0.0f;
             break;
@@ -119,9 +173,20 @@ void InputActions::update(const Input& in) {
         case Action::Type::Axis2: {
             Vec2 v{(pressed_any(in, a.x.positive) ? 1.0f : 0.0f) - (pressed_any(in, a.x.negative) ? 1.0f : 0.0f),
                    (pressed_any(in, a.y.positive) ? 1.0f : 0.0f) - (pressed_any(in, a.y.negative) ? 1.0f : 0.0f)};
+            if (a.dpad) {
+                v.x += (in.down(GamepadButton::DpadRight) ? 1.0f : 0.0f) - (in.down(GamepadButton::DpadLeft) ? 1.0f : 0.0f);
+                v.y += (in.down(GamepadButton::DpadUp) ? 1.0f : 0.0f) - (in.down(GamepadButton::DpadDown) ? 1.0f : 0.0f);
+            }
+            if (a.stick != 0) {
+                Vec2 st{in.axis(a.stick == 1 ? GamepadAxis::LeftX : GamepadAxis::RightX), in.axis(a.stick == 1 ? GamepadAxis::LeftY : GamepadAxis::RightY)};
+                if (std::sqrt(st.x * st.x + st.y * st.y) < deadzone) st = {}; // radial deadzone
+                v.x += st.x * a.stick_scale.x;
+                v.y += st.y * a.stick_scale.y;
+            }
+            if (!a.use_mouse_delta) v = {std::clamp(v.x, -1.0f, 1.0f), std::clamp(v.y, -1.0f, 1.0f)};
             if (a.use_mouse_delta) {
                 const Vec2 d = in.mouse_delta();
-                v = {d.x * a.mouse_delta_scale.x, d.y * a.mouse_delta_scale.y};
+                v = {v.x + d.x * a.mouse_delta_scale.x, v.y + d.y * a.mouse_delta_scale.y};
             }
             a.current = v;
             a.is_down = v.x != 0.0f || v.y != 0.0f;

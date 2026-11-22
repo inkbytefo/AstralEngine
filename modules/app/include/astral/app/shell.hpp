@@ -5,6 +5,7 @@
 //   game                                   play in a window
 //   game --capture out.ppm [--frames N] [--width W] [--height H]   render N frames offscreen, write one image
 //   game --script-api <folder>             also write astral.d.luau and API.md (the script API)
+//   game --script-api-only <folder>        write them and exit (no window, no GPU: for tools and CI)
 //   game <anything else>                   left to the game: options.has("--night"), options.value("--view")
 //
 //     int main(int argc, char** argv) {
@@ -28,6 +29,7 @@ struct ShellOptions {
     std::uint32_t width = 0;   ///< 0 = AppDesc's.
     std::uint32_t height = 0;
     std::string script_api;    ///< Folder for astral.d.luau + API.md; empty = not written.
+    bool script_api_only = false; ///< `--script-api-only <folder>`: write them and exit (headless, no window or GPU).
     std::vector<std::string> args; ///< Every other argument, in order (flags and positional values).
 
     [[nodiscard]] bool capturing() const noexcept { return !capture.empty(); }
