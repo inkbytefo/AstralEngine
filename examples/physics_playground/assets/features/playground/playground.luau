@@ -3,10 +3,14 @@
 
 -- A body that enters a jump pad's sensor gets thrown upwards.
 astral.on("astral::TriggerEntered", function(_, event)
-    local pad = event.trigger:get("playground::JumpPad")
+    local trigger: Entity?, other: Entity? = event.trigger, event.other
+    if not trigger or not other then
+        return -- one of them was destroyed in the meantime
+    end
+    local pad = trigger:get("playground::JumpPad")
     if pad then
-        local v = astral.physics.velocity(event.other)
-        astral.physics.set_velocity(event.other, v + vector.create(0, pad.speed, 0))
+        local v = astral.physics.velocity(other)
+        astral.physics.set_velocity(other, v + vector.create(0, pad.speed, 0))
     end
 end, "FixedUpdate")
 
