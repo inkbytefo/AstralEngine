@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(NOT TARGET Astral::App)
-    find_package(Astral 0.16 CONFIG REQUIRED COMPONENTS App)
+    find_package(Astral 0.17 CONFIG REQUIRED COMPONENTS App)
 endif()
 
 # The game's code is a library: the executable and the tests use the same one.

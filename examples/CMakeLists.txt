@@ -4,6 +4,7 @@
 #   spinning_cubes   C++ parallel system + Luau rules + free camera
 #   sdf_scene        signed-distance-field shapes, orbiting lights
 #   physics_demo     rigid bodies, raycasts, a character controller (features: player, shooter, rain, lifetime)
+#   physics_playground  M12: height-field terrain + lake, buoyancy, wind, plank bridge on hinges, jump pad (trigger), glider
 #   rt_showcase      the ray-traced "RGB room"
 #   model_viewer     a glTF model in a studio, with hot reload
 #   scene_viewer     scenes and prefabs, reloaded live
@@ -15,6 +16,7 @@ add_subdirectory(hello_triangle)
 add_subdirectory(spinning_cubes)
 add_subdirectory(sdf_scene)
 add_subdirectory(physics_demo)
+add_subdirectory(physics_playground)
 add_subdirectory(rt_showcase)
 add_subdirectory(model_viewer)
 add_subdirectory(scene_viewer)

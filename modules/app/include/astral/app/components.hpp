@@ -137,6 +137,25 @@ struct Airfoil {
     Vec3 up{0, 1, 0};           ///< The wing's lift side (body space).
 };
 
+/// Connects the RigidBodies of two entities (or one and the world: leave `a` empty). Created once both bodies exist, with the anchor
+/// and axis in world space as the bodies stand then; removed with the entity. Destroying either entity removes the joint.
+struct Joint {
+    JointType type = JointType::Point;
+    Entity a{};                    ///< Empty: the world.
+    Entity b{};
+    Vec3 anchor{};                 ///< World space (on A for Distance).
+    Vec3 anchor_b{};               ///< Distance only: the point on B.
+    Vec3 axis{0, 1, 0};            ///< Hinge and Slider.
+    bool limited = false;
+    float min_limit = 0.0f;        ///< Hinge radians, Slider metres, Distance metres apart (both 0: as it stands).
+    float max_limit = 0.0f;
+    float spring_frequency = 0.0f;
+    float spring_damping = 0.0f;
+    float max_friction = 0.0f;
+    bool collide_connected = false;
+    JointHandle handle{};          ///< Filled in by the App.
+};
+
 /// Two bodies touched or separated (physics events: astral.on("astral::Contact") in scripts).
 enum class ContactKind : std::uint8_t { Begin, End };
 struct Contact {
@@ -209,3 +228,5 @@ ASTRAL_REFLECT_ENUM(astral::ContactKind, Begin, End)
 ASTRAL_REFLECT(astral::Contact, kind, a, b, point, normal, surface_a, surface_b)
 ASTRAL_REFLECT(astral::TriggerEntered, trigger, other)
 ASTRAL_REFLECT(astral::TriggerExited, trigger, other)
+ASTRAL_REFLECT_ENUM(astral::JointType, Fixed, Point, Hinge, Slider, Distance)
+ASTRAL_REFLECT(astral::Joint, type, a, b, anchor, anchor_b, axis, limited, min_limit, max_limit, spring_frequency, spring_damping, max_friction, collide_connected)

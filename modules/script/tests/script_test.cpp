@@ -528,3 +528,83 @@ TEST_CASE("saving without storage is an error that says so") {
     f.run();
     CHECK(contains(f.first_error(), "saving is not available"));
 }
+
+// --- physics and fields through ScriptPhysics ----------------------------------------------------
+
+namespace {
+struct FakePhysics final : ScriptPhysics {
+    mutable std::vector<std::string> calls;
+    Entity target{};
+    std::optional<ScriptHit> raycast(Vec3 origin, Vec3 direction, float max_distance, std::uint32_t layers, Entity ignore) const override {
+        calls.push_back("raycast layers=" + std::to_string(layers) + " ignore=" + std::to_string(ignore.index) + " max=" + std::to_string(static_cast<int>(max_distance)));
+        if (origin.y > 100) return std::nullopt;
+        return ScriptHit{target, origin + direction * 3.0f, {0, 1, 0}, 3.0f, 4};
+    }
+    std::optional<ScriptHit> spherecast(Vec3, float radius, Vec3, std::uint32_t, Entity) const override {
+        calls.push_back("spherecast r=" + std::to_string(static_cast<int>(radius * 10)));
+        return ScriptHit{target, {1, 2, 3}, {0, 1, 0}, 1.5f, 0};
+    }
+    std::vector<Entity> overlap_sphere(Vec3, float, std::uint32_t layers) const override { return {target, target}; (void)layers; }
+    std::vector<Entity> overlap_box(Vec3, Vec3, Quat q, std::uint32_t) const override {
+        calls.push_back("box qw=" + std::to_string(static_cast<int>(q.w * 100)));
+        return {target};
+    }
+    void impulse(Entity, Vec3 v) override { calls.push_back("impulse " + std::to_string(static_cast<int>(v.y))); }
+    void force(Entity, Vec3 v) override { calls.push_back("force " + std::to_string(static_cast<int>(v.x))); }
+    void set_velocity(Entity, Vec3 v) override { velocity_ = v; }
+    Vec3 velocity(Entity) const override { return velocity_; }
+    Vec3 wind(Vec3 p) const override { return {p.x, 0, 7}; }
+    ScriptWater water(Vec3 p) const override { return {p.y < 0, 0.5f, 1.25f, {1, 0, 0}, 1025.0f}; }
+    Vec3 velocity_{};
+};
+} // namespace
+
+TEST_CASE("astral.physics and astral.fields call the physics interface with the script's arguments") {
+    FakePhysics physics;
+    World world;
+    TypeRegistry types;
+    EventRegistry events;
+    Logger log;
+    register_world_types(types);
+    ScriptHost host({world, types, events, log, nullptr, nullptr, &physics});
+    physics.target = world.create(Name{"target"});
+    const Entity skip = world.create(Name{"skip"});
+    (void)skip;
+    REQUIRE(host.load("phys.luau", R"(
+        astral.system { run = function(ctx)
+            local target = astral.find("target")
+            local hit = astral.physics.raycast(vector.create(0, 1, 0), vector.create(0, 0, 1), 50, {layers = {0, 2}, ignore = astral.find("skip")})
+            assert(hit.entity == target and hit.distance == 3 and hit.surface == 4)
+            assert(hit.position.z == 3 and hit.normal.y == 1)
+            assert(astral.physics.raycast(vector.create(0, 500, 0), vector.create(0, 0, 1), 5) == nil)
+            local sweep = astral.physics.spherecast(vector.create(0, 0, 0), 0.5, vector.create(0, 0, 9))
+            assert(sweep.distance == 1.5)
+            assert(#astral.physics.overlap_sphere(vector.create(0, 0, 0), 2) == 2)
+            assert(astral.physics.overlap_box(vector.create(0, 0, 0), vector.create(1, 1, 1), astral.quat.axis_angle(vector.create(0, 1, 0), 0), {layers = 4})[1] == target)
+            astral.physics.impulse(target, vector.create(0, 9, 0))
+            astral.physics.force(target, vector.create(5, 0, 0))
+            astral.physics.set_velocity(target, vector.create(1, 2, 3))
+            assert(astral.physics.velocity(target).z == 3)
+            assert(astral.fields.wind(vector.create(4, 0, 0)).z == 7)
+            local water = astral.fields.water(vector.create(0, -1, 0))
+            assert(water.inside and water.depth == 1.25 and water.flow.x == 1 and water.density == 1025)
+            assert(not astral.fields.water(vector.create(0, 1, 0)).inside)
+            assert(not pcall(astral.physics.raycast, vector.create(0, 0, 0), vector.create(0, 0, 1), 5, {layers = {99}}))
+        end }
+    )").empty());
+    host.run(ScriptPhase::Update, {.delta = 0.1f});
+    CHECK(host.take_errors().empty());
+    // layers {0, 2} -> mask 5; the ignored entity is passed through.
+    REQUIRE(!physics.calls.empty());
+    CHECK(physics.calls[0].find("layers=5") != std::string::npos);
+    CHECK(physics.calls[0].find("ignore=1") != std::string::npos);
+    CHECK(std::count(physics.calls.begin(), physics.calls.end(), "impulse 9") == 1);
+    CHECK(std::count(physics.calls.begin(), physics.calls.end(), "force 5") == 1);
+}
+
+TEST_CASE("physics calls without a physics world say so") {
+    Fixture f;
+    REQUIRE(f.host->load("nophys.luau", "astral.system { run = function() astral.physics.raycast(vector.create(0,0,0), vector.create(0,0,1), 1) end }").empty());
+    f.run();
+    CHECK(contains(f.first_error(), "physics is not available"));
+}

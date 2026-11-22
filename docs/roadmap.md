@@ -34,8 +34,8 @@ Sonraki fazların numarası birer kaydı.
 | M9 | **Dünya ve harita sistemi:** `.world`, nesne başına dosya, hücreler + asenkron streaming, veri katmanları, bölüm örnekleri, kayan orijin ([ADR-0021](decisions/0021-world-and-level-system.md)) | M8 | ✅ |
 | M10 | **Shader dili ve materyaller:** `.ashader` (gdshader benzeri), `.material` + örnekler, çalışma anında derleme + hot-reload, raster/RT/gölge/forward varyantları, alfa testi, şeffaf geçiş ([ADR-0022](decisions/0022-shader-and-material-language.md)) | M8 | ✅ |
 | M11 | **Oyun kodu ve scripting:** özellik paketleri + SOLID kuralları + sınır denetimi ([ADR-0023](decisions/0023-modular-game-code.md)), Luau ([ADR-0017](decisions/0017-gameplay-scripting.md), [ADR-0026](decisions/0026-script-host-and-features.md)), input eylemleri, `AGENTS.md`, üretilen API belgesi | M9 | ✅ |
-| M12 | Fizik altyapısı: katmanlar, mesh/heightfield, eklemler, sorgular; **alan sistemi** (rüzgâr, su hacmi) ve kuvvetler | M8 | 🔜 |
-| M13 | Gelişmiş PBR: clearcoat, sheen, anizotropi, transmission, subsurface, decal, path tracer referansı | M10 | ⬜ |
+| M12 | Fizik altyapısı: katmanlar, mesh/heightfield, eklemler, sorgular; **alan sistemi** (rüzgâr, su hacmi) ve kuvvetler ([ADR-0029](decisions/0029-physics-fields-and-joints.md)) | M8 | ✅ |
+| M13 | Gelişmiş PBR: clearcoat, sheen, anizotropi, transmission, subsurface, decal, path tracer referansı | M10 | 🔜 |
 | M14 | **Atmosfer ve VFX:** fiziksel gökyüzü, froxel sis, **hacimsel efektler (CS2 dumanı)**, GPU partikülleri, decal/iz, `.vfx` ([ADR-0024](decisions/0024-volumetric-vfx.md)) | M10, M12 | ⬜ |
 | M15 | Arazi I: Terrain3D benzeri heightfield (clipmap, bölgeler, 32 katman, sculpt, delik, fizik, yerleştirme), dünya hücreleriyle stream ([ADR-0018](decisions/0018-terrain-and-sdf-world.md)) | M9, M10, M12 | ⬜ |
 | M16 | Su I: okyanus ve göller (FFT dalga, kırılma, köpük, su altı, kıyılar) + dalgayı izleyen kaldırma kuvveti | M14, M15 | ⬜ |
@@ -405,3 +405,14 @@ uygulama sapmaları [ADR-0026](decisions/0026-script-host-and-features.md). Mod�
 **Bilinen eksikler (sonraki fazlara girdi):** gamepad, tween/durum makinesi/tetik hacmi/kayıt yardımcıları,
 Luau bytecode cook'u, luau-analyze doğrulaması, iç içe reflection'ın script erişimi
 ([script.md → Bilinen sınırlar](modules/script.md#bilinen-sınırlar)).
+
+## M12 — Fizik altyapısı ve alanlar ✅
+
+**Sonuç (0.17.0):** Karar: [ADR-0029](decisions/0029-physics-fields-and-joints.md). Modül: [physics.md](modules/physics.md). Plan: `superpowers/plans/2026-11-22-m12-physics.md`.
+- **Fizik çekirdeği:** 16 çarpışma katmanı + matris, `QueryFilter`; `shape_cast`, `overlap`; yüzey kimliği; convex hull, mesh, heightfield, compound; Fixed/Point/Hinge/Slider/Distance eklemleri
+  (bağlı gövdeler çarpışmaz); sensör bayraklı temas olayları.
+- **Alanlar:** `FieldWorld` (rüzgâr: küresel + hacimler, gust, türbülans; su: yüzey, dalga, akış, yoğunluk), saf işlevler; `fields.glsl` aynı sayıları GPU'da verir (parite testi).
+- **App:** `WindZone`, `WaterBody`, `Buoyant`, `AirDrag`, `Airfoil`, `Joint` component'leri; `Contact`/`TriggerEntered`/`TriggerExited` olayları; isteğe bağlı görsel interpolasyon; debug çizimi.
+- **Script:** `astral.physics.*` ve `astral.fields.*` (`ScriptPhysics` arayüzü), olaylar `astral.on` ile; üretilen API ve tip tanımı güncel.
+- **Demo:** `examples/physics_playground` (arazi + göl, yüzen/batan gövdeler, rüzgâr, menteşeli köprü, zıplatma pedi, kanat), görüntü testi.
+- **Ertelenen:** Jolt'u `JobSystem`'e bağlama, SixDOF/motorlu eklem, alan GLSL'ini tüketen shader'lar (M14/M16/M17).

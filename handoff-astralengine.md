@@ -114,10 +114,11 @@ You are continuing work from a previous chat. That chat is gone; this file is th
 | M11 oyun kodu + Luau | final | ADR-0023, ADR-0017, ADR-0026, plan `docs/superpowers/plans/2026-11-22-m11-game-code-luau.md` | `Astral::Script` (Luau 0.748), özellik paketleri, `.actions`, `astral-features`, API üretimi, Pong 3 pakete bölündü (kurallar Luau); sürüm 0.16.0; ertelenen: gamepad, tween/durum makinesi/tetik/kayıt, bytecode cook |
 | `templates/blank` + `run_game` kabuğu + örneklerin yeniden kurulumu | final | ADR-0027, `templates/blank`, `examples/*` | her örnek src/ + assets/features/ + tests/; hello_core→hello_headless, hello_triangle App+.ashader; yeni goldens (blank, hello_triangle, spinning_cubes, sdf_scene); open_world'deki kamera-duyarlılığı sorunu çözüldü (RT ışın payı uzaklıkla ölçekleniyor, CHANGELOG) |
 | M11 artıkları (ADR-0028) | final | `astral-luau-check`, bytecode cook, `features/`, gamepad, tween/durum makinesi/kayıt | render ray_bias düzeltmesi dahil; tetik hacmi M12'ye |
-| M12 fizik altyapısı + alanlar | 🔜 | roadmap | sıradaki faz |
+| M12 fizik altyapısı + alanlar | final | ADR-0029, plan `docs/superpowers/plans/2026-11-22-m12-physics.md` | katmanlar, şekiller, eklemler, FieldWorld (+GLSL parite), Buoyant/AirDrag/Airfoil, Joint, tetik/temas olayları, `astral.physics/fields`, `examples/physics_playground`; sürüm 0.17.0; ertelenen: Jolt JobSystem, SixDOF |
+| M13 gelişmiş PBR | 🔜 | roadmap | sıradaki faz |
 
 ## 11. Next steps
-1. **Next action:** M12 (fizik katmanları, şekiller, eklemler, alan sistemi): plan yaz → TDD. Kullanıcı tercihi: commit faz sonunda (her mesajda değil).
+1. **Next action:** M13 (gelişmiş PBR: clearcoat, sheen, anizotropi, transmission, subsurface, decal, path tracer referansı): plan yaz → TDD. Kullanıcı tercihi: commit faz sonunda (her mesajda değil).
 2. Bulut ortamında bağımlılıklar: CI'daki `LINUX_DEPS` apt ile kurulur; testler `xvfb-run -a ctest --preset debug`.
 3. (M11'de yapıldı) `docs/guides/writing-a-game.md` HUD/ses/debug/özellik paketi bölümleriyle güncel.
 

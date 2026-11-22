@@ -486,6 +486,152 @@ int astral_load(lua_State* L) {
     return 1;
 }
 
+// --- physics and fields ----------------------------------------------------------------------
+
+ScriptPhysics& require_physics(lua_State* L, Impl& impl) {
+    if (!impl.env.physics) luaL_error(L, "physics is not available in this game");
+    return *impl.env.physics;
+}
+
+Vec3 check_vec3(lua_State* L, int index) {
+    const float* v = lua_tovector(L, index);
+    if (!v) luaL_typeerror(L, index, "vector");
+    return {v[0], v[1], v[2]};
+}
+
+void push_vec3(lua_State* L, Vec3 v) { lua_pushvector(L, v.x, v.y, v.z); }
+
+/// options.layers: a mask (number) or a list of layer indices {0, 3}; options.ignore: an entity.
+void read_query_options(lua_State* L, int index, std::uint32_t& layers, Entity& ignore) {
+    layers = 0xFFFFFFFFu;
+    ignore = {};
+    if (lua_isnoneornil(L, index)) return;
+    luaL_checktype(L, index, LUA_TTABLE);
+    lua_getfield(L, index, "layers");
+    if (lua_type(L, -1) == LUA_TNUMBER) {
+        layers = static_cast<std::uint32_t>(lua_tonumber(L, -1));
+    } else if (lua_istable(L, -1)) {
+        layers = 0;
+        const int n = lua_objlen(L, -1);
+        for (int i = 1; i <= n; ++i) {
+            lua_rawgeti(L, -1, i);
+            const int layer = static_cast<int>(luaL_checknumber(L, -1));
+            if (layer < 0 || layer > 15) luaL_error(L, "layers are numbered 0..15");
+            layers |= 1u << layer;
+            lua_pop(L, 1);
+        }
+    } else if (!lua_isnil(L, -1)) {
+        luaL_error(L, "options.layers must be a number mask or a list of layer numbers");
+    }
+    lua_pop(L, 1);
+    lua_getfield(L, index, "ignore");
+    if (!lua_isnil(L, -1) && !read_entity(L, -1, ignore)) luaL_error(L, "options.ignore must be an entity");
+    lua_pop(L, 1);
+}
+
+void push_hit(lua_State* L, const ScriptHit& hit) {
+    lua_createtable(L, 0, 5);
+    push_entity(L, hit.entity);
+    lua_setfield(L, -2, "entity");
+    push_vec3(L, hit.position);
+    lua_setfield(L, -2, "position");
+    push_vec3(L, hit.normal);
+    lua_setfield(L, -2, "normal");
+    lua_pushnumber(L, static_cast<double>(hit.distance));
+    lua_setfield(L, -2, "distance");
+    lua_pushnumber(L, hit.surface);
+    lua_setfield(L, -2, "surface");
+}
+
+int physics_raycast(lua_State* L) {
+    ScriptPhysics& p = require_physics(L, Impl::of(L));
+    std::uint32_t layers;
+    Entity ignore;
+    read_query_options(L, 4, layers, ignore);
+    const auto hit = p.raycast(check_vec3(L, 1), check_vec3(L, 2), static_cast<float>(luaL_checknumber(L, 3)), layers, ignore);
+    if (hit) push_hit(L, *hit);
+    else lua_pushnil(L);
+    return 1;
+}
+
+int physics_spherecast(lua_State* L) {
+    ScriptPhysics& p = require_physics(L, Impl::of(L));
+    std::uint32_t layers;
+    Entity ignore;
+    read_query_options(L, 4, layers, ignore);
+    const auto hit = p.spherecast(check_vec3(L, 1), static_cast<float>(luaL_checknumber(L, 2)), check_vec3(L, 3), layers, ignore);
+    if (hit) push_hit(L, *hit);
+    else lua_pushnil(L);
+    return 1;
+}
+
+void push_entities(lua_State* L, const std::vector<Entity>& list) {
+    lua_createtable(L, static_cast<int>(list.size()), 0);
+    int i = 1;
+    for (Entity e : list) {
+        push_entity(L, e);
+        lua_rawseti(L, -2, i++);
+    }
+}
+
+int physics_overlap_sphere(lua_State* L) {
+    ScriptPhysics& p = require_physics(L, Impl::of(L));
+    std::uint32_t layers;
+    Entity ignore;
+    read_query_options(L, 3, layers, ignore);
+    push_entities(L, p.overlap_sphere(check_vec3(L, 1), static_cast<float>(luaL_checknumber(L, 2)), layers));
+    return 1;
+}
+
+int physics_overlap_box(lua_State* L) {
+    ScriptPhysics& p = require_physics(L, Impl::of(L));
+    std::uint32_t layers;
+    Entity ignore;
+    read_query_options(L, 4, layers, ignore);
+    Quat rotation{};
+    if (!lua_isnoneornil(L, 3)) rotation = check_quat(L, 3);
+    push_entities(L, p.overlap_box(check_vec3(L, 1), check_vec3(L, 2), rotation, layers));
+    return 1;
+}
+
+int physics_impulse(lua_State* L) {
+    require_physics(L, Impl::of(L)).impulse(check_entity(L, 1), check_vec3(L, 2));
+    return 0;
+}
+int physics_force(lua_State* L) {
+    require_physics(L, Impl::of(L)).force(check_entity(L, 1), check_vec3(L, 2));
+    return 0;
+}
+int physics_set_velocity(lua_State* L) {
+    require_physics(L, Impl::of(L)).set_velocity(check_entity(L, 1), check_vec3(L, 2));
+    return 0;
+}
+int physics_velocity(lua_State* L) {
+    push_vec3(L, require_physics(L, Impl::of(L)).velocity(check_entity(L, 1)));
+    return 1;
+}
+
+int fields_wind(lua_State* L) {
+    push_vec3(L, require_physics(L, Impl::of(L)).wind(check_vec3(L, 1)));
+    return 1;
+}
+
+int fields_water(lua_State* L) {
+    const ScriptWater w = require_physics(L, Impl::of(L)).water(check_vec3(L, 1));
+    lua_createtable(L, 0, 5);
+    lua_pushboolean(L, w.inside);
+    lua_setfield(L, -2, "inside");
+    lua_pushnumber(L, static_cast<double>(w.surface));
+    lua_setfield(L, -2, "surface");
+    lua_pushnumber(L, static_cast<double>(w.depth));
+    lua_setfield(L, -2, "depth");
+    push_vec3(L, w.flow);
+    lua_setfield(L, -2, "flow");
+    lua_pushnumber(L, static_cast<double>(w.density));
+    lua_setfield(L, -2, "density");
+    return 1;
+}
+
 int astral_find(lua_State* L) {
     Impl& impl = Impl::of(L);
     const Entity e = find_by_name(impl.env.world, luaL_checkstring(L, 1));
@@ -649,6 +795,20 @@ void open_astral(lua_State* L, ScriptHost::Impl&) {
     set_function(L, "log", log_info);
     set_function(L, "warn", log_warn);
     set_function(L, "error", log_error);
+    lua_newtable(L); // astral.physics
+    set_function(L, "raycast", physics_raycast);
+    set_function(L, "spherecast", physics_spherecast);
+    set_function(L, "overlap_sphere", physics_overlap_sphere);
+    set_function(L, "overlap_box", physics_overlap_box);
+    set_function(L, "impulse", physics_impulse);
+    set_function(L, "force", physics_force);
+    set_function(L, "set_velocity", physics_set_velocity);
+    set_function(L, "velocity", physics_velocity);
+    lua_setfield(L, -2, "physics");
+    lua_newtable(L); // astral.fields
+    set_function(L, "wind", fields_wind);
+    set_function(L, "water", fields_water);
+    lua_setfield(L, -2, "fields");
     lua_newtable(L); // astral.quat
     set_function(L, "axis_angle", quat_axis_angle);
     set_function(L, "mul", quat_mul);

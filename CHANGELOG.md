@@ -4,6 +4,19 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-11-22 — M12 (fizik altyapısı ve alanlar)
+
+### Added
+- physics: çarpışma katmanları (`BodyDesc::layer`, `set_layer_collision`), `QueryFilter`, `shape_cast`, `overlap`, `surface` kimliği, `ContactEvent::sensor`;
+  şekiller `convex_hull`, `mesh`, `height_field`, `compound`; eklemler (`create_joint`: Fixed, Point, Hinge, Slider, Distance); `angular_velocity`, `add_force_at`, `add_torque`, `gravity()`.
+- physics: `fields.hpp` (`FieldWorld`, `WindDesc`, `WindVolume`, `WaterVolume`, saf işlevler) + `shaders/include/astral/fields.glsl`; CPU/GPU eşitlik testi (`tests/integration`).
+- app: `WindZone`, `WaterBody`, `Buoyant`, `AirDrag`, `Airfoil`, `Joint`; olaylar `Contact`, `TriggerEntered`, `TriggerExited`; `Context::fields`; `AppDesc::physics_interpolation`; `debug_show.fields`.
+- script: `astral.physics.*`, `astral.fields.*` (`ScriptPhysics`), API belgesi ve tip tanımı güncel.
+- `examples/physics_playground` + görüntü testi; ADR-0029; plan `2026-11-22-m12-physics.md`.
+
+### Changed
+- `PhysicsWorld::raycast` üçüncü parametresi `QueryFilter` (`BodyHandle` ignore yerine `{.ignore = body}`); `ShapeDesc` yeni türler ve dolgu alanları taşır (sona eklendi).
+
 ### Added
 - `templates/blank`: boş oyun şablonu (özellik paketi + Luau kuralı + başsız test + paketleme + sınır denetimi); motor içinde ve
   kurulu motora karşı bağımsız derlenir (CI'da ikisi de).

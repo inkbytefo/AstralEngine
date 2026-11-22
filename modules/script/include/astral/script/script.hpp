@@ -51,6 +51,37 @@ public:
     [[nodiscard]] virtual Vec2 axis(std::string_view action) const = 0;
 };
 
+/// What a script may do with physics and fields (a narrow interface: the App implements it over the physics world).
+/// Bodies are addressed by the entity that owns them (RigidBody). `layers` is a mask of collision layers.
+struct ScriptHit {
+    Entity entity{};
+    Vec3 position{};
+    Vec3 normal{};
+    float distance = 0.0f;
+    int surface = 0;
+};
+struct ScriptWater {
+    bool inside = false;
+    float surface = 0.0f;
+    float depth = 0.0f;
+    Vec3 flow{};
+    float density = 0.0f;
+};
+class ScriptPhysics {
+public:
+    virtual ~ScriptPhysics() = default;
+    [[nodiscard]] virtual std::optional<ScriptHit> raycast(Vec3 origin, Vec3 direction, float max_distance, std::uint32_t layers, Entity ignore) const = 0;
+    [[nodiscard]] virtual std::optional<ScriptHit> spherecast(Vec3 origin, float radius, Vec3 displacement, std::uint32_t layers, Entity ignore) const = 0;
+    [[nodiscard]] virtual std::vector<Entity> overlap_sphere(Vec3 center, float radius, std::uint32_t layers) const = 0;
+    [[nodiscard]] virtual std::vector<Entity> overlap_box(Vec3 center, Vec3 half_extents, Quat rotation, std::uint32_t layers) const = 0;
+    virtual void impulse(Entity body, Vec3 impulse) = 0;
+    virtual void force(Entity body, Vec3 force) = 0;
+    virtual void set_velocity(Entity body, Vec3 velocity) = 0;
+    [[nodiscard]] virtual Vec3 velocity(Entity body) const = 0;
+    [[nodiscard]] virtual Vec3 wind(Vec3 position) const = 0;
+    [[nodiscard]] virtual ScriptWater water(Vec3 position) const = 0;
+};
+
 /// Where saves go (named slots of text). The App stores files; a test can keep them in memory.
 class ScriptStorage {
 public:
@@ -67,6 +98,7 @@ struct ScriptEnv {
     Logger& log;
     ScriptInput* input = nullptr; ///< Null: every action reads as idle.
     ScriptStorage* storage = nullptr; ///< Null: astral.save / astral.load report that saving is not available.
+    ScriptPhysics* physics = nullptr; ///< Null: astral.physics.* and astral.fields.* report that physics is not available.
 };
 
 struct ScriptLimits {

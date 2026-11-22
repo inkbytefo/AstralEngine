@@ -1,0 +1,12 @@
+{
+  "format": "astral.feature",
+  "version": 1,
+  "name": "playground",
+  "description": "Jump pad (trigger volume), crate dropper, a slowly turning wind. Rules in Luau.",
+  "depends_on": [],
+  "components": ["playground::JumpPad", "playground::Dropper"],
+  "events": [],
+  "exports": { "headers": ["playground.hpp"] },
+  "scripts": ["features/playground/playground.luau"],
+  "actions": []
+}

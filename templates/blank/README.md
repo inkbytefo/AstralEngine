@@ -25,4 +25,4 @@ cmake --build build --target blank_package   # dağıtılabilir klasör: build/p
 
 Yeni özellik: `src/features/<ad>/` + `assets/features/<ad>/feature.json` oluştur, `game.cpp`'ye
 `game.add("<ad>", install_<ad>);` ekle (saf Luau özellik için install gerekmez: `game.add("<ad>")`).
-Sürümü kopyaladığın motorun sürümüyle eşle: `find_package(Astral 0.16 ...)`.
+Sürümü kopyaladığın motorun sürümüyle eşle: `find_package(Astral 0.17 ...)`.

@@ -67,6 +67,13 @@ sabit 60 Hz adım; pencerede Esc çıkar. `templates/blank` ve bütün örnekler
 Kurulum örneği (Pong): `FeatureSet game; game.add("pong_rules", install_rules); game.add("pong_audio",
 install_audio); if (!game.install(ctx)) ctx.quit();`
 
+## Fizik alanları, kuvvetler ve olaylar (M12)
+
+Karar: [ADR-0029](../decisions/0029-physics-fields-and-joints.md); ayrıntı [physics.md](physics.md#alanlar-ve-kuvvetler-m12). Yeni component'ler (hepsi reflect edilir, sahne dosyalarında ve script'te kullanılır):
+`WindZone`, `WaterBody`, `Buoyant`, `AirDrag`, `Airfoil`, `Joint`; olaylar `Contact`, `TriggerEntered`, `TriggerExited` (`ctx.events`'te kayıtlı: `astral.on("astral::TriggerEntered", ...)`).
+`Context::fields` (`FieldWorld`): sistemlerden `ctx.fields.wind_at(pos, ctx.time.elapsed)`, `water_at`. `AppDesc::physics_interpolation`. Script'lerin fizik erişimi `ScriptPhysics` arayüzüyle
+(App uygular): [script.md](script.md#fizik-ve-alanlar).
+
 ## Bilinen sınırlar
 
 - Pencere yeniden boyutlanınca swapchain kendini yeniler; olay callback'i yok.

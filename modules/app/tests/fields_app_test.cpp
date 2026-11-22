@@ -159,3 +159,78 @@ TEST_CASE("with interpolation, bodies move smoothly between slow physics steps")
     CHECK(plain < 60);   // about one change per 4 frames
     CHECK(smooth > 100); // a change nearly every frame
 }
+
+TEST_CASE("Luau sees the physics world: raycasts, impulses, wind, water and trigger events") {
+    App app = make_app();
+    Scene scene;
+    Entity floor_entity{}, ball{};
+    scene.setup = [&](Context& ctx) {
+        floor_entity = ground(ctx.world);
+        ctx.world.create(Name{"zone"}, Transform{.position = {5, 1, 0}}, RigidBody{.desc = {.shape = ShapeDesc::box({1, 1, 1}), .motion = MotionType::Static, .sensor = true}});
+        ball = ctx.world.create(Name{"ball"}, Transform{.position = {5, 6, 0}}, RigidBody{.desc = {.shape = ShapeDesc::sphere(0.3f)}});
+        ctx.world.create(Transform{.position = {0, 0, 0}}, WindZone{.velocity = {3, 0, 0}, .global = true});
+        ctx.world.create(Transform{.position = {0, -3, 20}}, WaterBody{.half_extents = {5, 3, 5}, .density = 1010.0f});
+        ctx.types.add<Contact>();
+        REQUIRE(ctx.scripts->load("phys.luau", R"(
+            astral.define_event("test::Report")
+            local entered = 0
+            local hits = 0
+            astral.on("astral::TriggerEntered", function(ctx, ev)
+                if ev.trigger == astral.find("zone") then entered = entered + 1 end
+            end, "PostUpdate")
+            astral.on("astral::Contact", function(ctx, ev)
+                if ev.kind == "Begin" and ev.surface_a ~= nil then hits = hits + 1 end
+            end, "PostUpdate")
+            astral.system { phase = "Update", run = function(ctx)
+                local down = astral.physics.raycast(vector.create(0, 5, 0), vector.create(0, -1, 0), 20)
+                if not down then return end -- the bodies appear after the first physics sync
+                assert(down.surface == 3, "the ground is surface 3")
+                assert(astral.physics.raycast(vector.create(0, 5, 0), vector.create(0, -1, 0), 20, {layers = {5}}) == nil, "nothing is on layer 5")
+                assert(astral.fields.wind(vector.create(0, 0, 0)).x == 3)
+                assert(astral.fields.water(vector.create(0, -1, 20)).inside)
+                assert(astral.fields.water(vector.create(0, -1, 20)).density == 1010)
+                astral.send("test::Report", {entered = entered, hits = hits})
+            end }
+        )").empty());
+    };
+    int entered = 0, hits = 0;
+    EventReader<DynamicEvent> reports;
+    app.run_frames(scene, 60 * 3);
+    reports.read(app.world(), [&](const DynamicEvent& e) {
+        entered = static_cast<int>(e.payload["entered"].as_number());
+        hits = static_cast<int>(e.payload["hits"].as_number());
+    });
+    CHECK(app.context().scripts->take_errors().empty());
+    CHECK(entered >= 1); // the ball fell through the trigger
+    CHECK(hits >= 1);    // and hit the ground
+}
+
+TEST_CASE("Joint components connect rigid bodies: a pendulum swings, a hinge door turns, the joint goes with its entity") {
+    App app = make_app();
+    Scene scene;
+    Entity bob{}, door{}, rope{};
+    scene.setup = [&](Context& ctx) {
+        bob = ctx.world.create(Transform{.position = {2, 5, 0}}, RigidBody{.desc = {.shape = ShapeDesc::sphere(0.3f), .linear_damping = 0.0f}});
+        ctx.world.create(Joint{.type = JointType::Point, .b = bob, .anchor = {0, 5, 0}});
+        door = ctx.world.create(Transform{.position = {0.5f, 1, 10}}, RigidBody{.desc = {.shape = ShapeDesc::box({0.5f, 1.0f, 0.05f}), .gravity_factor = 0.0f}});
+        ctx.world.create(Joint{.type = JointType::Hinge, .b = door, .anchor = {0, 1, 10}, .axis = {0, 1, 0}});
+        const Entity weight = ctx.world.create(Transform{.position = {20, 5, 0}}, RigidBody{.desc = {.shape = ShapeDesc::sphere(0.3f)}});
+        rope = ctx.world.create(Joint{.type = JointType::Point, .b = weight, .anchor = {20, 6, 0}});
+    };
+    scene.each_frame = [&](Context& ctx) {
+        if (ctx.time.frame == 10) ctx.physics->add_impulse(ctx.world.get<RigidBody>(door)->handle, {0, 0, -200.0f});
+        if (ctx.time.frame == 30) ctx.world.destroy(rope);
+    };
+    float worst = 0.0f;
+    bool door_turned = false;
+    scene.each_frame = [&, previous = scene.each_frame](Context& ctx) {
+        previous(ctx);
+        const Vec3 p = ctx.world.get<Transform>(bob)->position;
+        worst = std::max(worst, std::abs(length(p - Vec3{0, 5, 0}) - 2.0f));
+        door_turned = door_turned || std::abs(ctx.world.get<Transform>(door)->rotation.y) > 0.2f;
+    };
+    app.run_frames(scene, 120);
+    CHECK(worst < 0.1f);      // the bob stays on its circle
+    CHECK(door_turned);       // the hinge door swung
+    CHECK(app.context().physics->body_count() >= 2);
+}

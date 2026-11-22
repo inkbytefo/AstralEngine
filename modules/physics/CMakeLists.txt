@@ -35,6 +35,11 @@ astral_add_module(NAME physics
     PRIVATE_DEPS
         Jolt)
 
+if(ASTRAL_INSTALL)
+    # fields.glsl: the shader twin of fields.hpp, for games' own shaders (same folder as the gpu module's bindless.glsl).
+    install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/ DESTINATION ${CMAKE_INSTALL_DATADIR}/astral/shaders)
+endif()
+
 astral_add_tests(MODULE physics
     SOURCES
         tests/test_main.cpp

@@ -64,6 +64,55 @@ private:
     const InputActions& actions_;
 };
 
+/// What scripts may do with physics: the App's bodies and fields behind a narrow interface.
+class AppScriptPhysics final : public ScriptPhysics {
+public:
+    AppScriptPhysics(World& world, PhysicsWorld& physics, const FieldWorld& fields, const Time& time)
+        : world_(world), physics_(physics), fields_(fields), time_(time) {}
+
+    std::optional<ScriptHit> raycast(Vec3 origin, Vec3 direction, float max_distance, std::uint32_t layers, Entity ignore) const override {
+        const auto hit = physics_.raycast(origin, direction, max_distance, {.layers = layers, .ignore = body_of(ignore)});
+        return hit ? std::optional<ScriptHit>(to_script(hit->user_data, hit->position, hit->normal, hit->distance, hit->surface)) : std::nullopt;
+    }
+    std::optional<ScriptHit> spherecast(Vec3 origin, float radius, Vec3 displacement, std::uint32_t layers, Entity ignore) const override {
+        const auto hit = physics_.shape_cast(ShapeDesc::sphere(radius), origin, {}, displacement, {.layers = layers, .ignore = body_of(ignore)});
+        return hit ? std::optional<ScriptHit>(to_script(hit->user_data, hit->position, hit->normal, hit->distance, hit->surface)) : std::nullopt;
+    }
+    std::vector<Entity> overlap_sphere(Vec3 center, float radius, std::uint32_t layers) const override {
+        return entities(physics_.overlap(ShapeDesc::sphere(radius), center, {}, {.layers = layers}));
+    }
+    std::vector<Entity> overlap_box(Vec3 center, Vec3 half_extents, Quat rotation, std::uint32_t layers) const override {
+        return entities(physics_.overlap(ShapeDesc::box(half_extents), center, rotation, {.layers = layers}));
+    }
+    void impulse(Entity body, Vec3 v) override { physics_.add_impulse(body_of(body), v); }
+    void force(Entity body, Vec3 v) override { physics_.add_force(body_of(body), v); }
+    void set_velocity(Entity body, Vec3 v) override { physics_.set_linear_velocity(body_of(body), v); }
+    Vec3 velocity(Entity body) const override { return physics_.linear_velocity(body_of(body)); }
+    Vec3 wind(Vec3 position) const override { return fields_.wind_at(position, time_.elapsed); }
+    ScriptWater water(Vec3 position) const override {
+        const WaterSample s = fields_.water_at(position, time_.elapsed);
+        return {s.inside, s.surface_height, s.depth, s.flow, s.density};
+    }
+
+private:
+    BodyHandle body_of(Entity e) const {
+        const RigidBody* rb = e.valid() ? world_.get<const RigidBody>(e) : nullptr;
+        return rb ? rb->handle : BodyHandle{};
+    }
+    static ScriptHit to_script(std::uint64_t user_data, Vec3 position, Vec3 normal, float distance, int surface) {
+        return {entity_from_user_data(user_data), position, normal, distance, surface};
+    }
+    static std::vector<Entity> entities(const std::vector<OverlapHit>& hits) {
+        std::vector<Entity> out;
+        for (const OverlapHit& h : hits) out.push_back(entity_from_user_data(h.user_data));
+        return out;
+    }
+    World& world_;
+    PhysicsWorld& physics_;
+    const FieldWorld& fields_;
+    const Time& time_;
+};
+
 /// Save slots as files: `<folder>/<slot>.json`. Slot names are letters, digits, '_' and '-' only.
 class FileStorage final : public ScriptStorage {
 public:
@@ -144,10 +193,16 @@ struct App::Impl {
     };
     std::vector<BodyLink> body_links;
     std::vector<CharacterLink> character_links;
+    struct JointLink {
+        Entity entity;
+        JointHandle joint;
+    };
+    std::vector<JointLink> joint_links;
 
     std::unique_ptr<ScriptHost> scripts;
     std::unique_ptr<ScriptInput> script_input;
     std::unique_ptr<ScriptStorage> script_storage;
+    std::unique_ptr<ScriptPhysics> script_physics;
     struct Watched {
         std::uint64_t hash = 0;
         bool is_actions = false;
@@ -217,6 +272,7 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
     types.add<AudioSource>();
     types.add<AudioListener>();
     types.add<StreamingSource>();
+    types.add<Joint>();
     types.add<WindZone>();
     types.add<WaterBody>();
     types.add<Buoyant>();
@@ -309,7 +365,8 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
     m.context->font = m.font.get();
     m.script_input = std::make_unique<ActionInput>(m.context->actions);
     m.script_storage = std::make_unique<FileStorage>(std::filesystem::path(std::string(desc.save_folder)));
-    m.scripts = std::make_unique<ScriptHost>(ScriptEnv{m.world, m.context->types, m.context->events, m.log, m.script_input.get(), m.script_storage.get()});
+    m.script_physics = std::make_unique<AppScriptPhysics>(m.world, *m.physics, m.context->fields, m.time);
+    m.scripts = std::make_unique<ScriptHost>(ScriptEnv{m.world, m.context->types, m.context->events, m.log, m.script_input.get(), m.script_storage.get(), m.script_physics.get()});
     m.context->scripts = m.scripts.get();
 }
 
@@ -617,6 +674,26 @@ void App::Impl::sync_physics_bodies() {
         body_desc.user_data = to_user_data(e);
         rb.handle = physics->create_body(body_desc);
         if (rb.handle.valid()) body_links.push_back({e, rb.handle, t.position, t.rotation, t.position, t.rotation});
+    });
+    // Joints: once both bodies exist. A joint whose entity or bodies are gone goes away (the physics world also drops the
+    // joints of destroyed bodies).
+    std::erase_if(joint_links, [&](const JointLink& link) {
+        const Joint* j = world.get<const Joint>(link.entity);
+        if (j && j->handle == link.joint && physics->valid(link.joint)) return false;
+        physics->destroy(link.joint);
+        return true;
+    });
+    world.each<Joint>([&](Entity e, Joint& j) {
+        const bool ours = std::any_of(joint_links.begin(), joint_links.end(), [&](const JointLink& l) { return l.entity == e && l.joint == j.handle; });
+        if (ours) return;
+        const RigidBody* ra = j.a.valid() ? world.get<const RigidBody>(j.a) : nullptr;
+        const RigidBody* rb = j.b.valid() ? world.get<const RigidBody>(j.b) : nullptr;
+        if (!rb || !physics->valid(rb->handle) || (j.a.valid() && (!ra || !physics->valid(ra->handle)))) return; // wait for the bodies
+        j.handle = physics->create_joint({.type = j.type, .body_a = ra ? ra->handle : BodyHandle{}, .body_b = rb->handle, .anchor = j.anchor,
+                                          .anchor_b = j.anchor_b, .axis = j.axis, .limited = j.limited, .min_limit = j.min_limit,
+                                          .max_limit = j.max_limit, .spring_frequency = j.spring_frequency, .spring_damping = j.spring_damping,
+                                          .max_friction = j.max_friction, .collide_connected = j.collide_connected});
+        if (j.handle.valid()) joint_links.push_back({e, j.handle});
     });
     world.each<CharacterController, const Transform>([&](Entity e, CharacterController& cc, const Transform& t) {
         if (physics->valid(cc.handle) && physics->user_data(cc.handle) == to_user_data(e)) return;

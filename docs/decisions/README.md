@@ -33,3 +33,4 @@ ADR eskisini "yerini aldı" diye işaretler.
 | [0026](0026-script-host-and-features.md) | Script ana bilgisayarı, dinamik component'ler, olay kaydı ve özellik paketlerinin uygulanışı (M11 sapmaları) | Kabul |
 | [0027](0027-blank-template-and-game-shell.md) | Boş oyun şablonu (`templates/blank`), standart oyun kabuğu (`run_game`), örneklerin şablon düzeninde yeniden kurulması | Kabul |
 | [0028](0028-script-tooling-and-shared-features.md) | Script araçları (tip denetimi, bytecode cook), ortak özellikler, gamepad, tween/durum makinesi/kayıt | Kabul |
+| [0029](0029-physics-fields-and-joints.md) | Fizik altyapısı: katmanlar, yeni şekiller, eklemler, rüzgâr/su alanları (CPU+GPU aynı işlev), kuvvetler, tetik olayları | Kabul |

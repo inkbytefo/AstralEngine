@@ -125,6 +125,21 @@ if (auto hit = ctx.physics->raycast(origin, forward, 100.0f)) {
 
 Tam örnek: `examples/physics_demo` (özellikler: `player`, `shooter`, `rain`, `lifetime`).
 
+### Katmanlar, sorgular, şekiller, eklemler (M12)
+
+```cpp
+ctx.physics->set_layer_collision(3, 0, false);                         // katman 3 (hayaletler) varsayılan katmanla çarpışmaz
+RigidBody{.desc = {.shape = ShapeDesc::height_field(heights, 64, 1.5f), .motion = MotionType::Static, .layer = 0, .surface = 1}};  // arazi
+RigidBody{.desc = {.shape = ShapeDesc::compound({{{-1, 0, 0}, {}, ShapeDesc::sphere(0.5f)}, {{1, 0, 0}, {}, ShapeDesc::sphere(0.5f)}})}};
+if (auto hit = ctx.physics->shape_cast(ShapeDesc::sphere(0.3f), from, {}, displacement, {.layers = layer_bit(0)})) { /* hit->surface: ne olduğu */ }
+for (const OverlapHit& o : ctx.physics->overlap(ShapeDesc::sphere(5.0f), center)) { Entity e = entity_from_user_data(o.user_data); }
+world.create(Joint{.type = JointType::Hinge, .a = door_frame, .b = door, .anchor = hinge_pos, .axis = {0, 1, 0}, .limited = true, .max_limit = radians(100)});
+```
+
+**Rüzgâr ve su:** `WindZone{.velocity, .gust_strength, .turbulence, .global}` ve `WaterBody{.half_extents, .density, .flow, .wave_height}` entity'leri alanları kurar; gövdeye `AirDrag`, `Buoyant`
+(yüzer/batar), `Airfoil` (kanat) ekleyince kuvvetler kendiliğinden uygulanır. **Tetik:** `BodyDesc::sensor = true` + `astral.on("astral::TriggerEntered", ...)` (Luau) ya da `EventReader<TriggerEntered>` (C++).
+Tam örnek: `examples/physics_playground` (arazi + göl, yüzen kasalar, rüzgâr, menteşeli köprü, zıplatma pedi).
+
 ## Standart `main`
 
 Her oyunun `main`'i aynıdır (`astral/app/shell.hpp`): komut satırını okur, pencerede ya da tek bir çevrimdışı görüntü olarak çalıştırır.
@@ -306,7 +321,7 @@ astral.system {
 Oyunu CMake'te `astral_add_game` ile tanımla; asset klasörü yanında:
 
 ```cmake
-find_package(Astral 0.16 CONFIG REQUIRED COMPONENTS App)   # ya da motorun içinden: add_subdirectory
+find_package(Astral 0.17 CONFIG REQUIRED COMPONENTS App)   # ya da motorun içinden: add_subdirectory
 astral_add_game(arena SOURCES src/main.cpp src/combat.cpp ASSETS content)
 ```
 

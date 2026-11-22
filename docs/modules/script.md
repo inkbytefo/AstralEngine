@@ -39,6 +39,10 @@ astral.behaviour { on_start = function(self, ctx) end, on_update = function(self
 - **Entity:** `get/has/add/remove/destroy/alive/id`. Ölü entity'ye `get/has/add/remove` hata verir.
 - **Dünya:** `astral.spawn{}`, `astral.find(ad)`, `astral.query{"A","B"}` (`{ {entity, a, b}, ... }`).
 - **Zaman:** `astral.after/every/cancel`. `ctx.delta`, `ctx.fixed_delta`, `ctx.time`.
+- **Fizik ve alanlar** (`ScriptEnv::physics`; App sağlar): `astral.physics.raycast(origin, direction, max, {layers, ignore})` ve `.spherecast(origin, radius, displacement, opts)` → `{entity, position, normal, distance, surface}`
+  ya da nil; `.overlap_sphere(center, radius, opts)`, `.overlap_box(center, half, rotation?, opts)` → entity listesi; `.impulse/.force/.set_velocity(entity, v)`, `.velocity(entity)` (entity'nin `RigidBody`'si üstünde);
+  `astral.fields.wind(position)`, `astral.fields.water(position)` → `{inside, surface, depth, flow, density}`. `layers`: 0..15 sayılarının listesi ya da maske. Gövdeler ilk fizik adımında oluşur: ilk karede sorgu nil dönebilir.
+  Olaylar: `astral.on("astral::TriggerEntered", fn)` (`ev.trigger`, `ev.other`), `TriggerExited`, `astral::Contact` (`ev.kind` = "Begin"/"End", `ev.a`, `ev.b`, `ev.point`, `ev.normal`, `ev.surface_a/b`) — tetik hacmi kuralı script'te yazılır (`examples/physics_playground`).
 - **Kuaterniyon:** `astral.quat.axis_angle(eksen, radyan)`, `.mul(a, b)` (b önce uygulanır, C++ gibi), `.rotate(q, v)`, `.normalize(q)`;
   Quat alanları `{x,y,z,w}` tablolarıdır. Kamera/hareket kuralları için yeter.
 - **Rastgele:** `astral.random()`/`astral.seed(n)`. Oyun kuralı için durumu component'te tutan kendi üretecini
@@ -51,6 +55,10 @@ astral.behaviour { on_start = function(self, ctx) end, on_update = function(self
   `m:send(olay)`, `m:go(ad)`, `m:update(dt)`, `m:state()`. `store` durumu bir component alanında tutar (yeniden yükleme ve kayda dayanıklı).
 - **Kayıt:** `astral.save(yuva, {"Component", ...})` listedeki component'lere sahip her entity'yi yazar; `astral.load(yuva)` bu component'lere
   sahip entity'leri yok edip kaydedilenleri geri getirir; `astral.has_save(yuva)`. Dosya: `<AppDesc::save_folder>/<yuva>.json`.
+
+## Fizik ve alanlar
+
+Bkz. yukarıdaki **Fizik ve alanlar** maddesi ve [physics.md](physics.md). Script'ten `RigidBody` oluşturulamaz (iç içe `BodyDesc` script'ten yazılmaz): gövdeyi C++ ya da sahne üretir, script kural koyar.
 
 ## Çalışma kuralları
 
@@ -78,7 +86,7 @@ entity'leri toplar, sonra çağırır (script yapısal değişiklik yapabilir).
 
 ## Bilinen sınırlar
 
-- Tetik hacmi yok (fizik sensörleri M12'de); luau-lsp için hazır proje ayarı yok (tip tanımı üretiliyor, bkz. aşağıdaki denetim).
+- luau-lsp için hazır proje ayarı yok (tip tanımı üretiliyor, bkz. aşağıdaki denetim).
 - Tween/durum makinesi Luau'da yazılmış yardımcılar (`src/prelude.hpp`): durumları closure'da; sıcak döngüde değil, oyun mantığında kullan.
 - Kayıt yalnız listelenen component'leri saklar; entity referansları kayıt içinde yeniden eşlenir, kayıt dışındaki entity'ye giden referans `nil` olur.
 - Sistem başına entity başına vekil oluşturulur: yüzlerce entity iyi, binlerce entity C++'a ait.
