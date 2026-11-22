@@ -63,7 +63,8 @@ Ayrıntı ve yapay zekâ dostu düzen: [ADR-0023](decisions/0023-modular-game-co
 modules/<ad>/include/astral/<ad>/   public API
 modules/<ad>/src/                   private uygulama (+ src/detail/)
 modules/<ad>/tests/                 birim testleri
-examples/                           çalışan örnekler
+templates/blank/                    boş oyun şablonu (yeni oyun için kopyala)
+examples/                           şablonla aynı düzende çalışan oyunlar
 tests/consumer/                     find_package duman testi
 tests/integration/                  modüller arası testler (gerektiğinde)
 tests/golden/                       görüntü testleri (`ctest -L golden`)

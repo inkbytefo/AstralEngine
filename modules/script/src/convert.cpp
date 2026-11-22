@@ -61,6 +61,8 @@ const char* kind_label(FieldKind k) {
 
 } // namespace
 
+bool read_floats_checked(lua_State* L, int index, float out[4]) { return read_floats(L, index, out, 4); }
+
 void push_entity(lua_State* L, Entity e) {
     auto* box = static_cast<EntityBox*>(lua_newuserdatataggedwithmetatable(L, sizeof(EntityBox), tag_entity));
     box->entity = e;

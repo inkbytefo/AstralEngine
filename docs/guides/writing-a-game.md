@@ -1,7 +1,12 @@
 # Oyun nasıl yazılır
 
 AstralEngine'de oyun üç parçadan oluşur: **component** (veri), **system** (mantık), **Game** (kurulum).
-Döngüyü, pencereyi, GPU'yu ve render'ı `App` yönetir. En küçük örnek: `examples/spinning_cubes/main.cpp`.
+Döngüyü, pencereyi, GPU'yu ve render'ı `App` yönetir.
+
+**Başlangıç:** [`templates/blank`](../../templates/blank/README.md) klasörünü kopyala — özellik paketleri, Luau kuralı, başsız test,
+özellik sınırı denetimi, `--capture` ve paketleme hazır gelir (`cmake -S . -B build && ctest --test-dir build`). Aşağıdaki bölümler
+bu iskeletin parçalarını anlatır. Örnekler şablonun aynı düzenindedir: `examples/spinning_cubes` (C++ + Luau karışımı),
+`examples/hello_headless` (pencere ve GPU olmadan).
 Tam bir oyun: `examples/pong` — üç özellik paketi (kurallar Luau'da, ışıklar ve ses C++'ta; bkz.
 [Özellik paketleri ve Luau](#özellik-paketleri-ve-luau)), saha ve nesneler `court.scene` + prefab'larda,
 headless testler `pong_test.cpp`'de.
@@ -94,7 +99,7 @@ ctx.sun = {.direction = {-0.5f, -1, -0.3f}, .intensity = 2.0f};
 ctx.environment.ambient = 0.5f;
 ```
 
-Tam örnek: `examples/sdf_scene/main.cpp`.
+Tam örnek: `examples/sdf_scene` (`src/game.cpp`).
 
 ## Fizik
 
@@ -118,7 +123,23 @@ if (auto hit = ctx.physics->raycast(origin, forward, 100.0f)) {
 }
 ```
 
-Tam örnek: `examples/physics_demo/main.cpp`.
+Tam örnek: `examples/physics_demo` (özellikler: `player`, `shooter`, `rain`, `lifetime`).
+
+## Standart `main`
+
+Her oyunun `main`'i aynıdır (`astral/app/shell.hpp`): komut satırını okur, pencerede ya da tek bir çevrimdışı görüntü olarak çalıştırır.
+
+```cpp
+int main(int argc, char** argv) {
+    const astral::ShellOptions options = astral::parse_shell_args(argc, argv);
+    MyGame game;
+    return astral::run_game(options, {.title = "Oyunum", .asset_root = ASTRAL_GAME_ASSETS, .pack = ASTRAL_GAME_PACK}, game);
+}
+```
+
+`oyun --capture out.ppm [--frames N --width W --height H]` GPU'lu tek görüntü (sabit 60 Hz adımla, görüntü testleri için);
+`--script-api klasör` Luau API belgesini yazar; Esc pencere çalışmasında çıkar. Oyuna özel bayrak: `options.has("--night")`,
+`options.value("--view", "0")`, `options.positional()`.
 
 ## Kare sırası
 

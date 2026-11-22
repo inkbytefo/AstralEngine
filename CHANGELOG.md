@@ -4,6 +4,21 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+### Added
+- `templates/blank`: boş oyun şablonu (özellik paketi + Luau kuralı + başsız test + paketleme + sınır denetimi); motor içinde ve
+  kurulu motora karşı bağımsız derlenir (CI'da ikisi de).
+- app: standart oyun kabuğu `parse_shell_args` / `run_game` / `ShellOptions` (`--capture`, `--frames`, `--width`, `--height`, `--script-api`).
+- cmake: `astral_check_features(<ad> SOURCES ... MANIFESTS ...)`.
+- script: `astral.quat` (axis_angle, mul, rotate, normalize).
+- Görüntü testleri: blank, hello_triangle, spinning_cubes, sdf_scene.
+- ADR-0027.
+
+### Changed
+- Bütün örnekler şablon düzeninde yeniden yazıldı (src/ + assets/features/ + tests/): hello_headless (eski hello_core), hello_triangle
+  (artık `App` + `.ashader`), spinning_cubes, sdf_scene, physics_demo (özellikler: player, shooter, rain, lifetime), rt_showcase,
+  model_viewer, scene_viewer, shader_showcase (fly_camera), pong, open_world (fly_camera, day_night). Her biri `<ad>_tests` ve (özellik
+  varsa) `<ad>_features_check` testine sahip.
+
 ## [0.16.0] — 2026-11-22 — M11 (oyun kodu ve Luau scripting)
 
 ### Added

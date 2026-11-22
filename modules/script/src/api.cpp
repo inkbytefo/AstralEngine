@@ -139,6 +139,9 @@ ScriptApi generate_script_api(const TypeRegistry& types, const EventRegistry& ev
          "    random: () -> number,\n"
          "    seed: (seed: number) -> (),\n"
          "    log: (...any) -> (),\n    warn: (...any) -> (),\n    error: (...any) -> (),\n"
+         "    quat: {\n"
+         "        axis_angle: (axis: vector, radians: number) -> Quat,\n        mul: (a: Quat, b: Quat) -> Quat,\n"
+         "        normalize: (q: Quat) -> Quat,\n        rotate: (q: Quat, v: vector) -> vector,\n    },\n"
          "    input: {\n"
          "        down: (action: string) -> boolean,\n        pressed: (action: string) -> boolean,\n        released: (action: string) -> boolean,\n"
          "        value: (action: string) -> number,\n        axis: (action: string) -> vector,\n    },\n}\n";
@@ -162,6 +165,7 @@ ScriptApi generate_script_api(const TypeRegistry& types, const EventRegistry& ev
          "| `astral.query{\"A\", \"B\"}` | `{ {entity, a, b}, ... }`: every entity with all of them, with live component proxies |\n"
          "| `entity:get(name)`, `:has`, `:add(name, fields)`, `:remove`, `:destroy()`, `:alive()` | component access (`get` returns a live proxy: `c.field = v` writes) |\n"
          "| `astral.after(s, fn)`, `astral.every(s, fn)`, `astral.cancel(id)` | timers |\n"
+         "| `astral.quat.axis_angle(axis, radians)`, `.mul(a, b)`, `.rotate(q, v)`, `.normalize(q)` | quaternion math on `{x,y,z,w}` tables (`mul(a, b)` applies b first, like C++) |\n"
          "| `astral.random()`, `astral.seed(n)` | deterministic random in [0, 1) |\n"
          "| `astral.input.down/pressed/released/value/axis(action)` | named input actions |\n"
          "| `astral.log / warn / error(...)` | log lines |\n\n"

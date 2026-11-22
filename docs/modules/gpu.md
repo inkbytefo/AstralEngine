@@ -45,7 +45,7 @@ cmd.transition(image, gpu::ResourceState::Present);
 swapchain->present(cmd);                    // gönderir (görüntüyü bekleyerek) ve gösterir
 ```
 
-Tam örnek: `examples/hello_triangle/main.cpp`. Swapchain, Device'tan önce yok edilmeli.
+Alt katmanı doğrudan kullanan örnek `tests/integration` içinde (pencere + swapchain + present). Swapchain, Device'tan önce yok edilmeli. `examples/hello_triangle` GPU'yu değil `App` + özel `.ashader` materyalini kullanan en küçük resimdir.
 
 ## Shader'lar
 

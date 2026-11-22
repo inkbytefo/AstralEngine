@@ -367,6 +367,46 @@ int astral_query(lua_State* L) {
     return 1;
 }
 
+// --- quaternions: tables {x, y, z, w} (what Quat fields are in scripts) ----------------------------
+
+Quat check_quat(lua_State* L, int index) {
+    float v[4];
+    if (!read_floats_checked(L, index, v)) luaL_typeerror(L, index, "quaternion {x, y, z, w}");
+    return {v[0], v[1], v[2], v[3]};
+}
+
+void push_quat(lua_State* L, Quat q) {
+    lua_createtable(L, 0, 4);
+    const double values[4] = {q.x, q.y, q.z, q.w};
+    constexpr const char* names[] = {"x", "y", "z", "w"};
+    for (int i = 0; i < 4; ++i) {
+        lua_pushnumber(L, values[i]);
+        lua_setfield(L, -2, names[i]);
+    }
+}
+
+int quat_axis_angle(lua_State* L) {
+    const float* axis = lua_tovector(L, 1);
+    if (!axis) luaL_typeerror(L, 1, "vector");
+    push_quat(L, Quat::from_axis_angle({axis[0], axis[1], axis[2]}, static_cast<float>(luaL_checknumber(L, 2))));
+    return 1;
+}
+int quat_mul(lua_State* L) {
+    push_quat(L, check_quat(L, 1) * check_quat(L, 2));
+    return 1;
+}
+int quat_normalize(lua_State* L) {
+    push_quat(L, normalize(check_quat(L, 1)));
+    return 1;
+}
+int quat_rotate(lua_State* L) {
+    const float* v = lua_tovector(L, 2);
+    if (!v) luaL_typeerror(L, 2, "vector");
+    const Vec3 r = check_quat(L, 1) * Vec3{v[0], v[1], v[2]};
+    lua_pushvector(L, r.x, r.y, r.z);
+    return 1;
+}
+
 int astral_find(lua_State* L) {
     Impl& impl = Impl::of(L);
     const Entity e = find_by_name(impl.env.world, luaL_checkstring(L, 1));
@@ -527,6 +567,12 @@ void open_astral(lua_State* L, ScriptHost::Impl&) {
     set_function(L, "log", log_info);
     set_function(L, "warn", log_warn);
     set_function(L, "error", log_error);
+    lua_newtable(L); // astral.quat
+    set_function(L, "axis_angle", quat_axis_angle);
+    set_function(L, "mul", quat_mul);
+    set_function(L, "normalize", quat_normalize);
+    set_function(L, "rotate", quat_rotate);
+    lua_setfield(L, -2, "quat");
     lua_newtable(L); // astral.input
     set_function(L, "down", input_down);
     set_function(L, "pressed", input_pressed);

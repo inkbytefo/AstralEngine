@@ -1,0 +1,12 @@
+{
+  "format": "astral.feature",
+  "version": 1,
+  "name": "player",
+  "description": "The walking character and its third-person camera.",
+  "depends_on": [],
+  "components": ["player::PlayerCamera"],
+  "events": [],
+  "exports": { "headers": ["player.hpp"] },
+  "scripts": [],
+  "actions": ["features/player/player.actions"]
+}

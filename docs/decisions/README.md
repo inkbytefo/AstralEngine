@@ -31,3 +31,4 @@ ADR eskisini "yerini aldı" diye işaretler.
 | [0024](0024-volumetric-vfx.md) | VFX: CS2 tarzı hacimsel duman (deterministik ızgara + GPU görüntü hacmi), GPU partikülleri, `.vfx` | Kabul |
 | [0025](0025-physics-based-character-animation.md) | Fizik tabanlı karakter animasyonu: iskelet, IK, kaslar, aktif ragdoll, Euphoria tarzı davranışlar | Kabul |
 | [0026](0026-script-host-and-features.md) | Script ana bilgisayarı, dinamik component'ler, olay kaydı ve özellik paketlerinin uygulanışı (M11 sapmaları) | Kabul |
+| [0027](0027-blank-template-and-game-shell.md) | Boş oyun şablonu (`templates/blank`), standart oyun kabuğu (`run_game`), örneklerin şablon düzeninde yeniden kurulması | Kabul |

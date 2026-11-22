@@ -396,6 +396,9 @@ uygulama sapmaları [ADR-0026](decisions/0026-script-host-and-features.md). Mod�
 - **Oyun çatısı:** `FeatureSet`/`feature.json` (bağımlılık sırası, döngü ve manifestte olmayan kayıt hataları),
   `astral-features check` sınır denetimi (CTest), `.actions` input eylemleri, `ctx.write_script_api`
   (`astral.d.luau` + `API.md`), kök `AGENTS.md`.
+- **Şablon ve örnekler:** `templates/blank` (boş oyun: özellik + Luau + test + paketleme + sınır denetimi), standart oyun kabuğu
+  `run_game` ([ADR-0027](decisions/0027-blank-template-and-game-shell.md)); bütün örnekler bu düzende yeniden kuruldu, yeni görüntü testleri
+  (blank, hello_triangle, spinning_cubes, sdf_scene).
 - **Pong** üç özellik paketi oldu: `pong_rules` (kurallar Luau, veri C++), `pong_scorelights`, `pong_audio`;
   aynı beş test geçiyor.
 

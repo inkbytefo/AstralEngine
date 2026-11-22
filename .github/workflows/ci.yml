@@ -41,6 +41,12 @@ jobs:
           ./consumer-build/astral_consumer
           ./consumer-build/consumer_game
           ./consumer-build/packages/consumer_game/consumer_game
+      - name: Template (a new game from templates/blank against the installed engine)
+        run: |
+          cp -r templates/blank blank-game
+          cmake -S blank-game -B blank-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=${{ github.workspace }}/astral-install
+          cmake --build blank-build
+          xvfb-run -a ctest --test-dir blank-build --output-on-failure
 
   windows:
     name: windows-msvc

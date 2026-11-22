@@ -1,0 +1,12 @@
+{
+  "format": "astral.feature",
+  "version": 1,
+  "name": "tally",
+  "description": "Counts frames and seconds on every Tally.",
+  "depends_on": [],
+  "components": ["tally::Tally"],
+  "events": [],
+  "exports": { "headers": ["tally.hpp"] },
+  "scripts": ["features/tally/tally.luau"],
+  "actions": []
+}

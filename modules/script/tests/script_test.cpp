@@ -381,3 +381,26 @@ TEST_CASE("astral.query lists entities with live component proxies") {
     CHECK(f.first_error().empty());
     CHECK(f.world.get<Mover>(find_by_name(f.world, "a"))->steps == 7);
 }
+
+TEST_CASE("astral.quat composes and rotates like the C++ Quat") {
+    Fixture f;
+    const Entity e = f.world.create(Transform{});
+    REQUIRE(f.host->load("quat.luau", R"(
+        astral.system { query = {"astral::Transform"}, update = function(ctx, e, t)
+            local yaw = astral.quat.axis_angle(vector.create(0, 1, 0), math.pi / 2)
+            local pitch = astral.quat.axis_angle(vector.create(1, 0, 0), 0.3)
+            t.rotation = astral.quat.normalize(astral.quat.mul(yaw, pitch))
+            local forward = astral.quat.rotate(yaw, vector.create(0, 0, -1))
+            t.position = forward
+            assert(not pcall(astral.quat.rotate, {x = 0}, vector.create(1, 0, 0)))
+        end }
+    )").empty());
+    f.run();
+    CHECK(f.first_error().empty());
+    const Transform* t = f.world.get<Transform>(e);
+    const Quat expected = normalize(Quat::from_axis_angle({0, 1, 0}, 1.5707964f) * Quat::from_axis_angle({1, 0, 0}, 0.3f));
+    CHECK(t->rotation.x == doctest::Approx(expected.x).epsilon(1e-4));
+    CHECK(t->rotation.y == doctest::Approx(expected.y).epsilon(1e-4));
+    CHECK(t->rotation.w == doctest::Approx(expected.w).epsilon(1e-4));
+    CHECK(t->position.x == doctest::Approx(-1.0f).epsilon(1e-4)); // -z turned by +90 degrees about y
+}

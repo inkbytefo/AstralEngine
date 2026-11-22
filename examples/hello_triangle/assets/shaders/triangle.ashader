@@ -1,0 +1,7 @@
+// The smallest surface shader: unlit, colours from the mesh's texture coordinates.
+shader_type surface;
+render_mode unshaded, cull_disabled;
+
+void surface() {
+    ALBEDO = vec3(UV.x, UV.y, 1.0 - UV.x);
+}

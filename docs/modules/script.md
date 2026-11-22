@@ -39,6 +39,8 @@ astral.behaviour { on_start = function(self, ctx) end, on_update = function(self
 - **Entity:** `get/has/add/remove/destroy/alive/id`. Ölü entity'ye `get/has/add/remove` hata verir.
 - **Dünya:** `astral.spawn{}`, `astral.find(ad)`, `astral.query{"A","B"}` (`{ {entity, a, b}, ... }`).
 - **Zaman:** `astral.after/every/cancel`. `ctx.delta`, `ctx.fixed_delta`, `ctx.time`.
+- **Kuaterniyon:** `astral.quat.axis_angle(eksen, radyan)`, `.mul(a, b)` (b önce uygulanır, C++ gibi), `.rotate(q, v)`, `.normalize(q)`;
+  Quat alanları `{x,y,z,w}` tablolarıdır. Kamera/hareket kuralları için yeter.
 - **Rastgele:** `astral.random()`/`astral.seed(n)`. Oyun kuralı için durumu component'te tutan kendi üretecini
   yaz (Pong: `Match.serve_rng`) — yeniden yüklemede ve kayıtta kaybolmaz.
 - **Girdi:** `astral.input.down/pressed/released/value/axis(eylem)`.

@@ -1,0 +1,8 @@
+{
+  "format": "astral.actions",
+  "version": 1,
+  "actions": {
+    "shoot": { "type": "button", "mouse": ["Left"] },
+    "push": { "type": "button", "mouse": ["Right"] }
+  }
+}

@@ -104,6 +104,8 @@ graph.add_pass("blur", [&](PassBuilder& b) { b.read(hdr); b.write_storage(blurre
 
 ## Bilinen sınırlar
 
+- **Kamera konumuna aşırı duyarlılık (araştırılacak):** `open_world` görüntü testinde kamera konumunda tek bir float ULP (1e-6) farkı zemin aydınlatmasını belirgin değiştirdi (x = z tam eşitliği gibi bir sınır durumu). Görüntü testlerinde kamera hareketinin kayan nokta sırası aynı kalmalı; kök neden (gölge/GI örnekleme kararlılığı) ileride incelenecek.
+
 - `build_mips` box filtre (normal map mip'lerini cook adımı ayrıca normalize eder). Daha keskin filtreler
   (Kaiser) ileride.
 

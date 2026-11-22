@@ -1,0 +1,12 @@
+{
+  "format": "astral.feature",
+  "version": 1,
+  "name": "spin",
+  "description": "Things that turn. Example feature: data in C++ (Spin), rule in Luau.",
+  "depends_on": [],
+  "components": ["blank::Spin"],
+  "events": [],
+  "exports": { "headers": ["spin.hpp"] },
+  "scripts": ["features/spin/spin.luau"],
+  "actions": []
+}

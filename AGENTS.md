@@ -61,4 +61,7 @@ Fazlar: `PreUpdate`, `Update`, `FixedUpdate`, `PostUpdate`. Aynı fazda önce C+
 - Script içinde `os`, `io`, `require` arama: sandbox'ta yok.
 - Hata mesajını yutma: log satırı kural dosyasındaki yeri söyler.
 
-Örnek bir oyun: `examples/pong` (`pong_rules` Luau kuralları, `pong_scorelights`, `pong_audio`; testler `pong_test.cpp`).
+Yeni oyun: `templates/blank` klasörünü kopyala (özellik, Luau, test, `--capture`, paketleme hazır). Örnekler aynı düzende: `examples/pong`
+(`pong_rules` Luau kuralları, `pong_scorelights`, `pong_audio`; testler `tests/game_test.cpp`), `examples/spinning_cubes` (C++ paralel sistem + Luau),
+`examples/hello_headless` (pencere/GPU yok). Düzen: `src/main.cpp` (standart kabuk), `src/game.cpp` (özellikleri kurar), `src/features/<ad>/`,
+`assets/features/<ad>/`, `tests/game_test.cpp`, `CMakeLists.txt` (`astral_add_game`, `astral_check_features`).

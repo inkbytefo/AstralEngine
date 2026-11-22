@@ -1,0 +1,13 @@
+{
+  "format": "astral.actions",
+  "version": 1,
+  "actions": {
+    "move": {
+      "type": "axis2",
+      "x": { "negative": ["A"], "positive": ["D"] },
+      "y": { "negative": ["S"], "positive": ["W"] }
+    },
+    "turn": { "type": "axis", "negative": ["Right"], "positive": ["Left"] },
+    "jump": { "type": "button", "keys": ["Space"] }
+  }
+}

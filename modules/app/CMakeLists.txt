@@ -22,6 +22,7 @@ astral_add_module(NAME app
         src/input_actions.cpp
         src/feature.cpp
         src/feature_check.cpp
+        src/shell.cpp
         src/debug_ui.cpp
         src/map_runtime.cpp
         src/material_library.cpp
@@ -52,6 +53,7 @@ astral_add_tests(MODULE app
         tests/world_app_test.cpp
         tests/script_app_test.cpp
         tests/feature_test.cpp
+        tests/shell_test.cpp
         tests/material_app_test.cpp)
 if(TARGET astral_app_tests)
     FetchContent_GetProperties(stb)

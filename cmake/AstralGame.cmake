@@ -52,3 +52,25 @@ function(astral_add_game name)
         COMMENT "Staging ${stage}"
         VERBATIM)
 endfunction()
+
+# astral_check_features(<name> SOURCES <folder with features/<f>/ C++ sources> MANIFESTS <assets folder with <f>/feature.json>)
+#
+#   Adds the CTest test <name>_features_check: astral-features checks the boundaries of the game's feature
+#   packages (ADR-0023): includes only of depended-on features and their exported headers, no internal
+#   engine headers, no mutable global state. Call after enable_testing().
+function(astral_check_features name)
+    cmake_parse_arguments(ARG "" "SOURCES;MANIFESTS" "" ${ARGN})
+    if(NOT ARG_SOURCES OR NOT ARG_MANIFESTS)
+        message(FATAL_ERROR "astral_check_features(${name}): SOURCES and MANIFESTS are required")
+    endif()
+    get_filename_component(sources ${ARG_SOURCES} ABSOLUTE)
+    get_filename_component(manifests ${ARG_MANIFESTS} ABSOLUTE)
+    if(TARGET astral_features)
+        set(tool astral_features)
+    elseif(TARGET Astral::astral_features)
+        set(tool Astral::astral_features)
+    else()
+        message(FATAL_ERROR "astral_check_features(${name}): astral-features is not available")
+    endif()
+    add_test(NAME ${name}_features_check COMMAND ${tool} check ${sources} ${manifests})
+endfunction()

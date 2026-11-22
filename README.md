@@ -44,11 +44,12 @@ module (core, gpu, platform, world, render) is also usable directly as a plain l
 | `Astral::Assets`: glTF/GLB, textured PBR materials, async loading, hot reload | ✅ M5b |
 | Scenes and prefabs: stable ids, field-level overrides, nested prefabs/variants, live reload | ✅ M5c |
 | Packaging: `astral-cook` (BC7/BC5 textures, binary scenes, incremental), `.apak` (zstd), `astral_add_game` | ✅ M6 |
-| First game: 3D Pong (`examples/pong`) — rules in code, everything else in scene/prefab files | ✅ M7 |
+| First game: 3D Pong (`examples/pong`) — everything else in scene/prefab files (since M11: feature packages, rules in Luau) | ✅ M7 |
 | Developer tools: profiler (CPU + per-pass GPU), debug draw, Dear ImGui panel (F1, reflection inspector), SDF text/HUD, `Astral::Audio` (miniaudio, 3D, `AudioSource`) | ✅ M8 (golden image tests: `ctest -L golden`) |
 | World & map system (UE5 World Partition-style: `.world`, one file per entity, cell streaming, data layers, floating origin; `examples/open_world`) | ✅ M9 |
 | `.ashader` shader language (gdshader-like, GLSL body) + `.material` files with parents: foliage, glass, lava, hologram, sky and post shaders, hot reload, same look in raster and ray tracing (`examples/shader_showcase`) | ✅ M10 |
 | Modular game code (feature packages, boundary checks) + Luau scripting (reflection-bound components, systems, behaviours, events, hot reload, generated API docs), input actions; Pong's rules in Luau | ✅ M11 |
+| `templates/blank` (a new game in one folder) + the standard game shell (`run_game`); every example rebuilt on it | ✅ M11 |
 | Physics fields (wind, water volumes), collision layers, joints | 🔜 M12 |
 | Advanced PBR, atmosphere + volumetric VFX (CS2-style smoke), terrain (heightfield + SDF), water, weather, destruction, animation, world scale | ⬜ M13–M23 ([roadmap](docs/roadmap.md)) |
 
@@ -102,11 +103,22 @@ cmake --install build/release --prefix <install-dir>
 ```
 
 ```cmake
-find_package(Astral 0.5 CONFIG REQUIRED COMPONENTS Core)
-target_link_libraries(MyGame PRIVATE Astral::Core)
+find_package(Astral 0.16 CONFIG REQUIRED COMPONENTS App)
+astral_add_game(mygame SOURCES src/main.cpp ASSETS assets)   # or link Astral::Core, Astral::World, ... as plain libraries
 ```
 
 Or add the repo with `add_subdirectory` / `FetchContent` and link the same targets.
+
+## Start a game
+
+`templates/blank` is a complete small game: feature packages (C++ data + Luau rules), a headless test, the standard `main`
+(`--capture`, `--script-api`), packaging and the feature-boundary check. Copy the folder, rename `blank`, build:
+
+```sh
+cp -r templates/blank mygame && cmake -S mygame -B mygame/build -DCMAKE_PREFIX_PATH=<engine install> && cmake --build mygame/build
+```
+
+Every program in `examples/` is built the same way.
 
 ## Layout
 
@@ -114,7 +126,8 @@ Or add the repo with `add_subdirectory` / `FetchContent` and link the same targe
 modules/<name>/include/astral/<name>/   public API
 modules/<name>/src/                     private implementation
 modules/<name>/tests/                   unit tests
-examples/                               runnable samples
+templates/blank/                         a blank game: copy it to start (features, Luau, tests, packaging)
+examples/                               runnable games built like the template
 tests/consumer/                         find_package smoke test
 cmake/                                  build helpers
 ```

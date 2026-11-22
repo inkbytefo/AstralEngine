@@ -1,0 +1,12 @@
+{
+  "format": "astral.feature",
+  "version": 1,
+  "name": "fly_camera",
+  "description": "Free-flying camera: WASD, Q/E, Shift, right mouse to look. Rule in Luau.",
+  "depends_on": [],
+  "components": ["fly::FlyCamera"],
+  "events": [],
+  "exports": { "headers": ["fly_camera.hpp"] },
+  "scripts": ["features/fly_camera/fly_camera.luau"],
+  "actions": ["features/fly_camera/fly_camera.actions"]
+}

@@ -95,6 +95,8 @@ struct ScriptHost::Impl {
 void push_field(lua_State* L, const FieldInfo& field, const void* base, const World& world);
 /// Writes the Lua value at `index` into the field; false + *error if the value does not fit.
 bool read_field(lua_State* L, int index, const FieldInfo& field, void* base, std::string* error);
+/// x, y, z, w from a table {x=, y=, z=, w=}. False if it is not one.
+bool read_floats_checked(lua_State* L, int index, float out[4]);
 void push_entity(lua_State* L, Entity e);
 /// The entity at `index` (userdata), or an invalid one for nil; false for anything else.
 bool read_entity(lua_State* L, int index, Entity& out);

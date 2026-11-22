@@ -1,0 +1,12 @@
+{
+  "format": "astral.feature",
+  "version": 1,
+  "name": "cubes",
+  "description": "Cubes that spin (C++, parallel) and bob (Luau).",
+  "depends_on": [],
+  "components": ["cubes::Spin", "cubes::Bob"],
+  "events": [],
+  "exports": { "headers": ["cubes.hpp"] },
+  "scripts": ["features/cubes/bob.luau"],
+  "actions": []
+}
