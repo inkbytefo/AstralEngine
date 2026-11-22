@@ -741,7 +741,10 @@ void App::Impl::frame(Game& game, float delta) {
                                {.meshes = m.draw_items, .sdf = m.sdf_shapes, .lights = m.point_lights,
                                 .rect_lights = m.rect_lights, .sun = ctx.sun, .environment = ctx.environment,
                                 .debug_lines = ctx.debug.lines(),
-                                .ui = m.overlay_layers()});
+                                .ui = m.overlay_layers(),
+                                .time = static_cast<float>(m.time.elapsed),
+                                .sky = ctx.sky,
+                                .post = ctx.post});
             if (offscreen) {
                 cmd.transition(image, gpu::ResourceState::TransferSrc);
                 cmd.copy_texture_to_buffer(image, m.offscreen_readback);

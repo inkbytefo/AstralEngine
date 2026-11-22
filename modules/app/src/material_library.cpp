@@ -69,19 +69,35 @@ MaterialLibrary::Shader* MaterialLibrary::load_shader(const std::string& path, b
         for (const ShaderError& e : parsed.errors) all += "\n  " + path + ":" + std::to_string(e.line) + ": " + e.message;
         return fail(all);
     }
-    const SurfaceShaderBuild build = compile_surface_shader(parsed.source, path);
-    if (!build.ok()) {
-        std::string all;
-        for (const ShaderError& e : build.errors) all += "\n  " + path + ":" + std::to_string(e.line) + ": " + e.message;
-        return fail(all);
+    ShaderHandle handle;
+    UniformLayout layout;
+    if (parsed.source.type == ShaderType::Surface) {
+        const SurfaceShaderBuild build = compile_surface_shader(parsed.source, path);
+        if (!build.ok()) {
+            std::string all;
+            for (const ShaderError& e : build.errors) all += "\n  " + path + ":" + std::to_string(e.line) + ": " + e.message;
+            return fail(all);
+        }
+        handle = renderer_.create_shader(build, path);
+        layout = build.layout;
+    } else if (parsed.source.type == ShaderType::Post || parsed.source.type == ShaderType::Sky) {
+        const ScreenShaderBuild build = compile_screen_shader(parsed.source, path);
+        if (!build.ok()) {
+            std::string all;
+            for (const ShaderError& e : build.errors) all += "\n  " + path + ":" + std::to_string(e.line) + ": " + e.message;
+            return fail(all);
+        }
+        handle = renderer_.create_shader(build, path);
+        layout = build.layout;
+    } else {
+        return fail(std::string("shader_type ") + std::string(to_string(parsed.source.type)) + " is not supported yet");
     }
-    const ShaderHandle handle = renderer_.create_shader(build, path);
     if (!handle.valid()) return fail("the GPU rejected the pipelines");
     if (existing) {
         const ShaderHandle old = existing->handle;
         existing->handle = handle;
         existing->source = parsed.source;
-        existing->layout = build.layout;
+        existing->layout = layout;
         existing->time = time_of(path);
         renderer_.destroy(old); // after the caller has pointed its materials at the new one
         return existing;
@@ -90,7 +106,7 @@ MaterialLibrary::Shader* MaterialLibrary::load_shader(const std::string& path, b
     entry->path = path;
     entry->handle = handle;
     entry->source = parsed.source;
-    entry->layout = build.layout;
+    entry->layout = layout;
     entry->time = time_of(path);
     shaders_.push_back(std::move(entry));
     return shaders_.back().get();

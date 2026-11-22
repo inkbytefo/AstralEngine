@@ -1,0 +1,17 @@
+// Glass: mostly clear in the middle, opaque and bright toward the silhouette (fresnel). Blended after
+// the opaque scene, sorted back to front.
+shader_type surface;
+render_mode blend_mix;
+
+uniform vec3 tint : source_color = vec3(0.55, 0.80, 0.95);
+uniform float opacity : range(0.0, 1.0, 0.01) = 0.18;
+uniform float fresnel_power : range(0.5, 6.0, 0.1) = 3.0;
+
+void surface() {
+    float f = pow(1.0 - clamp(dot(NORMAL, VIEW_DIR), 0.0, 1.0), fresnel_power);
+    ALBEDO = tint * 0.3;
+    ROUGHNESS = 0.04;
+    METALLIC = 0.0;
+    ALPHA = clamp(opacity + f * (1.0 - opacity), 0.0, 1.0);
+    EMISSION = tint * f * 0.5;
+}

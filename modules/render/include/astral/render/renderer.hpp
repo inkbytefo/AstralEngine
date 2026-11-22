@@ -158,6 +158,10 @@ struct RenderScene {
     /// 2D overlay (debug UI, HUD, sprites), drawn last, in order.
     std::span<const UiLayer> ui = {};
     float time = 0.0f; ///< Seconds; TIME in .ashader code.
+    /// A material whose shader is shader_type sky: replaces the background (not the lighting).
+    MaterialHandle sky{};
+    /// Materials with shader_type post shaders, applied in order after tonemapping (before debug lines and UI).
+    std::span<const MaterialHandle> post = {};
 };
 
 /// Dynamic diffuse global illumination: a grid of probes that trace rays every frame.
@@ -229,6 +233,8 @@ public:
     /// Pipelines for a compiled surface shader; invalid if the build failed. Destroy after the materials
     /// that use it (until then they draw with it).
     ShaderHandle create_shader(const SurfaceShaderBuild& build, std::string_view debug_name = {});
+    /// A post or sky shader (shader_type post / sky); a material points at it, RenderScene::post / sky use it.
+    ShaderHandle create_shader(const ScreenShaderBuild& build, std::string_view debug_name = {});
     void destroy(ShaderHandle shader);
     /// Why the last attempt to compile the custom surfaces into the ray-traced shaders failed ("" = fine).
     /// While it fails, custom materials show their base values in ray-traced reflections and GI.

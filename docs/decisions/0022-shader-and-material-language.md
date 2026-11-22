@@ -1,6 +1,6 @@
 # ADR-0022 — Shader dili ve materyaller: `.ashader` (gdshader benzeri) + `.material`
 
-- **Durum:** Kabul (uygulama M10; ADR-0011'in RT yolu ve ADR-0009'un render graph'ı üstüne)
+- **Durum:** Kabul; M10'da uygulandı (aşağıdaki "M10'da uygulanan" bölümüne bak)
 - **Tarih:** 2026-11-21
 - **Bağlam:** Godot `.gdshader`, Unreal materyal sistemi, ADR-0008 (bindless + GLSL), ADR-0011 (hibrit RT)
 
@@ -87,3 +87,18 @@ Metin her zaman tek doğruluk kaynağı: diff'lenir, yapay zekâ yazar, insan ok
 - Su (M16), bitki/rüzgâr, arazi katmanları (M15), VFX (M14) aynı mekanizmayla yazılır.
 - Riskler: RT uber-shader'ın büyümesi (çok sayıda `surface` shader) → materyal sayısı sınırı ve
   "RT'de basitleştirilmiş varyant" seçeneği (`render_mode rt_simple`).
+
+## M10'da uygulanan (sapmalar ve sınırlar)
+
+- Türler: `surface`, `post`, `sky` çalışıyor; `particle`/`volume` (M14) ve `ui` ayrıştırılır, derlenmez.
+- `post` yalnız `after_tonemap`; `before_tonemap` (HDR) şimdilik yok.
+- Şeffaf: ayrı ileri geçiş, tonemap sonrası, kendi aydınlatması; gölge ve RT'ye girmez. "Ekran uzayı kırılma" ve
+  "RT yansımada şeffaflar" ertelendi.
+- RT: uber-shader dalları yerine her özel `surface()` ayrı fonksiyon olarak RT compute shader'larına eklenir
+  ve çalışma anında yeniden derlenir. Derleme hatasında hazır RT shader'ları + `shader_error()`.
+- glTF materyalleri `standard.ashader` örneği olmadı (standart yol yerleşik kaldı); `MaterialOverride` ertelendi.
+- Cook: `.ashader` derlenebildiği doğrulanır (hatalı shader paketlemeyi durdurur), `.material` ikili JSON'a
+  çevrilir. Önceden derlenmiş SPIR-V ve disk pipeline önbelleği ertelendi: oyun şimdilik derleyiciyi
+  (glslang) taşır.
+- Karar: uniform'lar GLSL makrosu olarak yalnızca kullanıcı kodunun çevresinde tanımlanır; motorun kendi
+  değişkenleriyle ad çakışması imkânsız.

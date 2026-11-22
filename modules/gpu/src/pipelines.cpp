@@ -117,10 +117,10 @@ PipelineHandle Device::create_graphics_pipeline(const GraphicsPipelineDesc& desc
     for (auto& b : blends) {
         b.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-        if (desc.alpha_blend) {
+        if (desc.alpha_blend || desc.additive_blend) {
             b.blendEnable = VK_TRUE;
             b.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-            b.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            b.dstColorBlendFactor = desc.additive_blend ? VK_BLEND_FACTOR_ONE : VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
             b.colorBlendOp = VK_BLEND_OP_ADD;
             b.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
             b.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;

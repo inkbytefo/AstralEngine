@@ -1,0 +1,26 @@
+// A leaf that sways in the wind. The outline is cut with alpha_test (no texture needed); the tip bends
+// more than the stem, so vertex() works with a varying that surface() reads back.
+shader_type surface;
+render_mode alpha_test, cull_disabled;
+
+uniform vec3 base_color : source_color = vec3(0.10, 0.40, 0.09);
+uniform vec3 tip_color : source_color = vec3(0.50, 0.75, 0.20);
+uniform float sway : range(0.0, 0.5, 0.01) = 0.22;
+uniform float speed : range(0.0, 6.0, 0.1) = 2.2;
+
+varying float height;
+
+void vertex() {
+    height = clamp(VERTEX.z + 0.5, 0.0, 1.0);
+    VERTEX.y += sin(TIME * speed + WORLD_POSITION.x * 0.9 + WORLD_POSITION.z) * sway * height * height;
+}
+
+void surface() {
+    float v = UV.y;
+    float width = pow(sin(3.14159 * clamp(v, 0.0, 1.0)), 0.7) * 0.95;
+    float across = abs(UV.x * 2.0 - 1.0);
+    ALPHA = across < width ? 1.0 : 0.0;
+    float vein = 1.0 - smoothstep(0.0, 0.06, across);
+    ALBEDO = mix(base_color, tip_color, v) * (1.0 - 0.35 * vein) + vein * vec3(0.05, 0.08, 0.02);
+    ROUGHNESS = 0.55;
+}

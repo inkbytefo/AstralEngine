@@ -67,3 +67,23 @@ TEST_CASE("only surface shaders are built here") {
     const SurfaceShaderBuild build = compile_surface_shader(p.source, "sky.ashader");
     CHECK_FALSE(build.ok());
 }
+
+TEST_CASE("uniforms may have the names of the engine's own variables") {
+    const ShaderParse p = parse_ashader(R"(shader_type surface;
+uniform float scale = 2.0;
+uniform vec3 n = vec3(0.0, 1.0, 0.0);
+uniform float f = 1.0;
+uniform float s = 1.0;
+uniform float base = 0.5;
+uniform vec3 uv = vec3(1.0);
+uniform sampler2D map : hint_normal;
+void surface() { ALBEDO = n * scale * f * s * base * uv; NORMAL_MAP = texture(map, UV).xyz; }
+)");
+    REQUIRE(p.errors.empty());
+    const SurfaceShaderBuild build = compile_surface_shader(p.source, "names.ashader");
+    CHECK_MESSAGE(build.ok(), (build.errors.empty() ? std::string() : build.errors[0].message));
+    // The ray-traced variant is built from the same text: it must compile with the engine's code too.
+    const RtSurface rt[] = {{3, build.rt_chunk}};
+    const RtVariants variants = compile_rt_variants(rt);
+    CHECK_MESSAGE(variants.ok(), (variants.errors.empty() ? std::string() : variants.errors[0].message));
+}

@@ -1,0 +1,11 @@
+// A post effect on the finished image: darker corners and a slight colour grade.
+shader_type post;
+
+uniform float strength : range(0.0, 1.5, 0.01) = 0.6;
+uniform vec3 tint : source_color = vec3(1.0, 0.95, 0.90);
+
+void post() {
+    vec2 d = SCREEN_UV - 0.5;
+    float v = 1.0 - strength * smoothstep(0.25, 0.85, length(d) * 1.25);
+    COLOR *= tint * v;
+}

@@ -14,6 +14,7 @@ Durum: ✅ bitti · 🚧 sürüyor · 🔜 sıradaki · ⬜ planlı
 | M7 | İlk oyun: 3D Pong | ✅ |
 | M8 | Geliştirici araçları, metin/HUD, ses, görüntü testleri | ✅ |
 | M9 | Dünya ve harita sistemi: `.world` + `.ent`, hücre streaming, katmanlar, kayan orijin | ✅ |
+| M10 | Shader dili (`.ashader`) ve materyaller (`.material`): yaprak, cam, lav, hologram, sky, post | ✅ |
 
 ## Plan v4 (2026-11-21)
 
@@ -31,8 +32,8 @@ Sonraki fazların numarası birer kaydı.
 |---|---|---|---|
 | M8 | Geliştirici altyapısı: debug UI, debug çizim, profiler, metin/HUD, ses; görüntü testleri | — | ✅ |
 | M9 | **Dünya ve harita sistemi:** `.world`, nesne başına dosya, hücreler + asenkron streaming, veri katmanları, bölüm örnekleri, kayan orijin ([ADR-0021](decisions/0021-world-and-level-system.md)) | M8 | ✅ |
-| M10 | **Shader dili ve materyaller:** `.ashader` (gdshader benzeri), `.material` + örnekler, çalışma anında derleme + hot-reload, raster/RT/gölge/forward varyantları, alfa testi, şeffaf geçiş ([ADR-0022](decisions/0022-shader-and-material-language.md)) | M8 | 🔜 |
-| M11 | **Oyun kodu ve scripting:** özellik paketleri + SOLID kuralları + sınır denetimi ([ADR-0023](decisions/0023-modular-game-code.md)), Luau ([ADR-0017](decisions/0017-gameplay-scripting.md)), input eylemleri, `AGENTS.md`, üretilen API belgesi | M9 | ⬜ |
+| M10 | **Shader dili ve materyaller:** `.ashader` (gdshader benzeri), `.material` + örnekler, çalışma anında derleme + hot-reload, raster/RT/gölge/forward varyantları, alfa testi, şeffaf geçiş ([ADR-0022](decisions/0022-shader-and-material-language.md)) | M8 | ✅ |
+| M11 | **Oyun kodu ve scripting:** özellik paketleri + SOLID kuralları + sınır denetimi ([ADR-0023](decisions/0023-modular-game-code.md)), Luau ([ADR-0017](decisions/0017-gameplay-scripting.md)), input eylemleri, `AGENTS.md`, üretilen API belgesi | M9 | 🔜 |
 | M12 | Fizik altyapısı: katmanlar, mesh/heightfield, eklemler, sorgular; **alan sistemi** (rüzgâr, su hacmi) ve kuvvetler | M8 | ⬜ |
 | M13 | Gelişmiş PBR: clearcoat, sheen, anizotropi, transmission, subsurface, decal, path tracer referansı | M10 | ⬜ |
 | M14 | **Atmosfer ve VFX:** fiziksel gökyüzü, froxel sis, **hacimsel efektler (CS2 dumanı)**, GPU partikülleri, decal/iz, `.vfx` ([ADR-0024](decisions/0024-volumetric-vfx.md)) | M10, M12 | ⬜ |
@@ -81,7 +82,7 @@ Sonraki fazların numarası birer kaydı.
 - *Çıkış:* 4×4 km test dünyası (binlerce prosedürel nesne), kamera uçarken takılmasız streaming; aynı
   dünyada gece katmanı aç/kapa; iki nesne dosyası ayrı ayrı düzenleniyor.
 
-**M10 — Shader dili ve materyaller.** Karar: [ADR-0022](decisions/0022-shader-and-material-language.md).
+**M10 — Shader dili ve materyaller.** ✅ Ayrıntı aşağıda (Tamamlanan fazlar → M10). Karar: [ADR-0022](decisions/0022-shader-and-material-language.md).
 - glslang ile çalışma anında derleme; `.ashader` başlık ayrıştırıcısı; built-in'ler; hata satır eşlemesi.
 - `shader_type surface` → G-buffer, gölge, RT vuruş (uber-shader'a eklenen dal), forward/şeffaf varyantları;
   `vertex()` deformasyonu ve deforme mesh'ler için BLAS güncelleme politikası; alfa testi her yolda.
@@ -311,6 +312,30 @@ maçı 2 saniyede, kurallar ayrı ayrı. `pong_package` ile paketleniyor. Görü
 - Yakalama her kareyi çiziyor; mantığı hızlıca ileri sarıp yalnız son kareleri çizmek mümkün değil.
 - Bir component'in materyalini değiştirmek yeni bir materyal oluşturuyor; önbellek hiç boşalmıyor
   (`PrimitiveMesh`).
+
+## M10 — Shader dili ve materyaller ✅
+
+**Sonuç (0.15.0):** Karar: [ADR-0022](decisions/0022-shader-and-material-language.md) (sapmalar orada). Rehber:
+[shaders-and-materials.md](guides/shaders-and-materials.md).
+- **Dil:** `.ashader` = Godot benzeri başlık + GLSL gövdesi (`Astral::Shader`: ayrıştırıcı, uniform ipuçları,
+  glslang ile çalışma anında derleme, hatalar `.ashader` satırıyla).
+- **Yüzeyler:** `surface` shader'ı G-buffer ve gölge aşamalarına gömülür (`vertex()` deformasyonu, `alpha_test`,
+  `cull_*`, `TIME`); `blend_mix`/`blend_add` ileri geçişte arkadan öne sıralı çizilir.
+- **Işın izleme:** özel `surface()` RT compute shader'larına çalışma anında derlenir; aynı materyal raster ve RT
+  yansıma/GI'da aynı yüzey değerlerini verir. Hata durumunda hazır RT shader'larına dönülür.
+- **`post` ve `sky`:** tam ekran shader'lar (post zinciri ping-pong, sky yalnız arka planda).
+- **`.material`:** shader + değerler + ebeveyn zinciri (`resolve_material`); `ctx.load_material`,
+  `PrimitiveMesh::material_file`, `ctx.sky`, `ctx.post`.
+- **Döngü:** `.ashader`/`.material` hot reload (handle'lar sabit, hatada son çalışan sürüm kalır);
+  F1 → Materials paneli uniform ipuçlarından üretilir; cook `.ashader`'ı derleyip doğrular.
+- **Demo:** `examples/shader_showcase` (yaprak, iki cam küre — biri ebeveynli materyal, lav, hologram, sky,
+  vinyet); görüntü testi `shader_showcase`.
+
+![M10](images/m10-shader-showcase.png)
+
+**Bilinen sınırlar:** [render.md](modules/render.md) ve [shader.md](modules/shader.md) sonlarında. Başlıcaları:
+şeffaflar gölge/RT'ye girmez, kırılma yok, HDR öncesi post yok, `MaterialOverride` ve önceden derlenmiş SPIR-V
+önbelleği ertelendi, `particle`/`volume` türleri M14'te.
 
 ## M9 — Dünya ve harita sistemi ✅
 

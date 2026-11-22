@@ -200,9 +200,17 @@ struct MeshPush {
     std::uint32_t first_instance;
     std::uint64_t params; // .ashader parameter block (custom surface shaders)
     float time;
+    std::uint64_t lights; // point lights (forward-lit blended surfaces)
+};
+struct ScreenPush { // post and sky shaders
+    std::uint64_t frame, materials;
+    std::uint32_t material, scene;
 };
 struct GpuShader {
+    enum class Kind : std::uint8_t { Surface, Post, Sky } kind = Kind::Surface;
     gpu::PipelineHandle gbuffer, shadow;
+    gpu::PipelineHandle forward; ///< Blended surfaces (kind Surface, blend) and the post / sky pipelines.
+    bool blend = false;
     bool casts_shadows = true;
     std::string rt_chunk;                                  ///< Ray-traced surface() (see compose_rt_surfaces)
     std::vector<SurfaceShaderBuild::Sampler> samplers;     ///< Texture slots of the parameter block
@@ -343,6 +351,22 @@ struct Renderer::Impl {
     TextureHandle white_texture, flat_normal_texture; // stand-ins for unset .ashader textures
     std::vector<std::uint32_t> param_words;
     std::vector<std::uint32_t> instance_shader; // per drawn instance: shader index + 1 (0 = standard)
+    Vec3 camera_position{};
+    struct TransparentDraw {
+        MeshHandle mesh;
+        std::uint32_t instance = 0;
+        ShaderHandle shader;
+    };
+    std::vector<TransparentDraw> transparent_draws; ///< Back to front, this frame.
+    void add_sky(RenderGraph& g, RGTexture hdr, RGTexture depth, std::uint64_t frame_address, std::uint64_t material_address,
+                 MaterialHandle sky);
+    void add_transparent(RenderGraph& g, RGTexture target, RGTexture depth, std::uint64_t instance_address,
+                         std::uint64_t frame_address, std::uint64_t material_address, std::uint64_t params_address,
+                         std::uint64_t light_address, float time);
+    /// Runs the post chain on `scene_color`; the last effect writes `output`.
+    void add_post(RenderGraph& g, RGTexture scene_color, RGTexture output, std::span<const MaterialHandle> chain,
+                  std::uint32_t w, std::uint32_t h, std::uint64_t frame_address, std::uint64_t material_address);
+    bool is_post(MaterialHandle m) const;
     bool rt_surfaces_dirty = false;  ///< Custom shaders came or went: rebuild the ray-traced compute shaders.
     bool rt_custom_active = false;
     std::string rt_surface_error;
@@ -660,13 +684,19 @@ void Renderer::Impl::prepare_instances(const RenderScene& scene, FrameSlot& slot
     slot.params.write(device, param_words.data(), param_words.size() * sizeof(std::uint32_t));
 
     order.clear();
+    std::vector<std::uint32_t> blended;
     for (std::uint32_t i = 0; i < scene.meshes.size(); ++i) {
-        if (meshes.get(scene.meshes[i].mesh)) order.push_back(i); // destroyed meshes are skipped
+        if (!meshes.get(scene.meshes[i].mesh)) continue; // destroyed meshes are skipped
+        const MaterialDesc* d = materials.get(scene.meshes[i].material);
+        const GpuShader* gs = d ? shaders.get(d->shader) : nullptr;
+        if (gs && gs->kind == GpuShader::Kind::Surface && gs->blend) blended.push_back(i);
+        else order.push_back(i);
     }
     // Grouped by shader (pipeline changes), then by mesh (one instanced draw per run).
     auto shader_key = [&](std::uint32_t i) -> std::uint32_t {
         const MaterialDesc* d = materials.get(scene.meshes[i].material);
-        return d && shaders.get(d->shader) ? d->shader.index + 1 : 0u;
+        const GpuShader* gs = d ? shaders.get(d->shader) : nullptr;
+        return gs && gs->kind == GpuShader::Kind::Surface ? d->shader.index + 1 : 0u; // post / sky shaders draw no meshes
     };
     std::sort(order.begin(), order.end(), [&](std::uint32_t a, std::uint32_t b) {
         const std::uint32_t ka = shader_key(a), kb = shader_key(b);
@@ -694,7 +724,107 @@ void Renderer::Impl::prepare_instances(const RenderScene& scene, FrameSlot& slot
             tlas_instances.push_back({.blas = mesh->blas, .transform = row_major_3x4(d.transform), .custom_index = index});
         }
     }
+    // Blended surfaces: after the opaque instances, farthest first (their own draws, one instance each).
+    transparent_draws.clear();
+    std::sort(blended.begin(), blended.end(), [&](std::uint32_t a, std::uint32_t b) {
+        auto distance2 = [&](std::uint32_t i) {
+            const Mat4& t = scene.meshes[i].transform;
+            const Vec3 d{t[3].x - camera_position.x, t[3].y - camera_position.y, t[3].z - camera_position.z};
+            return d.x * d.x + d.y * d.y + d.z * d.z;
+        };
+        return distance2(a) > distance2(b);
+    });
+    for (std::uint32_t i : blended) {
+        const MeshInstance& d = scene.meshes[i];
+        const GpuMesh* mesh = meshes.get(d.mesh);
+        const auto split = [](std::uint64_t a, std::uint32_t (&out)[2]) {
+            out[0] = static_cast<std::uint32_t>(a);
+            out[1] = static_cast<std::uint32_t>(a >> 32);
+        };
+        GpuInstance gi{d.transform, d.previous_transform.value_or(d.transform), d.material.index, {0, 0}, {0, 0}};
+        split(device.buffer_address(mesh->vertices), gi.vertices);
+        split(device.buffer_address(mesh->indices), gi.indices);
+        transparent_draws.push_back({d.mesh, static_cast<std::uint32_t>(instances.size()), materials.get(d.material)->shader});
+        instances.push_back(gi);
+    }
     slot.instances.write(device, instances.data(), instances.size() * sizeof(GpuInstance));
+}
+
+bool Renderer::Impl::is_post(MaterialHandle m) const {
+    const MaterialDesc* d = materials.get(m);
+    const GpuShader* gs = d ? shaders.get(d->shader) : nullptr;
+    return gs && gs->kind == GpuShader::Kind::Post;
+}
+
+void Renderer::Impl::add_sky(RenderGraph& g, RGTexture hdr, RGTexture depth, std::uint64_t frame_address,
+                             std::uint64_t material_address, MaterialHandle sky) {
+    const MaterialDesc* d = materials.get(sky);
+    const GpuShader* gs = d ? shaders.get(d->shader) : nullptr;
+    if (!gs || gs->kind != GpuShader::Kind::Sky) return;
+    const gpu::PipelineHandle pipeline = gs->forward;
+    const std::uint32_t index = sky.index;
+    g.add_pass("sky", [&](PassBuilder& b) {
+        b.color(hdr, gpu::LoadOp::Load);
+        b.depth(depth, gpu::LoadOp::Load); // only where nothing was drawn (depth 1)
+    }, [=](PassContext& ctx) {
+        const ScreenPush push{frame_address, material_address, index, 0};
+        ctx.cmd.bind_pipeline(pipeline);
+        ctx.cmd.push_constants(&push, sizeof(push));
+        ctx.cmd.draw(3);
+    });
+}
+
+void Renderer::Impl::add_transparent(RenderGraph& g, RGTexture target, RGTexture depth, std::uint64_t instance_address,
+                                     std::uint64_t frame_address, std::uint64_t material_address, std::uint64_t params_address,
+                                     std::uint64_t light_address, float time) {
+    if (transparent_draws.empty()) return;
+    g.add_pass("transparent", [&](PassBuilder& b) {
+        b.color(target, gpu::LoadOp::Load);
+        b.depth(depth, gpu::LoadOp::Load);
+    }, [=, this](PassContext& ctx) {
+        ShaderHandle bound{};
+        for (const TransparentDraw& draw : transparent_draws) {
+            const GpuShader* gs = shaders.get(draw.shader);
+            const GpuMesh* mesh = meshes.get(draw.mesh);
+            if (!gs || !mesh) continue;
+            if (draw.shader != bound) {
+                ctx.cmd.bind_pipeline(gs->forward);
+                bound = draw.shader;
+            }
+            const MeshPush push{device.buffer_address(mesh->vertices), instance_address, frame_address, material_address,
+                                draw.instance, params_address, time, light_address};
+            ctx.cmd.push_constants(&push, sizeof(push));
+            ctx.cmd.bind_index_buffer(mesh->indices, gpu::IndexType::Uint32);
+            ctx.cmd.draw_indexed(mesh->index_count, 1);
+            ++stats.draw_calls;
+            ++stats.instances;
+        }
+    });
+}
+
+void Renderer::Impl::add_post(RenderGraph& g, RGTexture scene_color, RGTexture output, std::span<const MaterialHandle> chain,
+                              std::uint32_t w, std::uint32_t h, std::uint64_t frame_address, std::uint64_t material_address) {
+    RGTexture source = scene_color;
+    for (std::size_t i = 0; i < chain.size(); ++i) {
+        const MaterialDesc* d = materials.get(chain[i]);
+        const GpuShader* gs = d ? shaders.get(d->shader) : nullptr;
+        if (!gs) continue;
+        const bool last = i + 1 == chain.size();
+        const RGTexture target = last ? output : g.create("post", {w, h, target_format});
+        const gpu::PipelineHandle pipeline = gs->forward;
+        const std::uint32_t index = chain[i].index;
+        const RGTexture src = source;
+        g.add_pass("post", [&, src, target](PassBuilder& b) {
+            b.read(src);
+            b.color(target, gpu::LoadOp::DontCare);
+        }, [=](PassContext& ctx) {
+            const ScreenPush push{frame_address, material_address, index, ctx.bindless(src)};
+            ctx.cmd.bind_pipeline(pipeline);
+            ctx.cmd.push_constants(&push, sizeof(push));
+            ctx.cmd.draw(3);
+        });
+        source = target;
+    }
 }
 
 Renderer::~Renderer() {
@@ -710,6 +840,7 @@ Renderer::~Renderer() {
         }
     }
     m.shaders.for_each([&](ShaderHandle, GpuShader& shader) {
+        m.device.destroy(shader.forward);
         m.device.destroy(shader.gbuffer);
         m.device.destroy(shader.shadow);
     });
@@ -730,8 +861,25 @@ bool Renderer::supports(ImageFormat format) const noexcept {
 
 ShaderHandle Renderer::create_shader(const SurfaceShaderBuild& build, std::string_view debug_name) {
     auto& m = *impl_;
-    if (!build.ok() || build.shadow_vertex.empty()) return {};
+    if (!build.ok() || (!build.blend && build.shadow_vertex.empty())) return {};
     const std::string name = debug_name.empty() ? std::string("astral.ashader") : std::string(debug_name);
+    if (build.blend) {
+        GpuShader blended;
+        blended.blend = true;
+        blended.samplers = build.samplers;
+        blended.forward = m.device.create_graphics_pipeline({
+            .vertex = {build.forward_vertex},
+            .fragment = {build.forward_fragment},
+            .color_formats = {m.target_format},
+            .depth = {.format = gpu::Format::D32Float, .test = true, .write = false, .compare = gpu::CompareOp::LessEqual},
+            .cull = build.cull_disabled ? gpu::CullMode::None : (build.cull_front ? gpu::CullMode::Front : gpu::CullMode::Back),
+            .alpha_blend = !build.additive,
+            .additive_blend = build.additive,
+            .debug_name = name + ".forward",
+        });
+        if (!blended.forward.valid()) return {};
+        return m.shaders.create(blended);
+    }
     const gpu::CullMode cull = build.cull_disabled ? gpu::CullMode::None : (build.cull_front ? gpu::CullMode::Front : gpu::CullMode::Back);
     GpuShader shader;
     shader.casts_shadows = build.casts_shadows;
@@ -762,9 +910,31 @@ ShaderHandle Renderer::create_shader(const SurfaceShaderBuild& build, std::strin
     return m.shaders.create(shader);
 }
 
+ShaderHandle Renderer::create_shader(const ScreenShaderBuild& build, std::string_view debug_name) {
+    auto& m = *impl_;
+    if (!build.ok()) return {};
+    const std::string name = debug_name.empty() ? std::string("astral.screen") : std::string(debug_name);
+    const bool sky = build.type == ShaderType::Sky;
+    GpuShader shader;
+    shader.kind = sky ? GpuShader::Kind::Sky : GpuShader::Kind::Post;
+    shader.samplers = build.samplers;
+    shader.forward = m.device.create_graphics_pipeline({
+        .vertex = {build.vertex},
+        .fragment = {build.fragment},
+        .color_formats = {sky ? gpu::Format::RGBA16Float : m.target_format},
+        // The sky only fills what is still at the far plane; post effects cover everything.
+        .depth = sky ? gpu::DepthState{.format = gpu::Format::D32Float, .test = true, .write = false, .compare = gpu::CompareOp::LessEqual}
+                     : gpu::DepthState{.format = gpu::Format::Undefined, .test = false, .write = false},
+        .debug_name = name + (sky ? ".sky" : ".post"),
+    });
+    if (!shader.forward.valid()) return {};
+    return m.shaders.create(shader);
+}
+
 void Renderer::destroy(ShaderHandle shader) {
     auto& m = *impl_;
     if (GpuShader* s = m.shaders.get(shader)) {
+        m.device.destroy(s->forward);
         m.device.destroy(s->gbuffer); // deferred by the device until the GPU is done with it
         m.device.destroy(s->shadow);
         m.shaders.destroy(shader);
@@ -973,6 +1143,7 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
     const gpu::TextureDesc target_desc = m.device.texture_desc(target);
     if (target_desc.width == 0) return;
     const std::uint32_t w = target_desc.width, h = target_desc.height;
+    m.camera_position = camera.position;
     if (m.rt) {
         m.render_ray_traced(cmd, target, camera, scene, w, h);
         return;
@@ -1023,6 +1194,13 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
                     shadows ? m.device.bindless_index(m.shadow_map) : no_shadow, 0},
                    {static_cast<float>(w), static_cast<float>(h), 1.0f / static_cast<float>(w), 1.0f / static_cast<float>(h)},
                    Mat4::identity(), {}, {}, {}, {}, {}, view_projection, {}};
+    {
+        const std::uint64_t params = m.device.buffer_address(slot.params.buffer); // written by prepare_instances
+        frame.custom[0] = static_cast<std::uint32_t>(params);
+        frame.custom[1] = static_cast<std::uint32_t>(params >> 32);
+        std::memcpy(&frame.custom[2], &scene.time, sizeof(float));
+        frame.custom[3] = is_srgb(m.target_format) ? 0u : 1u; // UNORM targets need shaders to encode
+    }
     slot.frame.write(m.device, &frame, sizeof(frame));
 
     const std::uint64_t instance_address = m.device.buffer_address(slot.instances.buffer);
@@ -1059,7 +1237,7 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
             }
             if (const GpuMesh* mesh = m.meshes.get(handle)) {
                 const MeshPush push{m.device.buffer_address(mesh->vertices), instance_address, frame_address, material_address, start,
-                                    params_address, scene.time};
+                                    params_address, scene.time, light_address};
                 c.push_constants(&push, sizeof(push));
                 c.bind_index_buffer(mesh->indices, gpu::IndexType::Uint32);
                 c.draw_indexed(mesh->index_count, end - start);
@@ -1141,15 +1319,23 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
         ctx.cmd.push_constants(&push, sizeof(push));
         ctx.cmd.dispatch((w + 7) / 8, (h + 7) / 8);
     });
+    m.add_sky(g, hdr, depth, frame_address, material_address, scene.sky);
+    std::vector<MaterialHandle> post_chain;
+    for (MaterialHandle p : scene.post) {
+        if (m.is_post(p)) post_chain.push_back(p);
+    }
+    const RGTexture scene_color = post_chain.empty() ? output : g.create("scene.ldr", {w, h, m.target_format});
     g.add_pass("tonemap", [&](PassBuilder& b) {
         b.read(hdr);
-        b.color(output, gpu::LoadOp::DontCare);
+        b.color(scene_color, gpu::LoadOp::DontCare);
     }, [&](PassContext& ctx) {
         const TonemapPush push{ctx.bindless(hdr), scene.environment.exposure, is_srgb(m.target_format) ? 0u : 1u};
         ctx.cmd.bind_pipeline(m.tonemap);
         ctx.cmd.push_constants(&push, sizeof(push));
         ctx.cmd.draw(3);
     });
+    m.add_transparent(g, scene_color, depth, instance_address, frame_address, material_address, params_address, light_address, scene.time);
+    m.add_post(g, scene_color, output, post_chain, w, h, frame_address, material_address);
     m.add_debug_lines(g, slot, output, depth, camera.projection * camera.view, scene.debug_lines);
     m.add_ui(g, slot, output, w, h, scene.ui);
     g.execute(cmd);
@@ -1250,6 +1436,7 @@ void Renderer::Impl::ensure_ddgi(const RenderScene& scene) {
 void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle target, const CameraData& camera,
                                        const RenderScene& scene, std::uint32_t w, std::uint32_t h) {
     auto& m = *this;
+    m.camera_position = camera.position;
     if (m.rt_surfaces_dirty) m.rebuild_rt_surfaces();
     FrameSlot& slot = m.ring[m.ring_index];
     m.ring_index = (m.ring_index + 1) % ring_size;
@@ -1337,6 +1524,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
         frame.custom[0] = static_cast<std::uint32_t>(params);
         frame.custom[1] = static_cast<std::uint32_t>(params >> 32);
         std::memcpy(&frame.custom[2], &scene.time, sizeof(float));
+        frame.custom[3] = is_srgb(m.target_format) ? 0u : 1u;
     }
     slot.frame.write(m.device, &frame, sizeof(frame));
 
@@ -1396,7 +1584,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
             }
             const GpuMesh* mesh = m.meshes.get(handle);
             const MeshPush push{m.device.buffer_address(mesh->vertices), instance_address, frame_address, material_address, start,
-                                params_address, scene.time};
+                                params_address, scene.time, light_address};
             c.push_constants(&push, sizeof(push));
             c.bind_index_buffer(mesh->indices, gpu::IndexType::Uint32);
             c.draw_indexed(mesh->index_count, end - start);
@@ -1542,6 +1730,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
         ctx.cmd.push_constants(&push, sizeof(push));
         ctx.cmd.dispatch((w + 7) / 8, (h + 7) / 8);
     });
+    m.add_sky(g, hdr, depth, frame_address, material_address, scene.sky);
     g.add_pass("taa", [&](PassBuilder& b) {
         gbuffer_reads(b);
         b.read(hdr);
@@ -1606,10 +1795,15 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
         }
         bloom_result = low;
     }
+    std::vector<MaterialHandle> post_chain;
+    for (MaterialHandle p : scene.post) {
+        if (m.is_post(p)) post_chain.push_back(p);
+    }
+    const RGTexture scene_color = post_chain.empty() ? output : g.create("scene.ldr", {w, h, m.target_format});
     g.add_pass("tonemap", [&](PassBuilder& b) {
         b.read(taa_out);
         if (bloom_result.valid()) b.read(bloom_result);
-        b.color(output, gpu::LoadOp::DontCare);
+        b.color(scene_color, gpu::LoadOp::DontCare);
     }, [&](PassContext& ctx) {
         TonemapPush push{ctx.bindless(taa_out), scene.environment.exposure, is_srgb(m.target_format) ? 0u : 1u};
         if (bloom_result.valid()) {
@@ -1620,6 +1814,8 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
         ctx.cmd.push_constants(&push, sizeof(push));
         ctx.cmd.draw(3);
     });
+    m.add_transparent(g, scene_color, depth, instance_address, frame_address, material_address, params_address, light_address, scene.time);
+    m.add_post(g, scene_color, output, post_chain, w, h, frame_address, material_address);
     m.add_debug_lines(g, slot, output, depth, unjittered, scene.debug_lines);
     m.add_ui(g, slot, output, w, h, scene.ui);
     g.execute(cmd);

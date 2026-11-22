@@ -129,3 +129,25 @@ parçacığında bütçeyle eklenir. Orijin kayınca kök `Transform`'lar, fizik
 **Bilinen sınırlar (M9):** kayan orijin yalnızca bir harita açıkken çalışır. Orijin kayınca TAA/GI
 geçmişi bir kare sıfırlanır (kısa bir yumuşama). Hücre okuma (dosya G/Ç) ana iş parçacığında; büyük
 hücrelerde G/Ç de iş parçacığına taşınmalı. Gökyüzü arka planı `environment.sky`'ı izlemiyor (M14).
+
+## Materyaller ve shader'lar (M10)
+
+Karar: [ADR-0022](../decisions/0022-shader-and-material-language.md). Örnek: `examples/shader_showcase`.
+
+| API | Ne |
+|---|---|
+| `ctx.load_material("materials/x.material")` | `.material` (ebeveyn zinciri uygulanmış) + `.ashader`; ilk kullanımda yüklenir, önbelleğe alınır. Geçersiz handle: dosya/derleme hatası (loglanır) ve headless |
+| `PrimitiveMesh::material_file` | Doluysa `material` yerine bu dosya |
+| `ctx.sky` / `ctx.post` | `shader_type sky` materyali / `shader_type post` materyalleri (sırayla) |
+| `ctx.shader_error()` | Özel yüzeyler RT shader'larına derlenemediyse neden |
+| F1 → Materials | Uniform ipuçlarından (range, source_color) otomatik kaydırıcılar ve renk seçiciler; değişiklik canlı, dosyaya yazılmaz |
+
+**Hot reload:** `.ashader` ve `.material` dosyaları 0,25 sn'de bir kontrol edilir (paketten okuyorsan
+kontrol yok). Materyal handle'ları sabit kalır (yerinde güncellenir). Derlenmeyen düzenleme loglanır
+(`dosya:satır`) ve son çalışan sürüm kalır; aynı hata her kontrolde tekrar loglanmaz.
+`AppDesc` zamanı: `TIME` = `ctx.time.elapsed`.
+
+**Bilinen sınırlar:** `MaterialOverride` (örnek başına değer) yok: aynı shader'ın farklı değerleri için ayrı
+`.material` (ebeveynli) kullan. glTF materyalleri yerleşik standart yolda kalır (`standard.ashader` örneği
+olarak yüklenmiyor). Doku dosyaları hot reload edilmez. Shader derleme ana iş parçacığında (yüklemede ve
+düzenlemede kısa takılma).

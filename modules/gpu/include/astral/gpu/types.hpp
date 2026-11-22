@@ -178,6 +178,7 @@ struct GraphicsPipelineDesc {
     CullMode cull = CullMode::None;
     bool front_counter_clockwise = true;
     bool alpha_blend = false;
+    bool additive_blend = false; ///< src alpha * colour added to the target (glow, holograms); wins over alpha_blend.
     std::string_view debug_name = {};
 };
 

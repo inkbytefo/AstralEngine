@@ -281,3 +281,27 @@ TEST_CASE("cook_directory: a .world and its entity folder become an index and ce
     r = cook_directory({.source = src, .output = out, .textures = {}, .jobs = nullptr, .logger = nullptr});
     CHECK_FALSE(r.ok());
 }
+
+TEST_CASE("cook_directory: .material becomes binary JSON; a shader that does not compile fails the cook with its line") {
+    const auto src = test::temp_dir("cook_shader_src");
+    const auto out = test::temp_dir("cook_shader_out");
+    write_text(src / "shaders" / "ok.ashader", "shader_type surface;\nuniform vec3 c = vec3(1.0);\nvoid surface() { ALBEDO = c; }\n");
+    write_text(src / "shaders" / "fog.ashader", "shader_type post;\nvoid post() { COLOR *= 0.9; }\n");
+    write_text(src / "materials" / "a.material", R"({"format":"astral.material","version":1,"shader":"shaders/ok.ashader"})");
+    CookReport r = cook_directory({.source = src, .output = out, .textures = {}, .jobs = nullptr, .logger = nullptr});
+    REQUIRE(r.ok());
+    CHECK(Json::is_binary(test::read_bytes(out / "materials" / "a.material")));
+    CHECK(test::read_bytes(out / "shaders" / "ok.ashader").size() > 20); // the source ships; the game compiles it
+
+    write_text(src / "shaders" / "bad.ashader", "shader_type surface;\nvoid surface() {\n    ALBEDO = vec3(nope);\n}\n");
+    write_text(src / "shaders" / "typo.ashader", "shader_type surfce;\n");
+    r = cook_directory({.source = src, .output = out, .textures = {}, .jobs = nullptr, .logger = nullptr});
+    CHECK_FALSE(r.ok());
+    bool line_reported = false, header_reported = false;
+    for (const std::string& e : r.errors) {
+        line_reported = line_reported || (e.find("bad.ashader:3") != std::string::npos && e.find("nope") != std::string::npos);
+        header_reported = header_reported || e.find("typo.ashader:1") != std::string::npos;
+    }
+    CHECK(line_reported);
+    CHECK(header_reported);
+}

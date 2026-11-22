@@ -118,6 +118,10 @@ public:
     } debug_show;
     /// The engine's debug UI (F1): performance, entities, inspector, render settings. Needs a renderer.
     bool show_debug_ui = false;
+    /// A material whose shader is `shader_type sky` (ctx.load_material): replaces the background.
+    MaterialHandle sky{};
+    /// Materials with `shader_type post` shaders, applied in order after tonemapping.
+    std::vector<MaterialHandle> post;
     DirectionalLight sun{};   ///< The sun (direction, color, shadows).
     Environment environment{}; ///< Sky/ground ambient and exposure.
 

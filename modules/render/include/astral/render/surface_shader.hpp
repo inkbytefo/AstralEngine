@@ -33,9 +33,27 @@ struct SurfaceShaderBuild {
     /// Ray-traced variant of surface(): GLSL for the RT compute shaders, with "@ID@" standing for the
     /// shader's slot (see compose_rt_surfaces). Empty if there is no surface().
     std::string rt_chunk;
+    /// render_mode blend_mix / blend_add: drawn in the forward pass after opaque geometry, sorted back to
+    /// front; there are no G-buffer / shadow stages and no ray-traced variant.
+    std::vector<std::uint32_t> forward_vertex, forward_fragment;
+    bool blend = false;
+    bool additive = false;
     std::vector<ShaderError> errors; ///< Lines of the .ashader file.
-    [[nodiscard]] bool ok() const noexcept { return errors.empty() && !gbuffer_fragment.empty(); }
+    [[nodiscard]] bool ok() const noexcept { return errors.empty() && (!gbuffer_fragment.empty() || !forward_fragment.empty()); }
 };
+
+/// shader_type post / sky (ADR-0022): a full-screen fragment shader.
+///   post():  COLOR (rgb, the displayed colour: write it), SCREEN_UV, SCREEN_TEXTURE (sampler2D), TIME
+///   sky():   EYEDIR, SUN_DIR, SUN_COLOR, TIME; write COLOR (linear HDR, before tonemapping)
+struct ScreenShaderBuild {
+    ShaderType type = ShaderType::Post;
+    std::vector<std::uint32_t> vertex, fragment;
+    UniformLayout layout;
+    std::vector<SurfaceShaderBuild::Sampler> samplers;
+    std::vector<ShaderError> errors;
+    [[nodiscard]] bool ok() const noexcept { return errors.empty() && !fragment.empty(); }
+};
+[[nodiscard]] ScreenShaderBuild compile_screen_shader(const ShaderSource& source, std::string_view name);
 
 /// Generates and compiles every stage. Thread-safe (compile in a job for hot reload).
 [[nodiscard]] SurfaceShaderBuild compile_surface_shader(const ShaderSource& source, std::string_view name);

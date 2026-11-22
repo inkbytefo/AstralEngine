@@ -30,6 +30,9 @@ astral_set_warnings(model_viewer)
 # A game in the shape every game takes: exe + assets folder; `scene_viewer_package` cooks and packs.
 astral_add_game(scene_viewer SOURCES scene_viewer/main.cpp ASSETS scene_viewer/assets)
 
+# Shader showcase (M10): .ashader shaders and .material files (leaf, glass, lava, hologram, sky, post).
+astral_add_game(shader_showcase SOURCES shader_showcase/main.cpp ASSETS shader_showcase/assets)
+
 # 3D Pong: the smallest complete game on the engine (rules in pong.cpp, everything else in assets/).
 astral_add_game(pong SOURCES pong/main.cpp pong/pong.cpp ASSETS pong/assets)
 if(ASTRAL_BUILD_TESTS)

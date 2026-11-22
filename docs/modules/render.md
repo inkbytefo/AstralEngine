@@ -137,3 +137,33 @@ graph.add_pass("blur", [&](PassBuilder& b) { b.read(hdr); b.write_storage(blurre
   `UiCanvas`: `rect`, `frame`, `image`, `text`; `pack_color`.
 - `Renderer::gpu_timings()` / `gpu_frame_ms()`: render graph pass'lerinin GPU süreleri (timestamp yoksa boş).
 - `ImageData::format` + `levels` (cook edilmiş BC görüntüler ve hazır mip zinciri), `supports(ImageFormat)`.
+
+## Özel shader'lar ve materyaller (M10)
+
+Karar: [ADR-0022](../decisions/0022-shader-and-material-language.md). Dil: [shader.md](shader.md); kullanım:
+[rehber](../guides/shaders-and-materials.md).
+
+| API | Ne |
+|---|---|
+| `compile_surface_shader(kaynak, ad)` | `.ashader` (surface) → G-buffer, gölge (alfa testliyse gölge fragment'i de) ya da şeffaf (`blend_*`) aşamaları. Üretilen kod kullanıcı `vertex()`/`surface()` fonksiyonlarını şablona sarar; hatalar `.ashader` satırıyla |
+| `compile_screen_shader(kaynak, ad)` | `shader_type post` / `sky` → tam ekran fragment |
+| `Renderer::create_shader(build)` / `destroy(shader)` | Pipeline'lar; materyaller `MaterialDesc::shader` ile bağlanır |
+| `MaterialDesc::shader`, `params`, `textures` | Shader'ın uniform bloğu (`layout_uniforms` düzeni, float olarak) ve doku slotları; ayarlanmamış doku beyaz (normal haritası: düz) okunur |
+| `RenderScene::time`, `sky`, `post` | `TIME`; arka plan materyali; tonemap sonrası efekt zinciri |
+| `resolve_material`, `evaluate_uniforms` (`material_file.hpp`) | `.material` ebeveyn zinciri ve değerlerin parametre bloğuna çevrilmesi (saf veri) |
+| `Renderer::shader_error()` | Özel yüzeyler ışın izleme shader'larına giremediyse nedeni |
+
+**Çizim sırası:** opak mesh'ler shader'a göre gruplanır (raster G-buffer ve RT G-buffer geçişleri aynı
+mantık) → aydınlatma → **sky** (yalnız derinliği 1 olan piksellerde, HDR'a) → tonemap → **şeffaf** geçiş
+(`blend_mix`/`blend_add`; arkadan öne sıralı, derinlik testli, ileri aydınlatma: güneş + nokta ışıklar + ortam;
+tonemap shader içinde) → **post** zinciri (ping-pong) → debug çizgileri → UI.
+
+**Işın izleme tutarlılığı:** RT compute shader'ları (`rt_lighting`, `ddgi_trace`), her özel `surface()`
+fonksiyonu eklenmiş hâliyle çalışma anında yeniden derlenir (`compile_rt_variants`); özel shader yoksa
+önceden derlenmiş olanlar kullanılır. Parametre bloğunun adresi ve `TIME` `Frame::custom` içinde taşınır.
+
+**Bilinen sınırlar (M10):** şeffaf yüzeyler gölge düşürmez, gölge almaz, RT yansıma/GI'da yoktur ve kırılma
+(ekran görüntüsünü bükme) yok; sky shader'ı SDF şekillerinin üstünü de boyar (SDF derinliği ayrı); sky yalnız
+arka planı değiştirir (aydınlatma ve yansımalar `Environment` renklerini kullanır); post için HDR öncesi nokta
+yok; RT varyantında `vertex()`, türevler, alfa ve normal haritası yok; deforme mesh'ler için BLAS güncellemesi
+yok (RT'de deformasyon görünmez).

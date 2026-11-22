@@ -59,14 +59,21 @@ std::string uniform_macros(const ShaderSource& source, const UniformLayout& layo
     return s;
 }
 
-/// Shared by every stage: push constants, parameter access, uniforms as macros.
-std::string prelude(const ShaderSource& source, const UniformLayout& layout) {
+std::string uniform_undefs(const ShaderSource& source) {
+    std::string s;
+    for (const ShaderUniform& u : source.uniforms) s += "#undef " + u.name + "\n";
+    return s;
+}
+
+/// Shared by every stage: push constants, parameter access. The uniforms are macros that exist only
+/// around the user's code (see wrap_body), so a uniform called `scale` cannot clash with the engine's.
+std::string prelude(const ShaderSource&, const UniformLayout&) {
     std::string s = R"(#version 460
 #extension GL_GOOGLE_include_directive : require
 #include <astral/scene.glsl>
 layout(push_constant, scalar) uniform Push {
     Vertices vertices; Instances instances; FrameRef frame; Materials materials; uint first_instance;
-    uint64_t params; float time;
+    uint64_t params; float time; PointLights lights;
 } pc;
 ASTRAL_BUFFER(AstralParams, uint);
 AstralParams astral_params;
@@ -75,10 +82,17 @@ float astral_pf(uint o) { return uintBitsToFloat(astral_params.data[astral_base 
 uint astral_pu(uint o) { return astral_params.data[astral_base + o]; }
 #define TIME pc.time
 )";
-    return s + uniform_macros(source, layout);
+    return s;
 }
 
-std::string vertex_stage(const ShaderSource& source, const UniformLayout& layout, bool shadow) {
+/// The user's code with the uniforms defined around it.
+std::string wrap_body(const ShaderSource& source, const UniformLayout& layout, const std::string& body) {
+    return uniform_macros(source, layout) + "#line 1\n" + body + "\n#line 100000\n" + uniform_undefs(source);
+}
+
+enum class Mode { GBuffer, Shadow, Forward };
+
+std::string vertex_stage(const ShaderSource& source, const UniformLayout& layout, Mode mode) {
     std::string s = prelude(source, layout);
     s += R"(layout(location = 0) out vec3 astral_out_normal;
 layout(location = 1) flat out uint astral_out_instance;
@@ -91,7 +105,7 @@ vec3 VERTEX; vec3 NORMAL; vec2 UV; vec3 WORLD_POSITION; mat4 MODEL_MATRIX;
     for (std::size_t i = 0; i < source.varyings.size(); ++i) {
         s += "layout(location = " + std::to_string(6 + i) + ") out " + source.varyings[i].type + " " + source.varyings[i].name + ";\n";
     }
-    s += "#line 1\n" + source.body_without("surface") + "\n#line 100000\n";
+    s += wrap_body(source, layout, source.body_without("surface"));
     s += R"(void main() {
     Vertex v = pc.vertices.data[gl_VertexIndex];
     uint id = pc.first_instance + gl_InstanceIndex;
@@ -108,7 +122,10 @@ vec3 VERTEX; vec3 NORMAL; vec2 UV; vec3 WORLD_POSITION; mat4 MODEL_MATRIX;
     s += R"(    vec4 world = inst.model * vec4(VERTEX, 1.0);
     Frame f = pc.frame.f;
 )";
-    s += shadow ? "    gl_Position = f.light_view_projection * world;\n" : "    gl_Position = f.view_projection * world;\n";
+    // Forward (blended) geometry uses the unjittered matrix: it is drawn over the finished image.
+    s += mode == Mode::Shadow    ? "    gl_Position = f.light_view_projection * world;\n"
+         : mode == Mode::Forward ? "    gl_Position = f.unjittered_view_projection * world;\n"
+                                 : "    gl_Position = f.view_projection * world;\n";
     s += R"(    astral_out_normal = transpose(inverse(mat3(inst.model))) * NORMAL;
     astral_out_instance = id;
     astral_out_clip_now = f.unjittered_view_projection * world;
@@ -120,7 +137,35 @@ vec3 VERTEX; vec3 NORMAL; vec2 UV; vec3 WORLD_POSITION; mat4 MODEL_MATRIX;
     return s;
 }
 
-std::string fragment_stage(const ShaderSource& source, const UniformLayout& layout, bool shadow) {
+/// Forward lighting for blended surfaces: sun, point lights, sky/ground ambient; no shadows.
+constexpr const char* forward_lighting = R"(vec3 astral_lit(vec3 N, vec3 V, vec3 P, vec3 albedo, float roughness, float metallic) {
+    Frame f = pc.frame.f;
+    vec3 F0 = mix(vec3(0.04), albedo, metallic);
+    vec3 diffuse = albedo * (1.0 - metallic) / PI;
+    float power = mix(256.0, 8.0, clamp(roughness, 0.0, 1.0));
+    float norm = (power + 8.0) / (8.0 * PI);
+    vec3 L = -normalize(f.sun_direction.xyz);
+    vec3 H = normalize(L + V);
+    float nl = max(dot(N, L), 0.0);
+    vec3 c = (diffuse + F0 * norm * pow(max(dot(N, H), 0.0), power)) * f.sun_color.rgb * nl;
+    for (uint i = 0u; i < f.counts.x; ++i) {
+        PointLight light = pc.lights.data[i];
+        vec3 to = light.position_radius.xyz - P;
+        float dist = max(length(to), 1e-4);
+        vec3 Lp = to / dist;
+        float radius = max(light.position_radius.w, 1e-4);
+        float falloff = clamp(1.0 - pow(dist / radius, 4.0), 0.0, 1.0);
+        falloff = falloff * falloff / (dist * dist + 1.0);
+        vec3 Hp = normalize(Lp + V);
+        c += (diffuse + F0 * norm * pow(max(dot(N, Hp), 0.0), power)) * light.color_intensity.rgb * light.color_intensity.a * falloff * max(dot(N, Lp), 0.0);
+    }
+    vec3 ambient = mix(f.ground_color.rgb, f.sky_color.rgb, N.y * 0.5 + 0.5) * f.sky_color.a;
+    return c + albedo * (1.0 - metallic) * ambient;
+}
+vec3 astral_aces(vec3 x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
+)";
+
+std::string fragment_stage(const ShaderSource& source, const UniformLayout& layout, Mode mode) {
     std::string s = prelude(source, layout);
     s += R"(layout(location = 0) in vec3 astral_in_normal;
 layout(location = 1) flat in uint astral_in_instance;
@@ -129,12 +174,14 @@ layout(location = 3) in vec4 astral_in_clip_prev;
 layout(location = 4) in vec2 astral_in_uv;
 layout(location = 5) in vec3 astral_in_world;
 )";
-    if (!shadow) {
+    if (mode == Mode::GBuffer) {
         s += R"(layout(location = 0) out vec4 astral_out_albedo;
 layout(location = 1) out vec4 astral_out_normal;
 layout(location = 2) out vec4 astral_out_emissive;
 layout(location = 3) out vec2 astral_out_velocity;
 )";
+    } else if (mode == Mode::Forward) {
+        s += "layout(location = 0) out vec4 astral_out_color;\n";
     }
     for (std::size_t i = 0; i < source.varyings.size(); ++i) {
         s += "layout(location = " + std::to_string(6 + i) + ") in " + source.varyings[i].type + " " + source.varyings[i].name + ";\n";
@@ -143,7 +190,8 @@ layout(location = 3) out vec2 astral_out_velocity;
 vec3 ALBEDO; float ROUGHNESS; float METALLIC; vec3 EMISSION; float ALPHA; float ALPHA_SCISSOR;
 vec3 NORMAL_MAP; float NORMAL_MAP_DEPTH; float AO;
 )";
-    s += "#line 1\n" + source.body_without("vertex") + "\n#line 100000\n";
+    if (mode == Mode::Forward) s += forward_lighting;
+    s += wrap_body(source, layout, source.body_without("vertex"));
     s += R"(vec3 astral_perturb(vec3 n, vec3 map, float scale) {
     vec3 dp1 = dFdx(astral_in_world), dp2 = dFdy(astral_in_world);
     vec2 duv1 = dFdx(astral_in_uv), duv2 = dFdy(astral_in_uv);
@@ -171,7 +219,15 @@ void main() {
 )";
     if (source.has_function("surface")) s += "    surface();\n";
     if (source.has_render_mode("alpha_test")) s += "    if (ALPHA < ALPHA_SCISSOR) discard;\n";
-    if (!shadow) {
+    if (mode == Mode::Forward) {
+        s += R"(    vec3 n = NORMAL;
+    if (NORMAL_MAP != vec3(0.5, 0.5, 1.0)) n = astral_perturb(n, NORMAL_MAP * 2.0 - 1.0, NORMAL_MAP_DEPTH);
+    vec3 lit = astral_lit(n, VIEW_DIR, WORLD_POSITION, ALBEDO * AO, ROUGHNESS, METALLIC) + EMISSION;
+    vec3 c = astral_aces(lit * f.ground_color.a);
+    if (f.custom.w != 0u) c = pow(c, vec3(1.0 / 2.2)); // UNORM targets: encode here
+    astral_out_color = vec4(c, clamp(ALPHA, 0.0, 1.0));
+)";
+    } else if (mode == Mode::GBuffer) {
         s += R"(    vec3 n = NORMAL;
     if (NORMAL_MAP != vec3(0.5, 0.5, 1.0)) n = astral_perturb(n, NORMAL_MAP * 2.0 - 1.0, NORMAL_MAP_DEPTH);
     astral_out_albedo = vec4(ALBEDO * AO, clamp(ROUGHNESS, 0.02, 1.0));
@@ -191,11 +247,10 @@ std::string rt_chunk(const ShaderSource& source, const UniformLayout& layout) {
     if (!source.has_function("surface")) return {};
     const std::string prefix = "astral_s@ID@_";
     std::string s = "// ---- " + std::string("shader slot @ID@") + "\n";
-    s += uniform_macros(source, layout);
     for (const std::string& f : source.functions) s += "#define " + f + " " + prefix + f + "\n";
     for (const ShaderVarying& v : source.varyings) s += "#define " + v.name + " " + prefix + v.name + "\n" + v.type + " " + v.name + ";\n";
     s += "#define texture(s, uv) textureLod(s, uv, 2.0)\n#define dFdx(x) ((x) * 0.0)\n#define dFdy(x) ((x) * 0.0)\n";
-    s += "#line 1\n" + source.body_without("vertex") + "\n#line 100000\n";
+    s += wrap_body(source, layout, source.body_without("vertex"));
     s += R"(void astral_run_@ID@(uint base, vec2 uv, vec3 view_dir, inout Surface s) {
     astral_base = base;
     UV = uv; NORMAL = s.n; WORLD_POSITION = s.p; VIEW_DIR = view_dir; FRONT_FACING = !s.backface; SCREEN_UV = vec2(0.0);
@@ -213,7 +268,6 @@ std::string rt_chunk(const ShaderSource& source, const UniformLayout& layout) {
 )";
     for (const ShaderVarying& v : source.varyings) s += "#undef " + v.name + "\n";
     for (const std::string& f : source.functions) s += "#undef " + f + "\n";
-    for (const ShaderUniform& u : source.uniforms) s += "#undef " + u.name + "\n";
     return s;
 }
 
@@ -257,19 +311,34 @@ SurfaceShaderBuild compile_surface_shader(const ShaderSource& source, std::strin
     out.casts_shadows = !source.has_render_mode("shadows_disabled");
     const std::vector<GlslInclude> includes = engine_includes();
 
-    GlslCompile frag = compile_glsl(fragment_stage(source, out.layout, false), ShaderStage::Fragment, includes, name);
+    if (source.has_render_mode("blend_mix") || source.has_render_mode("blend_add")) {
+        out.blend = true;
+        out.additive = source.has_render_mode("blend_add");
+        out.rt_chunk.clear(); // blended surfaces are not in the acceleration structure
+        GlslCompile forward_frag = compile_glsl(fragment_stage(source, out.layout, Mode::Forward), ShaderStage::Fragment, includes, name);
+        collect(forward_frag, out.errors, "fragment");
+        GlslCompile forward_vert = compile_glsl(vertex_stage(source, out.layout, Mode::Forward), ShaderStage::Vertex, includes, name);
+        collect(forward_vert, out.errors, "vertex");
+        if (out.errors.empty()) {
+            out.forward_fragment = std::move(forward_frag.spirv);
+            out.forward_vertex = std::move(forward_vert.spirv);
+        }
+        return out;
+    }
+
+    GlslCompile frag = compile_glsl(fragment_stage(source, out.layout, Mode::GBuffer), ShaderStage::Fragment, includes, name);
     collect(frag, out.errors, "fragment");
-    GlslCompile vert = compile_glsl(vertex_stage(source, out.layout, false), ShaderStage::Vertex, includes, name);
+    GlslCompile vert = compile_glsl(vertex_stage(source, out.layout, Mode::GBuffer), ShaderStage::Vertex, includes, name);
     collect(vert, out.errors, "vertex");
     if (!out.errors.empty()) return out;
     out.gbuffer_fragment = std::move(frag.spirv);
     out.gbuffer_vertex = std::move(vert.spirv);
 
-    GlslCompile shadow_vert = compile_glsl(vertex_stage(source, out.layout, true), ShaderStage::Vertex, includes, name);
+    GlslCompile shadow_vert = compile_glsl(vertex_stage(source, out.layout, Mode::Shadow), ShaderStage::Vertex, includes, name);
     collect(shadow_vert, out.errors, "shadow vertex");
     out.shadow_vertex = std::move(shadow_vert.spirv);
     if (source.has_render_mode("alpha_test")) {
-        GlslCompile shadow_frag = compile_glsl(fragment_stage(source, out.layout, true), ShaderStage::Fragment, includes, name);
+        GlslCompile shadow_frag = compile_glsl(fragment_stage(source, out.layout, Mode::Shadow), ShaderStage::Fragment, includes, name);
         collect(shadow_frag, out.errors, "shadow fragment");
         out.shadow_fragment = std::move(shadow_frag.spirv);
     }
@@ -324,6 +393,97 @@ RtVariants compile_rt_variants(std::span<const RtSurface> surfaces) {
     };
     build(embedded::astral_rt_lighting_comp, embedded::astral_rt_lighting_comp_size, out.lighting, "rt_lighting");
     build(embedded::astral_ddgi_trace_comp, embedded::astral_ddgi_trace_comp_size, out.ddgi_trace, "ddgi_trace");
+    return out;
+}
+
+namespace {
+
+constexpr const char* screen_params = R"(ASTRAL_BUFFER(AstralParams, uint);
+AstralParams astral_params;
+uint astral_base;
+float astral_pf(uint o) { return uintBitsToFloat(astral_params.data[astral_base + o]); }
+uint astral_pu(uint o) { return astral_params.data[astral_base + o]; }
+)";
+
+std::string screen_vertex(bool sky) {
+    std::string s = R"(#version 460
+layout(location = 0) out vec2 astral_uv;
+void main() {
+    vec2 p = vec2(float((gl_VertexIndex << 1) & 2), float(gl_VertexIndex & 2));
+    astral_uv = p;
+)";
+    s += sky ? "    gl_Position = vec4(p * 2.0 - 1.0, 1.0, 1.0);\n}\n" : "    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);\n}\n";
+    return s;
+}
+
+std::string screen_fragment(const ShaderSource& source, const UniformLayout& layout, bool sky) {
+    std::string s = R"(#version 460
+#extension GL_GOOGLE_include_directive : require
+#include <astral/scene.glsl>
+layout(push_constant, scalar) uniform Push { FrameRef frame; Materials materials; uint material; uint scene; } pc;
+layout(location = 0) in vec2 astral_uv;
+layout(location = 0) out vec4 astral_out_color;
+#define TIME uintBitsToFloat(pc.frame.f.custom.z)
+)";
+    s += screen_params;
+    s += sky ? "vec3 COLOR; vec3 EYEDIR; vec3 SUN_DIR; vec3 SUN_COLOR;\n"
+             : "vec3 COLOR; vec2 SCREEN_UV;\n#define SCREEN_TEXTURE sampler2D(astral_textures[pc.scene], astral_samplers[ASTRAL_SAMPLER_LINEAR_CLAMP])\n";
+    s += wrap_body(source, layout, source.body);
+    s += R"(void main() {
+    Frame f = pc.frame.f;
+    astral_params = AstralParams(uint64_t(f.custom.x) | (uint64_t(f.custom.y) << 32));
+    astral_base = pc.materials.data[pc.material].custom.x;
+)";
+    if (sky) {
+        s += R"(    vec2 uv = gl_FragCoord.xy * f.screen.zw;
+    EYEDIR = normalize(reconstruct_world(f, uv, 1.0) - f.camera_position.xyz);
+    SUN_DIR = -normalize(f.sun_direction.xyz);
+    SUN_COLOR = f.sun_color.rgb;
+    COLOR = vec3(0.0);
+    sky();
+    astral_out_color = vec4(max(COLOR, vec3(0.0)), 1.0);
+}
+)";
+    } else {
+        s += R"(    SCREEN_UV = gl_FragCoord.xy * f.screen.zw;
+    COLOR = texelFetch(sampler2D(astral_textures[pc.scene], astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]), ivec2(gl_FragCoord.xy), 0).rgb;
+    if (f.custom.w == 0u) COLOR = pow(COLOR, vec3(1.0 / 2.2)); // hardware-sRGB target: show the encoded colour
+    post();
+    COLOR = clamp(COLOR, vec3(0.0), vec3(1.0));
+    if (f.custom.w == 0u) COLOR = pow(COLOR, vec3(2.2));
+    astral_out_color = vec4(COLOR, 1.0);
+}
+)";
+    }
+    return s;
+}
+
+} // namespace
+
+ScreenShaderBuild compile_screen_shader(const ShaderSource& source, std::string_view name) {
+    ScreenShaderBuild out;
+    out.type = source.type;
+    if (source.type != ShaderType::Post && source.type != ShaderType::Sky) {
+        out.errors.push_back({1, "not a post or sky shader (shader_type " + std::string(to_string(source.type)) + ")"});
+        return out;
+    }
+    const bool sky = source.type == ShaderType::Sky;
+    if (!source.has_function(sky ? "sky" : "post")) {
+        out.errors.push_back({1, std::string("a ") + std::string(to_string(source.type)) + " shader needs a " + (sky ? "sky()" : "post()") + " function"});
+        return out;
+    }
+    out.layout = layout_uniforms(source);
+    for (std::size_t i = 0; i < source.uniforms.size(); ++i) {
+        if (source.uniforms[i].type == UniformType::Sampler2D) out.samplers.push_back({out.layout.offsets[i], source.uniforms[i].hints.hint_normal});
+    }
+    const std::vector<GlslInclude> includes = engine_includes();
+    GlslCompile frag = compile_glsl(screen_fragment(source, out.layout, sky), ShaderStage::Fragment, includes, name);
+    collect(frag, out.errors, "fragment");
+    GlslCompile vert = compile_glsl(screen_vertex(sky), ShaderStage::Vertex, includes, name);
+    collect(vert, out.errors, "vertex");
+    if (!out.errors.empty()) return out;
+    out.fragment = std::move(frag.spirv);
+    out.vertex = std::move(vert.spirv);
     return out;
 }
 

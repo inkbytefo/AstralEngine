@@ -1,0 +1,18 @@
+// A hologram: additive glow that is brightest at the silhouette, with scan lines running up the
+// surface and a slight flicker.
+shader_type surface;
+render_mode blend_add, cull_disabled;
+
+uniform vec3 color : source_color = vec3(0.10, 0.90, 1.00);
+uniform float scan_density : range(5.0, 200.0, 1.0) = 55.0;
+uniform float scan_speed : range(0.0, 5.0, 0.1) = 1.2;
+uniform float intensity : range(0.0, 4.0, 0.05) = 0.8;
+
+void surface() {
+    float edge = pow(1.0 - clamp(abs(dot(NORMAL, VIEW_DIR)), 0.0, 1.0), 2.0);
+    float scan = 0.5 + 0.5 * sin(WORLD_POSITION.y * scan_density - TIME * scan_speed * 10.0);
+    float flicker = 0.92 + 0.08 * sin(TIME * 37.0);
+    ALBEDO = vec3(0.0);
+    EMISSION = color * (0.3 + edge * 1.3) * (0.3 + 0.7 * scan) * intensity * flicker;
+    ALPHA = clamp(0.25 + edge, 0.0, 1.0);
+}

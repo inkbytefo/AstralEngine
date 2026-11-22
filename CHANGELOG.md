@@ -4,6 +4,26 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-11-22 — M10 (shader dili ve materyaller)
+
+### Added
+- shader (yeni modül): `.ashader` ayrıştırıcısı (`parse_ashader`, uniform ipuçları, varying'ler, `layout_uniforms`),
+  `compile_glsl` (glslang 15.4.0, SPIR-V 1.5, `#line` ile hata eşleme).
+- render: `compile_surface_shader` / `compile_screen_shader`, `Renderer::create_shader`, `MaterialDesc::shader` /
+  `params` / `textures`, `RenderScene::time` / `sky` / `post`, şeffaf (`blend_mix`/`blend_add`) ileri geçiş,
+  sky ve post geçişleri, ışın izleme compute shader'larında özel `surface()` (`compile_rt_variants`,
+  `Renderer::shader_error`), `.material` çözümü (`resolve_material`, `evaluate_uniforms`).
+- gpu: `GraphicsPipelineDesc::additive_blend`.
+- app: `MaterialLibrary` (hot reload, son çalışan sürüm), `ctx.load_material`, `ctx.sky`, `ctx.post`,
+  `ctx.shader_error`, `PrimitiveMesh::material_file`, F1 → Materials paneli; `TIME` artık
+  `ctx.time.elapsed`.
+- assets: cook `.ashader`'ı doğrular (hata `dosya:satır`), `.material` ikili JSON olur.
+- `examples/shader_showcase` (yaprak, cam, lav, hologram, sky, vinyet), görüntü testi `shader_showcase`.
+- Belgeler: `modules/shader.md`, `guides/shaders-and-materials.md`, ADR-0022 "M10'da uygulanan".
+
+### Changed
+- Core sürüm testi artık proje sürümünü CMake'ten alıyor.
+
 ## [0.14.0] — 2026-11-22 — M9 (dünya ve harita sistemi)
 
 ### Added

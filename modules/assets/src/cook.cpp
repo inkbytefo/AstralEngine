@@ -1,5 +1,6 @@
 #include <astral/assets/cook.hpp>
 #include <astral/core/json.hpp>
+#include <astral/render/surface_shader.hpp>
 #include <astral/world/map.hpp>
 
 #include "file_util.hpp"
@@ -19,14 +20,15 @@ constexpr int cache_version = 1;
 /// Bump when cooked formats or the cook's decisions change: everything is cooked again.
 constexpr std::string_view cook_version = "astral-cook 1";
 
-enum class Kind { Model, World, Document, Copy };
+enum class Kind { Model, World, Shader, Document, Copy };
 
 Kind kind_of(const std::filesystem::path& p) {
     std::string ext = p.extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (ext == ".gltf" || ext == ".glb") return Kind::Model;
     if (ext == ".world") return Kind::World;
-    if (ext == ".scene" || ext == ".prefab" || ext == ".json") return Kind::Document;
+    if (ext == ".ashader") return Kind::Shader;
+    if (ext == ".scene" || ext == ".prefab" || ext == ".json" || ext == ".material") return Kind::Document;
     return Kind::Copy;
 }
 
@@ -34,6 +36,7 @@ const char* kind_name(Kind k) {
     switch (k) {
     case Kind::Model: return "model";
     case Kind::World: return "world";
+    case Kind::Shader: return "shader";
     case Kind::Document: return "document";
     case Kind::Copy: break;
     }
@@ -261,7 +264,18 @@ CookReport cook_directory(const CookOptions& o) {
             continue;
         }
         std::vector<std::uint8_t> out;
-        if (kind == Kind::Document && !Json::is_binary(*bytes)) {
+        if (kind == Kind::Shader) {
+            // The game compiles shaders itself; the cook makes sure they compile (errors with .ashader lines).
+            const ShaderParse parsed = parse_ashader(std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()));
+            std::vector<ShaderError> problems = parsed.errors;
+            if (problems.empty() && parsed.source.type == ShaderType::Surface) problems = compile_surface_shader(parsed.source, rel).errors;
+            else if (problems.empty() && (parsed.source.type == ShaderType::Post || parsed.source.type == ShaderType::Sky)) {
+                problems = compile_screen_shader(parsed.source, rel).errors;
+            }
+            for (const ShaderError& e : problems) error(rel + ":" + std::to_string(e.line) + ": " + e.message);
+            if (!problems.empty()) continue;
+            out = std::move(*bytes);
+        } else if (kind == Kind::Document && !Json::is_binary(*bytes)) {
             std::string parse_error;
             auto doc = Json::parse(std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()), &parse_error);
             if (!doc) {

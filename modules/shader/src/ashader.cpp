@@ -332,7 +332,7 @@ std::vector<std::string_view> known_render_modes(ShaderType type) {
         return {"alpha_test", "cull_disabled", "cull_front", "unshaded", "blend_mix", "blend_add", "shadows_disabled", "rt_simple"};
     case ShaderType::Particle: return {"blend_mix", "blend_add", "unshaded"};
     case ShaderType::Volume: return {"unshaded"};
-    case ShaderType::Post: return {"before_tonemap", "after_tonemap"};
+    case ShaderType::Post: return {"after_tonemap"};
     case ShaderType::Sky: return {};
     case ShaderType::Ui: return {"blend_mix", "blend_add"};
     }

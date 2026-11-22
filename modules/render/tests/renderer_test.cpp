@@ -857,3 +857,137 @@ TEST_CASE("a custom shader the ray-traced build cannot take does not break rende
     converge(f, scene, 2);
     CHECK(f.renderer->shader_error().empty());
 }
+
+namespace {
+
+ShaderHandle make_shader(Fixture& f, const char* text, const char* name) {
+    const ShaderParse p = parse_ashader(text);
+    REQUIRE_MESSAGE(p.errors.empty(), (p.errors.empty() ? "" : p.errors[0].message));
+    if (p.source.type == ShaderType::Surface) {
+        const SurfaceShaderBuild build = compile_surface_shader(p.source, name);
+        REQUIRE_MESSAGE(build.ok(), (build.errors.empty() ? "" : build.errors[0].message));
+        return f.renderer->create_shader(build, name);
+    }
+    const ScreenShaderBuild build = compile_screen_shader(p.source, name);
+    REQUIRE_MESSAGE(build.ok(), (build.errors.empty() ? "" : build.errors[0].message));
+    return f.renderer->create_shader(build, name);
+}
+
+const char* glass_shader = R"(shader_type surface;
+render_mode blend_mix;
+uniform vec4 tint = vec4(0.0, 1.0, 0.0, 0.5);
+void surface() { ALBEDO = vec3(0.0); EMISSION = tint.rgb; ALPHA = tint.a; }
+)";
+
+/// Opaque red wall behind, a green half-transparent pane in front of it.
+void check_blending(Fixture& f, bool additive) {
+    const ShaderHandle shader = make_shader(
+        f, additive ? "shader_type surface;\nrender_mode blend_add;\nvoid surface() { ALBEDO = vec3(0.0); EMISSION = vec3(0.0, 1.0, 0.0); ALPHA = 0.5; }\n"
+                    : glass_shader,
+        "glass");
+    REQUIRE(shader.valid());
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const MaterialHandle red = f.renderer->create_material({.base_color = {1, 0, 0, 1}, .roughness = 1.0f});
+    const MaterialHandle pane = f.renderer->create_material({.shader = shader, .params = {0, 1, 0, 0.5f}});
+    const MeshInstance items[] = {
+        {.mesh = cube, .material = red, .transform = translate({0, 0, -3}) * scale({6, 6, 0.2f})},
+        {.mesh = cube, .material = pane, .transform = translate({0, 0, 0}) * scale({3, 3, 0.1f})},
+    };
+    const auto pixels = f.draw({.meshes = items, .sun = front_sun});
+    const Rgb c = rgb(Fixture::center(pixels));
+    CHECK(c.r > 50);  // the wall shows through...
+    CHECK(c.g > 50);  // ...tinted by the pane
+    f.renderer->destroy(shader);
+}
+
+} // namespace
+
+TEST_CASE("blend_mix surfaces are drawn over the scene (raster)") {
+    Fixture f;
+    if (!f.device) return;
+    check_blending(f, false);
+}
+
+TEST_CASE("blend_add surfaces add light (raster)") {
+    Fixture f;
+    if (!f.device) return;
+    check_blending(f, true);
+}
+
+TEST_CASE("blend_mix surfaces are drawn over the scene (ray-traced)") {
+    Fixture f(rt_settings());
+    if (!rt_available(f)) return;
+    check_blending(f, false);
+}
+
+TEST_CASE("transparent surfaces are sorted back to front and hidden behind opaque ones") {
+    Fixture f;
+    if (!f.device) return;
+    const ShaderHandle shader = make_shader(f, glass_shader, "glass");
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const MaterialHandle green = f.renderer->create_material({.shader = shader, .params = {0, 1, 0, 0.9f}});
+    const MaterialHandle blue = f.renderer->create_material({.shader = shader, .params = {0, 0, 1, 0.9f}});
+    const MaterialHandle wall = f.renderer->create_material({.base_color = {1, 1, 1, 1}, .roughness = 1.0f});
+    // Submitted far-to-near and near-to-far: the nearer pane must win either way.
+    for (const bool reversed : {false, true}) {
+        const MeshInstance far{.mesh = cube, .material = green, .transform = translate({0, 0, -1}) * scale({3, 3, 0.1f})};
+        const MeshInstance near{.mesh = cube, .material = blue, .transform = translate({0, 0, 1}) * scale({3, 3, 0.1f})};
+        const MeshInstance items[] = {reversed ? near : far, reversed ? far : near};
+        const auto pixels = f.draw({.meshes = items, .sun = front_sun});
+        const Rgb c = rgb(Fixture::center(pixels));
+        CHECK(c.b > c.g + 30);
+    }
+    // A pane behind an opaque wall is not seen.
+    const MeshInstance hidden[] = {
+        {.mesh = cube, .material = wall, .transform = translate({0, 0, 0}) * scale({6, 6, 0.2f})},
+        {.mesh = cube, .material = green, .transform = translate({0, 0, -2}) * scale({3, 3, 0.1f})},
+    };
+    const auto pixels = f.draw({.meshes = hidden, .sun = front_sun});
+    const Rgb c = rgb(Fixture::center(pixels));
+    CHECK(std::abs(c.g - c.r) < 12);
+    f.renderer->destroy(shader);
+}
+
+TEST_CASE("a sky shader replaces the background and leaves geometry alone") {
+    Fixture f;
+    if (!f.device) return;
+    const ShaderHandle shader = make_shader(f, "shader_type sky;\nuniform vec3 color = vec3(0.0, 1.0, 0.0);\nvoid sky() { COLOR = color * (0.5 + 0.5 * EYEDIR.y); }\n", "sky");
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const MaterialHandle sky = f.renderer->create_material({.shader = shader, .params = {0, 1, 0, 0}});
+    const MaterialHandle red = f.renderer->create_material({.base_color = {1, 0, 0, 1}, .roughness = 1.0f});
+    const MeshInstance items[] = {{.mesh = cube, .material = red, .transform = scale({1, 1, 1})}};
+    const auto without = f.draw({.meshes = items, .sun = front_sun});
+    const auto with = f.draw({.meshes = items, .sun = front_sun, .sky = sky});
+    const Rgb corner_without = rgb(without[0]);
+    const Rgb corner = rgb(with[0]);
+    CHECK(corner_without.b > corner_without.g); // the default sky is bluish
+    CHECK(corner.g > corner.b + 40);            // the shader's sky is green
+    const Rgb c = rgb(Fixture::center(with));
+    CHECK(c.r > 100); // the cube is still there
+    CHECK(c.g < 60);
+    f.renderer->destroy(shader);
+}
+
+TEST_CASE("post shaders run after tonemapping, in order") {
+    Fixture f;
+    if (!f.device) return;
+    const ShaderHandle swap = make_shader(f, "shader_type post;\nvoid post() { COLOR = COLOR.bgr; }\n", "swap");
+    const ShaderHandle dim = make_shader(f, "shader_type post;\nuniform float amount = 0.5;\nvoid post() { COLOR *= amount; }\n", "dim");
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const MaterialHandle red = f.renderer->create_material({.base_color = {1, 0, 0, 1}, .roughness = 1.0f});
+    const MaterialHandle swap_material = f.renderer->create_material({.shader = swap});
+    const MaterialHandle dim_material = f.renderer->create_material({.shader = dim, .params = {0.5f, 0, 0, 0}});
+    const MeshInstance items[] = {{.mesh = cube, .material = red, .transform = scale({2, 2, 2})}};
+    const auto plain = f.draw({.meshes = items, .sun = front_sun});
+    const MaterialHandle chain[] = {swap_material, dim_material};
+    const auto post = f.draw({.meshes = items, .sun = front_sun, .post = chain});
+    const Rgb a = rgb(Fixture::center(plain));
+    const Rgb b = rgb(Fixture::center(post));
+    CHECK(a.r > 100);
+    CHECK(b.b > 50);              // red became blue...
+    CHECK(b.b < a.r * 0.7);       // ...and was dimmed
+    CHECK(b.r < 30);
+    // The same edge in the UI/debug layer: post effects leave the 2D layer alone is checked in the App.
+    f.renderer->destroy(swap);
+    f.renderer->destroy(dim);
+}
