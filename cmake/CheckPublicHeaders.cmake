@@ -1,10 +1,21 @@
 # Fails if any public header mentions a third-party API (architecture rule: no third-party
 # types in public headers). Run as: cmake -DROOT=<repo> -P CheckPublicHeaders.cmake
-file(GLOB_RECURSE headers ${ROOT}/modules/*/include/*.hpp)
+file(GLOB modules LIST_DIRECTORIES TRUE "${ROOT}/modules/*")
+set(headers "")
+foreach(module IN LISTS modules)
+    if(IS_DIRECTORY "${module}/include")
+        file(GLOB_RECURSE module_headers LIST_DIRECTORIES FALSE
+            "${module}/include/*.hpp" "${module}/include/*.h")
+        list(APPEND headers ${module_headers})
+    endif()
+endforeach()
+if(NOT headers)
+    message(FATAL_ERROR "No public headers found under ${ROOT}/modules")
+endif()
 set(forbidden "vulkan/" "VkInstance" "VkDevice" "VkImage" "VkBuffer" "SDL_" "SDL3/" "vk_mem_alloc" "Jolt/")
 set(violations "")
 foreach(header ${headers})
-    file(READ ${header} content)
+    file(READ "${header}" content)
     foreach(word ${forbidden})
         string(FIND "${content}" "${word}" pos)
         if(NOT pos EQUAL -1)
