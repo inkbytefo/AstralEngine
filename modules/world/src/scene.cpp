@@ -686,6 +686,12 @@ LoadResult load_scene(World& world, PrefabLibrary& prefabs, const Json& document
     return result;
 }
 
+namespace {
+
+Json save_selected(World& world, PrefabLibrary& prefabs, std::vector<Entity> saved);
+
+} // namespace
+
 Json save_scene(World& world, PrefabLibrary& prefabs) {
     const TypeRegistry& types = prefabs.types();
     std::vector<Entity> saved;
@@ -695,6 +701,21 @@ Json save_scene(World& world, PrefabLibrary& prefabs) {
         for (const auto& t : types.entries()) any = any || t.has(world, e);
         if (any) saved.push_back(e);
     });
+    return save_selected(world, prefabs, std::move(saved));
+}
+
+Json save_entities(World& world, PrefabLibrary& prefabs, std::span<const Entity> entities) {
+    std::vector<Entity> saved;
+    for (Entity e : entities) {
+        if (world.alive(e) && !world.has<PrefabPart>(e)) saved.push_back(e);
+    }
+    return save_selected(world, prefabs, std::move(saved));
+}
+
+namespace {
+
+Json save_selected(World& world, PrefabLibrary& prefabs, std::vector<Entity> saved) {
+    const TypeRegistry& types = prefabs.types();
 
     // Ids: keep existing ones (the first holder of a duplicate keeps it), number the rest after them.
     std::unordered_set<std::uint32_t> used;
@@ -746,6 +767,8 @@ Json save_scene(World& world, PrefabLibrary& prefabs) {
     }
     return doc;
 }
+
+} // namespace
 
 Entity find_by_name(World& world, std::string_view name) {
     Entity found{};

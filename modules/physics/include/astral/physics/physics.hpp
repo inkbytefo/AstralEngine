@@ -135,6 +135,9 @@ public:
     void add_impulse(BodyHandle body, Vec3 impulse);
     void add_force(BodyHandle body, Vec3 force);
     void set_gravity(Vec3 gravity);
+    /// Floating origin: moves every body and character by -offset (velocities, sleep states and
+    /// contacts are kept). Call between steps.
+    void shift_origin(Vec3 offset);
 
     // Simulation -------------------------------------------------------------------------
     /// Advances the world by `dt` seconds (use a fixed dt; split large steps).

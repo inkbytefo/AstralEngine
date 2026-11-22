@@ -9,7 +9,7 @@ namespace astral {
 
 namespace {
 
-constexpr const char* kMapFormat = "astral.world";
+constexpr const char* kMapFormat = "astral.map";
 constexpr const char* kEntityFormat = "astral.entity";
 constexpr double kVersion = 1.0;
 
@@ -106,7 +106,7 @@ MapSource read_map_source(const MapDesc& map, std::span<const EntityFile> files)
         }
         const Json& record = file.document["entity"];
         const double id = record["id"].as_number(-1.0);
-        if (!record.is_object() || id < 1.0 || id != std::floor(id)) {
+        if (!record.is_object() || id < 1.0 || id > 4294967295.0 || id != std::floor(id)) {
             out.errors.push_back(file.path + ": entity has no valid id");
             continue;
         }

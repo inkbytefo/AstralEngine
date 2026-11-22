@@ -26,7 +26,7 @@ struct LayerDesc {
     bool active = true; ///< Initial state.
 };
 
-/// The `.world` document ("astral.world" v1). At least one grid; the first is the default.
+/// The `.world` document (format "astral.map" v1; "astral.world" is the full ECS save of save_world). At least one grid; the first is the default.
 struct MapDesc {
     Json settings = Json::object(); ///< Game/world settings (free-form, read by the game).
     std::vector<GridDesc> grids;
@@ -39,7 +39,7 @@ std::optional<MapDesc> parse_map(const Json& document, std::string* error = null
 
 /// One placed entity ("astral.entity" v1 file): a scene entity record plus where it streams.
 struct MapEntity {
-    std::uint64_t id = 0;
+    std::uint64_t id = 0;                   ///< 1 … 2^32-1 (scene ids), unique within the map.
     Json record;                            ///< Same shape as an entity in an "astral.scene" document.
     std::string grid;                       ///< Grid name; empty → the map's first grid.
     std::vector<std::string> layers;        ///< Data layers; empty → always part of the world.

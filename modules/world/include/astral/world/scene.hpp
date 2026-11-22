@@ -32,6 +32,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -124,6 +125,9 @@ LoadResult load_scene(World& world, PrefabLibrary& prefabs, const Json& document
 /// Every saveable entity (one with a registered component or a PrefabInstance, not excluded, not a
 /// prefab part), ordered by SceneId; entities without one get the next free id (written to the world).
 [[nodiscard]] Json save_scene(World& world, PrefabLibrary& prefabs);
+/// Like save_scene for the given entities only (prefab parts and dead entities are skipped). References
+/// to entities outside the selection are written as null.
+[[nodiscard]] Json save_entities(World& world, PrefabLibrary& prefabs, std::span<const Entity> entities);
 
 /// First entity named `name` (no particular order among equals); invalid if none.
 [[nodiscard]] Entity find_by_name(World& world, std::string_view name);

@@ -244,7 +244,7 @@ TEST_CASE("cook_directory: a .world and its entity folder become an index and ce
     const auto src = test::temp_dir("cook_world_src");
     const auto out = test::temp_dir("cook_world_out");
     write_text(src / "maps" / "island.world",
-               R"({"format":"astral.world","version":1,"grids":[{"name":"main","cell_size":100,"load_range":300}]})");
+               R"({"format":"astral.map","version":1,"grids":[{"name":"main","cell_size":100,"load_range":300}]})");
     auto entity = [&](int id, double x) {
         write_text(src / "maps" / "island.entities" / (std::to_string(id) + ".ent"),
                    R"({"format":"astral.entity","version":1,"entity":{"id":)" + std::to_string(id) +

@@ -507,6 +507,18 @@ CharacterState PhysicsWorld::character_state(CharacterHandle handle) const {
             c.GetGroundState() == JPH::CharacterVirtual::EGroundState::OnGround};
 }
 
+void PhysicsWorld::shift_origin(Vec3 offset) {
+    const JPH::RVec3 delta(to_jph(offset));
+    JPH::BodyInterface& bi = impl_->bi();
+    impl_->bodies.for_each([&](BodyHandle, Impl::BodyRecord& r) {
+        bi.SetPosition(r.id, bi.GetPosition(r.id) - delta, JPH::EActivation::DontActivate);
+    });
+    impl_->characters.for_each([&](CharacterHandle, Impl::CharacterRecord& r) {
+        r.character->SetPosition(r.character->GetPosition() - delta);
+    });
+    impl_->system->OptimizeBroadPhase();
+}
+
 void PhysicsWorld::set_character_position(CharacterHandle handle, Vec3 position) {
     auto* r = impl_->characters.get(handle);
     if (r) r->character->SetPosition(JPH::RVec3(to_jph(position)));

@@ -208,3 +208,23 @@ TEST_CASE("characters are visible to raycasts and sensors and block each other")
     world.destroy(a);
     CHECK_FALSE(world.valid(a));
 }
+
+TEST_CASE("shift_origin moves every body and character, keeping velocities") {
+    PhysicsWorld world;
+    BodyHandle ball = world.create_body({.shape = ShapeDesc::sphere(0.5f), .position = {2000, 10, -3000}});
+    world.set_linear_velocity(ball, {1, 0, 0});
+    BodyHandle floor = world.create_body({.shape = ShapeDesc::box({5, 0.5f, 5}), .motion = MotionType::Static,
+                                          .position = {2000, 0, -3000}});
+    CharacterHandle hero = world.create_character({.radius = 0.4f, .height = 1.8f, .position = {2002, 1, -3000}});
+    world.shift_origin({2000, 0, -3000});
+    CHECK(world.position(ball).x == doctest::Approx(0.0f));
+    CHECK(world.position(ball).y == doctest::Approx(10.0f));
+    CHECK(world.position(ball).z == doctest::Approx(0.0f));
+    CHECK(world.position(floor).x == doctest::Approx(0.0f));
+    CHECK(world.linear_velocity(ball).x == doctest::Approx(1.0f));
+    CHECK(world.character_state(hero).position.x == doctest::Approx(2.0f));
+    CHECK(world.character_state(hero).position.z == doctest::Approx(0.0f));
+    // The ball still lands on the moved floor.
+    for (int i = 0; i < 180; ++i) world.step(1.0f / 60.0f);
+    CHECK(world.position(ball).y == doctest::Approx(1.0f).epsilon(0.05));
+}

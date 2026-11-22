@@ -6,6 +6,8 @@ astral_add_module(NAME world
         src/scene.cpp
         src/map.cpp
         src/streaming.cpp
+        src/map_state.cpp
+        src/origin.cpp
     DEPS
         Astral::Core)
 
@@ -21,4 +23,6 @@ astral_add_tests(MODULE world
         tests/serialize_test.cpp
         tests/scene_test.cpp
         tests/map_test.cpp
-        tests/streaming_test.cpp)
+        tests/streaming_test.cpp
+        tests/map_state_test.cpp
+        tests/origin_test.cpp)

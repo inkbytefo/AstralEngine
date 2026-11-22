@@ -18,7 +18,7 @@ EntityFile ent(std::string path, std::string_view text) {
 }
 
 const char* kMap = R"({
-  "format": "astral.world", "version": 1,
+  "format": "astral.map", "version": 1,
   "settings": { "gravity": -9.81 },
   "grids": [ { "name": "main", "cell_size": 100, "load_range": 300 },
              { "name": "landmarks", "cell_size": 500, "load_range": 2000 } ],
@@ -42,7 +42,7 @@ TEST_CASE("parse_map reads settings, grids and layers") {
 }
 
 TEST_CASE("parse_map adds a default main grid and refuses other formats") {
-    auto map = parse_map(parse(R"({"format":"astral.world","version":1})"));
+    auto map = parse_map(parse(R"({"format":"astral.map","version":1})"));
     REQUIRE(map.has_value());
     REQUIRE(map->grids.size() == 1);
     CHECK(map->grids[0].name == "main");
@@ -52,7 +52,7 @@ TEST_CASE("parse_map adds a default main grid and refuses other formats") {
     std::string error;
     CHECK_FALSE(parse_map(parse(R"({"format":"astral.scene","version":1})"), &error).has_value());
     CHECK_FALSE(error.empty());
-    CHECK_FALSE(parse_map(parse(R"({"format":"astral.world","version":99})")).has_value());
+    CHECK_FALSE(parse_map(parse(R"({"format":"astral.map","version":99})")).has_value());
 }
 
 TEST_CASE("write_map round-trips") {
@@ -78,6 +78,7 @@ TEST_CASE("read_map_source collects entity files sorted by id and reports proble
     files.push_back(ent("dup.ent", R"({"format":"astral.entity","version":1,"entity":{"id":7}})"));
     files.push_back(ent("bad.ent", R"({"format":"astral.scene","version":1})"));
     files.push_back(ent("noid.ent", R"({"format":"astral.entity","version":1,"entity":{}})"));
+    files.push_back(ent("big.ent", R"({"format":"astral.entity","version":1,"entity":{"id":5000000000}})"));
     files.push_back(ent("badgrid.ent", R"({"format":"astral.entity","version":1,"entity":{"id":9},"grid":"nope"})"));
 
     const MapSource source = read_map_source(*map, files);
@@ -94,7 +95,7 @@ TEST_CASE("read_map_source collects entity files sorted by id and reports proble
     CHECK(source.entities[1].layers[0] == "night");
     CHECK(source.entities[2].id == 9);
     CHECK(source.entities[2].grid == "main"); // unknown grid falls back (reported)
-    CHECK(source.errors.size() == 4);         // duplicate id, wrong format, missing id, unknown grid
+    CHECK(source.errors.size() == 5);         // duplicate id, wrong format, missing id, id too big, unknown grid
 }
 
 TEST_CASE("make_entity_file round-trips through read_map_source") {
