@@ -1,11 +1,7 @@
 #pragma once
-// The game: installs the free camera and builds the scene (every surface is a .material file). No rules live here.
-
-#include <astral/astral.hpp>
+#include <astral/app/app.hpp>
 
 namespace shader_showcase {
-
-bool install_features(astral::Context& ctx);
 
 class ShowcaseGame final : public astral::Game {
 public:

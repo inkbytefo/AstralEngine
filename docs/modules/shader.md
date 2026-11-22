@@ -2,7 +2,8 @@
 
 Katman 1 (yalnız Core'a bağlı). Karar: [ADR-0022](../decisions/0022-shader-and-material-language.md).
 GPU'yu bilmez; metni ayrıştırır ve GLSL'i SPIR-V'ye çevirir. Şablonlardan shader üretimi `Astral::Render`
-içindedir ([render.md](render.md) → "Özel shader'lar").
+içindedir ([render.md](render.md) → "Özel shader'lar"). Tam dil referansı ve örnekler:
+[guides/ashader-language.md](../guides/ashader-language.md).
 
 ## `.ashader` nedir
 

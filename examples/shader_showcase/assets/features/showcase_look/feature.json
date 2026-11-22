@@ -1,0 +1,11 @@
+{
+  "format": "astral.feature",
+  "version": 1,
+  "name": "showcase_look",
+  "description": "Sky, post-processing and bloom for the shader showcase.",
+  "settings": {
+    "sky_material": "materials/dusk_sky.material",
+    "post_material": "materials/vignette.material",
+    "bloom_strength": 0.12
+  }
+}

@@ -1,11 +1,19 @@
-// A post effect on the finished image: darker corners and a slight colour grade.
+// Finishing pass for the night gallery. Grade the display color and soften the perimeter.
 shader_type post;
 
-uniform float strength : range(0.0, 1.5, 0.01) = 0.6;
-uniform vec3 tint : source_color = vec3(1.0, 0.95, 0.90);
+uniform float strength : range(0.0, 1.0, 0.01) = 0.28;
+uniform float color_split : range(0.0, 0.006, 0.0001) = 0.0012;
+uniform vec3 shadow_tint : source_color = vec3(0.89, 0.95, 1.0);
 
 void post() {
-    vec2 d = SCREEN_UV - 0.5;
-    float v = 1.0 - strength * smoothstep(0.25, 0.85, length(d) * 1.25);
-    COLOR *= tint * v;
+    vec2 from_center = SCREEN_UV * 2.0 - 1.0;
+    float radius = length(from_center * vec2(0.82, 0.65));
+    vec2 shift = from_center * radius * color_split;
+    vec3 center = texture(SCREEN_TEXTURE, SCREEN_UV).rgb;
+    vec3 fringe = vec3(texture(SCREEN_TEXTURE, SCREEN_UV + shift).r - center.r,
+                       0.0, texture(SCREEN_TEXTURE, SCREEN_UV - shift).b - center.b);
+    vec3 image = clamp(COLOR + fringe * smoothstep(0.28, 1.0, radius) * 0.28, 0.0, 1.0);
+    float value = dot(image, vec3(0.2126, 0.7152, 0.0722));
+    vec3 graded = image * mix(shadow_tint, vec3(1.04, 0.99, 0.94), smoothstep(0.15, 0.76, value));
+    COLOR = graded * (1.0 - strength * smoothstep(0.38, 1.03, radius));
 }

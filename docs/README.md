@@ -12,7 +12,8 @@ kurallar [process.md](process.md)'de.
 | [guides/writing-a-game.md](guides/writing-a-game.md) | **Oyun nasıl yazılır** — buradan başla |
 | [../AGENTS.md](../AGENTS.md) | Yapay zekâ ajanları için oyun yazma kuralları (özellik paketleri, Luau, test döngüsü) |
 | [guides/scenes-and-worlds.md](guides/scenes-and-worlds.md) | Sahne, harita ve dünya: bir oyun alanı nasıl tanımlanır (kod bilmeden okunur) |
-| [guides/shaders-and-materials.md](guides/shaders-and-materials.md) | `.ashader` ve `.material` ile özel yüzeyler, cam, lav, post efektleri |
+| [guides/shaders-and-materials.md](guides/shaders-and-materials.md) | `.ashader` ve `.material` ile özel yüzeyler, cam, lav, post efektleri (hızlı rehber) |
+| [guides/ashader-language.md](guides/ashader-language.md) | **Astral Shader Dili (`.ashader`) tam referans kılavuzu** — söz dizimi, built-in'ler, mimari, sınırlar ve yol haritası |
 | [../features/](../features/README.md) | Ortak özellik paketleri (oyunlara kopyalanan tek kaynak) |
 | [modules/](modules/) | Her modülün API özeti, tasarım kararları, bilinen sınırları |
 | [decisions/](decisions/) | Mimari karar kayıtları (ADR) — neyi neden seçtik |

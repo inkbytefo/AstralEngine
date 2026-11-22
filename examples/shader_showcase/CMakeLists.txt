@@ -1,7 +1,8 @@
-# Shader showcase (M10, ADR-0022): every surface is a .material file on a .ashader shader; a free camera flies around.
+# An authored scene with custom surface, sky and post shaders and a free-flying camera.
 add_library(shader_showcase_lib STATIC
     src/game.cpp
-    src/features/fly_camera/fly_camera.cpp)
+    src/features/fly_camera/fly_camera.cpp
+    src/features/showcase_look/showcase_look.cpp)
 target_include_directories(shader_showcase_lib PUBLIC src)
 target_link_libraries(shader_showcase_lib PUBLIC Astral::App)
 astral_set_warnings(shader_showcase_lib)
