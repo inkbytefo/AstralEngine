@@ -147,3 +147,45 @@ TEST_CASE("cell bounds and distance") {
     CHECK(cell_distance(*map, key, 30, 250) == doctest::Approx(30.0));
     CHECK(cell_distance(*map, key, 3, 304) == doctest::Approx(5.0)); // 3-4-5 from the corner (0,300)
 }
+
+TEST_CASE("cook_map writes an index and one document per cell") {
+    auto map = parse_map(parse(kMap));
+    REQUIRE(map.has_value());
+    std::vector<EntityFile> files;
+    files.push_back(ent("1.ent", R"({"format":"astral.entity","version":1,
+        "entity":{"id":1,"components":{"astral::Transform":{"position":[10,0,10]}}}})"));
+    files.push_back(ent("2.ent", R"({"format":"astral.entity","version":1,
+        "entity":{"id":2,"components":{"astral::Transform":{"position":[20,0,20]}}},"layers":["night"]})"));
+    files.push_back(ent("3.ent", R"({"format":"astral.entity","version":1,
+        "entity":{"id":3,"components":{"astral::Transform":{"position":[-300,0,0]}}}})"));
+    files.push_back(ent("4.ent", R"({"format":"astral.entity","version":1,"entity":{"id":4},"always_loaded":true})"));
+    const MapSource source = read_map_source(*map, files);
+
+    const CookedMap cooked = cook_map(source);
+    REQUIRE(cooked.cells.size() == 3); // always + two grid cells
+    CHECK(cooked.cells[0].name == "always");
+    CHECK(cooked.cells[1].name == "main_-3_0");
+    CHECK(cooked.cells[2].name == "main_0_0");
+    CHECK(cooked.cells[2].document["format"].as_string() == "astral.cell");
+    REQUIRE(cooked.cells[2].document["entities"].size() == 2);
+    CHECK(cooked.cells[2].document["entities"][1]["layers"][0].as_string() == "night");
+
+    // The index is a valid map document plus the list of cells.
+    auto again = parse_map(cooked.index);
+    REQUIRE(again.has_value());
+    const Json& cells = cooked.index["cells"];
+    REQUIRE(cells.size() == 2);
+    CHECK(cells[0]["name"].as_string() == "main_-3_0");
+    CHECK(cells[0]["grid"].as_number() == 0);
+    CHECK(cells[0]["x"].as_number() == -3);
+    CHECK(cells[0]["z"].as_number() == 0);
+    CHECK(cells[0]["entities"].as_number() == 1);
+    CHECK(cooked.index["always_loaded"].as_number() == 1);
+
+    // Cooked cells read back into entities.
+    std::vector<MapEntity> back = read_cell(*again, cooked.cells[2].document);
+    REQUIRE(back.size() == 2);
+    CHECK(back[1].id == 2);
+    CHECK(back[1].layers == std::vector<std::string>{"night"});
+    CHECK(back[0].position[0] == doctest::Approx(10.0));
+}

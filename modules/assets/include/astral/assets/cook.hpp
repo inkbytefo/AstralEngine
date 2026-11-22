@@ -64,7 +64,8 @@ struct CookReport {
 };
 
 /// Cooks a folder incrementally: .gltf/.glb -> cooked model (the buffers and images they use are
-/// folded in and not copied), .scene/.prefab/.json -> binary JSON, anything else copied. Files and
+/// folded in and not copied), .world + "<name>.entities/" -> index + "<name>.cells/*.cell" (ADR-0021),
+/// .scene/.prefab/.json -> binary JSON, anything else copied. Files and
 /// folders starting with '.' are skipped. A cache in the output folder remembers content hashes.
 CookReport cook_directory(const CookOptions& options);
 

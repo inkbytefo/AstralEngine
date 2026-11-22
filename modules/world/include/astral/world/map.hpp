@@ -94,4 +94,18 @@ struct CellAssignment {
 /// Ground-plane distance from (x, z) to the cell's square; 0 inside.
 [[nodiscard]] double cell_distance(const MapDesc& map, CellKey key, double x, double z);
 
+/// Cook output of a map: an index (the map document plus "cells": [{name, grid, x, z, entities}] and
+/// "always_loaded": count) and one "astral.cell" document per cell ("always" first, then sorted cells).
+struct CookedCell {
+    std::string name;
+    Json document;
+};
+struct CookedMap {
+    Json index;
+    std::vector<CookedCell> cells;
+};
+[[nodiscard]] CookedMap cook_map(const MapSource& source);
+/// Entities of a cooked cell document (empty on a wrong format).
+[[nodiscard]] std::vector<MapEntity> read_cell(const MapDesc& map, const Json& cell);
+
 } // namespace astral

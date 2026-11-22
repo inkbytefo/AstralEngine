@@ -239,3 +239,45 @@ TEST_CASE("the asset manager reads cooked assets from a pack or a loose cooked f
     CHECK_FALSE(broken.from_pack());
     CHECK(broken.state(broken.load_document("levels/arena.scene")) == AssetState::Failed);
 }
+
+TEST_CASE("cook_directory: a .world and its entity folder become an index and cell files") {
+    const auto src = test::temp_dir("cook_world_src");
+    const auto out = test::temp_dir("cook_world_out");
+    write_text(src / "maps" / "island.world",
+               R"({"format":"astral.world","version":1,"grids":[{"name":"main","cell_size":100,"load_range":300}]})");
+    auto entity = [&](int id, double x) {
+        write_text(src / "maps" / "island.entities" / (std::to_string(id) + ".ent"),
+                   R"({"format":"astral.entity","version":1,"entity":{"id":)" + std::to_string(id) +
+                       R"(,"components":{"astral::Transform":{"position":[)" + std::to_string(x) + R"(,0,0]}}}})");
+    };
+    entity(1, 10);
+    entity(2, 250);
+    CookReport r = cook_directory({.source = src, .output = out, .textures = {}, .jobs = nullptr, .logger = nullptr});
+    REQUIRE(r.ok());
+    CHECK(r.cooked == 1);
+    CHECK(r.copied == 0); // entity files are folded into the cells
+    CHECK_FALSE(std::filesystem::exists(out / "maps" / "island.entities"));
+    auto index = Json::from_binary(test::read_bytes(out / "maps" / "island.world"));
+    REQUIRE(index.has_value());
+    CHECK((*index)["cells"].size() == 2);
+    CHECK(std::filesystem::exists(out / "maps" / "island.cells" / "always.cell"));
+    CHECK(std::filesystem::exists(out / "maps" / "island.cells" / "main_0_0.cell"));
+    CHECK(std::filesystem::exists(out / "maps" / "island.cells" / "main_2_0.cell"));
+
+    // Nothing changed: up to date. A new entity file: cooked again, stale cells removed.
+    r = cook_directory({.source = src, .output = out, .textures = {}, .jobs = nullptr, .logger = nullptr});
+    CHECK(r.up_to_date == 1);
+    CHECK(r.cooked == 0);
+    std::filesystem::remove(src / "maps" / "island.entities" / "2.ent");
+    entity(3, -50);
+    r = cook_directory({.source = src, .output = out, .textures = {}, .jobs = nullptr, .logger = nullptr});
+    REQUIRE(r.ok());
+    CHECK(r.cooked == 1);
+    CHECK_FALSE(std::filesystem::exists(out / "maps" / "island.cells" / "main_2_0.cell"));
+    CHECK(std::filesystem::exists(out / "maps" / "island.cells" / "main_-1_0.cell"));
+
+    // A bad entity file is reported.
+    write_text(src / "maps" / "island.entities" / "bad.ent", "{ nope");
+    r = cook_directory({.source = src, .output = out, .textures = {}, .jobs = nullptr, .logger = nullptr});
+    CHECK_FALSE(r.ok());
+}

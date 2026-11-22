@@ -50,6 +50,7 @@ astral_add_module(NAME assets
         ${third_party_sources}
     DEPS
         Astral::Core
+        Astral::World
         Astral::Render)
 target_include_directories(astral_assets SYSTEM PRIVATE
     $<BUILD_INTERFACE:${stb_SOURCE_DIR}>

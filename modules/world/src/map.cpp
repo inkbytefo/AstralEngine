@@ -195,4 +195,42 @@ double cell_distance(const MapDesc& map, CellKey key, double x, double z) {
     return std::sqrt(dx * dx + dz * dz);
 }
 
+CookedMap cook_map(const MapSource& source) {
+    CookedMap out;
+    const CellAssignment assignment = assign_cells(source.map, source.entities);
+    auto cell_document = [&](const std::vector<std::size_t>& members) {
+        Json doc = Json::object();
+        doc["format"] = "astral.cell";
+        doc["version"] = kVersion;
+        Json list = Json::array();
+        for (std::size_t i : members) list.push_back(make_entity_file(source.entities[i]));
+        doc["entities"] = std::move(list);
+        return doc;
+    };
+    out.index = write_map(source.map);
+    out.index["always_loaded"] = static_cast<std::uint64_t>(assignment.always_loaded.size());
+    out.cells.push_back({"always", cell_document(assignment.always_loaded)});
+    Json cells = Json::array();
+    for (const Cell& cell : assignment.cells) {
+        const std::string name = cell_name(source.map, cell.key);
+        Json j = Json::object();
+        j["name"] = name;
+        j["grid"] = cell.key.grid;
+        j["x"] = cell.key.x;
+        j["z"] = cell.key.z;
+        j["entities"] = static_cast<std::uint64_t>(cell.entities.size());
+        cells.push_back(std::move(j));
+        out.cells.push_back({name, cell_document(cell.entities)});
+    }
+    out.index["cells"] = std::move(cells);
+    return out;
+}
+
+std::vector<MapEntity> read_cell(const MapDesc& map, const Json& cell) {
+    if (!check_format(cell, "astral.cell", nullptr)) return {};
+    std::vector<EntityFile> files;
+    for (const Json& e : cell["entities"].as_array()) files.push_back({"cell", e});
+    return read_map_source(map, files).entities;
+}
+
 } // namespace astral

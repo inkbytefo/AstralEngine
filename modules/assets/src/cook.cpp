@@ -1,5 +1,6 @@
 #include <astral/assets/cook.hpp>
 #include <astral/core/json.hpp>
+#include <astral/world/map.hpp>
 
 #include "file_util.hpp"
 
@@ -18,17 +19,31 @@ constexpr int cache_version = 1;
 /// Bump when cooked formats or the cook's decisions change: everything is cooked again.
 constexpr std::string_view cook_version = "astral-cook 1";
 
-enum class Kind { Model, Document, Copy };
+enum class Kind { Model, World, Document, Copy };
 
 Kind kind_of(const std::filesystem::path& p) {
     std::string ext = p.extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (ext == ".gltf" || ext == ".glb") return Kind::Model;
+    if (ext == ".world") return Kind::World;
     if (ext == ".scene" || ext == ".prefab" || ext == ".json") return Kind::Document;
     return Kind::Copy;
 }
 
-const char* kind_name(Kind k) { return k == Kind::Model ? "model" : k == Kind::Document ? "document" : "copy"; }
+const char* kind_name(Kind k) {
+    switch (k) {
+    case Kind::Model: return "model";
+    case Kind::World: return "world";
+    case Kind::Document: return "document";
+    case Kind::Copy: break;
+    }
+    return "copy";
+}
+
+/// "maps/island.world" -> "maps/island" (the entity folder and cell folder sit next to it).
+std::string world_stem(const std::string& rel) {
+    return rel.substr(0, rel.size() - std::string_view(".world").size());
+}
 
 std::string hex(std::uint64_t v) {
     char buf[17];
@@ -163,9 +178,76 @@ CookReport cook_directory(const CookOptions& o) {
         for (const ModelJob& job : models) cook_model(job);
     }
 
+    // Worlds: the .world document plus every file in "<name>.entities/" become an index and cell files
+    // in "<name>.cells/" (ADR-0021). Dependencies are listed afresh so added entity files count.
+    for (const std::string& rel : sources) {
+        if (kind_of(rel) != Kind::World) continue;
+        const std::string stem = world_stem(rel);
+        const std::string folder = stem + ".entities/";
+        CacheEntry entry{kind_name(Kind::World), {}, {}};
+        for (const std::string& f : sources) {
+            if (f.starts_with(folder)) entry.deps.push_back(f);
+        }
+        deps.insert(entry.deps.begin(), entry.deps.end());
+        const auto h = content_hash(o.source, rel, entry.deps, seed);
+        auto old = old_cache.find(rel);
+        if (h && old != old_cache.end() && old->second.kind == entry.kind && old->second.hash == hex(*h) &&
+            std::filesystem::exists(o.output / rel)) {
+            ++report.up_to_date;
+            cache[rel] = old->second;
+            continue;
+        }
+        bool clean = true;
+        std::string io_error;
+        auto read_json = [&](const std::string& file) -> std::optional<Json> {
+            auto bytes = detail::read_file(o.source / file, &io_error);
+            if (!bytes) {
+                error(io_error);
+                return std::nullopt;
+            }
+            if (Json::is_binary(*bytes)) return Json::from_binary(*bytes);
+            std::string parse_error;
+            auto doc = Json::parse(std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()), &parse_error);
+            if (!doc) error(file + ": " + parse_error);
+            return doc;
+        };
+        auto world_doc = read_json(rel);
+        if (!world_doc) continue;
+        std::string map_error;
+        auto map = parse_map(*world_doc, &map_error);
+        if (!map) {
+            error(rel + ": " + map_error);
+            continue;
+        }
+        std::vector<EntityFile> files;
+        for (const std::string& f : entry.deps) {
+            if (auto doc = read_json(f)) files.push_back({f, std::move(*doc)});
+            else clean = false;
+        }
+        const MapSource source = read_map_source(*map, files);
+        for (const std::string& e : source.errors) {
+            error(e);
+            clean = false;
+        }
+        const CookedMap cooked = cook_map(source);
+        const std::filesystem::path cells_dir = o.output / (stem + ".cells");
+        std::filesystem::remove_all(cells_dir, ec);
+        bool written = detail::write_file(o.output / rel, cooked.index.to_binary(), &io_error);
+        for (const CookedCell& cell : cooked.cells) {
+            written = written && detail::write_file(cells_dir / (cell.name + ".cell"), cell.document.to_binary(), &io_error);
+        }
+        if (!written) {
+            error(io_error);
+            continue;
+        }
+        ++report.cooked;
+        if (clean && h) entry.hash = hex(*h); // problems: cook (and report) again next time
+        cache[rel] = std::move(entry);
+    }
+
     for (const std::string& rel : sources) {
         const Kind kind = kind_of(rel);
-        if (kind == Kind::Model || deps.count(rel)) continue;
+        if (kind == Kind::Model || kind == Kind::World || deps.count(rel)) continue;
         std::uint64_t h = 0;
         if (up_to_date(rel, kind, &h)) {
             ++report.up_to_date;
@@ -203,6 +285,7 @@ CookReport cook_directory(const CookOptions& o) {
     for (const auto& [rel, entry] : old_cache) {
         if (cache.count(rel)) continue;
         if (std::filesystem::remove(o.output / rel, ec)) ++report.removed;
+        if (entry.kind == kind_name(Kind::World)) std::filesystem::remove_all(o.output / (world_stem(rel) + ".cells"), ec);
     }
 
     Json doc = Json::object();
