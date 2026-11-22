@@ -2,7 +2,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(AstralConsumer LANGUAGES CXX)
 
-find_package(Astral 0.12 CONFIG REQUIRED COMPONENTS Core Gpu Platform Physics World Render Assets App)
+find_package(Astral 0.13 CONFIG REQUIRED COMPONENTS Core Gpu Platform Physics World Render Assets App)
 
 add_executable(astral_consumer main.cpp)
 target_link_libraries(astral_consumer PRIVATE Astral::App)

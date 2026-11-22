@@ -74,7 +74,7 @@ You are continuing work from a previous chat. That chat is gone; this file is th
 
 ## 8. Data & facts (exact)
 - Repo: `https://github.com/inkbytefo/AstralEngine.git`; bulut ortamında yol `/home/claude/AstralEngine`.
-- Proje sürümü (CMakeLists.txt): `project(Astral VERSION 0.12.0 ...)`; M8 bitince 0.13.0 planlı (henüz bump yok; tests/consumer `find_package` sürümüyle uyumlu tutulmalı — önceki bump'ta SameMinorVersion yüzünden güncellenmişti).
+- Proje sürümü (CMakeLists.txt): `project(Astral VERSION 0.13.0 ...)` (M8 bitti; tests/consumer `find_package(Astral 0.13 ...)` ile uyumlu — SameMinorVersion).
 - CMake preset'leri: `debug`, `release`, `tsan`, `asan`.
 - Dallar (origin): `v3` = `fd16332` = `feat/m8-devtools`; `v2` = `c140ba4`; `main` = `69ccfd7`; `v2-old` = `62c6545`; eski: `docs/roadmap-v3` `86b7472`, `docs/terrain-sdf` `c140ba4`, `feat/m7-pong` `915a233`, `feat/m6-packaging` `98529d1`, `feat/m5c-scenes` `0b5da50`, `feat/m5b-assets` `496d670`, `feat/m5a-ecs` `535befd`, `feat/m3.5-photoreal` `990f778`.
 
@@ -104,15 +104,16 @@ You are continuing work from a previous chat. That chat is gone; this file is th
 |---|---|---|---|
 | M0–M7 | final | v2 / v3 | tamamlandı |
 | M8.1–M8.5 | final (commit'li) | `feat/m8-devtools` = `v3` @ fd16332 | tam ctest yeniden koşulmalı |
-| M8.6 | not started | — | golden image test altyapısı (3 sahne, tolerans + fark görüntüsü), TSan + release `-Werror`, sürüm 0.13.0, bağımsız inceleme, roadmap M8 ✅ / M9 🔜 |
+| M8.6 | final | `claude/read-handoff-astralengine-xj2u6r` | `tests/golden` (`astral-golden`, `ctest -L golden`), debug 14→18 test, release `-Werror` 18/18, TSan geçti, consumer geçti, 0.13.0; bağımsız inceleme yapılmadı (token) |
+| ADR-0025 karakter fiziği (Euphoria tarzı aktif ragdoll) | final | `docs/decisions/0025-*` | M20'ye IK, M21 = karakter fiziği, araçlar/kumaş → M23 |
 | Yol haritası v4 + ADR-0019…0024 | final | `docs/roadmap.md`, `docs/decisions/` | |
 | Rehber "sahne, harita, dünya" | final | `docs/guides/scenes-and-worlds.md` | kod bilmeyen için |
 | Rehber "oyun nasıl yazılır" | eski | `docs/guides/writing-a-game.md` | HUD/ses/debug UI ve ADR-0023 düzeni eklenmeli |
 | M9 dünya/harita sistemi | 🔜 | ADR-0021 | plan dosyası `docs/superpowers/plans/<tarih>-m9.md` yazılacak |
 
 ## 11. Next steps
-1. **Next action:** repoyu `v3` dalında aç, `cmake --preset debug && cmake --build --preset debug && ctest --preset debug` ile tam test turunu koş, kırılan varsa düzelt.
-2. M8.6: golden image testleri (offscreen, lavapipe; 3 sahne: scene_viewer showcase, pong, rt_showcase), tsan + release `-Werror`, sürüm 0.13.0 (consumer testini de güncelle), CHANGELOG `[0.13.0]`, roadmap M8 ✅ / M9 🔜, README; `feat/m8-devtools` push + `v3` fast-forward.
+1. **Next action:** çalışma dalını `v3`'e fast-forward et (kullanıcı onayıyla).
+2. Bulut ortamında bağımlılıklar: CI'daki `LINUX_DEPS` apt ile kurulur; testler `xvfb-run -a ctest --preset debug`.
 3. `docs/guides/writing-a-game.md`'yi HUD, ses, debug UI ve özellik paketi düzeniyle güncelle.
 4. M9 (ADR-0021): plan yaz → `feat/m9-world` → TDD ile `.world` + `.ent` biçimi, cook'ta hücreleme, asenkron streaming, veri katmanları, kayan orijin; çıkış demosu 4×4 km test dünyası.
 
