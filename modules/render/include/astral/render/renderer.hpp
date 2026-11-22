@@ -2,6 +2,7 @@
 
 #include <astral/core/handle.hpp>
 #include <astral/core/math.hpp>
+#include <astral/render/surface_shader.hpp>
 #include <astral/core/reflect.hpp>
 #include <astral/gpu/command_list.hpp>
 #include <astral/gpu/device.hpp>
@@ -21,6 +22,7 @@ namespace astral {
 class RenderGraph;
 struct MeshTag;
 struct MaterialTag;
+struct ShaderTag;
 struct RenderTextureTag;
 /// GPU geometry owned by the Renderer (Renderer::create_mesh).
 using MeshHandle = Handle<MeshTag>;
@@ -29,6 +31,8 @@ using MeshHandle = Handle<MeshTag>;
 using MaterialHandle = Handle<MaterialTag>;
 /// An image the Renderer owns (Renderer::create_texture), used by materials. Not a gpu::TextureHandle.
 using TextureHandle = Handle<RenderTextureTag>;
+/// A compiled .ashader surface shader (Renderer::create_shader); materials point at it.
+using ShaderHandle = Handle<ShaderTag>;
 
 /// 8-bit RGBA pixels, rows top to bottom. The Renderer builds the mip chain.
 /// Pixel layout of ImageData::levels. BC5 keeps two channels (normal map X/Y; Z is rebuilt in the
@@ -59,6 +63,16 @@ struct MaterialDesc {
     TextureHandle normal_texture{};             ///< Tangent space; no vertex tangents needed.
     TextureHandle emissive_texture{};
     float normal_scale = 1.0f;
+    /// A custom surface shader (ADR-0022). Invalid = the standard PBR shader with the values above.
+    ShaderHandle shader{};
+    /// The shader's uniform block (layout_uniforms words; numbers as float). Textures go in `textures`.
+    std::vector<float> params{};
+    struct ParamTexture {
+        std::uint32_t offset = 0;   ///< Word of the sampler2D uniform.
+        TextureHandle texture{};    ///< Invalid = white (or a flat normal when `normal`).
+        bool normal = false;
+    };
+    std::vector<ParamTexture> textures{};
 };
 
 /// One mesh to draw this frame. An invalid material means Renderer::default_material().
@@ -143,6 +157,7 @@ struct RenderScene {
     std::span<const DebugLine> debug_lines = {};
     /// 2D overlay (debug UI, HUD, sprites), drawn last, in order.
     std::span<const UiLayer> ui = {};
+    float time = 0.0f; ///< Seconds; TIME in .ashader code.
 };
 
 /// Dynamic diffuse global illumination: a grid of probes that trace rays every frame.
@@ -211,6 +226,10 @@ public:
 
     /// Uploads an image with a full mip chain (blocking). Invalid handle on bad data.
     TextureHandle create_texture(const ImageData& image);
+    /// Pipelines for a compiled surface shader; invalid if the build failed. Destroy after the materials
+    /// that use it (until then they draw with it).
+    ShaderHandle create_shader(const SurfaceShaderBuild& build, std::string_view debug_name = {});
+    void destroy(ShaderHandle shader);
     /// Whether textures in `format` can be created (BC needs gpu::Feature::TextureCompressionBC).
     [[nodiscard]] bool supports(ImageFormat format) const noexcept;
     /// Replaces the image behind a handle (hot reload); materials using it see the new one.

@@ -742,3 +742,54 @@ TEST_CASE("HUD text renders crisp on the GPU") {
     CHECK(stem.r > 200);
     CHECK(beside.r < 30);
 }
+
+TEST_CASE("a .ashader material draws with its uniforms; alpha test cuts holes; vertex() moves vertices") {
+    Fixture f;
+    if (!f.device) return;
+    const ShaderParse p = parse_ashader(R"(shader_type surface;
+render_mode alpha_test;
+uniform vec4 tint : source_color = vec4(1.0);
+uniform float lift = 0.0;
+void vertex() { VERTEX.y += lift; }
+void surface() {
+    ALBEDO = tint.rgb;
+    ROUGHNESS = 1.0;
+    ALPHA = UV.x < 0.5 ? 0.0 : 1.0;   // left half of every face is cut away
+}
+)");
+    REQUIRE(p.errors.empty());
+    const SurfaceShaderBuild build = compile_surface_shader(p.source, "test.ashader");
+    REQUIRE(build.ok());
+    const ShaderHandle shader = f.renderer->create_shader(build, "test");
+    REQUIRE(shader.valid());
+    MeshHandle quad = f.renderer->create_mesh(make_plane(1.0f));
+    // The plane faces +y: look down at it. tint = green, lift = 0.
+    f.look_from({0, 5, 0}, {0, 0, 0});
+    const MaterialHandle mat = f.renderer->create_material(
+        {.shader = shader, .params = {0, 1, 0, 1, 0, 0, 0, 0}, .textures = {}});
+    const MeshInstance items[] = {{.mesh = quad, .material = mat, .transform = scale(Vec3{2, 1, 2})}};
+    const DirectionalLight top{.direction = {0, -1, 0}, .intensity = 2.0f, .shadows = false};
+    const auto empty = f.draw({.sun = top});
+    auto pixels = f.draw({.meshes = items, .sun = top});
+    // UV.x grows along +x: the +x half is green, the -x half shows the background.
+    const Rgb kept = rgb(f.at(pixels, {0.5f, 0, 0}));
+    const Rgb cut = rgb(f.at(pixels, {-0.5f, 0, 0}));
+    const Rgb background = rgb(f.at(empty, {-0.5f, 0, 0}));
+    CHECK(kept.g > 100);
+    CHECK(kept.r < 60);
+    CHECK(std::abs(cut.g - background.g) < 8);
+    CHECK(std::abs(cut.r - background.r) < 8);
+    // Raise the plane with the uniform: still green where the raised plane is seen.
+    f.renderer->update_material(mat, {.shader = shader, .params = {1, 0, 0, 1, 2.0f, 0, 0, 0}, .textures = {}});
+    pixels = f.draw({.meshes = items, .sun = top});
+    const Rgb red = rgb(f.at(pixels, {0.5f, 2.0f, 0}));
+    CHECK(red.r > 100);
+    CHECK(red.g < 60);
+    f.renderer->destroy(shader);
+}
+
+TEST_CASE("create_shader refuses a failed build") {
+    Fixture f;
+    if (!f.device) return;
+    CHECK_FALSE(f.renderer->create_shader(SurfaceShaderBuild{}).valid());
+}

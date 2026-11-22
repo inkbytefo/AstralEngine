@@ -16,6 +16,7 @@ struct Material {
     vec4 emissive_roughness; // rgb emitted radiance, a roughness
     vec4 params;             // x metallic, y normal scale
     uvec4 textures;          // bindless: base colour, metallic-roughness (G rough, B metal), normal, emissive; ~0u none
+    uvec4 custom;            // x: .ashader parameter offset (words), y: custom shader index + 1 (0 = standard), zw: unused
 };
 const uint NO_TEXTURE = 0xFFFFFFFFu;
 struct Frame {

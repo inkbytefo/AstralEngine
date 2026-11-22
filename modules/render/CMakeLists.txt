@@ -26,10 +26,15 @@ astral_add_module(NAME render
         src/debug_draw.cpp
         src/fonts.cpp
         src/text.cpp
+        src/surface_shader.cpp
     DEPS
         Astral::Core
-        Astral::Gpu)
+        Astral::Gpu
+        Astral::Shader)
 astral_embed_file(astral_render ${imgui_SOURCE_DIR}/misc/fonts/Roboto-Medium.ttf roboto_medium_ttf)
+# Engine shader headers, for .ashader pipelines compiled at run time (ADR-0022).
+astral_embed_file(astral_render ${CMAKE_SOURCE_DIR}/modules/gpu/shaders/include/astral/bindless.glsl astral_bindless_glsl)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/scene.glsl astral_scene_glsl)
 target_include_directories(astral_render SYSTEM PRIVATE $<BUILD_INTERFACE:${stb_SOURCE_DIR}>)
 
 astral_add_shaders(astral_render
@@ -48,7 +53,8 @@ astral_add_tests(MODULE render
     SOURCES
         tests/test_main.cpp
         tests/renderer_test.cpp
-        tests/render_graph_test.cpp)
+        tests/render_graph_test.cpp
+        tests/surface_shader_test.cpp)
 if(TARGET astral_render_tests)
     target_include_directories(astral_render_tests PRIVATE ${CMAKE_SOURCE_DIR}/modules/gpu/tests)
 endif()

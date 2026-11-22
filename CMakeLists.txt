@@ -30,6 +30,7 @@ endif()
 
 # Modules — order follows the dependency layers (lower first).
 add_subdirectory(modules/core)
+add_subdirectory(modules/shader)
 add_subdirectory(modules/gpu)
 add_subdirectory(modules/platform)
 add_subdirectory(modules/world)
