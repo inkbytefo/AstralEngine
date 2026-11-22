@@ -33,11 +33,21 @@ astral_add_game(scene_viewer SOURCES scene_viewer/main.cpp ASSETS scene_viewer/a
 # Shader showcase (M10): .ashader shaders and .material files (leaf, glass, lava, hologram, sky, post).
 astral_add_game(shader_showcase SOURCES shader_showcase/main.cpp ASSETS shader_showcase/assets)
 
-# 3D Pong: the smallest complete game on the engine (rules in pong.cpp, everything else in assets/).
-astral_add_game(pong SOURCES pong/main.cpp pong/pong.cpp ASSETS pong/assets)
+# 3D Pong: the smallest complete game on the engine, as feature packages (rules in Luau, see pong/pong.hpp).
+set(pong_features
+    pong/pong.cpp
+    pong/features/pong_rules/rules.cpp
+    pong/features/pong_scorelights/lights.cpp
+    pong/features/pong_audio/audio.cpp)
+astral_add_game(pong SOURCES pong/main.cpp ${pong_features} ASSETS pong/assets)
+target_include_directories(pong PRIVATE pong)
 if(ASTRAL_BUILD_TESTS)
-    add_executable(pong_tests pong/pong_test.cpp pong/pong.cpp)
+    add_executable(pong_tests pong/pong_test.cpp ${pong_features})
+    target_include_directories(pong_tests PRIVATE pong)
     target_link_libraries(pong_tests PRIVATE Astral::App doctest::doctest)
+    # Feature boundaries (ADR-0023): a feature includes only what it depends on and exports.
+    add_test(NAME pong_features_check
+        COMMAND astral_features check ${CMAKE_CURRENT_SOURCE_DIR}/pong/features ${CMAKE_CURRENT_SOURCE_DIR}/pong/assets/features)
     target_compile_definitions(pong_tests PRIVATE ASTRAL_GAME_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/pong/assets")
     astral_set_warnings(pong_tests)
     add_test(NAME pong_tests COMMAND pong_tests)

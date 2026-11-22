@@ -74,7 +74,7 @@ You are continuing work from a previous chat. That chat is gone; this file is th
 
 ## 8. Data & facts (exact)
 - Repo: `https://github.com/inkbytefo/AstralEngine.git`; bulut ortamında yol `/home/claude/AstralEngine`.
-- Proje sürümü (CMakeLists.txt): `project(Astral VERSION 0.15.0 ...)` (M10 bitti; tests/consumer `find_package(Astral 0.15 ...)` ile uyumlu — SameMinorVersion; core sürüm testi proje sürümünü otomatik okur).
+- Proje sürümü (CMakeLists.txt): `project(Astral VERSION 0.16.0 ...)` (M11 bitti; tests/consumer `find_package(Astral 0.16 ...)` ile uyumlu — SameMinorVersion; core sürüm testi proje sürümünü otomatik okur).
 - CMake preset'leri: `debug`, `release`, `tsan`, `asan`.
 - Dallar (origin): `v3` = `fd16332` = `feat/m8-devtools`; `v2` = `c140ba4`; `main` = `69ccfd7`; `v2-old` = `62c6545`; eski: `docs/roadmap-v3` `86b7472`, `docs/terrain-sdf` `c140ba4`, `feat/m7-pong` `915a233`, `feat/m6-packaging` `98529d1`, `feat/m5c-scenes` `0b5da50`, `feat/m5b-assets` `496d670`, `feat/m5a-ecs` `535befd`, `feat/m3.5-photoreal` `990f778`.
 
@@ -111,12 +111,13 @@ You are continuing work from a previous chat. That chat is gone; this file is th
 | Rehber "oyun nasıl yazılır" | eski | `docs/guides/writing-a-game.md` | HUD/ses/debug UI ve ADR-0023 düzeni eklenmeli |
 | M9 dünya/harita sistemi | final | ADR-0021, plan `docs/superpowers/plans/2026-11-22-m9-world.md` | `ctx.open_world`, hücre streaming, katmanlar, kayan orijin, `examples/open_world` (4×4 km), görüntü testleri; harita biçim adı `astral.map` |
 | M10 `.ashader` + `.material` | final | ADR-0022, plan `docs/superpowers/plans/2026-11-22-m10-shaders.md` | `Astral::Shader` (glslang), surface/post/sky, blend_mix/add, RT tutarlılığı, `ctx.load_material`, hot reload, `examples/shader_showcase`; ertelenen: MaterialOverride, SPIR-V önbelleği, HDR-öncesi post, kırılma |
-| M11 oyun kodu + Luau | 🔜 | ADR-0023, ADR-0017 | sıradaki faz |
+| M11 oyun kodu + Luau | final | ADR-0023, ADR-0017, ADR-0026, plan `docs/superpowers/plans/2026-11-22-m11-game-code-luau.md` | `Astral::Script` (Luau 0.748), özellik paketleri, `.actions`, `astral-features`, API üretimi, Pong 3 pakete bölündü (kurallar Luau); sürüm 0.16.0; ertelenen: gamepad, tween/durum makinesi/tetik/kayıt, bytecode cook |
+| M12 fizik altyapısı + alanlar | 🔜 | roadmap | sıradaki faz |
 
 ## 11. Next steps
-1. **Next action:** M11 (özellik paketleri + Luau, ADR-0023/0017): plan yaz → TDD. Kullanıcı tercihi: commit faz sonunda (her mesajda değil).
+1. **Next action:** M12 (fizik katmanları, şekiller, eklemler, alan sistemi): plan yaz → TDD. Kullanıcı tercihi: commit faz sonunda (her mesajda değil).
 2. Bulut ortamında bağımlılıklar: CI'daki `LINUX_DEPS` apt ile kurulur; testler `xvfb-run -a ctest --preset debug`.
-3. `docs/guides/writing-a-game.md`'yi HUD, ses, debug UI, açık dünya ve özellik paketi düzeniyle güncelle.
+3. (M11'de yapıldı) `docs/guides/writing-a-game.md` HUD/ses/debug/özellik paketi bölümleriyle güncel.
 
 ## 12. Open questions ⚠️
 - Ana dal artık `v3` mü? (Claude'un varsayımı: evet, bundan sonra fazlar `v3`'e fast-forward edilir; `v2` dondurulur.) Seçenekler: v3 yeni ana hat / v2'ye de merge et / skip, varsayımla devam.

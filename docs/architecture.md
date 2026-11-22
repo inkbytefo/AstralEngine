@@ -23,7 +23,7 @@ Alt katman her zaman doğrudan kullanılabilir kalır.
 
 ```
 Katman 3  │ app (Game + System + Context)        — oyunlar buradan yazılır
-Katman 2  │ world (ECS) · render · physics (Jolt) · assets · audio
+Katman 2  │ world (ECS) · script (Luau; yalnız Core+World) · render · physics (Jolt) · assets · audio
 Katman 1  │ gpu (Vulkan RHI) ← platform (pencere/input, SDL3)
 Katman 0  │ core (log, handle, clock, jobs, math)
 ```

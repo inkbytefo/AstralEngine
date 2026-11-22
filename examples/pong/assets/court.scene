@@ -27,6 +27,7 @@
         "pong::Court": {
           "seed": 7
         },
+        "pong::Match": {},
         "pong::Sounds": {},
         "astral::AudioSource": {
           "sound": "sounds/hum.wav",

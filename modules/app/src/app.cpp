@@ -1,6 +1,7 @@
 #include <astral/app/app.hpp>
 
 #include "debug_ui.hpp"
+#include "json_asset.hpp"
 #include "map_runtime.hpp"
 #include "material_library.hpp"
 
@@ -42,6 +43,22 @@ struct PrimitiveDrawn {};
 struct AudioVoice {
     VoiceHandle voice;
     std::string sound;
+};
+} // namespace
+
+namespace {
+/// What scripts see of the input: the named actions.
+class ActionInput final : public ScriptInput {
+public:
+    explicit ActionInput(const InputActions& a) : actions_(a) {}
+    bool down(std::string_view a) const override { return actions_.down(a); }
+    bool pressed(std::string_view a) const override { return actions_.pressed(a); }
+    bool released(std::string_view a) const override { return actions_.released(a); }
+    float value(std::string_view a) const override { return actions_.value(a); }
+    Vec2 axis(std::string_view a) const override { return actions_.axis(a); }
+
+private:
+    const InputActions& actions_;
 };
 } // namespace
 
@@ -93,6 +110,16 @@ struct App::Impl {
     std::vector<BodyLink> body_links;
     std::vector<CharacterLink> character_links;
 
+    std::unique_ptr<ScriptHost> scripts;
+    std::unique_ptr<ScriptInput> script_input;
+    struct Watched {
+        std::uint64_t hash = 0;
+        bool is_actions = false;
+    };
+    std::unordered_map<std::string, Watched> watched_files; ///< Scripts and action files, for hot reload.
+    double next_watch = 0.0;
+    void reload_changed_scripts();
+    void run_scripts(ScriptPhase phase);
     std::unique_ptr<MaterialLibrary> material_library; ///< .material / .ashader files (needs a renderer)
     std::unique_ptr<MapRuntime> map; ///< Open map (ctx.open_world); null until the first one.
     std::filesystem::path asset_root; ///< Copied at construction (AppDesc holds views).
@@ -233,6 +260,9 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
     m.font = Font::create(default_font_ttf());
     if (m.font && m.renderer) m.font->upload(*m.renderer);
     m.context->font = m.font.get();
+    m.script_input = std::make_unique<ActionInput>(m.context->actions);
+    m.scripts = std::make_unique<ScriptHost>(ScriptEnv{m.world, m.context->types, m.context->events, m.log, m.script_input.get()});
+    m.context->scripts = m.scripts.get();
 }
 
 App::~App() {
@@ -241,6 +271,8 @@ App::~App() {
     // Systems may release GPU resources in their destructors: they go first, while the
     // renderer and device still exist. Then the services, device last, window after it.
     for (auto& phase : m.systems) phase.clear();
+    m.context->scripts = nullptr;
+    m.scripts.reset();
     m.map.reset(); // waits for cell reads in flight
     m.material_library.reset(); // materials and shaders belong to the renderer
     m.context->physics = nullptr;
@@ -566,6 +598,7 @@ void App::Impl::step_physics(Game&, float delta) {
         {
             ASTRAL_PROFILE_SCOPE(&profiler, "FixedUpdate");
             run_phase(systems[static_cast<std::size_t>(Phase::FixedUpdate)], ctx);
+            run_scripts(ScriptPhase::FixedUpdate);
         }
         in_fixed_update = false;
         world.apply_commands();
@@ -623,6 +656,7 @@ void App::Impl::frame(Game& game, float delta) {
     profiler.begin_frame();
     Profiler* prof = &profiler;
     route_input();
+    context->actions.update(game_input);
     world.update_events(); // events sent last frame are still readable this frame, then dropped
     {
         ASTRAL_PROFILE_SCOPE(prof, "world streaming");
@@ -632,6 +666,7 @@ void App::Impl::frame(Game& game, float delta) {
         ASTRAL_PROFILE_SCOPE(prof, "assets");
         assets->update();      // finished loads, hot reloads
         if (material_library) material_library->update(time.elapsed); // edited .material / .ashader files
+        reload_changed_scripts();
         prefabs->refresh();    // templates whose documents reloaded are rebuilt on next use
         std::vector<std::string> problems;
         sync_prefabs(world, *prefabs, &problems); // instances spawned by code / prefabs that changed
@@ -645,6 +680,7 @@ void App::Impl::frame(Game& game, float delta) {
     {
         ASTRAL_PROFILE_SCOPE(prof, "PreUpdate");
         run_phase(m.systems[static_cast<std::size_t>(Phase::PreUpdate)], ctx);
+        m.run_scripts(ScriptPhase::PreUpdate);
         m.world.apply_commands();
     }
     {
@@ -655,6 +691,7 @@ void App::Impl::frame(Game& game, float delta) {
     {
         ASTRAL_PROFILE_SCOPE(prof, "Update");
         run_phase(m.systems[static_cast<std::size_t>(Phase::Update)], ctx);
+        m.run_scripts(ScriptPhase::Update);
         m.world.apply_commands();
     }
     {
@@ -665,6 +702,7 @@ void App::Impl::frame(Game& game, float delta) {
     {
         ASTRAL_PROFILE_SCOPE(prof, "PostUpdate");
         run_phase(m.systems[static_cast<std::size_t>(Phase::PostUpdate)], ctx);
+        m.run_scripts(ScriptPhase::PostUpdate);
         m.world.apply_commands();
     }
     {
@@ -1011,6 +1049,80 @@ void App::Impl::update_world(bool finish) {
     }
     if (finish) map->finish(stream_points);
     else map->update(stream_points, static_cast<double>(desc.world_stream_budget_ms) / 1000.0);
+}
+
+namespace {
+std::uint64_t content_hash(const std::vector<std::uint8_t>& bytes) {
+    std::uint64_t h = 14695981039346656037ull;
+    for (std::uint8_t b : bytes) {
+        h ^= b;
+        h *= 1099511628211ull;
+    }
+    return h;
+}
+} // namespace
+
+void App::Impl::run_scripts(ScriptPhase phase) {
+    ASTRAL_PROFILE_SCOPE(&profiler, "scripts");
+    scripts->run(phase, {.delta = time.delta, .fixed_delta = time.fixed_delta, .elapsed = time.elapsed});
+}
+
+std::vector<std::string> Context::load_script(std::string_view path) {
+    auto& m = *app_.impl_;
+    std::string error;
+    const auto bytes = m.assets->read(path, &error);
+    if (!bytes) {
+        log.log(LogLevel::Error, "script " + std::string(path) + ": " + error);
+        return {std::string(path) + ": " + error};
+    }
+    m.watched_files[std::string(path)] = {content_hash(*bytes), false};
+    return m.scripts->load(path, std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()));
+}
+
+bool Context::write_script_api(std::string_view folder) {
+    const ScriptApi api = generate_script_api(types, events, api_owners);
+    std::error_code ec;
+    const std::filesystem::path dir{std::string(folder)};
+    std::filesystem::create_directories(dir, ec);
+    for (const auto& [name, text] : {std::pair<const char*, const std::string&>{"astral.d.luau", api.luau_types}, {"API.md", api.markdown}}) {
+        std::ofstream out(dir / name, std::ios::binary);
+        out << text;
+        if (!out) {
+            log.log(LogLevel::Error, "script api: cannot write " + (dir / name).string());
+            return false;
+        }
+    }
+    return true;
+}
+
+bool Context::load_actions(std::string_view path) {
+    auto& m = *app_.impl_;
+    std::string error;
+    const auto bytes = m.assets->read(path, &error);
+    const auto fail = [&](const std::string& why) {
+        log.log(LogLevel::Error, "actions " + std::string(path) + ": " + why);
+        return false;
+    };
+    if (!bytes) return fail(error);
+    const auto doc = parse_json_asset(*bytes, &error);
+    if (!doc) return fail(error);
+    m.watched_files[std::string(path)] = {content_hash(*bytes), true};
+    return actions.load(*doc, &error) || fail(error);
+}
+
+void App::Impl::reload_changed_scripts() {
+    if (!desc.hot_reload || !desc.pack.empty() || watched_files.empty() || time.elapsed < next_watch) return;
+    next_watch = time.elapsed + 0.5;
+    std::vector<std::pair<std::string, bool>> changed;
+    for (auto& [path, w] : watched_files) {
+        const auto bytes = assets->read(path);
+        if (bytes && content_hash(*bytes) != w.hash) changed.emplace_back(path, w.is_actions);
+    }
+    for (const auto& [path, is_actions] : changed) {
+        if (is_actions) context->load_actions(path);
+        else context->load_script(path);
+        log.info("reloaded {}", path);
+    }
 }
 
 MaterialHandle Context::load_material(std::string_view path) {

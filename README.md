@@ -48,8 +48,9 @@ module (core, gpu, platform, world, render) is also usable directly as a plain l
 | Developer tools: profiler (CPU + per-pass GPU), debug draw, Dear ImGui panel (F1, reflection inspector), SDF text/HUD, `Astral::Audio` (miniaudio, 3D, `AudioSource`) | ✅ M8 (golden image tests: `ctest -L golden`) |
 | World & map system (UE5 World Partition-style: `.world`, one file per entity, cell streaming, data layers, floating origin; `examples/open_world`) | ✅ M9 |
 | `.ashader` shader language (gdshader-like, GLSL body) + `.material` files with parents: foliage, glass, lava, hologram, sky and post shaders, hot reload, same look in raster and ray tracing (`examples/shader_showcase`) | ✅ M10 |
-| Modular game code + Luau scripting, physics fields | ⬜ M11–M12 |
-| Advanced PBR, atmosphere + volumetric VFX (CS2-style smoke), terrain (heightfield + SDF), water, weather, destruction, animation, world scale | ⬜ M13–M22 ([roadmap](docs/roadmap.md)) |
+| Modular game code (feature packages, boundary checks) + Luau scripting (reflection-bound components, systems, behaviours, events, hot reload, generated API docs), input actions; Pong's rules in Luau | ✅ M11 |
+| Physics fields (wind, water volumes), collision layers, joints | 🔜 M12 |
+| Advanced PBR, atmosphere + volumetric VFX (CS2-style smoke), terrain (heightfield + SDF), water, weather, destruction, animation, world scale | ⬜ M13–M23 ([roadmap](docs/roadmap.md)) |
 
 ![RT showcase](docs/images/m3.5-rt-showcase.png)
 

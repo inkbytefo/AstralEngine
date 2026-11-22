@@ -209,12 +209,70 @@ void on_start(Context& ctx) override {
 - Mesh'i dosyadan: `PrimitiveMesh` (küp/küre/düzlem + materyal) veya `ModelRef` (glTF).
 - Örnek: `examples/scene_viewer` — RGB oda `assets/showcase.scene` + üç prefab; dosyaları çalışırken düzenle.
 
+## Ses, HUD ve debug arayüzü
+
+- **Ses:** `ctx.audio->play(ctx.sound("sfx/hit.wav"), {.pitch = 1.2f, .spatial = true, .position = p})`. Sürekli ses
+  için sahneye `astral::AudioSource` koy. Başsız/offscreen çalışmada ses sessiz karışır (test yazmak güvenli).
+- **HUD:** `ctx.hud.text(*ctx.font, "Skor 3", {x, y}, {.size = 48, .shadow = true})`, `ctx.hud.rect(...)`; piksel
+  koordinatı, sol üst orijin; her kare temizlenir, kendi kodun her kare çizer. Boyut için `ctx.screen_size()`.
+- **Debug:** F1 debug arayüzünü açar (performans, entity listesi, reflection inspector). Kendi paneli
+  `Game::on_debug_ui` içinde Dear ImGui ile çiz; `ctx.debug.line/cross/...` ile 3D çizgi, `ctx.debug_show` ile hazır
+  katmanlar (fizik şekilleri, ışıklar, dünya hücreleri).
+- **Açık dünya:** `ctx.open_world("maps/island.world")`; hücreler `StreamingSource` ya da kamera çevresinde akar
+  ([scenes-and-worlds.md](scenes-and-worlds.md)).
+
+## Özellik paketleri ve Luau
+
+Büyüyen oyunu spagettiye çevirmemek için oyun **özellik paketlerinden** oluşur (ADR-0023). Bir özellik küçük bir
+klasördür; kurallar Luau'da, ağır işler C++'ta, hepsi aynı component'ler üstünde konuşur.
+
+```
+src/features/combat/        combat.cpp  types.hpp          # C++: component/olay tipleri, ağır sistemler
+assets/features/combat/     feature.json  combat.luau  combat.actions
+```
+
+`feature.json` özelliğin API'sidir: adı, hangi özelliklere bağlı olduğu, sahip olduğu component ve olaylar, başka
+özelliklerin `#include` edebileceği başlıklar, yükleyeceği script ve eylem dosyaları, ayarlar.
+
+```cpp
+FeatureSet game;
+game.add("health", install_health);        // install(FeatureContext&): component<T>(), event<T>(), system<S>(faz)
+game.add("combat", install_combat);        // bağımlılığı sıraya kendiliğinden girer; döngü hata verir
+if (!game.install(ctx)) ctx.quit();        // hata mesajı ne yapılacağını söyler
+```
+
+```lua
+-- assets/features/combat/combat.luau
+astral.define_component("game::Cooldown", { left = {type = "f32", default = 0} })
+astral.system {
+    phase = "FixedUpdate", query = {"game::Weapon", "game::Cooldown"},
+    update = function(ctx, entity, weapon, cooldown)
+        cooldown.left = math.max(0, cooldown.left - ctx.fixed_delta)
+        if astral.input.pressed("fire") and cooldown.left == 0 then
+            cooldown.left = weapon.rate
+            astral.send("game::Fired", {who = entity})
+        end
+    end,
+}
+```
+
+- **Kurallar:** component = veri; sistem = tek iş; özellikler birbirini çağırmaz, olaylarla konuşur; durum
+  component'te (script yeniden yüklenince kaybolmasın); sayılar dosyada. `astral-features check` bunu denetler.
+- **Script'i çalışırken düzenle:** dosyayı kaydet, ~yarım saniyede yeni kural çalışır; bozuk dosya eskisini bırakır
+  ve hata `dosya:satır` ile loglanır.
+- **Girdi:** tuş kodlarını değil eylemleri kullan (`.actions` dosyası: `button`, `axis`, `axis2`, `mouse_delta`).
+- **API belgesi:** `ctx.write_script_api("docs/api")` her component, alan ve olayı `astral.d.luau` (editör/AI tip
+  tanımı) ve `API.md` olarak yazar. `examples/pong --script-api klasör` ile dene.
+- **Örnek:** `examples/pong` — `pong_rules` (Luau kuralları), `pong_scorelights`, `pong_audio`. Yapay zekâ ajanları
+  için kurallar kökteki `AGENTS.md`'de.
+- Ayrıntı: [modules/script.md](../modules/script.md), [modules/app.md](../modules/app.md#oyun-çatısı-m11).
+
 ## Paketleme
 
 Oyunu CMake'te `astral_add_game` ile tanımla; asset klasörü yanında:
 
 ```cmake
-find_package(Astral 0.15 CONFIG REQUIRED COMPONENTS App)   # ya da motorun içinden: add_subdirectory
+find_package(Astral 0.16 CONFIG REQUIRED COMPONENTS App)   # ya da motorun içinden: add_subdirectory
 astral_add_game(arena SOURCES src/main.cpp src/combat.cpp ASSETS content)
 ```
 

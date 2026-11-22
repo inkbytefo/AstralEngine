@@ -1,0 +1,12 @@
+{
+  "format": "astral.actions",
+  "version": 1,
+  "actions": {
+    "move": {
+      "type": "axis2",
+      "x": { "negative": ["A", "Left"], "positive": ["D", "Right"] },
+      "y": { "negative": ["S", "Down"], "positive": ["W", "Up"] }
+    },
+    "look": { "type": "axis2", "mouse_delta": [0.012, -0.012] }
+  }
+}

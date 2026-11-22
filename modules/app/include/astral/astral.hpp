@@ -3,6 +3,9 @@
 
 #include <astral/app/app.hpp>
 #include <astral/app/components.hpp>
+#include <astral/app/feature.hpp>
+#include <astral/app/input_actions.hpp>
+#include <astral/script/script.hpp>
 #include <astral/assets/asset_manager.hpp>
 #include <astral/physics/physics.hpp>
 #include <astral/core/log.hpp>

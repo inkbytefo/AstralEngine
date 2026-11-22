@@ -70,7 +70,8 @@ jobs:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $LINUX_DEPS
       - run: cmake --preset tsan
-      - run: cmake --build --preset tsan --target astral_core_tests astral_world_tests astral_physics_tests
+      - run: cmake --build --preset tsan --target astral_core_tests astral_world_tests astral_physics_tests astral_script_tests
       - run: ./build/tsan/modules/core/astral_core_tests
       - run: ./build/tsan/modules/world/astral_world_tests
       - run: ./build/tsan/modules/physics/astral_physics_tests
+      - run: ./build/tsan/modules/script/astral_script_tests

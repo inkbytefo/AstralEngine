@@ -1,0 +1,9 @@
+{
+  "format": "astral.feature",
+  "version": 1,
+  "name": "pong_audio",
+  "description": "What the match sounds like: serves, bounces, points, results.",
+  "depends_on": ["pong_rules"],
+  "components": ["pong::Sounds"],
+  "exports": { "headers": [] }
+}

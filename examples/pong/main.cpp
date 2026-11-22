@@ -3,10 +3,11 @@
 //
 //   pong                                   play
 //   pong --demo                            the AI plays both sides
+//   pong --script-api <folder>             also writes astral.d.luau and API.md (the script API)
 //   pong --capture out.ppm [--frames N] [--width W] [--height H]   AI vs AI, one image
 //
-// Everything you see is assets/court.scene and its prefabs (edit them while it runs); this file
-// and pong.cpp are only the rules.
+// Everything you see is assets/court.scene and its prefabs (edit them while it runs); the rules are
+// Luau (assets/features/pong_rules/*.luau, reloaded when you save) and two small C++ features.
 
 #include "pong.hpp"
 
@@ -22,11 +23,16 @@ namespace {
 
 class PongGame final : public Game {
 public:
-    explicit PongGame(bool demo) : demo_(demo) {}
+    PongGame(bool demo, std::string script_api) : demo_(demo), script_api_(std::move(script_api)) {}
 
     void on_start(Context& ctx) override {
-        pong::install(ctx, demo_);
+        if (!pong::install(ctx)) {
+            ctx.quit();
+            return;
+        }
         ctx.load_scene("court.scene");
+        if (demo_) pong::set_player_ai(ctx.world, true);
+        if (!script_api_.empty()) ctx.write_script_api(script_api_);
         if (ctx.window && !demo_) ctx.window->set_mouse_captured(true);
     }
 
@@ -69,6 +75,7 @@ private:
     }
 
     bool demo_;
+    std::string script_api_;
     int shown_ = -1;
 };
 
@@ -86,11 +93,13 @@ bool write_ppm(const char* path, const std::vector<std::uint8_t>& rgba, std::uin
 int main(int argc, char** argv) {
     const char* out = nullptr;
     bool demo = false;
+    std::string script_api;
     std::uint32_t frames = 150, width = 1280, height = 720;
     for (int i = 1; i < argc; ++i) {
         auto next = [&] { return i + 1 < argc ? argv[++i] : "0"; };
         if (!std::strcmp(argv[i], "--demo")) demo = true;
         else if (!std::strcmp(argv[i], "--capture")) out = next();
+        else if (!std::strcmp(argv[i], "--script-api")) script_api = next();
         else if (!std::strcmp(argv[i], "--frames")) frames = static_cast<std::uint32_t>(std::atoi(next()));
         else if (!std::strcmp(argv[i], "--width")) width = static_cast<std::uint32_t>(std::atoi(next()));
         else if (!std::strcmp(argv[i], "--height")) height = static_cast<std::uint32_t>(std::atoi(next()));
@@ -100,7 +109,7 @@ int main(int argc, char** argv) {
     App app({.title = "Astral Pong", .width = width, .height = height,
              .fixed_timestep = out ? 1.0f / 60.0f : 0.0f, // captures are deterministic
              .render = render, .asset_root = ASTRAL_GAME_ASSETS, .pack = ASTRAL_GAME_PACK, .offscreen = out != nullptr});
-    PongGame game(demo || out);
+    PongGame game(demo || out, script_api);
     if (!out) return app.run(game);
 
     app.run_frames(game, frames);

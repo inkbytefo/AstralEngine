@@ -106,23 +106,17 @@ namespace {
 std::string live_ref(Entity e) { return "#" + std::to_string(e.index) + "." + std::to_string(e.generation); }
 } // namespace
 
-Json component_to_json(World& world, const TypeRegistry::Entry& type, Entity entity) {
-    if (!world.alive(entity) || !type.has(world, entity)) return nullptr;
+SaveContext live_save_context(World& world) {
     SaveContext ctx;
-    ctx.ref = [&](Entity e) { return world.alive(e) ? Json(live_ref(e)) : Json(nullptr); };
-    return type.save(world, entity, ctx);
+    ctx.ref = [&world](Entity e) { return world.alive(e) ? Json(live_ref(e)) : Json(nullptr); };
+    return ctx;
 }
 
-std::vector<std::string> component_from_json(World& world, const TypeRegistry::Entry& type, Entity entity, const Json& value) {
-    std::vector<std::string> errors;
-    if (!world.alive(entity)) {
-        errors.push_back("component_from_json: dead entity");
-        return errors;
-    }
+LoadContext live_load_context(World& world, std::vector<std::string>* errors, std::string path) {
     LoadContext ctx;
-    ctx.errors = &errors;
-    ctx.path = std::string(type.name);
-    ctx.resolve = [&](const Json& j, Entity& out) {
+    ctx.errors = errors;
+    ctx.path = std::move(path);
+    ctx.resolve = [&world](const Json& j, Entity& out) {
         const std::string& s = j.as_string();
         const std::size_t dot = s.find('.');
         if (!j.is_string() || s.size() < 4 || s[0] != '#' || dot == std::string::npos) return false;
@@ -133,7 +127,21 @@ std::vector<std::string> component_from_json(World& world, const TypeRegistry::E
         }
         return world.alive(out);
     };
-    type.load(world, entity, value, ctx);
+    return ctx;
+}
+
+Json component_to_json(World& world, const TypeRegistry::Entry& type, Entity entity) {
+    if (!world.alive(entity) || !type.has(world, entity)) return nullptr;
+    return type.save(world, entity, live_save_context(world));
+}
+
+std::vector<std::string> component_from_json(World& world, const TypeRegistry::Entry& type, Entity entity, const Json& value) {
+    std::vector<std::string> errors;
+    if (!world.alive(entity)) {
+        errors.push_back("component_from_json: dead entity");
+        return errors;
+    }
+    type.load(world, entity, value, live_load_context(world, &errors, std::string(type.name)));
     return errors;
 }
 

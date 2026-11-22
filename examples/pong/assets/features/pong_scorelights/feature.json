@@ -1,0 +1,9 @@
+{
+  "format": "astral.feature",
+  "version": 1,
+  "name": "pong_scorelights",
+  "description": "The score lights: a pip glows while its side has more points than its index.",
+  "depends_on": ["pong_rules"],
+  "components": ["pong::ScorePip"],
+  "exports": { "headers": [] }
+}

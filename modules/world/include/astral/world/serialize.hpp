@@ -17,11 +17,13 @@
 #include <astral/core/json.hpp>
 #include <astral/core/math.hpp>
 #include <astral/core/reflect.hpp>
+#include <astral/world/fields.hpp>
 #include <astral/world/transform.hpp>
 #include <astral/world/world.hpp>
 
 #include <array>
 #include <charconv>
+#include <deque>
 #include <functional>
 #include <optional>
 #include <span>
@@ -238,13 +240,17 @@ public:
         std::string_view name;
         std::uint64_t id = 0; ///< stable_hash(name)
         ComponentId component = 0;
-        bool (*has)(World&, Entity) = nullptr;
-        Json (*save)(World&, Entity, const SaveContext&) = nullptr;
-        void (*load)(World&, Entity, const Json&, const LoadContext&) = nullptr;
-        void (*remove)(World&, Entity) = nullptr;
+        std::function<bool(World&, Entity)> has;
+        std::function<Json(World&, Entity, const SaveContext&)> save;
+        std::function<void(World&, Entity, const Json&, const LoadContext&)> load;
+        std::function<void(World&, Entity)> remove;
         /// Reads `j` as T and writes it back: fills missing fields with defaults, rounds numbers to the
         /// field's type, and lets the two contexts rewrite entity references. Errors go to `in`.
-        Json (*transcode)(const Json& j, const LoadContext& in, const SaveContext& out) = nullptr;
+        std::function<Json(const Json& j, const LoadContext& in, const SaveContext& out)> transcode;
+        /// Memory layout of the fields (for scripts and tools); declaration order.
+        std::vector<FieldInfo> fields;
+        /// Script-defined (add_dynamic): plain data, no C++ type behind it.
+        bool dynamic = false;
     };
 
     /// T must be ASTRAL_REFLECT'ed. Registering again is a no-op.
@@ -265,8 +271,15 @@ public:
                 T value{};
                 from_json(j, value, in);
                 return to_json(value, out);
-            }});
+            },
+            describe_fields<T>(), false});
     }
+
+    /// Defines a component from a schema at run time (plain data: Bool, Int, UInt, Float, Vec2..Quat,
+    /// Entity; at most 256 bytes). It behaves like a reflected C++ one: scenes, saves and the inspector
+    /// know it. Null with `*error` set if the name is taken or the schema is invalid. The pointer stays
+    /// valid until the next add; keep the Entry's index (entries()) for longer.
+    const Entry* add_dynamic(std::string_view name, std::vector<FieldDef> fields, std::string* error = nullptr);
 
     [[nodiscard]] const Entry* find(std::string_view name) const noexcept;
     [[nodiscard]] std::span<const Entry> entries() const noexcept { return entries_; }
@@ -284,6 +297,7 @@ public:
 
 private:
     std::vector<Entry> entries_;
+    std::deque<std::string> owned_names_; // names of script-defined components
     std::vector<bool (*)(World&, Entity)> excluded_;
 };
 
@@ -294,6 +308,11 @@ struct LoadResult {
     std::vector<Entity> entities;     ///< In document order.
     std::vector<std::string> errors;  ///< Empty when everything loaded cleanly.
 };
+
+/// Contexts for live entities: references are "#index.generation" (they survive a round trip while the
+/// entity lives). Used by tools, scripts and event payloads. They refer to `world`: use them at once.
+[[nodiscard]] SaveContext live_save_context(World& world);
+[[nodiscard]] LoadContext live_load_context(World& world, std::vector<std::string>* errors, std::string path = {});
 
 /// One component of a live entity as JSON, for tools (inspector, console, network). Entity references
 /// are written as "#index.generation" so they survive a round trip. Null if the entity lacks it.

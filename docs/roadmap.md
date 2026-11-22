@@ -33,8 +33,8 @@ Sonraki fazların numarası birer kaydı.
 | M8 | Geliştirici altyapısı: debug UI, debug çizim, profiler, metin/HUD, ses; görüntü testleri | — | ✅ |
 | M9 | **Dünya ve harita sistemi:** `.world`, nesne başına dosya, hücreler + asenkron streaming, veri katmanları, bölüm örnekleri, kayan orijin ([ADR-0021](decisions/0021-world-and-level-system.md)) | M8 | ✅ |
 | M10 | **Shader dili ve materyaller:** `.ashader` (gdshader benzeri), `.material` + örnekler, çalışma anında derleme + hot-reload, raster/RT/gölge/forward varyantları, alfa testi, şeffaf geçiş ([ADR-0022](decisions/0022-shader-and-material-language.md)) | M8 | ✅ |
-| M11 | **Oyun kodu ve scripting:** özellik paketleri + SOLID kuralları + sınır denetimi ([ADR-0023](decisions/0023-modular-game-code.md)), Luau ([ADR-0017](decisions/0017-gameplay-scripting.md)), input eylemleri, `AGENTS.md`, üretilen API belgesi | M9 | 🔜 |
-| M12 | Fizik altyapısı: katmanlar, mesh/heightfield, eklemler, sorgular; **alan sistemi** (rüzgâr, su hacmi) ve kuvvetler | M8 | ⬜ |
+| M11 | **Oyun kodu ve scripting:** özellik paketleri + SOLID kuralları + sınır denetimi ([ADR-0023](decisions/0023-modular-game-code.md)), Luau ([ADR-0017](decisions/0017-gameplay-scripting.md), [ADR-0026](decisions/0026-script-host-and-features.md)), input eylemleri, `AGENTS.md`, üretilen API belgesi | M9 | ✅ |
+| M12 | Fizik altyapısı: katmanlar, mesh/heightfield, eklemler, sorgular; **alan sistemi** (rüzgâr, su hacmi) ve kuvvetler | M8 | 🔜 |
 | M13 | Gelişmiş PBR: clearcoat, sheen, anizotropi, transmission, subsurface, decal, path tracer referansı | M10 | ⬜ |
 | M14 | **Atmosfer ve VFX:** fiziksel gökyüzü, froxel sis, **hacimsel efektler (CS2 dumanı)**, GPU partikülleri, decal/iz, `.vfx` ([ADR-0024](decisions/0024-volumetric-vfx.md)) | M10, M12 | ⬜ |
 | M15 | Arazi I: Terrain3D benzeri heightfield (clipmap, bölgeler, 32 katman, sculpt, delik, fizik, yerleştirme), dünya hücreleriyle stream ([ADR-0018](decisions/0018-terrain-and-sdf-world.md)) | M9, M10, M12 | ⬜ |
@@ -93,7 +93,7 @@ Sonraki fazların numarası birer kaydı.
 - *Çıkış:* rüzgârda sallanan yaprak, cam, akan lav ve hologram materyalleri dosyadan; shader düzenlenince
   oyun durmadan değişiyor; raster ve RT görüntüleri aynı materyali gösteriyor.
 
-**M11 — Oyun kodu ve scripting.** Kararlar: [ADR-0023](decisions/0023-modular-game-code.md),
+**M11 — Oyun kodu ve scripting ✅** (sonuç: aşağıda "Tamamlanan fazlar"). Kararlar: [ADR-0023](decisions/0023-modular-game-code.md),
 [ADR-0017](decisions/0017-gameplay-scripting.md).
 - Özellik paketleri (`feature.json`, `install`), bağımlılık sırası, sınır denetimi (build/lint).
 - `Astral::Script` (Luau): reflection'dan bağlama, sistem script'leri ve entity davranışları, script'te
@@ -384,3 +384,21 @@ dosyası okuma ana iş parçacığında; gökyüzü arka planı ortam rengini iz
 **Bilinen sınırlar:** referanslar lavapipe ile üretildi; farklı sürücü/GPU'da tolerans aşılırsa referansı o
 ortam için güncellemek gerekir. Bağımsız kod incelemesi token bütçesi nedeniyle bu fazda yapılmadı.
 
+## M11 — Oyun kodu ve scripting ✅
+
+**Sonuç (0.16.0):** Kararlar: [ADR-0017](decisions/0017-gameplay-scripting.md), [ADR-0023](decisions/0023-modular-game-code.md),
+uygulama sapmaları [ADR-0026](decisions/0026-script-host-and-features.md). Modül: [script.md](modules/script.md).
+- **World:** ham (tip-silinmiş) component erişimi, reflection'dan alan tabloları, şemadan **dinamik component'ler**
+  (sahne/kayıt/inspector yolunu kullanır), adla gönderilen/okunan olaylar (`EventRegistry`).
+- **Script (`Astral::Script`, Luau 0.748):** sistemler (entity başına veya fazda bir kez), davranışlar,
+  olay dinleyicileri, zamanlayıcılar, `astral.query/spawn/find`, sandbox, zaman bütçesi, `dosya:satır` hataları,
+  hot reload (hatada eski sürüm kalır), reflection'dan canlı component vekilleri.
+- **Oyun çatısı:** `FeatureSet`/`feature.json` (bağımlılık sırası, döngü ve manifestte olmayan kayıt hataları),
+  `astral-features check` sınır denetimi (CTest), `.actions` input eylemleri, `ctx.write_script_api`
+  (`astral.d.luau` + `API.md`), kök `AGENTS.md`.
+- **Pong** üç özellik paketi oldu: `pong_rules` (kurallar Luau, veri C++), `pong_scorelights`, `pong_audio`;
+  aynı beş test geçiyor.
+
+**Bilinen eksikler (sonraki fazlara girdi):** gamepad, tween/durum makinesi/tetik hacmi/kayıt yardımcıları,
+Luau bytecode cook'u, luau-analyze doğrulaması, iç içe reflection'ın script erişimi
+([script.md → Bilinen sınırlar](modules/script.md#bilinen-sınırlar)).

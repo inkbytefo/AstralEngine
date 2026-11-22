@@ -7,6 +7,15 @@ if(ASTRAL_INSTALL)
     install(TARGETS astral_cook EXPORT AstralTargets RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
+# astral-features: checks the boundaries of a game's feature packages (ADR-0023).
+add_executable(astral_features astral_features/main.cpp)
+set_target_properties(astral_features PROPERTIES OUTPUT_NAME astral-features EXPORT_NAME astral_features)
+target_link_libraries(astral_features PRIVATE Astral::App)
+astral_set_warnings(astral_features)
+if(ASTRAL_INSTALL)
+    install(TARGETS astral_features EXPORT AstralTargets RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+
 if(ASTRAL_BUILD_TESTS)
     # Smoke test of the command line: cook + pack a small folder, then cook again (nothing to do).
     set(out ${CMAKE_CURRENT_BINARY_DIR}/cli_test)

@@ -4,6 +4,25 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-11-22 — M11 (oyun kodu ve Luau scripting)
+
+### Added
+- world: ham component erişimi (`add_raw/get_raw/has_raw/remove_raw/each_raw`), `FieldInfo`/`describe_fields`
+  alan tabloları, `TypeRegistry::add_dynamic` (şemadan component), `live_save_context/live_load_context`,
+  `EventRegistry` (adla olay gönder/oku, dinamik olaylar).
+- script (yeni modül): `ScriptHost` (Luau 0.748), `astral` API'si (system, behaviour, on, send, query, spawn,
+  find, define_component/event, after/every/cancel, random, input, log), sandbox, zaman bütçesi, hot reload,
+  `Script` component'i, `generate_script_api` (`astral.d.luau`, `API.md`).
+- app: `FeatureSet`/`FeatureContext`/`feature.json`, `check_features` + `astral-features` aracı, `InputActions`
+  (`.actions`), `ctx.scripts/events/actions/load_script/load_actions/write_script_api`, script fazları.
+- `examples/pong`: üç özellik paketi (`pong_rules` Luau, `pong_scorelights`, `pong_audio`), `pong_features_check`
+  testi, `pong --script-api <klasör>`.
+- Belgeler: ADR-0026, `modules/script.md`, `AGENTS.md`, rehber "özellik paketleri ve Luau".
+
+### Changed
+- `TypeRegistry::Entry` işlevleri `std::function`; `Pong` kuralları C++'tan Luau'ya taşındı
+  (`pong::install(ctx)` artık `bool` döner, `Match` bir component, `Ball::velocity` ve AI durumu reflect edilir).
+
 ## [0.15.0] — 2026-11-22 — M10 (shader dili ve materyaller)
 
 ### Added

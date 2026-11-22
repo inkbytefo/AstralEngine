@@ -16,8 +16,9 @@ struct Run final : Game {
     bool player_ai = true;
     std::function<void(Context&)> setup, each_frame;
     void on_start(Context& ctx) override {
-        pong::install(ctx, player_ai);
+        REQUIRE(pong::install(ctx));
         REQUIRE(ctx.load_scene("court.scene").errors.empty());
+        pong::set_player_ai(ctx.world, player_ai);
         if (setup) setup(ctx);
     }
     void on_update(Context& ctx) override {

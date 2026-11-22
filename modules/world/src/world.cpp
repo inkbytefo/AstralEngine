@@ -129,6 +129,68 @@ World::~World() {
     for (auto& [id, r] : resources_) r.destroy(r.ptr);
 }
 
+bool World::add_raw(Entity entity, const ComponentInfo& info, void* value) {
+    check_not_iterating("add");
+    Slot* s = slot(entity);
+    if (!s) return false;
+    if (std::byte* existing = get_raw(entity, info.id)) { // marks it changed
+        info.move_assign(existing, value);
+        return true;
+    }
+    detail::Archetype* to = with_component(s->archetype, info);
+    const std::size_t row = move_entity(entity, *s, to);
+    info.move_construct(to->column_data(info.id) + row * info.size, value);
+    return true;
+}
+
+std::byte* World::get_raw(Entity entity, ComponentId id) noexcept {
+    Slot* s = slot(entity);
+    if (!s) return nullptr;
+    std::byte* column = s->archetype->column_data(id);
+    if (!column) return nullptr;
+    mark_changed(*s, id);
+    return column + s->row * s->archetype->column(static_cast<std::size_t>(s->archetype->column_of(id))).info->size;
+}
+
+const std::byte* World::get_raw(Entity entity, ComponentId id) const noexcept {
+    const Slot* s = slot(entity);
+    if (!s) return nullptr;
+    const int c = s->archetype->column_of(id);
+    if (c < 0) return nullptr;
+    detail::Column& column = s->archetype->column(static_cast<std::size_t>(c));
+    return column.data + s->row * column.info->size;
+}
+
+bool World::has_raw(Entity entity, ComponentId id) const noexcept {
+    const Slot* s = slot(entity);
+    return s && s->archetype->contains(id);
+}
+
+bool World::remove_raw(Entity entity, ComponentId id) {
+    check_not_iterating("remove");
+    Slot* s = slot(entity);
+    if (!s || !s->archetype->contains(id)) return false;
+    move_entity(entity, *s, without_component(s->archetype, id));
+    return true;
+}
+
+void World::each_raw(std::span<const ComponentId> ids, const std::function<void(Entity)>& fn) {
+    std::vector<ComponentId> sorted(ids.begin(), ids.end());
+    std::sort(sorted.begin(), sorted.end());
+    sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
+    IterationGuard guard(*this);
+    for (detail::Archetype* a : find_query(std::move(sorted)).matches) {
+        for (std::size_t row = 0; row < a->size(); ++row) fn(a->entity(row));
+    }
+}
+
+void World::keep_alive(std::shared_ptr<const void> owner) {
+    for (const auto& existing : keep_alive_) {
+        if (existing == owner) return;
+    }
+    keep_alive_.push_back(std::move(owner));
+}
+
 void World::check_not_iterating(const char* operation) const {
     (void)operation;
     ASTRAL_ASSERT(iterating_ == 0,

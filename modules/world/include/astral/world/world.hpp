@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <functional>
+#include <span>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -120,6 +122,19 @@ public:
     template <class T> [[nodiscard]] T* get(Entity entity) noexcept;
     template <class T> [[nodiscard]] bool has(Entity entity) const noexcept;
 
+    // Raw access by component id: for scripts, tools and script-defined components. Same rules as the
+    // typed calls (a mutable get marks the component changed). Null / false for dead entities.
+    /// Adds or replaces; `value` is moved from. False for a dead entity.
+    bool add_raw(Entity entity, const ComponentInfo& info, void* value);
+    [[nodiscard]] std::byte* get_raw(Entity entity, ComponentId id) noexcept;
+    [[nodiscard]] const std::byte* get_raw(Entity entity, ComponentId id) const noexcept;
+    [[nodiscard]] bool has_raw(Entity entity, ComponentId id) const noexcept;
+    bool remove_raw(Entity entity, ComponentId id);
+    /// Calls fn(Entity) for every entity that has all of `ids`. No structural changes inside.
+    void each_raw(std::span<const ComponentId> ids, const std::function<void(Entity)>& fn);
+    /// Keeps `owner` alive as long as the world (type data behind script-defined components).
+    void keep_alive(std::shared_ptr<const void> owner);
+
     // Queries -----------------------------------------------------------------------------
     /// A filtered query: `world.query<Pos, const Vel>().without<Frozen>().changed<Vel>().each(fn)`.
     template <class... Cs> [[nodiscard]] QueryView<Cs...> query();
@@ -214,6 +229,7 @@ private:
     Tick tick_ = 1;
     Tick baseline_ = 0;
     std::vector<std::pair<ComponentId, void (*)(void*)>> event_updaters_;
+    std::vector<std::shared_ptr<const void>> keep_alive_; // type data behind script-defined components
 };
 
 /// Builder over World::each with filters. Cheap to create; build it where you use it.

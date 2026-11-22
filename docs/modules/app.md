@@ -44,6 +44,25 @@ entity'nin dönüşü/ölçeğiyle döner — yalnız ray-traced yolda). Güneş
 renderer/GPU kaynağı bırakabilirler), sonra renderer, swapchain, device ve pencere. Küçültülmüş
 pencerede döngü işlemciyi yormaz.
 
+## Oyun çatısı (M11)
+
+Karar: [ADR-0023](../decisions/0023-modular-game-code.md), [ADR-0026](../decisions/0026-script-host-and-features.md).
+Script modülü: [script.md](script.md).
+
+| Başlık | Ne |
+|---|---|
+| `feature.hpp` | `FeatureManifest` + `parse_feature_manifest`; `FeatureSet::add(ad, install)` / `install(ctx)` (manifestleri `assets/features/<ad>/feature.json`'dan okur, bağımlılık sırasıyla kurar, döngü/eksik bağımlılık/ad uyuşmazlığı/manifestte olmayan kayıt hata verir, sonra `actions` ve `scripts` dosyalarını yükler); `FeatureContext` (`component<T>()`, `event<T>()`, `system<S>(faz)`, `number/text/flag` ayarları) |
+| `feature_check.hpp` | `check_features(kaynaklar, manifestler)`; CLI: `astral-features check <kaynak klasörü> <manifest klasörü>` (Pong'da CTest `pong_features_check`) |
+| `input_actions.hpp` | `InputActions`: `.actions` dosyası (`button`, `axis`, `axis2`, `mouse_delta`) → adlandırılmış eylemler; `down/pressed/released/value/axis` |
+
+`Context` yeni üyeleri: `scripts`, `events` (`EventRegistry`), `actions`, `load_script(yol)` (hata listesi döner;
+dosya değişince yeniden yüklenir), `load_actions(yol)`, `write_script_api(klasör)`, `api_owners`.
+Script'ler her fazda C++ sistemlerinden sonra çalışır; `Time` script'e `ctx.delta/fixed_delta/time` olarak gider.
+Hot reload yalnız geliştirmede (paket yokken) ve `AppDesc::hot_reload` açıkken, 0.5 sn'de bir içerik karşılaştırarak.
+
+Kurulum örneği (Pong): `FeatureSet game; game.add("pong_rules", install_rules); game.add("pong_audio",
+install_audio); if (!game.install(ctx)) ctx.quit();`
+
 ## Bilinen sınırlar
 
 - Pencere yeniden boyutlanınca swapchain kendini yeniler; olay callback'i yok.
@@ -151,3 +170,5 @@ kontrol yok). Materyal handle'ları sabit kalır (yerinde güncellenir). Derlenm
 `.material` (ebeveynli) kullan. glTF materyalleri yerleşik standart yolda kalır (`standard.ashader` örneği
 olarak yüklenmiyor). Doku dosyaları hot reload edilmez. Shader derleme ana iş parçacığında (yüklemede ve
 düzenlemede kısa takılma).
+- Gamepad eylemi yok. Script'ler her karede ve fazda çalışır (profiler'da "scripts" kapsamı); script başına süre
+  ayrımı yok. `.actions` ve script dosyalarının hot reload'u içerik karşılaştırır (dosya sistemi izleme yok).

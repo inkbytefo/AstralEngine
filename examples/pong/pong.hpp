@@ -1,103 +1,25 @@
 #pragma once
 // 3D Pong ("Curveball"): a ball in a tunnel, your paddle at the near end, the AI's at the far end.
-// The court, paddles and rules live in assets/*.scene / *.prefab; this file is only behaviour.
+// A game made of feature packages (ADR-0023):
+//   pong_rules        data (types.hpp) + the rules in Luau (assets/features/pong_rules/*.luau)
+//   pong_scorelights  C++ system: lights the score pips
+//   pong_audio        C++ system: plays the match
+// The court, paddles and lights live in assets/*.scene / *.prefab.
 
-#include <astral/astral.hpp>
-
-#include <cstdint>
-#include <random>
-#include <string>
+#include "features/pong_audio/sounds.hpp"
+#include "features/pong_rules/types.hpp"
+#include "features/pong_scorelights/lights.hpp"
 
 namespace pong {
 
-enum class Side : std::uint8_t { Player, Opponent };
+/// Installs the three features (components, events, systems, scripts, input actions). Call in
+/// on_start, before loading the court scene. False (logged) if a feature cannot be installed.
+bool install(astral::Context& ctx);
 
-/// Rules and size of the tunnel (one per scene).
-struct Court {
-    astral::Vec3 half_extents{4.0f, 2.5f, 9.0f}; ///< Inner half size; the paddles play at z = +-paddle_z.
-    float paddle_z = 8.4f;
-    std::int32_t points_to_win = 5;
-    float serve_delay = 1.0f;     ///< Seconds before a serve.
-    std::uint32_t seed = 1;       ///< Serve angles: same seed, same match.
-};
+/// The AI plays your paddle too (demo / capture), or not.
+void set_player_ai(astral::World& world, bool on);
 
-struct Paddle {
-    Side side = Side::Player;
-    bool ai = false;
-    astral::Vec2 half_size{1.2f, 0.8f};
-    float speed = 9.0f;           ///< m/s
-    float reaction = 1.0f;        ///< AI: fraction of `speed` it moves at (lower = easier).
-    float accuracy = 0.9f;        ///< AI: 1 = reads the ball perfectly; lower misjudges fast balls more.
-};
-
-struct Ball {
-    float radius = 0.3f;
-    float serve_speed = 9.0f;
-    float max_speed = 26.0f;
-    float speedup = 1.06f;        ///< Speed factor per paddle hit.
-    float spin = 0.6f;            ///< How much the hit position bends the ball.
-    astral::Vec3 velocity{};      ///< Runtime (zero while waiting for a serve).
-};
-
-/// A score light: lit while `side` has more than `index` points.
-struct ScorePip {
-    Side side = Side::Player;
-    std::int32_t index = 0;
-    astral::Vec3 color{1, 1, 1};
-};
-
-/// Follows the ball's depth (the ring that shows how far away it is).
-struct DepthMarker {};
-
-/// What the match sounds like (asset paths; empty = silent). On the court entity.
-struct Sounds {
-    std::string paddle = "sounds/paddle.wav";
-    std::string wall = "sounds/wall.wav";
-    std::string serve = "sounds/serve.wav";
-    std::string point_won = "sounds/point_won.wav";   ///< You scored.
-    std::string point_lost = "sounds/point_lost.wav";
-    std::string match_won = "sounds/match_won.wav";
-    std::string match_lost = "sounds/match_lost.wav";
-    float volume = 0.8f;
-};
-
-/// Sent when a side scores.
-struct Scored {
-    Side by;
-};
-
-/// Sent when the ball is served or bounces (fixed step); sounds and effects listen to it.
-struct Bounced {
-    enum class On : std::uint8_t { Serve, Wall, Paddle } on;
-    astral::Vec3 position;
-    float speed;           ///< m/s after the bounce.
-};
-
-/// Match state (a world resource).
-struct Match {
-    std::int32_t player = 0;
-    std::int32_t opponent = 0;
-    float serve_timer = 0.0f;
-    Side serve_to = Side::Player;
-    float game_over_timer = 0.0f; ///< > 0: the match ended, a new one starts when it runs out.
-    std::uint64_t rallies = 0;    ///< Paddle hits so far.
-    std::minstd_rand rng{1};
-    bool seeded = false;
-};
-
-/// Registers the components (so scene files can use them) and the systems. Call in on_start,
-/// before loading the court scene. `player_ai`: the AI plays your paddle too (demo / capture).
-void install(astral::Context& ctx, bool player_ai = false);
-
-/// Current match state (null before install).
+/// Current match state (null before the court scene is loaded).
 const Match* match(astral::World& world);
 
 } // namespace pong
-
-ASTRAL_REFLECT_ENUM(pong::Side, Player, Opponent)
-ASTRAL_REFLECT(pong::Court, half_extents, paddle_z, points_to_win, serve_delay, seed)
-ASTRAL_REFLECT(pong::Paddle, side, ai, half_size, speed, reaction, accuracy)
-ASTRAL_REFLECT(pong::Ball, radius, serve_speed, max_speed, speedup, spin)
-ASTRAL_REFLECT(pong::ScorePip, side, index, color)
-ASTRAL_REFLECT_EMPTY(pong::DepthMarker)
-ASTRAL_REFLECT(pong::Sounds, paddle, wall, serve, point_won, point_lost, match_won, match_lost, volume)

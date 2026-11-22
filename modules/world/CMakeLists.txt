@@ -3,6 +3,8 @@ astral_add_module(NAME world
         src/world.cpp
         src/transform.cpp
         src/serialize.cpp
+        src/fields.cpp
+        src/dynamic.cpp
         src/scene.cpp
         src/map.cpp
         src/streaming.cpp
@@ -21,6 +23,7 @@ astral_add_tests(MODULE world
         tests/collision_b.cpp
         tests/query_test.cpp
         tests/serialize_test.cpp
+        tests/dynamic_test.cpp
         tests/scene_test.cpp
         tests/map_test.cpp
         tests/streaming_test.cpp

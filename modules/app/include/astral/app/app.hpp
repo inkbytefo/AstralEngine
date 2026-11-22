@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astral/app/components.hpp>
+#include <astral/app/input_actions.hpp>
 #include <astral/core/jobs.hpp>
 #include <astral/core/log.hpp>
 #include <astral/core/profiler.hpp>
@@ -8,6 +9,8 @@
 #include <astral/assets/asset_manager.hpp>
 #include <astral/render/renderer.hpp>
 #include <astral/render/text.hpp>
+#include <astral/script/api.hpp>
+#include <astral/script/script.hpp>
 #include <astral/world/map_state.hpp>
 #include <astral/world/origin.hpp>
 #include <astral/world/scene.hpp>
@@ -17,6 +20,7 @@
 #include <astral/world/world.hpp>
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <span>
 #include <string>
@@ -124,6 +128,27 @@ public:
     std::vector<MaterialHandle> post;
     DirectionalLight sun{};   ///< The sun (direction, color, shadows).
     Environment environment{}; ///< Sky/ground ambient and exposure.
+
+    /// Events by name (scripts send and listen through it): add your ASTRAL_REFLECT'ed events with
+    /// events.add<T>(); scripts can define their own with astral.define_event.
+    EventRegistry events;
+    /// Named input actions ("move", "fire"): fill with load_actions(); scripts read them as astral.input.
+    InputActions actions;
+    /// The Luau host (ADR-0017). Always available; scripts run in the phases of the frame, after the C++
+    /// systems of the same phase.
+    ScriptHost* scripts = nullptr;
+    /// Loads (or reloads) a script file relative to the asset root; it is reloaded when the file
+    /// changes (development builds). Returns the problems as "file:line: message" (empty = fine; they are
+    /// logged too). A failing reload keeps the previous version running.
+    std::vector<std::string> load_script(std::string_view path);
+    /// Which feature owns a component or event (filled by FeatureSet::install; shown in API.md).
+    std::map<std::string, std::string> api_owners;
+    /// Writes astral.d.luau (Luau type definitions) and API.md (reference) for everything registered now:
+    /// call after the features are installed. False (logged) if a file cannot be written.
+    bool write_script_api(std::string_view folder);
+    /// Loads an .actions file (see input_actions.hpp) into `actions`; reloaded when edited. False (logged)
+    /// if it cannot be read or is invalid.
+    bool load_actions(std::string_view path);
 
     template <class S, class... Args> S& add_system(Phase phase, Args&&... args) {
         auto system = std::make_unique<S>(std::forward<Args>(args)...);

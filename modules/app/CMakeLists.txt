@@ -19,6 +19,9 @@ endif()
 astral_add_module(NAME app
     SOURCES
         src/app.cpp
+        src/input_actions.cpp
+        src/feature.cpp
+        src/feature_check.cpp
         src/debug_ui.cpp
         src/map_runtime.cpp
         src/material_library.cpp
@@ -27,6 +30,7 @@ astral_add_module(NAME app
         Astral::Platform
         Astral::Gpu
         Astral::World
+        Astral::Script
         Astral::Render
         Astral::Assets
         Astral::Physics
@@ -36,6 +40,7 @@ astral_add_module(NAME app
 astral_add_tests(MODULE app
     SOURCES
         tests/test_main.cpp
+        tests/actions_test.cpp
         tests/app_test.cpp
         tests/physics_app_test.cpp
         tests/ecs_app_test.cpp
@@ -45,6 +50,8 @@ astral_add_tests(MODULE app
         tests/devtools_app_test.cpp
         tests/audio_app_test.cpp
         tests/world_app_test.cpp
+        tests/script_app_test.cpp
+        tests/feature_test.cpp
         tests/material_app_test.cpp)
 if(TARGET astral_app_tests)
     FetchContent_GetProperties(stb)

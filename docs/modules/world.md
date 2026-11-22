@@ -119,6 +119,20 @@ iş parçacığı yok (onları App yapar).
 | `origin.hpp` | `WorldPosition` (double), `FloatingOrigin` (eşik 2 km, 100 m'ye yuvarlanmış kayma, y kaymaz), `OriginShifted` olayı, `shift_roots` |
 | `scene.hpp` | Yeni: `save_entities` (seçili entity'leri sahne kaydı olarak) |
 
+## Ham erişim, alan tabloları, dinamik component'ler, adlı olaylar (M11)
+
+Script, araç ve ağ kodu için tip-silinmiş katman (yazılı API'nin yerine geçmez).
+
+| Başlık | Ne |
+|---|---|
+| `world.hpp` | `add_raw/get_raw/has_raw/remove_raw(entity, ComponentId)` (değişmez `get_raw` değişiklik işaretlemez), `each_raw(ids, fn)`, `keep_alive` |
+| `fields.hpp` | `FieldKind` (Bool, Int, UInt, Float, Vec2/3/4, Quat, EntityRef, Enum, String, Other), `FieldInfo` (ad, tür, ofset, boyut, enumerator'lar), `describe_fields<T>()`, `read_number/write_number`, `field_to_json/from_json` |
+| `serialize.hpp` | `TypeRegistry::Entry::fields`; `TypeRegistry::add_dynamic(ad, {FieldDef...}, &hata)` (şemadan component: düz veri, ≤ 256 bayt, sahne/kayıt/inspector yolunu kullanır); `live_save_context/live_load_context` (`"#index.generation"` referansları) |
+| `event_registry.hpp` | `EventRegistry`: `add<T>()` (yansıtılmış olay), `add_dynamic(ad)` (yalnız script'in bildiği, JSON yüklü); `Entry::send(world, json)` / `read(world, imleç, fn)` |
+
+`TypeRegistry::Entry` işlevleri `std::function`. `entries()` içindeki Entry'ye kalıcı işaretçi tutma:
+yeni dinamik component eklenince vektör büyüyebilir; indeks ya da ad tut.
+
 ## İçeride nasıl çalışıyor
 
 - **Component kimliği** tip başına benzersiz bir etiketin adresi: kayıt yok, global sayaç yok ve farklı
@@ -157,3 +171,5 @@ iş parçacığı yok (onları App yapar).
 - Kodla parçalara eklenen yeni çocuk entity'ler sahnede kendi kayıtları olarak kalır; hot-reload'da
   ebeveyn parça yeniden oluşturulduğundan bu çocukların Parent'ı boşa düşer.
 - `deleted` yolu artık olmayan bir parçayı gösterirse uyarı verilir, kayıt yine yüklenir.
+- Dinamik component'ler: en çok 256 bayt, düz veri, alanları sonradan değişmez; `World` ömrü boyunca tip verisi
+  `keep_alive` ile tutulur. `EventRegistry` ve `TypeRegistry` adları için sahiplik: ikisi de World'den uzun yaşamalı.
