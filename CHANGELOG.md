@@ -2,7 +2,9 @@
 
 Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](https://semver.org/).
 
-## [Unreleased] — v3
+## [Unreleased]
+
+## [0.13.0] — 2026-11-22 — M8 (geliştirici araçları, metin/HUD, ses)
 
 ### Added
 - M8.1 profiler: `Profiler` / `ASTRAL_PROFILE_SCOPE` (core), GPU timestamp sorguları (gpu), render graph'ta
@@ -14,6 +16,9 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
   (`UiLayer`); Pong'da ekranda skor ve sonuç.
 - M8.5 ses: `Astral::Audio` (miniaudio 0.11.26), `AssetManager::read`, `ctx.audio`, `ctx.sound`,
   `AudioSource` / `AudioListener`; Pong'da `Bounced` olayı, `pong::Sounds`, kodla üretilen sesler.
+- M8.6 görüntü testleri: `tests/golden` (`astral-golden` karşılaştırma aracı, toleranslı piksel farkı + fark
+  görüntüsü), `astral_add_golden_test`; scene_viewer, rt_showcase ve Pong için referans görüntüler
+  (`ctest -L golden`, güncelleme: `ASTRAL_UPDATE_GOLDEN=1`).
 - Platform: metin girişi, `executable_directory`. Core: `bytes.hpp`.
 - Belgeler: ADR-0019…0024 (geliştirici araçları, ses, dünya/harita sistemi, `.ashader` dili, modüler oyun
   kodu, hacimsel VFX), `guides/scenes-and-worlds.md`, `modules/audio.md`, yol haritası v4.

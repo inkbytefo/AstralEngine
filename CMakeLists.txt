@@ -49,6 +49,9 @@ endif()
 
 if(ASTRAL_BUILD_EXAMPLES)
     add_subdirectory(examples)
+    if(ASTRAL_BUILD_TESTS)
+        add_subdirectory(tests/golden)
+    endif()
 endif()
 
 if(ASTRAL_INSTALL)

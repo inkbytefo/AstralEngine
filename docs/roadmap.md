@@ -12,7 +12,7 @@ Durum: ✅ bitti · 🚧 sürüyor · 🔜 sıradaki · ⬜ planlı
 | M5a–c | ECS tamamlama, asset'ler (glTF, hot-reload), sahne ve prefab | ✅ |
 | M6 | Paketleme: cook, BC7/BC5, `.apak`, `astral_add_game` | ✅ |
 | M7 | İlk oyun: 3D Pong | ✅ |
-| M8 | Geliştirici araçları, metin/HUD, ses | 🚧 (M8.1–M8.5 ✅, M8.6 kaldı) |
+| M8 | Geliştirici araçları, metin/HUD, ses, görüntü testleri | ✅ |
 
 ## Plan v4 (2026-11-21)
 
@@ -28,7 +28,7 @@ Sonraki fazların numarası birer kaydı.
 
 | Faz | Kapsam | Bağımlı | Durum |
 |---|---|---|---|
-| M8 | Geliştirici altyapısı: debug UI, debug çizim, profiler, metin/HUD, ses; görüntü testleri | — | 🚧 (M8.6 kaldı) |
+| M8 | Geliştirici altyapısı: debug UI, debug çizim, profiler, metin/HUD, ses; görüntü testleri | — | ✅ |
 | M9 | **Dünya ve harita sistemi:** `.world`, nesne başına dosya, hücreler + asenkron streaming, veri katmanları, bölüm örnekleri, kayan orijin ([ADR-0021](decisions/0021-world-and-level-system.md)) | M8 | 🔜 |
 | M10 | **Shader dili ve materyaller:** `.ashader` (gdshader benzeri), `.material` + örnekler, çalışma anında derleme + hot-reload, raster/RT/gölge/forward varyantları, alfa testi, şeffaf geçiş ([ADR-0022](decisions/0022-shader-and-material-language.md)) | M8 | ⬜ |
 | M11 | **Oyun kodu ve scripting:** özellik paketleri + SOLID kuralları + sınır denetimi ([ADR-0023](decisions/0023-modular-game-code.md)), Luau ([ADR-0017](decisions/0017-gameplay-scripting.md)), input eylemleri, `AGENTS.md`, üretilen API belgesi | M9 | ⬜ |
@@ -66,8 +66,7 @@ Sonraki fazların numarası birer kaydı.
 
 ### Faz ayrıntıları
 
-**M8 — Geliştirici altyapısı ve oyun temelleri.** Ayrıntı aşağıda (Tamamlanan fazlar → M8). Kalan M8.6:
-golden image test altyapısı (3 sahne, tolerans + fark görüntüsü), TSan ve release `-Werror` turu, sürüm.
+**M8 — Geliştirici altyapısı ve oyun temelleri.** ✅ Ayrıntı aşağıda (Tamamlanan fazlar → M8).
 
 **M9 — Dünya ve harita sistemi.** Karar: [ADR-0021](decisions/0021-world-and-level-system.md).
 - `.world` biçimi (dünya ayarları, ızgaralar, veri katmanları); `<harita>.entities/` klasöründe nesne başına
@@ -312,9 +311,9 @@ maçı 2 saniyede, kurallar ayrı ayrı. `pong_package` ile paketleniyor. Görü
 - Bir component'in materyalini değiştirmek yeni bir materyal oluşturuyor; önbellek hiç boşalmıyor
   (`PrimitiveMesh`).
 
-## M8 — Geliştirici altyapısı, metin/HUD, ses 🚧
+## M8 — Geliştirici altyapısı, metin/HUD, ses ✅
 
-**Sonuç (M8.1–M8.5):** Karar kayıtları: [ADR-0019](decisions/0019-dev-tools-and-ui-overlay.md),
+**Sonuç (0.13.0):** Karar kayıtları: [ADR-0019](decisions/0019-dev-tools-and-ui-overlay.md),
 [ADR-0020](decisions/0020-audio.md).
 - **Profiler:** global olmayan CPU kapsam zamanlayıcıları (`ctx.profiler`, `ASTRAL_PROFILE_SCOPE`); App'in
   her aşaması ölçülüyor. GPU: render graph'ta pass başına timestamp (`Renderer::gpu_timings()`).
@@ -330,5 +329,11 @@ maçı 2 saniyede, kurallar ayrı ayrı. `pong_package` ile paketleniyor. Görü
   perde), sayı ve maç sonu sesleri, sahne dosyasında ortam uğultusu. Sesler kodla üretiliyor
   (`examples/pong/tools/make_sounds.py`), lisans derdi yok.
 
-**Kalan (M8.6):** golden image testleri, TSan + release `-Werror` turu, sürüm 0.13.0, bağımsız inceleme.
+- **Görüntü testleri (M8.6):** `tests/golden`: örnek oyun ekran dışında bir kare yakalar, `astral-golden`
+  kayıtlı referansla karşılaştırır (kanal başına eşik + izin verilen kötü piksel oranı), fark varsa kırmızı
+  işaretli fark görüntüsü yazar. Üç sahne: scene_viewer, rt_showcase, Pong (320×180, lavapipe). GPU yoksa
+  test atlanır. Referans güncelleme: `ASTRAL_UPDATE_GOLDEN=1 ctest -L golden`.
+
+**Bilinen sınırlar:** referanslar lavapipe ile üretildi; farklı sürücü/GPU'da tolerans aşılırsa referansı o
+ortam için güncellemek gerekir. Bağımsız kod incelemesi token bütçesi nedeniyle bu fazda yapılmadı.
 
