@@ -36,6 +36,8 @@ Sonraki fazların numarası birer kaydı.
 | M11 | **Oyun kodu ve scripting:** özellik paketleri + SOLID kuralları + sınır denetimi ([ADR-0023](decisions/0023-modular-game-code.md)), Luau ([ADR-0017](decisions/0017-gameplay-scripting.md), [ADR-0026](decisions/0026-script-host-and-features.md)), input eylemleri, `AGENTS.md`, üretilen API belgesi | M9 | ✅ |
 | M12 | Fizik altyapısı: katmanlar, mesh/heightfield, eklemler, sorgular; **alan sistemi** (rüzgâr, su hacmi) ve kuvvetler ([ADR-0029](decisions/0029-physics-fields-and-joints.md)) | M8 | ✅ |
 | M13 | Gelişmiş PBR: clearcoat, sheen, anizotropi, transmission, subsurface, decal, path tracer referansı | M10 | 🔜 |
+| M13.5 | **Kod sağlığı ve modülerlik:** güvenlik ağı (Windows Debug CI, `.gitattributes`, doctest, donanımdan bağımsız görüntü testleri, boyut bütçesi), god class'ların bölünmesi (renderer, app/Context, debug UI, cook, glTF, asset yöneticisi, fizik, script bağlamaları, sahne, GPU cihazı), header ve derleme süresi hijyeni; davranış değişmez | M13 | ⬜ |
+| M13.6 | **Ölçeklenebilir çalışma zamanı:** erişim bildiren sistemler + deterministik paralel zamanlayıcı, paralel transform yayılımı, ana thread'den çıkan shader derleme ve hücre G/Ç, toplu script sorguları, ölçek benchmark'ları | M13.5 | ⬜ |
 | M14 | **Atmosfer ve VFX:** fiziksel gökyüzü, froxel sis, **hacimsel efektler (CS2 dumanı)**, GPU partikülleri, decal/iz, `.vfx` ([ADR-0024](decisions/0024-volumetric-vfx.md)) | M10, M12 | ⬜ |
 | M15 | Arazi I: Terrain3D benzeri heightfield (clipmap, bölgeler, 32 katman, sculpt, delik, fizik, yerleştirme), dünya hücreleriyle stream ([ADR-0018](decisions/0018-terrain-and-sdf-world.md)) | M9, M10, M12 | ⬜ |
 | M16 | Su I: okyanus ve göller (FFT dalga, kırılma, köpük, su altı, kıyılar) + dalgayı izleyen kaldırma kuvveti | M14, M15 | ⬜ |
@@ -114,6 +116,176 @@ Sonraki fazların numarası birer kaydı.
 çoklu saçılma; detay haritaları, parallax, decal'lar; path tracer referans modu. Hepsi `.ashader`'da
 `shading_model` seçenekleri olarak. *Çıkış:* materyal test sahnesi, gerçek zamanlı ve referans yan yana.
 
+**M13.5 — Kod sağlığı ve modülerlik (refaktör).** Kararlar faz başında: ADR-0030 (refaktör kuralları, boyut
+bütçesi, "god class" tanımı), ADR-0031 (donanımdan bağımsız görüntü testleri).
+
+*Neden:* 2026-11-22 mimari incelemesi. Katmanlar, kurallar ve testler sağlam; ama birkaç dosya her fazda
+büyüyen "toplama noktası" oldu (`renderer.cpp` 1835 satır, `Renderer::Impl` 69 üye, `render_ray_traced` 396
+satırlık tek fonksiyon; `app.cpp` 1459 satır, `App::Impl` 106 satır, `Context` ~25 metot ve her fazda artıyor).
+Bunlar paralel çalışmada (görev başına worktree → master) merge çakışması ve yapay zekâ ajanları için bağlam
+yükü demek. İlk Windows/MSVC derlemesi de CI'ın yakalamadığı dört hata buldu (`0be42b0`).
+
+*Değişmez kurallar (bu faz boyunca):*
+- **Davranış değişmez.** Her adım saf yapısal; public API kaynak uyumlu kalır (değişen her şey bir faz
+  `[[deprecated]]` sarmalayıcıyla yaşar). Lavapipe görüntü testleri **bit bit aynı** kalmalı.
+- **Önce karakterizasyon testi, sonra taşıma.** Bölünecek kodun mevcut davranışı (kare aşama sırası, render
+  istatistikleri, cook çıktısının hash'i) önce testle sabitlenir.
+- **Tek sorumluluk ölçütü:** bir sınıf/dosya birden fazla nedenle değişiyorsa bölünür. Boyut tek başına ölçüt
+  değil: tutarlı bir ayrıştırıcı (`core/json.cpp` `Parser` 216 satır, `shader/ashader.cpp` `Parser` 167 satır)
+  bölünmez.
+- **Hedef bütçe:** `src/` dosyası ≤ 600 satır, fonksiyon ≤ 80 satır, `Impl` ≤ 25 üye. Aşan yerler bilinçli
+  istisna listesinde (gerekçeli) durur; liste yalnızca küçülür.
+- **Her adım ayrı worktree, ayrı merge.** Aşağıdaki R1–R3 maddeleri farklı dosyalara dokunduğu için paralel
+  yürüyebilir; R0 hepsinden önce biter.
+
+*R0 — Güvenlik ağı (önce bu).*
+- **Windows Debug CI job'u:** MSVC Debug (`_ITERATOR_DEBUG_LEVEL=2`), `ASTRAL_WARNINGS_AS_ERRORS=ON`, unit
+  testler. STL debug kontrolleri `vector::assign` türü tanımsız davranışı yakalar (M13'e kadar Linux ve Windows
+  Release'te gizli kalmıştı).
+- **`.gitattributes`:** `* text=auto eol=lf`; `*.png *.glb *.ttf *.apak binary`. Repoyu bir kez normalize et.
+  Metin ayrıştıran her kod (GLSL gömme, `.ashader`, `.material`, JSON, `.actions`) yine de CRLF'e dayanıklı
+  kalır ve bunun testi olur (kullanıcı dosyaları Windows'ta CRLF gelebilir).
+- **doctest 2.4.11 → 2.5.x:** CMake 4 (`cmake_minimum_required < 3.5`) ve MSVC 14.51 STL uyumsuzluğu biter;
+  yerel `CMAKE_POLICY_VERSION_MINIMUM` ve `DOCTEST_CONFIG_USE_STD_HEADERS` geçici çözümleri kalkar. README'deki
+  araç sürümleri (CMake 4, VS 2026) güncellenir.
+- **Görüntü testleri donanımdan bağımsız (ADR-0031):** referanslar lavapipe'ta üretiliyor; gerçek GPU'larda
+  (ör. RTX 3060) beş test sürekli kırmızı (`scene_viewer`, `open_world` ×3, `shader_showcase`). İkiye ayır:
+  `golden` = lavapipe, CI'da zorunlu, bit bit; `golden-hw` = donanım GPU'su, algısal metrik (SSIM/FLIP eşiği)
+  ve RT gürültüsü için sabit tohum + yeterli birikim. Yerelde `ctest -L golden` lavapipe yoksa atlanır ve
+  bunu söyler. Yanlış alarm veren test güveni bitirir: amaç "kırmızı = gerçek hata".
+- **Boyut bütçesi denetimi:** `tools/check_sizes.py` + CTest `code_size_check` (dosya/fonksiyon/`Impl` üye
+  sayısı, istisna listesi `tools/size_budget.json`). Önce uyarı, R1–R3 bitince hata.
+- **Include hijyeni:** CI'da clang-tidy `misc-include-cleaner` (yalnız bizim kaynaklar). `std::clamp` için
+  eksik `<algorithm>` türü hatalar derleyiciye bağlı kalmaz.
+- *Çıkış:* Linux (GCC, Clang) ve Windows (MSVC Debug + Release) CI yeşil; Windows geliştirme makinesinde
+  `ctest` 60/60 (donanım golden'ları ayrı etiketle).
+
+*R1 — Renderer'ı bölmek* (`modules/render/src/renderer.cpp`). Hedef düzen:
+
+| Yeni dosya | Ne taşınır | Bugün |
+|---|---|---|
+| `gpu_layouts.hpp` | `GpuMesh`, `GpuInstance`, `GpuMaterial`, `GpuFrame`, ışıklar, 15+ push constant yapısı (`scene.glsl` aynası) | renderer.cpp 35–230 |
+| `stores/mesh_store.cpp` | `create/update/destroy_mesh`, `upload_mesh`, BLAS | 1007–1070 |
+| `stores/texture_store.cpp` | `build_mips`, `upload_texture`, `create/update/destroy_texture` | 71–100, 496–523, 981–1006 |
+| `stores/material_store.cpp` | `gpu_material`, parametre kelimeleri, materyal tablosu | 485–495, 1071–1098, `prepare_instances` içi |
+| `stores/shader_store.cpp` | `create_shader` (surface + screen), `rebuild_rt_surfaces`, RT pipeline'ları | 524–553, 862–980 |
+| `frame/frame_slot.hpp`, `frame/instances.cpp` | `FrameSlot`, `GrowBuffer`, `prepare_instances`, TLAS | 239–300, 651–752 |
+| `passes/*.cpp` | her pass ayrı: gbuffer, shadow, sdf, rt_lighting, ddgi (ensure + trace + update), denoise (temporal + à-trous), composite, taa, bloom, sky, transparent, post, tonemap, ui, debug_lines | 554–829, 1136–1800 |
+| `paths/raster_path.cpp`, `paths/ray_traced_path.cpp` | yalnız pass'leri sırayla ekler | `render` 206 satır, `render_ray_traced` 396 satır |
+
+- Her pass küçük bir yapı: `struct BloomPass { void add(RenderGraph&, const FrameInputs&, …); }`; kendi
+  pipeline'ını ve geçmiş dokusunu sahiplenir. Pass'ler birbirini çağırmaz, render graph kaynaklarıyla konuşur
+  (açık/kapalı: yeni teknik = yeni pass dosyası, mevcut dosyalar değişmez).
+- `Renderer::Impl` yalnız store'ları, pass'leri ve kare yuvalarını tutar (≤ 25 üye).
+- Karakterizasyon: lavapipe golden'ları + `RenderStats` sayaçları + pass sırası (render graph'ın ürettiği pass
+  listesi) testle sabitlenir; her taşıma adımından sonra bit bit aynı.
+- *Çıkış:* `renderer.cpp` ≤ 400 satır, 80 satırı aşan fonksiyon yok, golden'lar değişmemiş.
+
+*R2 — App ve Context'i bölmek* (`modules/app/src/app.cpp`, `include/astral/app/app.hpp`).
+- `App::Impl` içindeki işler ayrı iç servislere (`modules/app/src/services/`), her biri kendi `.hpp/.cpp`,
+  bağımlılıklar constructor'dan, her biri başsız birim testli:
+
+| Servis | Taşınan | Bugün |
+|---|---|---|
+| `RenderBridge` | `sync_primitives`, `sync_models`, `spawn_model`, `find_camera`, render geçmişi | 479–610 |
+| `PhysicsBridge` | `sync_physics_bodies`, `update_fields`, `apply_field_forces`, `step_physics`, `emit_contact_events`, interpolasyon, `AppScriptPhysics` | 68–116, 654–898 |
+| `AudioBridge` | `sync_audio`, ses önbelleği, `AudioVoice` | 46–53, 1054–1126 |
+| `ScriptBridge` | `ActionInput`, `FileStorage`, `run_scripts`, `reload_changed_scripts`, dosya izleme, input yönlendirme | 54–146, 1136–1154, 1358–1420 |
+| `WorldBridge` | `MapRuntime` + `streaming_sources`, `update_world`, kayan orijin | 1293–1347, 1430–1450 |
+| `DevTools` | `build_debug_ui`, `draw_debug_overlays` (114 satır), profiler | 1155–1292 |
+| `FrameLoop` | `frame()` (146 satır) → sıralı aşama listesi; aşama tablosu dokümanda ve testte | 899–1046 |
+
+- App ctor (111 satır) yalnız servisleri kurar; yıkım sırası tek yerde, yorumlu (bugün 373–400).
+- **Context (arayüz ayrımı):** düz metot yığını yerine gruplu erişim: `ctx.scenes()` (load/save, prefab),
+  `ctx.maps()` (open/close/layers/streaming/origin), `ctx.materials()`, `ctx.audio()`, `ctx.scripts()`
+  (load, actions, API yazımı), `ctx.physics()` (temaslar). Eski metotlar bir faz `[[deprecated]]` sarmalayıcı,
+  örnekler, şablon, `AGENTS.md`, `writing-a-game.md` ve üretilen `API.md` aynı adımda güncellenir; M14'te
+  sarmalayıcılar silinir. Yeni servis eklemek `Context`'i değil yalnız ilgili grubu büyütür.
+- Karakterizasyon: kare aşama sırası (olay günlüğü testi), Pong ve physics_playground başsız testleri,
+  `*_features_check`, script tip denetimi.
+- *Çıkış:* `app.cpp` ≤ 400 satır, `App::Impl` ≤ 20 üye, `frame()` ≤ 40 satır; bütün örnekler değişmeden geçiyor.
+
+*R3 — Diğer god class'lar ve uzun fonksiyonlar* (her satır ayrı worktree olabilir):
+
+| Yer | Bugün | Bölünme |
+|---|---|---|
+| `app/debug_ui.cpp` `draw_panels` | 268 satır, tüm paneller tek fonksiyon | `panels/` altında panel başına dosya (entity, materyal, profiler, streaming, fizik); `DebugPanel` arayüzü + kayıt, özellikler kendi panelini ekleyebilir |
+| `assets/cook.cpp` `cook_directory` | 260 satır | tür başına cooker (doku, model, sahne, dünya/hücre, script, ses) tablosu; `cook_directory` = dolaş + dağıt + rapor |
+| `assets/gltf.cpp` `Loader` | 324 satırlık yapı | glTF bölümüne göre dosyalar: buffer/accessor, görüntü/materyal, mesh, düğüm/sahne |
+| `assets/asset_manager.cpp` `Impl` | 257 satır | yükleme kuyruğu, önbellek/handle tablosu, hot reload izleyicisi |
+| `assets/cooked_model.cpp` | okuma 102, yazma 67 satır | bölüm başına okuyucu/yazıcı çifti (primitive, materyal, görüntü, düğüm) |
+| `physics/physics.cpp` | 911 satır, 39 metot, `create_joint` 103 satır | `bodies`, `shapes`, `joints` (eklem türü → kurucu tablosu), `queries`, `contact_listener`, `layers` dosyaları |
+| `script/bindings.cpp` | 831 satır, 53 Lua C fonksiyonu, `open_astral` 74 satır | konuya göre: entity, query, events, input, physics, math, storage; kayıt tablosu |
+| `script/api.cpp` | 154 satırlık belge üreticisi | tablo tabanlı (bağlama tablosundan üretim: belge ve bağlama aynı kaynaktan) |
+| `world/scene.cpp` | 789 satır | `scene_io` (oku/yaz), `prefab_library`, `spawner`, `prefab_sync` |
+| `world/world.hpp` | 524 satır header, şablon gövdeleri içinde | `world_fwd.hpp` + `detail/world_impl.hpp`; derleme süresi için ileri bildirimler |
+| `world/serialize.hpp` `from_json` | 87 satırlık şablon | alan türü başına aşırı yükleme |
+| `gpu/device.cpp` | 721 satır; `create_logical_device` 94, `create_bindless` 75 | `device_select`, `device_create`, `bindless` dosyaları |
+| `gpu/pipelines.cpp` `create_graphics_pipeline` | 90 satır | durum blokları (raster, blend, depth, vertex) yardımcıları |
+| `examples/physics_playground` `on_start` | 86 satır kodla kurulan sahne | içerik `.scene`/prefab dosyalarına ("sayılar dosyada" kuralı) |
+
+*R4 — Header ve derleme süresi.*
+- Önce ölç: temiz ve artımlı derleme süreleri (Ninja log + clang `-ftime-trace`, MSVC `/Bt+`) dokümana taban
+  çizgisi olarak yazılır; en pahalı 20 header listelenir.
+- Modül başına `*_fwd.hpp` ileri bildirim başlıkları; public header'larda ağır `#include` yerine ileri bildirim.
+- `ASTRAL_PCH` seçeneği (varsayılan açık; Vulkan/Jolt/Luau ağırlıklı `src/` dosyaları için) ve
+  `CMAKE_UNITY_BUILD` derlemesinin CI'da kırılmadığını gösteren job.
+- *Çıkış:* taban çizgisine göre ölçülmüş iyileşme (hedef: temiz derleme −%30, tek `.cpp` değişikliğinde artımlı
+  derleme −%50); sayılar `docs/modules/` ilgili sayfada.
+
+*Faz çıkışı (M13.5):* boyut bütçesi denetimi hata modunda yeşil; istisna listesi gerekçeli ve kısa; tüm testler
+ve lavapipe golden'ları değişmeden geçiyor; ADR-0030/0031; modül dokümanlarında yeni dosya düzeni.
+
+**M13.6 — Ölçeklenebilir çalışma zamanı.** Karar faz başında: ADR-0032 (sistem erişim bildirimi ve paralel
+zamanlayıcı). *İlke:* önce ölç (P0), sonra paralelleştir; determinizm bozulmaz.
+
+*P0 — Ölçek benchmark'ları (önce bu).* `bench/` altında başsız hedefler: `bench_ecs` (100k entity, 30 sistem),
+`bench_transforms` (derin ve geniş hiyerarşiler), `bench_script` (10k scriptli entity), `bench_streaming`
+(4×4 km dünya, uçan kamera), `bench_shader_compile`. CI sayıları yayımlar (kapı değil); bu makinede ve
+lavapipe'ta taban çizgisi dokümana. Aşağıdaki hedefler bu tabana göre konur.
+
+*P1 — Erişim bildiren sistemler ve paralel zamanlayıcı.*
+- Sistem, okuduğu/yazdığı component'leri bildirir: tipli sorgulardan otomatik (`Query<const A, B>` → A okur,
+  B yazar), elle `reads<…>()/writes<…>()`; Luau sistemleri `query/with` + yeni `writes = {...}` alanından.
+  Bildirmeyen sistem "dışlayıcı" sayılır (bugünkü gibi tek başına koşar) → geriye uyumlu.
+- Zamanlayıcı her faz için bir bağımlılık grafiği kurar: çakışan iki sistem **kayıt sırasını** korur,
+  çakışmayanlar JobSystem'de paralel. `Commands` ve olay gönderimleri sistem başına tamponlanır, senkron
+  noktada kayıt sırasıyla uygulanır → paralel ve seri koşu aynı sonucu verir.
+- Luau: tek VM'in iş parçacığı güvenliği yok; script sistemleri bir "script şeridi"nde sıralı koşar, C++
+  sistemleriyle paralel olabilir (çakışma yoksa).
+- Araçlar: `RenderSettings`'e benzer `ScheduleSettings{.parallel = false}` ile seri koşu; debug UI'da faz
+  başına zamanlama grafiği; çakışma nedenini söyleyen log.
+- Testler: 1000 sabit adım, seri ve paralel koşuda dünya hash'i aynı; TSan job'u zamanlayıcıyı kapsar;
+  kasıtlı çakışan sistemlerin sırası korunuyor.
+
+*P2 — Paralel transform yayılımı.* Hiyerarşi derinliğe göre seviyelenir, her seviye `parallel_for`; değişmeyen
+alt ağaçlar change detection ile atlanır (`docs/modules/world.md` bilinen sınırı kapanır).
+
+*P3 — Ana thread'den çıkanlar.*
+- Shader derleme job'da; hazır olana kadar yedek materyal (bugün "kısa takılma", `docs/modules/app.md`).
+  Pipeline önbelleği diske.
+- Harita hücresi dosya okuma ve ayrıştırma job'da; ana thread yalnız kare bütçeli birleştirme yapar
+  (bugün G/Ç ana thread'de, `docs/modules/app.md` M9 notu).
+- Sahne/prefab ayrıştırma job'da; doku dekodlama zaten asenkron, denetlenir.
+
+*P4 — Script verimi.*
+- Sistem başına sınır geçişini azaltan toplu sorgu: `astral.each(query, fn)` VM içinde yineler, component'ler
+  tembel proxy ile; sık alanlar için dizi tabanlı `astral.query_columns`.
+- Script başına profiler kapsamı (bugün yalnız toplam "scripts"); bütçeyi aşan script'e uyarı.
+- Luau native codegen'i değerlendir (destekleyen platformlarda).
+- `AGENTS.md`'deki "yüzlerce entity'den fazlası C++'a" kuralı ölçülen eşikle değiştirilir.
+
+*P5 — Komut kaydı (ölçüm gösterirse).* Render pass'lerinin komut kaydı job'larda (Vulkan ikincil komut
+tamponları veya pass başına komut listesi). R1'in pass yapısı bunu mümkün kılar; P0 CPU'da render
+kaydının darboğaz olduğunu göstermezse yapılmaz.
+
+*Faz çıkışı (M13.6):* `bench_ecs`'te bağımsız sistemlerde çekirdek sayısıyla ölçeklenen hızlanma (hedef: 8
+çekirdekte taban çizgisinin ≥ 3×'i), seri/paralel determinizm testi, `bench_streaming`'de ana thread'de G/Ç
+yok, shader düzenlerken takılma yok (profiler kanıtı), ADR-0032.
+
+*M13.5/M13.6 kapsamı dışında, sonraya:* görsel editör (içerik üretiminin asıl ölçek kaldıracı), C++ hot reload,
+DLL eklentileri (component kimlikleri DLL'ler arasında farklı; bkz. `docs/modules/world.md`).
+
 **M14 — Atmosfer ve VFX.** Karar: [ADR-0024](decisions/0024-volumetric-vfx.md).
 - Fiziksel gökyüzü, günün saati, aerial perspective, gökyüzünden IBL ve DDGI beslemesi.
 - Froxel hacimsel sis ve ışık huzmeleri; tek "katılımcı ortam" birleştiricisi.
@@ -171,6 +343,10 @@ meshlet LOD. *Çıkış:* birkaç km² açık dünya, uzakta da dolu ufuk, sabit
 - **Oyun kodu düzeni (M11) erken:** oyun kodu büyümeden kurallar ve araçlar yerinde olmalı; sonraki
   demolar Luau ve özellik paketleriyle hızlı kurulur.
 - **Fizik alanları (M12) VFX'ten önce:** duman duvarları fizik sorgusuyla bulur, rüzgârla taşınır.
+- **Refaktör (M13.5) ve paralel çalışma zamanı (M13.6) M13'ten hemen sonra:** M14–M23'ün neredeyse hepsi
+  renderer'a (yeni pass'ler) ve App'e (yeni köprüler, `Context` erişimi) dokunuyor. Bölmek ne kadar geç kalırsa
+  o kadar pahalı. Paralel zamanlayıcı da büyük dünyalardan (M15, M22) ve çok sayıda karakterden (M21) önce
+  gerekiyor. M13.6, M13.5'ten sonra: zamanlayıcı R2'nin `FrameLoop`'una oturur.
 - **Arazi sudan önce; su ve hava iki dalgada; SDF ve yıkım araziden sonra; animasyon ve ragdoll sonra**
   (v3'teki gerekçeler geçerli).
 

@@ -3,11 +3,14 @@
 ## Bir faz nasıl ilerler
 
 1. **Plan:** `docs/superpowers/plans/<tarih>-<faz>.md` — görevler, arayüzler, testler.
-2. **Branch:** `feat/<faz>`; her görev test-önce (TDD): test yaz → başarısız olduğunu gör → uygula → geçir → commit.
+2. **Worktree:** tek uzun ömürlü dal `master`. Her görev `master`'dan açılan ayrı bir git worktree'de, kendi
+   dalında yapılır (bağımsız görevler paralel worktree'lerde); her görev test-önce (TDD): test yaz → başarısız
+   olduğunu gör → uygula → geçir → commit.
 3. **İnceleme:** faz sonunda bağımsız bir inceleme; kritik/önemli bulgular testle düzeltilir,
    küçükler modül dokümanının "Bilinen sınırlar" bölümüne yazılır.
-4. **Dokümanlar** (aşağıdaki liste) güncellenir, sonra `v3`'e fast-forward + push
-   (önce `git merge-base --is-ancestor origin/v3 HEAD`).
+4. **Dokümanlar** (aşağıdaki liste) güncellenir, sonra görev dalı `master`'a merge edilip push'lanır ve
+   görev dalı silinir. Eski dallar yalnızca `archive/*` tag'leri olarak durur (`archive/main-deprecated`,
+   `archive/v2-old`).
 
 ## "Faz bitti" tanımı — her fazın sonunda zorunlu
 
