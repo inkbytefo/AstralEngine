@@ -8,7 +8,10 @@
 #include <astral/assets/asset_manager.hpp>
 #include <astral/render/renderer.hpp>
 #include <astral/render/text.hpp>
+#include <astral/world/map_state.hpp>
+#include <astral/world/origin.hpp>
 #include <astral/world/scene.hpp>
+#include <astral/world/streaming.hpp>
 #include <astral/world/serialize.hpp>
 #include <astral/world/transform.hpp>
 #include <astral/world/world.hpp>
@@ -111,6 +114,7 @@ public:
     struct DebugShow {
         bool physics = false; ///< RigidBody shapes (green: dynamic, blue: kinematic, grey: static) and characters.
         bool lights = false;  ///< Point light ranges, rect light panels.
+        bool world_cells = false; ///< Loaded map cells (squares on the ground) and the load range.
     } debug_show;
     /// The engine's debug UI (F1): performance, entities, inspector, render settings. Needs a renderer.
     bool show_debug_ui = false;
@@ -134,6 +138,23 @@ public:
     LoadResult load_scene(std::string_view path);
     /// Writes the world as a scene file (with ctx.sun / ctx.environment). False if it cannot be written.
     bool save_scene(std::string_view path);
+    /// Opens a map (.world, ADR-0021) in place of the current one: its always-loaded entities spawn now,
+    /// its cells stream in and out around StreamingSource entities (else the active camera), and the
+    /// floating origin follows the first source. Works with source maps (development) and cooked ones.
+    /// False (logged) if the map cannot be read.
+    bool open_world(std::string_view path);
+    /// Removes the open map's entities and forgets it.
+    void close_world();
+    /// Blocks until every cell in range is loaded and spawned (loading screens, tests).
+    void finish_world_loading();
+    /// The open map's data layers (set("night", true)); null without an open map.
+    [[nodiscard]] MapLayers* world_layers() noexcept;
+    /// Cell counts of the open map; null without one.
+    [[nodiscard]] const StreamingStats* world_streaming() const noexcept;
+    /// World position of local zero. Transform positions are relative to it; OriginShifted events tell
+    /// when it moves (only while a map is open).
+    [[nodiscard]] WorldPosition world_origin() const noexcept;
+
     /// Creates an instance of a prefab now: its parts exist when this returns. Components of the
     /// prefab's root other than Transform come from the prefab.
     Entity spawn_prefab(std::string_view path, const Transform& transform = {});
@@ -179,6 +200,10 @@ struct AppDesc {
     bool debug_ui = true;
     /// Play sound on the default device (headless and offscreen always mix silently).
     bool audio = true;
+    /// Open maps: the origin moves to the first streaming source when it is farther than this (metres).
+    float origin_shift_distance = 2000.0f;
+    /// Open maps: time per frame for spawning streamed cells (at least one cell per frame).
+    float world_stream_budget_ms = 1.0f;
 };
 
 /// Owns the main loop and every engine service; your Game plugs into it.

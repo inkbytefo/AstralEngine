@@ -1,6 +1,7 @@
 #include <astral/app/app.hpp>
 
 #include "debug_ui.hpp"
+#include "map_runtime.hpp"
 
 #include <astral/core/clock.hpp>
 #include <astral/gpu/device.hpp>
@@ -91,6 +92,14 @@ struct App::Impl {
     std::vector<BodyLink> body_links;
     std::vector<CharacterLink> character_links;
 
+    std::unique_ptr<MapRuntime> map; ///< Open map (ctx.open_world); null until the first one.
+    std::filesystem::path asset_root; ///< Copied at construction (AppDesc holds views).
+    FloatingOrigin origin;
+    std::vector<StreamingPoint> stream_points; // scratch
+    /// Streaming sources in local coordinates (StreamingSource entities, else the active camera).
+    std::vector<Vec3> streaming_sources();
+    void update_world(bool finish);
+
     std::unique_ptr<Context> context;
     std::array<std::vector<std::unique_ptr<System>>, 4> systems;
     std::vector<MeshInstance> draw_items; // scratch, reused every frame
@@ -114,7 +123,8 @@ struct App::Impl {
     void build_debug_ui(Game& game, float delta);
     void draw_debug_overlays();
 
-    explicit Impl(const AppDesc& d) : desc(d), jobs(d.worker_threads) {}
+    explicit Impl(const AppDesc& d)
+        : desc(d), jobs(d.worker_threads), asset_root(std::filesystem::path(d.asset_root)), origin(d.origin_shift_distance) {}
     bool start(Game& game);
     void frame(Game& game, float delta);
 };
@@ -138,6 +148,7 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
     types.add<PrimitiveMesh>();
     types.add<AudioSource>();
     types.add<AudioListener>();
+    types.add<StreamingSource>();
     types.exclude<ModelPiece>();
     m.physics = std::make_unique<PhysicsWorld>(PhysicsDesc{.logger = &m.log});
     m.context->physics = m.physics.get();
@@ -224,6 +235,7 @@ App::~App() {
     // Systems may release GPU resources in their destructors: they go first, while the
     // renderer and device still exist. Then the services, device last, window after it.
     for (auto& phase : m.systems) phase.clear();
+    m.map.reset(); // waits for cell reads in flight
     m.context->physics = nullptr;
     m.physics.reset();
     m.debug_ui.reset(); // owns renderer textures
@@ -301,7 +313,7 @@ bool Context::save_scene(std::string_view path) {
     Json doc = astral::save_scene(world, *prefabs);
     doc["sun"] = to_json(sun, {});
     doc["environment"] = to_json(environment, {});
-    const std::filesystem::path file = std::filesystem::path(m.desc.asset_root) / path;
+    const std::filesystem::path file = m.asset_root / path;
     std::error_code ec;
     if (file.has_parent_path()) std::filesystem::create_directories(file.parent_path(), ec);
     std::ofstream out(file, std::ios::binary);
@@ -604,6 +616,10 @@ void App::Impl::frame(Game& game, float delta) {
     route_input();
     world.update_events(); // events sent last frame are still readable this frame, then dropped
     {
+        ASTRAL_PROFILE_SCOPE(prof, "world streaming");
+        update_world(false);
+    }
+    {
         ASTRAL_PROFILE_SCOPE(prof, "assets");
         assets->update();      // finished loads, hot reloads
         prefabs->refresh();    // templates whose documents reloaded are rebuilt on next use
@@ -863,6 +879,23 @@ void App::Impl::build_debug_ui(Game& game, float delta) {
 
 void App::Impl::draw_debug_overlays() {
     Context& ctx = *context;
+    if (ctx.debug_show.world_cells && map && map->is_open()) {
+        const MapDesc& md = map->map();
+        const WorldPosition o = origin.origin();
+        for (const CellKey& key : map->attached_cells()) {
+            if (key.grid >= md.grids.size()) continue;
+            const auto size = static_cast<float>(md.grids[key.grid].cell_size);
+            const Vec3 a{static_cast<float>(cell_min_x(md, key) - o.x), 0.05f, static_cast<float>(cell_min_z(md, key) - o.z)};
+            const Vec4 color = key.grid == 0 ? Vec4{1.0f, 0.8f, 0.2f, 1} : Vec4{0.4f, 0.8f, 1.0f, 1};
+            ctx.debug.line(a, {a.x + size, a.y, a.z}, color);
+            ctx.debug.line(a, {a.x, a.y, a.z + size}, color);
+            ctx.debug.line({a.x + size, a.y, a.z}, {a.x + size, a.y, a.z + size}, color);
+            ctx.debug.line({a.x, a.y, a.z + size}, {a.x + size, a.y, a.z + size}, color);
+        }
+        for (const Vec3& p : streaming_sources()) {
+            if (!md.grids.empty()) ctx.debug.circle(p, {0, 1, 0}, static_cast<float>(md.grids[0].load_range), {0.2f, 1.0f, 0.4f, 1});
+        }
+    }
     if (ctx.debug_show.physics) {
         world.each<const RigidBody, const WorldTransform>([&](const RigidBody& rb, const WorldTransform& w) {
             const Vec3 p{w.matrix[3].x, w.matrix[3].y, w.matrix[3].z};
@@ -912,5 +945,88 @@ void App::Impl::draw_debug_overlays() {
 }
 
 void App::Impl::end_frame_profile() { profiler.end_frame(); }
+
+// --- Maps: streaming and floating origin (ADR-0021) --------------------------------------------
+
+std::vector<Vec3> App::Impl::streaming_sources() {
+    std::vector<Vec3> out;
+    auto position_of = [&](Entity e) -> std::optional<Vec3> {
+        // A top-level Transform is current even before this frame's transform update.
+        if (!world.has<Parent>(e)) {
+            if (const Transform* t = world.get<const Transform>(e)) return t->position;
+        }
+        if (const WorldTransform* w = world.get<const WorldTransform>(e)) return Vec3{w->matrix[3].x, w->matrix[3].y, w->matrix[3].z};
+        return std::nullopt;
+    };
+    world.each<const StreamingSource>([&](Entity e, const StreamingSource& s) {
+        if (!s.active) return;
+        if (auto p = position_of(e)) out.push_back(*p);
+    });
+    if (out.empty()) {
+        world.each<const Camera>([&](Entity e, const Camera& c) {
+            if (!out.empty() || !c.active) return;
+            if (auto p = position_of(e)) out.push_back(*p);
+        });
+    }
+    return out;
+}
+
+void App::Impl::update_world(bool finish) {
+    if (!map || !map->is_open()) return;
+    std::vector<Vec3> sources = streaming_sources();
+    if (!sources.empty()) {
+        if (auto offset = origin.update(sources.front())) {
+            const Vec3 off = *offset;
+            shift_roots(world, off);
+            physics->shift_origin(off);
+            for (BodyLink& link : body_links) link.previous_position = link.previous_position - off;
+            world.each<RenderHistory>([&](RenderHistory& h) {
+                h.previous[3].x -= off.x;
+                h.previous[3].y -= off.y;
+                h.previous[3].z -= off.z;
+            });
+            if (renderer) renderer->reset_history();
+            for (Vec3& p : sources) p = p - off;
+            map->set_origin(origin.origin());
+            world.send(OriginShifted{off, origin.origin()});
+        }
+    }
+    stream_points.clear();
+    for (const Vec3& p : sources) {
+        const WorldPosition w = origin.to_world(p);
+        stream_points.push_back({w.x, w.z});
+    }
+    if (finish) map->finish(stream_points);
+    else map->update(stream_points, static_cast<double>(desc.world_stream_budget_ms) / 1000.0);
+}
+
+bool Context::open_world(std::string_view path) {
+    auto& m = *app_.impl_;
+    if (!m.map) m.map = std::make_unique<MapRuntime>(world, *prefabs, *assets, jobs, log);
+    m.map->set_origin(m.origin.origin());
+    return m.map->open(path, m.asset_root);
+}
+
+void Context::close_world() {
+    if (auto& map = app_.impl_->map) map->close();
+}
+
+void Context::finish_world_loading() {
+    app_.impl_->update_world(true);
+}
+
+MapLayers* Context::world_layers() noexcept {
+    auto& map = app_.impl_->map;
+    return map && map->is_open() ? map->layers() : nullptr;
+}
+
+const StreamingStats* Context::world_streaming() const noexcept {
+    const auto& map = app_.impl_->map;
+    return map && map->is_open() ? map->stats() : nullptr;
+}
+
+WorldPosition Context::world_origin() const noexcept {
+    return app_.impl_->origin.origin();
+}
 
 } // namespace astral

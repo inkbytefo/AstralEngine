@@ -13,6 +13,7 @@ Durum: ✅ bitti · 🚧 sürüyor · 🔜 sıradaki · ⬜ planlı
 | M6 | Paketleme: cook, BC7/BC5, `.apak`, `astral_add_game` | ✅ |
 | M7 | İlk oyun: 3D Pong | ✅ |
 | M8 | Geliştirici araçları, metin/HUD, ses, görüntü testleri | ✅ |
+| M9 | Dünya ve harita sistemi: `.world` + `.ent`, hücre streaming, katmanlar, kayan orijin | ✅ |
 
 ## Plan v4 (2026-11-21)
 
@@ -29,8 +30,8 @@ Sonraki fazların numarası birer kaydı.
 | Faz | Kapsam | Bağımlı | Durum |
 |---|---|---|---|
 | M8 | Geliştirici altyapısı: debug UI, debug çizim, profiler, metin/HUD, ses; görüntü testleri | — | ✅ |
-| M9 | **Dünya ve harita sistemi:** `.world`, nesne başına dosya, hücreler + asenkron streaming, veri katmanları, bölüm örnekleri, kayan orijin ([ADR-0021](decisions/0021-world-and-level-system.md)) | M8 | 🔜 |
-| M10 | **Shader dili ve materyaller:** `.ashader` (gdshader benzeri), `.material` + örnekler, çalışma anında derleme + hot-reload, raster/RT/gölge/forward varyantları, alfa testi, şeffaf geçiş ([ADR-0022](decisions/0022-shader-and-material-language.md)) | M8 | ⬜ |
+| M9 | **Dünya ve harita sistemi:** `.world`, nesne başına dosya, hücreler + asenkron streaming, veri katmanları, bölüm örnekleri, kayan orijin ([ADR-0021](decisions/0021-world-and-level-system.md)) | M8 | ✅ |
+| M10 | **Shader dili ve materyaller:** `.ashader` (gdshader benzeri), `.material` + örnekler, çalışma anında derleme + hot-reload, raster/RT/gölge/forward varyantları, alfa testi, şeffaf geçiş ([ADR-0022](decisions/0022-shader-and-material-language.md)) | M8 | 🔜 |
 | M11 | **Oyun kodu ve scripting:** özellik paketleri + SOLID kuralları + sınır denetimi ([ADR-0023](decisions/0023-modular-game-code.md)), Luau ([ADR-0017](decisions/0017-gameplay-scripting.md)), input eylemleri, `AGENTS.md`, üretilen API belgesi | M9 | ⬜ |
 | M12 | Fizik altyapısı: katmanlar, mesh/heightfield, eklemler, sorgular; **alan sistemi** (rüzgâr, su hacmi) ve kuvvetler | M8 | ⬜ |
 | M13 | Gelişmiş PBR: clearcoat, sheen, anizotropi, transmission, subsurface, decal, path tracer referansı | M10 | ⬜ |
@@ -68,7 +69,7 @@ Sonraki fazların numarası birer kaydı.
 
 **M8 — Geliştirici altyapısı ve oyun temelleri.** ✅ Ayrıntı aşağıda (Tamamlanan fazlar → M8).
 
-**M9 — Dünya ve harita sistemi.** Karar: [ADR-0021](decisions/0021-world-and-level-system.md).
+**M9 — Dünya ve harita sistemi.** ✅ Ayrıntı aşağıda (Tamamlanan fazlar → M9). Karar: [ADR-0021](decisions/0021-world-and-level-system.md).
 - `.world` biçimi (dünya ayarları, ızgaralar, veri katmanları); `<harita>.entities/` klasöründe nesne başına
   dosya; tek `.scene` küçük haritalar için geçerli kalır.
 - Cook: entity'leri sınır kutusuna göre hücrelere dağıtır, hücre başına ikili blok.
@@ -310,6 +311,27 @@ maçı 2 saniyede, kurallar ayrı ayrı. `pong_package` ile paketleniyor. Görü
 - Yakalama her kareyi çiziyor; mantığı hızlıca ileri sarıp yalnız son kareleri çizmek mümkün değil.
 - Bir component'in materyalini değiştirmek yeni bir materyal oluşturuyor; önbellek hiç boşalmıyor
   (`PrimitiveMesh`).
+
+## M9 — Dünya ve harita sistemi ✅
+
+**Sonuç (0.14.0):** Karar: [ADR-0021](decisions/0021-world-and-level-system.md).
+- **Biçimler:** `.world` (ayarlar, ızgaralar, veri katmanları) + `<harita>.entities/<id>.ent` (nesne başına
+  dosya). Bozuk, kimliksiz, çift kimlikli dosyalar raporlanır.
+- **Cook:** `.world` + entity klasörü → dizin + `<harita>.cells/<ızgara>_<x>_<z>.cell` (ikili); artımlı,
+  eski hücreler silinir.
+- **Streaming:** `CellStreamer` (histerezis, en yakın önce, kare bütçesi, iptal); App'te `StreamingSource`,
+  JobSystem'de çözme, 1 ms ekleme bütçesi, `ctx.finish_world_loading()`.
+- **Katmanlar ve hafıza:** `MapLayers` (gece gibi), `MapState` (yok edilen/değişen nesneler dünya
+  koordinatında saklanır).
+- **Kayan orijin:** 2 km eşik, 100 m adım; kök transform'lar, fizik (`PhysicsWorld::shift_origin`),
+  `RenderHistory` birlikte kayar, `OriginShifted` olayı. 100 km uçuşta milimetre hassasiyeti (test).
+- **Araçlar:** F1 → World paneli, hücre çizimi, profiler'da "world streaming".
+- **Demo:** `examples/open_world`: 4×4 km, ~4700 nesne, ~980 hücre, iki ızgara (ana + uzaktan görünen
+  kuleler), gece katmanı; iki görüntü testi.
+
+**Bilinen sınırlar:** bölüm örnekleri (`.scene` yerleştirme) ve hücreler arası referanslar yok; hücre
+ataması sınır kutusuna değil konuma göre; oyunun hücrede yeni oluşturduğu nesneler saklanmıyor; hücre
+dosyası okuma ana iş parçacığında; gökyüzü arka planı ortam rengini izlemiyor (M14).
 
 ## M8 — Geliştirici altyapısı, metin/HUD, ses ✅
 

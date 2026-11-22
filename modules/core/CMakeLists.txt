@@ -28,3 +28,6 @@ astral_add_tests(MODULE core
         tests/reflect_test.cpp
         tests/bytes_test.cpp
         tests/profiler_test.cpp)
+if(TARGET astral_core_tests)
+    target_compile_definitions(astral_core_tests PRIVATE ASTRAL_EXPECTED_VERSION="${PROJECT_VERSION}")
+endif()

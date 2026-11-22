@@ -273,17 +273,42 @@ void DebugUi::draw_panels(Context& ctx) {
             ImGui::MenuItem("Scene", nullptr, &show_scene_);
             ImGui::MenuItem("Inspector", nullptr, &show_inspector_);
             ImGui::MenuItem("Render", nullptr, &show_render_);
+            ImGui::MenuItem("World", nullptr, &show_world_);
             ImGui::MenuItem("ImGui demo", nullptr, &show_demo_);
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Debug draw")) {
             ImGui::MenuItem("Physics shapes", nullptr, &ctx.debug_show.physics);
             ImGui::MenuItem("Lights", nullptr, &ctx.debug_show.lights);
+            ImGui::MenuItem("World cells", nullptr, &ctx.debug_show.world_cells);
             ImGui::EndMenu();
         }
         ImGui::SameLine(ImGui::GetWindowWidth() - 200);
         ImGui::TextDisabled("F1 hides | %.1f ms", static_cast<double>(ctx.profiler->last_frame_ms()));
         ImGui::EndMainMenuBar();
+    }
+
+    if (show_world_) {
+        ImGui::SetNextWindowSize(ImVec2(300, 260), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("World", &show_world_)) {
+            const WorldPosition o = ctx.world_origin();
+            ImGui::Text("Origin: %.1f, %.1f, %.1f", o.x, o.y, o.z);
+            if (const StreamingStats* st = ctx.world_streaming()) {
+                ImGui::Text("Cells: %u in world, %u loading, %u waiting", st->attached, st->loading, st->waiting);
+                ImGui::Text("Last frame: +%u / -%u", st->attached_last_update, st->detached_last_update);
+                ImGui::Checkbox("Draw cells", &ctx.debug_show.world_cells);
+                if (MapLayers* layers = ctx.world_layers(); layers && !layers->layers().empty()) {
+                    ImGui::SeparatorText("Data layers");
+                    for (const LayerDesc& l : layers->layers()) {
+                        bool on = l.active;
+                        if (ImGui::Checkbox(l.name.c_str(), &on)) layers->set(l.name, on);
+                    }
+                }
+            } else {
+                ImGui::TextDisabled("No map open (ctx.open_world).");
+            }
+        }
+        ImGui::End();
     }
 
     if (show_performance_) {

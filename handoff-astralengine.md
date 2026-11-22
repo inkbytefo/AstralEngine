@@ -74,7 +74,7 @@ You are continuing work from a previous chat. That chat is gone; this file is th
 
 ## 8. Data & facts (exact)
 - Repo: `https://github.com/inkbytefo/AstralEngine.git`; bulut ortamında yol `/home/claude/AstralEngine`.
-- Proje sürümü (CMakeLists.txt): `project(Astral VERSION 0.13.0 ...)` (M8 bitti; tests/consumer `find_package(Astral 0.13 ...)` ile uyumlu — SameMinorVersion).
+- Proje sürümü (CMakeLists.txt): `project(Astral VERSION 0.14.0 ...)` (M9 bitti; tests/consumer `find_package(Astral 0.14 ...)` ile uyumlu — SameMinorVersion; core sürüm testi proje sürümünü otomatik okur).
 - CMake preset'leri: `debug`, `release`, `tsan`, `asan`.
 - Dallar (origin): `v3` = `fd16332` = `feat/m8-devtools`; `v2` = `c140ba4`; `main` = `69ccfd7`; `v2-old` = `62c6545`; eski: `docs/roadmap-v3` `86b7472`, `docs/terrain-sdf` `c140ba4`, `feat/m7-pong` `915a233`, `feat/m6-packaging` `98529d1`, `feat/m5c-scenes` `0b5da50`, `feat/m5b-assets` `496d670`, `feat/m5a-ecs` `535befd`, `feat/m3.5-photoreal` `990f778`.
 
@@ -109,13 +109,13 @@ You are continuing work from a previous chat. That chat is gone; this file is th
 | Yol haritası v4 + ADR-0019…0024 | final | `docs/roadmap.md`, `docs/decisions/` | |
 | Rehber "sahne, harita, dünya" | final | `docs/guides/scenes-and-worlds.md` | kod bilmeyen için |
 | Rehber "oyun nasıl yazılır" | eski | `docs/guides/writing-a-game.md` | HUD/ses/debug UI ve ADR-0023 düzeni eklenmeli |
-| M9 dünya/harita sistemi | 🔜 | ADR-0021 | plan dosyası `docs/superpowers/plans/<tarih>-m9.md` yazılacak |
+| M9 dünya/harita sistemi | final | ADR-0021, plan `docs/superpowers/plans/2026-11-22-m9-world.md` | `ctx.open_world`, hücre streaming, katmanlar, kayan orijin, `examples/open_world` (4×4 km), görüntü testleri; harita biçim adı `astral.map` |
+| M10 `.ashader` | 🔜 | ADR-0022 | sıradaki faz |
 
 ## 11. Next steps
-1. **Next action:** çalışma dalını `v3`'e fast-forward et (kullanıcı onayıyla).
+1. **Next action:** M10 (`.ashader` + `.material`, ADR-0022): plan yaz → TDD. Kullanıcı tercihi: commit faz sonunda (her mesajda değil).
 2. Bulut ortamında bağımlılıklar: CI'daki `LINUX_DEPS` apt ile kurulur; testler `xvfb-run -a ctest --preset debug`.
-3. `docs/guides/writing-a-game.md`'yi HUD, ses, debug UI ve özellik paketi düzeniyle güncelle.
-4. M9 (ADR-0021): plan yaz → `feat/m9-world` → TDD ile `.world` + `.ent` biçimi, cook'ta hücreleme, asenkron streaming, veri katmanları, kayan orijin; çıkış demosu 4×4 km test dünyası.
+3. `docs/guides/writing-a-game.md`'yi HUD, ses, debug UI, açık dünya ve özellik paketi düzeniyle güncelle.
 
 ## 12. Open questions ⚠️
 - Ana dal artık `v3` mü? (Claude'un varsayımı: evet, bundan sonra fazlar `v3`'e fast-forward edilir; `v2` dondurulur.) Seçenekler: v3 yeni ana hat / v2'ye de merge et / skip, varsayımla devam.

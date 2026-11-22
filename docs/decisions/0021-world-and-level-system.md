@@ -1,6 +1,7 @@
 # ADR-0021 — Dünya ve harita sistemi: World, hücreler, streaming, katmanlar (World Partition benzeri)
 
-- **Durum:** Kabul (uygulama M9; HLOD ve GPU-driven kısmı M22)
+- **Durum:** Kabul; M9'da uygulandı (bölüm örnekleri ve hücreler arası referanslar sonraya; HLOD ve
+  GPU-driven kısmı M22). Not: `.world` belgesinin biçim adı `"astral.map"` (`"astral.world"` ECS kaydının adı).
 - **Tarih:** 2026-11-21
 - **Bağlam:** ADR-0015 (sahneler ve prefab'lar), ADR-0016 (paketleme), ADR-0018 (arazi), Unreal Engine 5
   World Partition / One File Per Actor / Data Layers / Level Instance

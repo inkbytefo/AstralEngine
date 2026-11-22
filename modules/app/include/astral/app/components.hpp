@@ -109,11 +109,18 @@ struct Time {
     std::uint64_t frame = 0;  ///< Frames completed.
 };
 
+/// Cells of an open map (Context::open_world) are loaded around every active StreamingSource;
+/// without one, around the active camera. The first one also drives the floating origin.
+struct StreamingSource {
+    bool active = true;
+};
+
 } // namespace astral
 
 ASTRAL_REFLECT_ENUM(astral::Primitive, Cube, Sphere, Plane)
 ASTRAL_REFLECT(astral::PrimitiveMesh, shape, material)
 ASTRAL_REFLECT(astral::Sdf, shape, order)
+ASTRAL_REFLECT(astral::StreamingSource, active)
 ASTRAL_REFLECT(astral::Camera, fov_y, near_plane, far_plane, active)
 ASTRAL_REFLECT(astral::AudioSource, sound, bus, volume, pitch, loop, spatial, min_distance, max_distance, playing)
 ASTRAL_REFLECT_EMPTY(astral::AudioListener)

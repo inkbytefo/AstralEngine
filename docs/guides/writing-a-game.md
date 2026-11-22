@@ -214,7 +214,7 @@ void on_start(Context& ctx) override {
 Oyunu CMake'te `astral_add_game` ile tanımla; asset klasörü yanında:
 
 ```cmake
-find_package(Astral 0.13 CONFIG REQUIRED COMPONENTS App)   # ya da motorun içinden: add_subdirectory
+find_package(Astral 0.14 CONFIG REQUIRED COMPONENTS App)   # ya da motorun içinden: add_subdirectory
 astral_add_game(arena SOURCES src/main.cpp src/combat.cpp ASSETS content)
 ```
 

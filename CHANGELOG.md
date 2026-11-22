@@ -4,6 +4,26 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-11-22 — M9 (dünya ve harita sistemi)
+
+### Added
+- world: `map.hpp` (`.world` = `"astral.map"`, `.ent` = `"astral.entity"`, `read_map_source`,
+  `assign_cells`, `cook_map`, `read_cell`), `streaming.hpp` (`CellStreamer`, `CellLoader`),
+  `map_state.hpp` (`MapLayers`, `MapState`, `CellMember`, `CellDiff`), `origin.hpp` (`FloatingOrigin`,
+  `WorldPosition`, `OriginShifted`, `shift_roots`), `save_entities`.
+- assets: cook `.world` + `<harita>.entities/` → dizin + `<harita>.cells/*.cell`.
+- physics: `PhysicsWorld::shift_origin`.
+- app: `ctx.open_world` / `close_world` / `finish_world_loading` / `world_layers` / `world_streaming` /
+  `world_origin`, `StreamingSource`, `AppDesc::origin_shift_distance`, `AppDesc::world_stream_budget_ms`,
+  F1 → World paneli, `debug_show.world_cells`.
+- `tools/make_test_world.py`, `examples/open_world` (4×4 km), görüntü testleri `open_world`,
+  `open_world_night`.
+
+### Fixed
+- app: `AppDesc::asset_root` geçici bir string'den verildiğinde `save_scene` bozuk yola yazıyordu
+  (yol artık App kurulurken kopyalanıyor).
+- core: sürüm testi sabit `0.12.0` bekliyordu (0.13.0'da kırıktı); artık CMake proje sürümünü okuyor.
+
 ## [0.13.0] — 2026-11-22 — M8 (geliştirici araçları, metin/HUD, ses)
 
 ### Added

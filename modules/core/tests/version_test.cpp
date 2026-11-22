@@ -2,5 +2,6 @@
 #include <doctest/doctest.h>
 
 TEST_CASE("version reports the engine version") {
-    CHECK(astral::version() == "0.12.0");
+    // The project version from CMakeLists.txt (passed in by the build), so a version bump needs no edit here.
+    CHECK(astral::version() == ASTRAL_EXPECTED_VERSION);
 }

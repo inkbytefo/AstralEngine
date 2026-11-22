@@ -106,6 +106,19 @@ Entity bulb = find_part(world, lamp, "bulb");   // Name ile
   eski şablona göre fark alıp yeni şablonla yeniden açar — override'lar ve dışarıya referanslar korunur.
 - World dosya sistemini bilmez: belgeler `DocumentSource` ile gelir (App'te `AssetManager::load_document`).
 
+## Haritalar ve streaming (M9)
+
+Karar: [ADR-0021](../decisions/0021-world-and-level-system.md). Hepsi saf veri + ECS; dosya sistemi ve
+iş parçacığı yok (onları App yapar).
+
+| Başlık | Ne |
+|---|---|
+| `map.hpp` | `.world` belgesi (biçim `"astral.map"` v1): `MapDesc{settings, grids, layers}`, `parse_map`, `write_map`. `.ent` dosyası (`"astral.entity"`): sahne kaydı + `grid`, `layers`, `always_loaded`. `read_map_source` (kimlik 1…2³²−1, benzersiz; hatalar raporlanır), `make_entity_file`, `entity_file_name`. Hücreler: `assign_cells` (konuma göre, `floor(konum / hücre)`), `cell_name` (`main_-1_2`), `cell_distance`. Cook çıktısı: `cook_map` (dizin + hücre belgeleri `"astral.cell"`), `read_cell` |
+| `streaming.hpp` | `CellStreamer`: kaynaklara göre hangi hücre yüklensin. Yükleme `load_range` içinde başlar, `load_range × 1.1` dışında boşaltılır (histerezis); hazır hücreler en yakından başlayarak, çağrı başına `max_attach` kadar eklenir; istenmeyen yükleme iptal edilir. İşi `CellLoader` arayüzü yapar |
+| `map_state.hpp` | `CellMember` component'i; `MapLayers` (katman aç/kapa, `version()`); `MapState`: `spawn_cell` / `despawn_cell` / `refresh_layers`; oyunun yok ettiği ve değiştirdiği nesneler `CellDiff` olarak dünya koordinatında saklanır, yeniden yüklemede uygulanır |
+| `origin.hpp` | `WorldPosition` (double), `FloatingOrigin` (eşik 2 km, 100 m'ye yuvarlanmış kayma, y kaymaz), `OriginShifted` olayı, `shift_roots` |
+| `scene.hpp` | Yeni: `save_entities` (seçili entity'leri sahne kaydı olarak) |
+
 ## İçeride nasıl çalışıyor
 
 - **Component kimliği** tip başına benzersiz bir etiketin adresi: kayıt yok, global sayaç yok ve farklı
@@ -136,6 +149,11 @@ Entity bulb = find_part(world, lamp, "bulb");   // Name ile
   deserialize edilir — binlerce örnekte yavaş (cook edilmiş ikili şablon ileride).
 - Hot-reload'da parçalar yeniden oluşturulur: parçalara tutulan `Entity` handle'ları geçersizleşir
   (dışarıdan parçaya giden component referansları korunur, yerel değişkenler korunmaz).
+- Haritalar (M9): hücre ataması nesnenin **konumuna** göre (sınır kutusu değil): büyük bir nesne
+  komşu hücreden görünse de kendi hücresi yüklenmeden gelmez. Hücreler arası referanslar yok
+  (bir hücredeki kayıt yalnız aynı hücredeki kayıtları gösterebilir). Oyunun bir hücrede **yeni
+  oluşturduğu** entity'ler hücre farkına girmez. Katmanla gizlenen bir nesnedeki değişiklikler unutulur.
+  Bölüm örnekleri (`.scene`'i dünyaya yerleştirme) henüz yok.
 - Kodla parçalara eklenen yeni çocuk entity'ler sahnede kendi kayıtları olarak kalır; hot-reload'da
   ebeveyn parça yeniden oluşturulduğundan bu çocukların Parent'ı boşa düşer.
 - `deleted` yolu artık olmayan bir parçayı gösterirse uyarı verilir, kayıt yine yüklenir.

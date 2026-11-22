@@ -90,7 +90,7 @@ Kararlar: [ADR-0019](../decisions/0019-dev-tools-and-ui-overlay.md), [ADR-0020](
 |---|---|
 | `profiler` | CPU kapsam zamanlayıcıları: `ASTRAL_PROFILE_SCOPE(ctx.profiler, "ad")`. App kendi aşamalarını (assets, PreUpdate, Update, physics, PostUpdate, transforms, audio, render, debug ui) ölçer |
 | `debug` | `DebugDraw`: çizgi, kutu, küre, kapsül, silindir, ok, eksen, ızgara; `{.on_top, .seconds}` |
-| `debug_show` | `physics`, `lights`: hazır debug katmanları |
+| `debug_show` | `physics`, `lights`, `world_cells`: hazır debug katmanları |
 | `show_debug_ui` | F1 paneli (Dear ImGui): performans, sahne, inspector, render ayarları |
 | `hud` | `UiCanvas`: `rect`, `frame`, `image`, `text` (`TextStyle{size, color, align, shadow}`) |
 | `font` | Varsayılan SDF font (gömülü Roboto, Türkçe karakterler) |
@@ -103,3 +103,29 @@ Kararlar: [ADR-0019](../decisions/0019-dev-tools-and-ui-overlay.md), [ADR-0020](
 - Debug UI açıkken klavye/fare ImGui'ye gidiyorsa oyunun `ctx.input`'u o kareyi görmez; fare yakalama F1
   kapanınca geri gelir.
 - Yeni component'ler: `AudioSource`, `AudioListener` (reflect edilmiş, sahne dosyasında kullanılabilir).
+
+## Açık dünya (M9)
+
+Karar: [ADR-0021](../decisions/0021-world-and-level-system.md). Örnek: `examples/open_world`.
+
+| API | Ne |
+|---|---|
+| `ctx.open_world("maps/x.world")` | Haritayı açar (öncekini kapatır): `always_loaded` nesneler hemen gelir, hücreler kaynakların çevresinde stream edilir. Kaynak harita (geliştirme: `.ent` klasörü bellekte cook edilir) ya da cook edilmiş harita (`x.cells/*.cell`) |
+| `ctx.close_world()` | Haritanın nesnelerini siler |
+| `ctx.finish_world_loading()` | Menzildeki her hücre yüklenene kadar bekler (yükleme ekranı, testler, yakalamalar) |
+| `ctx.world_layers()` | `MapLayers*`: `set("gece", true)`; değişiklik bir sonraki karenin başında uygulanır |
+| `ctx.world_streaming()` | `StreamingStats` (yüklü, yükleniyor, bekliyor, son karede eklenen/çıkarılan) |
+| `ctx.world_origin()` | Yerel sıfırın dünya konumu (double). Kayınca `OriginShifted` olayı gelir |
+| `StreamingSource` | Bu entity'nin çevresi yüklenir (yoksa aktif kamera). İlki kayan orijini de sürer |
+| `AppDesc::origin_shift_distance` | Orijin kayma eşiği (varsayılan 2000 m) |
+| `AppDesc::world_stream_budget_ms` | Kare başına hücre ekleme süresi (varsayılan 1 ms, en az bir hücre) |
+| `debug_show.world_cells`, F1 → World | Yüklü hücreler ve yükleme yarıçapı; orijin, hücre sayıları, katman kutucukları |
+
+Kare sırası: girdi → olaylar → **dünya streaming'i** (orijin kayması, katmanlar, hücre ekle/çıkar) →
+asset'ler → sistemler. Hücre dosyaları ana iş parçacığında okunur, JobSystem'de çözülür, ana iş
+parçacığında bütçeyle eklenir. Orijin kayınca kök `Transform`'lar, fizik gövdeleri, kinematik geçmişi ve
+`RenderHistory` birlikte kayar; renderer'ın zamansal geçmişi sıfırlanır.
+
+**Bilinen sınırlar (M9):** kayan orijin yalnızca bir harita açıkken çalışır. Orijin kayınca TAA/GI
+geçmişi bir kare sıfırlanır (kısa bir yumuşama). Hücre okuma (dosya G/Ç) ana iş parçacığında; büyük
+hücrelerde G/Ç de iş parçacığına taşınmalı. Gökyüzü arka planı `environment.sky`'ı izlemiyor (M14).

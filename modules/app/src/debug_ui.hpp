@@ -47,6 +47,7 @@ private:
     bool show_scene_ = true;
     bool show_inspector_ = true;
     bool show_render_ = false;
+    bool show_world_ = false;
     bool show_demo_ = false;
     Entity selected_{};
     std::string filter_;

@@ -37,7 +37,10 @@ Okuma kılavuzu:
 Sınırı: bir sahne ya tamamen yüklenir ya hiç. Küçük haritalar, menüler ve odalar için doğru; açık dünya
 için değil.
 
-## Hedef (M9): Dünya = harita
+## Dünya = harita (M9, kullanılabilir)
+
+Denemek için: `open_world` örneğini çalıştır (WASD ile uç, `N` gece, F1 → World paneli). Haritası
+`tools/make_test_world.py` ile üretilir: 4×4 km, ~4700 nesne, ~980 hücre.
 
 ```
 maps/
@@ -56,7 +59,7 @@ maps/
 | Büyük harita belleğe nasıl sığar? | Cook nesneleri **hücrelere** (ör. 128 m kareler) dağıtır; oyuncunun çevresindeki hücreler arka planda yüklenir, uzaktakiler boşaltılır |
 | Uzakta değiştirdiğim şey ne olur? | Kırılan kapı, alınan eşya hücre farkı olarak saklanır; geri dönünce öyle kalmış olur |
 | Gece/gündüz, görev öncesi/sonrası? | **Veri katmanları**: nesneler `gece`, `köprü_yıkıldı` gibi katmanlara etiketlenir, oyun bunları açıp kapatır |
-| Aynı köyü iki haritada kullanmak? | Köy bir `.scene`; dünyaya **bölüm örneği** olarak yerleştirilir (prefab'ın harita boyu) |
+| Aynı köyü iki haritada kullanmak? | Köy bir `.scene`; dünyaya **bölüm örneği** olarak yerleştirilecek (henüz yok; şimdilik prefab kullan) |
 | Merkezden 20 km uzakta titreme? | **Kayan orijin**: oyuncu uzaklaştıkça dünyanın orijini sessizce kaydırılır |
 | Küçük oyun yine tek dosya olabilir mi? | Evet. `.scene` geçerli bir harita olarak kalır |
 
