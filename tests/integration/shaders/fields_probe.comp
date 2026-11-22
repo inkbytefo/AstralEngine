@@ -1,0 +1,30 @@
+#version 460
+#include <astral/bindless.glsl>
+#include <astral/fields.glsl>
+
+ASTRAL_BUFFER(Vec4Buffer, vec4);
+ASTRAL_BUFFER(WindBuffer, AstralWind);
+ASTRAL_BUFFER(WaterBuffer, AstralWater);
+
+// Probe i: point = points[i].xyz, time = points[i].w. Writes the wind (xyz), the noise (w of the next row),
+// the volume weight and the water surface.
+layout(push_constant, scalar) uniform Push {
+    Vec4Buffer points;
+    WindBuffer wind;
+    WaterBuffer water;
+    Vec4Buffer out_wind;   // xyz = wind, w = noise(p, 7)
+    Vec4Buffer out_misc;   // x = weight(box at 0, half 5, falloff 3), y = water surface
+    uint count;
+} pc;
+
+layout(local_size_x = 64) in;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= pc.count) return;
+    vec4 pt = pc.points.data[i];
+    vec3 w = astral_wind_of(pc.wind.data[0], pt.xyz, pt.w);
+    pc.out_wind.data[i] = vec4(w, astral_field_noise(pt.xyz, 7u));
+    float weight = astral_volume_weight(pt.xyz, vec3(0.0), vec3(5.0), 3.0);
+    float surface = astral_water_surface_height(pc.water.data[0], pt.x, pt.z, pt.w);
+    pc.out_misc.data[i] = vec4(weight, surface, 0.0, 0.0);
+}

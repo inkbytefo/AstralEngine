@@ -52,6 +52,7 @@ astral_add_tests(MODULE app
         tests/audio_app_test.cpp
         tests/world_app_test.cpp
         tests/script_app_test.cpp
+        tests/fields_app_test.cpp
         tests/feature_test.cpp
         tests/shell_test.cpp
         tests/material_app_test.cpp)

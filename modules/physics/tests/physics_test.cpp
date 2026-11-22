@@ -61,7 +61,7 @@ TEST_CASE("raycast can ignore a body") {
     PhysicsWorld world;
     make_ground(world);
     BodyHandle box = world.create_body({.shape = ShapeDesc::box({1, 1, 1}), .motion = MotionType::Static, .position = {0, 3, 0}});
-    const auto hit = world.raycast({0, 10, 0}, {0, -1, 0}, 100.0f, box);
+    const auto hit = world.raycast({0, 10, 0}, {0, -1, 0}, 100.0f, QueryFilter{.ignore = box});
     REQUIRE(hit.has_value());
     CHECK(hit->distance == doctest::Approx(10.0f).epsilon(0.01));
 }

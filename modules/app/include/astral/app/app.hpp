@@ -118,6 +118,7 @@ public:
     struct DebugShow {
         bool physics = false; ///< RigidBody shapes (green: dynamic, blue: kinematic, grey: static) and characters.
         bool lights = false;  ///< Point light ranges, rect light panels.
+        bool fields = false;  ///< WindZone boxes with their direction, WaterBody boxes.
         bool world_cells = false; ///< Loaded map cells (squares on the ground) and the load range.
     } debug_show;
     /// The engine's debug UI (F1): performance, entities, inspector, render settings. Needs a renderer.
@@ -129,6 +130,9 @@ public:
     DirectionalLight sun{};   ///< The sun (direction, color, shadows).
     Environment environment{}; ///< Sky/ground ambient and exposure.
 
+    /// Wind and water now (ADR-0029): rebuilt from WindZone / WaterBody entities at the start of every fixed step. Sample it
+    /// from systems: ctx.fields.wind_at(position, ctx.time.elapsed), ctx.fields.water_at(...).
+    FieldWorld fields;
     /// Events by name (scripts send and listen through it): add your ASTRAL_REFLECT'ed events with
     /// events.add<T>(); scripts can define their own with astral.define_event.
     EventRegistry events;
@@ -243,6 +247,9 @@ struct AppDesc {
     float world_stream_budget_ms = 1.0f;
     /// Folder of save slots (astral.save from scripts): one `<slot>.json` each. Relative = the working folder.
     std::string_view save_folder = "saves";
+    /// Smooth motion between physics steps: dynamic bodies are drawn between their last two simulated poses (up to one step behind)
+    /// instead of jumping once per step. Matters when physics_rate is below the frame rate. Transform then lags the simulation a little.
+    bool physics_interpolation = false;
 };
 
 /// Owns the main loop and every engine service; your Game plugs into it.

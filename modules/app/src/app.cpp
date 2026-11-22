@@ -135,6 +135,8 @@ struct App::Impl {
         BodyHandle body;
         Vec3 previous_position{}; // kinematic bodies: pose at the start of the frame
         Quat previous_rotation{};
+        Vec3 step_position{};     // physics_interpolation: simulated pose before the last step
+        Quat step_rotation{};
     };
     struct CharacterLink {
         Entity entity;
@@ -175,6 +177,9 @@ struct App::Impl {
     bool started = false;
     bool in_fixed_update = false;
     void sync_physics_bodies();
+    void update_fields();
+    void apply_field_forces(float dt);
+    void emit_contact_events();
     void sync_models();
     void spawn_model(Entity owner, const Model& model);
     void sync_primitives();
@@ -212,6 +217,14 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
     types.add<AudioSource>();
     types.add<AudioListener>();
     types.add<StreamingSource>();
+    types.add<WindZone>();
+    types.add<WaterBody>();
+    types.add<Buoyant>();
+    types.add<AirDrag>();
+    types.add<Airfoil>();
+    m.context->events.add<Contact>();
+    m.context->events.add<TriggerEntered>();
+    m.context->events.add<TriggerExited>();
     types.exclude<ModelPiece>();
     m.physics = std::make_unique<PhysicsWorld>(PhysicsDesc{.logger = &m.log});
     m.context->physics = m.physics.get();
@@ -603,7 +616,7 @@ void App::Impl::sync_physics_bodies() {
         body_desc.rotation = t.rotation;
         body_desc.user_data = to_user_data(e);
         rb.handle = physics->create_body(body_desc);
-        if (rb.handle.valid()) body_links.push_back({e, rb.handle, t.position, t.rotation});
+        if (rb.handle.valid()) body_links.push_back({e, rb.handle, t.position, t.rotation, t.position, t.rotation});
     });
     world.each<CharacterController, const Transform>([&](Entity e, CharacterController& cc, const Transform& t) {
         if (physics->valid(cc.handle) && physics->user_data(cc.handle) == to_user_data(e)) return;
@@ -613,6 +626,103 @@ void App::Impl::sync_physics_bodies() {
         cc.handle = physics->create_character(character_desc);
         if (cc.handle.valid()) character_links.push_back({e, cc.handle});
     });
+}
+
+/// Rebuilds the fields from WindZone / WaterBody entities (their position is the box centre).
+void App::Impl::update_fields() {
+    FieldWorld& fields = context->fields;
+    fields.clear_volumes();
+    fields.set_global_wind({});
+    const auto centre = [&](Entity e) {
+        if (const WorldTransform* w = world.get<const WorldTransform>(e)) return Vec3{w->matrix[3].x, w->matrix[3].y, w->matrix[3].z};
+        const Transform* t = world.get<const Transform>(e);
+        return t ? t->position : Vec3{};
+    };
+    world.each<const WindZone>([&](Entity e, const WindZone& z) {
+        const WindDesc wind{.velocity = z.velocity, .gust_strength = z.gust_strength, .gust_frequency = z.gust_frequency,
+                            .turbulence = z.turbulence, .turbulence_scale = z.turbulence_scale, .seed = z.seed};
+        if (z.global) fields.set_global_wind(wind);
+        else fields.add_wind_volume({.center = centre(e), .half_extents = z.half_extents, .wind = wind, .falloff = z.falloff, .replace = z.replace});
+    });
+    world.each<const WaterBody>([&](Entity e, const WaterBody& w) {
+        fields.add_water_volume({.center = centre(e), .half_extents = w.half_extents, .density = w.density, .flow = w.flow,
+                                 .wave_height = w.wave_height, .wave_length = w.wave_length, .wave_speed = w.wave_speed});
+    });
+}
+
+/// AirDrag, Buoyant and Airfoil: forces from the fields on the bodies that have them.
+void App::Impl::apply_field_forces(float dt) {
+    const FieldWorld& fields = context->fields;
+    const double now = time.elapsed;
+    const float gravity = length(physics->gravity());
+    const auto body_of = [&](const RigidBody& rb) { return rb.desc.motion == MotionType::Dynamic && physics->valid(rb.handle); };
+    // Water first: how much of each body is under, so air drag can fade out.
+    world.each<const RigidBody, const Buoyant>([&](const RigidBody& rb, const Buoyant& b) {
+        if (!body_of(rb)) return;
+        const Vec3 p = physics->position(rb.handle);
+        const Vec3 v = physics->linear_velocity(rb.handle);
+        const float height = std::max(b.height, 0.01f);
+        const WaterSample water = fields.water_at({p.x, p.y - 0.5f * height, p.z}, now); // at the bottom of the body
+        if (!water.inside) return;
+        const float fraction = std::clamp(water.depth / height, 0.0f, 1.0f);
+        const float mass = physics->mass(rb.handle);
+        const float volume = b.volume > 0.0f ? b.volume : mass / 500.0f;
+        const Vec3 up = gravity > 0.0f ? normalize(Vec3{0, 1, 0}) : Vec3{0, 1, 0};
+        physics->add_force(rb.handle, up * (water.density * gravity * volume * fraction));
+        const Vec3 relative = water.flow - v;
+        physics->add_force(rb.handle, relative * (0.5f * water.density * b.drag * b.area * length(relative) * fraction));
+        const Vec3 spin = physics->angular_velocity(rb.handle);
+        physics->set_angular_velocity(rb.handle, spin * std::max(0.0f, 1.0f - b.angular_drag * fraction * dt));
+    });
+    world.each<const RigidBody, const AirDrag>([&](Entity e, const RigidBody& rb, const AirDrag& d) {
+        if (!body_of(rb)) return;
+        const Vec3 p = physics->position(rb.handle);
+        float in_air = 1.0f;
+        if (const Buoyant* b = world.get<const Buoyant>(e)) {
+            const WaterSample water = fields.water_at({p.x, p.y - 0.5f * std::max(b->height, 0.01f), p.z}, now);
+            if (water.inside) in_air = 1.0f - std::clamp(water.depth / std::max(b->height, 0.01f), 0.0f, 1.0f);
+        }
+        const Vec3 relative = fields.wind_at(p, now) - physics->linear_velocity(rb.handle);
+        physics->add_force(rb.handle, relative * (0.5f * air_density * d.drag * d.area * length(relative) * in_air));
+    });
+    world.each<const RigidBody, const Airfoil>([&](const RigidBody& rb, const Airfoil& wing) {
+        if (!body_of(rb)) return;
+        const Vec3 p = physics->position(rb.handle);
+        const Quat q = physics->rotation(rb.handle);
+        const Vec3 flow = fields.wind_at(p, now) - physics->linear_velocity(rb.handle); // air moving past the wing
+        const float speed = length(flow);
+        if (speed < 0.1f) return;
+        const Vec3 forward = q * normalize(wing.forward), up = q * normalize(wing.up);
+        const float alpha = std::atan2(dot(flow, up), -dot(flow, forward)); // + when the air meets the underside (it moves towards the lift side)
+        const float stall = std::max(wing.stall_angle, 0.01f);
+        float coefficient = wing.lift_slope * std::clamp(alpha, -stall, stall);
+        if (std::abs(alpha) > stall) coefficient *= std::clamp(1.0f - (std::abs(alpha) - stall) / stall, 0.0f, 1.0f);
+        const Vec3 direction = flow / speed;
+        const Vec3 lift_axis = normalize(up - direction * dot(up, direction)); // perpendicular to the flow, on the wing's lift side
+        physics->add_force(rb.handle, lift_axis * (0.5f * air_density * speed * speed * wing.area * coefficient));
+    });
+}
+
+/// Physics contacts of this frame as events: collisions and triggers.
+void App::Impl::emit_contact_events() {
+    for (const ContactEvent& c : frame_contacts) {
+        const Entity a = c.user_data_a ? entity_from_user_data(c.user_data_a) : Entity{};
+        const Entity b = c.user_data_b ? entity_from_user_data(c.user_data_b) : Entity{};
+        const bool begin = c.type == ContactEvent::Type::Begin;
+        if (c.sensor) {
+            const auto is_sensor = [&](Entity e) {
+                const RigidBody* rb = e.valid() ? world.get<const RigidBody>(e) : nullptr;
+                return rb && rb->desc.sensor;
+            };
+            const bool a_is = is_sensor(a);
+            const Entity trigger = a_is ? a : b, other = a_is ? b : a;
+            if (!trigger.valid() || !other.valid()) continue;
+            if (begin) world.send(TriggerEntered{trigger, other});
+            else world.send(TriggerExited{trigger, other});
+            continue;
+        }
+        world.send(Contact{begin ? ContactKind::Begin : ContactKind::End, a, b, c.point, c.normal, c.surface_a, c.surface_b});
+    }
 }
 
 /// Fixed-rate physics: FixedUpdate systems, kinematic targets, characters, step; then the
@@ -629,6 +739,7 @@ void App::Impl::step_physics(Game&, float delta) {
     const auto planned = static_cast<std::uint32_t>(std::min<float>(physics_accumulator / fixed, static_cast<float>(max_steps)));
     std::uint32_t steps = 0;
     while (physics_accumulator >= fixed && steps < max_steps) {
+        update_fields();
         in_fixed_update = true;
         {
             ASTRAL_PROFILE_SCOPE(&profiler, "FixedUpdate");
@@ -655,6 +766,13 @@ void App::Impl::step_physics(Game&, float delta) {
             physics->update_character(cc.handle, cc.move, cc.jump, fixed, cc.jump_speed);
             cc.jump = false; // one jump per press
         });
+        if (desc.physics_interpolation) {
+            for (BodyLink& link : body_links) { // the pose this step starts from
+                link.step_position = physics->position(link.body);
+                link.step_rotation = physics->rotation(link.body);
+            }
+        }
+        apply_field_forces(fixed);
         {
             ASTRAL_PROFILE_SCOPE(&profiler, "physics.step");
             physics->step(fixed);
@@ -673,11 +791,25 @@ void App::Impl::step_physics(Game&, float delta) {
         }
     }
 
+    emit_contact_events();
+    const float blend = desc.physics_interpolation ? std::clamp(physics_accumulator / fixed, 0.0f, 1.0f) : 1.0f;
     world.each<const RigidBody, Transform>([&](const RigidBody& rb, Transform& t) {
         if (rb.desc.motion != MotionType::Dynamic || !physics->valid(rb.handle)) return;
         t.position = physics->position(rb.handle);
         t.rotation = physics->rotation(rb.handle);
     });
+    if (desc.physics_interpolation) {
+        for (const BodyLink& link : body_links) { // between the last two simulated poses
+            Transform* t = world.get<Transform>(link.entity);
+            const RigidBody* rb = world.get<RigidBody>(link.entity);
+            if (!t || !rb || rb->desc.motion != MotionType::Dynamic || !physics->valid(rb->handle)) continue;
+            const Quat from = link.step_rotation, to = t->rotation;
+            const float sign = (from.x * to.x + from.y * to.y + from.z * to.z + from.w * to.w) < 0 ? -1.0f : 1.0f;
+            t->position = lerp(link.step_position, t->position, blend);
+            t->rotation = normalize(Quat{from.x + (to.x * sign - from.x) * blend, from.y + (to.y * sign - from.y) * blend,
+                                         from.z + (to.z * sign - from.z) * blend, from.w + (to.w * sign - from.w) * blend});
+        }
+    }
     world.each<CharacterController, Transform>([&](Entity e, CharacterController& cc, Transform& t) {
         if (!physics->valid(cc.handle) || physics->user_data(cc.handle) != to_user_data(e)) return;
         const CharacterState state = physics->character_state(cc.handle);
@@ -989,18 +1121,67 @@ void App::Impl::draw_debug_overlays() {
             const Vec4 color = rb.desc.motion == MotionType::Dynamic   ? Vec4{0.3f, 1.0f, 0.4f, 1}
                                : rb.desc.motion == MotionType::Kinematic ? Vec4{0.3f, 0.6f, 1.0f, 1}
                                                                         : Vec4{0.6f, 0.6f, 0.6f, 1};
-            const ShapeDesc& s = rb.desc.shape;
-            switch (s.type) {
-            case ShapeType::Box: ctx.debug.box(p, s.half_extents, q, color); break;
-            case ShapeType::Sphere: ctx.debug.sphere(p, s.radius, color); break;
-            case ShapeType::Capsule: ctx.debug.capsule(p, q, s.radius, s.half_height, color); break;
-            case ShapeType::Cylinder: ctx.debug.cylinder(p, q, s.radius, s.half_height, color); break;
-            }
+            const auto draw = [&](auto&& self, const ShapeDesc& s, Vec3 pos, Quat rot) -> void {
+                switch (s.type) {
+                case ShapeType::Box: ctx.debug.box(pos, s.half_extents, rot, color); break;
+                case ShapeType::Sphere: ctx.debug.sphere(pos, s.radius, color); break;
+                case ShapeType::Capsule: ctx.debug.capsule(pos, rot, s.radius, s.half_height, color); break;
+                case ShapeType::Cylinder: ctx.debug.cylinder(pos, rot, s.radius, s.half_height, color); break;
+                case ShapeType::ConvexHull: { // its bounding box
+                    Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
+                    for (const Vec3& v : s.points) {
+                        lo = {std::min(lo.x, v.x), std::min(lo.y, v.y), std::min(lo.z, v.z)};
+                        hi = {std::max(hi.x, v.x), std::max(hi.y, v.y), std::max(hi.z, v.z)};
+                    }
+                    ctx.debug.box(pos + rot * ((lo + hi) * 0.5f), (hi - lo) * 0.5f, rot, color);
+                    break;
+                }
+                case ShapeType::Mesh: {
+                    const std::size_t triangles = std::min<std::size_t>(s.indices.size() / 3, 4000);
+                    for (std::size_t i = 0; i < triangles; ++i) {
+                        const Vec3 a2 = pos + rot * s.vertices[s.indices[i * 3]], b2 = pos + rot * s.vertices[s.indices[i * 3 + 1]],
+                                   c2 = pos + rot * s.vertices[s.indices[i * 3 + 2]];
+                        ctx.debug.line(a2, b2, color);
+                        ctx.debug.line(b2, c2, color);
+                        ctx.debug.line(c2, a2, color);
+                    }
+                    break;
+                }
+                case ShapeType::HeightField: { // every 4th row and column
+                    const float half = 0.5f * static_cast<float>(s.samples - 1) * s.cell_size;
+                    const auto at = [&](std::uint32_t x, std::uint32_t z) {
+                        return pos + rot * Vec3{static_cast<float>(x) * s.cell_size - half, s.heights[z * s.samples + x], static_cast<float>(z) * s.cell_size - half};
+                    };
+                    for (std::uint32_t z = 0; z < s.samples; z += 4) {
+                        for (std::uint32_t x = 0; x + 1 < s.samples; ++x) ctx.debug.line(at(x, z), at(x + 1, z), color);
+                    }
+                    for (std::uint32_t x = 0; x < s.samples; x += 4) {
+                        for (std::uint32_t z = 0; z + 1 < s.samples; ++z) ctx.debug.line(at(x, z), at(x, z + 1), color);
+                    }
+                    break;
+                }
+                case ShapeType::Compound:
+                    for (const ShapeChild& child : s.children) self(self, child.shape, pos + rot * child.position, rot * child.rotation);
+                    break;
+                }
+            };
+            draw(draw, rb.desc.shape, p, q);
         });
         world.each<const CharacterController, const WorldTransform>([&](const CharacterController& cc, const WorldTransform& w) {
             const float half = cc.desc.height * 0.5f; // feet at the entity position
             ctx.debug.capsule({w.matrix[3].x, w.matrix[3].y + half, w.matrix[3].z}, Quat{}, cc.desc.radius,
                               std::max(0.0f, half - cc.desc.radius), cc.on_ground ? Vec4{1, 0.85f, 0.2f, 1} : Vec4{1, 0.4f, 0.2f, 1});
+        });
+    }
+    if (ctx.debug_show.fields) {
+        world.each<const WindZone, const WorldTransform>([&](const WindZone& z, const WorldTransform& w) {
+            const Vec3 p{w.matrix[3].x, w.matrix[3].y, w.matrix[3].z};
+            if (!z.global) ctx.debug.box(p, z.half_extents, Quat{}, {0.5f, 0.9f, 1.0f, 1});
+            const float speed = length(z.velocity);
+            if (speed > 0.0f) ctx.debug.arrow(p, p + normalize(z.velocity) * std::min(1.0f + speed * 0.3f, 6.0f), {0.5f, 0.9f, 1.0f, 1}, {.on_top = true});
+        });
+        world.each<const WaterBody, const WorldTransform>([&](const WaterBody& b, const WorldTransform& w) {
+            ctx.debug.box({w.matrix[3].x, w.matrix[3].y, w.matrix[3].z}, b.half_extents, Quat{}, {0.2f, 0.4f, 1.0f, 1});
         });
     }
     if (ctx.debug_show.lights) {

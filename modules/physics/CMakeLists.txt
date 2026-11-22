@@ -29,6 +29,7 @@ FetchContent_MakeAvailable(JoltPhysics)
 astral_add_module(NAME physics
     SOURCES
         src/physics.cpp
+        src/fields.cpp
     DEPS
         Astral::Core
     PRIVATE_DEPS
@@ -37,4 +38,8 @@ astral_add_module(NAME physics
 astral_add_tests(MODULE physics
     SOURCES
         tests/test_main.cpp
-        tests/physics_test.cpp)
+        tests/physics_test.cpp
+        tests/layers_test.cpp
+        tests/shapes_test.cpp
+        tests/joints_test.cpp
+        tests/fields_test.cpp)
