@@ -134,12 +134,6 @@
   {
     "path": "modules/render/src/renderer.cpp",
     "kind": "function",
-    "name": "Renderer::Impl::prepare_instances",
-    "reason": "M13.5 R1: to be split"
-  },
-  {
-    "path": "modules/render/src/renderer.cpp",
-    "kind": "function",
     "name": "Renderer::render",
     "reason": "M13.5 R1: to be split"
   },

@@ -168,3 +168,16 @@ fonksiyonu eklenmiş hâliyle çalışma anında yeniden derlenir (`compile_rt_v
 arka planı değiştirir (aydınlatma ve yansımalar `Environment` renklerini kullanır); post için HDR öncesi nokta
 yok; RT varyantında `vertex()`, türevler, alfa ve normal haritası yok; deforme mesh'ler için BLAS güncellemesi
 yok (RT'de deformasyon görünmez).
+
+## Dosya düzeni
+
+`modules/render/src/` altındaki iç düzen:
+
+- `gpu_layouts.hpp`: `shaders/include/astral/scene.glsl` ile eşleşen skaler GPU veri yapıları, kaynak kayıtları ve push constant blokları (`static_assert` boyut/ofset denetimli).
+- `stores/mesh_store.{hpp,cpp}`: mesh handle havuzu, vertex/index tamponları ve BLAS yaşam döngüsü.
+- `stores/texture_store.{hpp,cpp}`: doku handle havuzu, `build_mips`, yükleme ve yedek 1×1 dokular.
+- `stores/material_store.{hpp,cpp}`: materyal havuzu, varsayılan materyal, GPU materyal tablosu ve `.ashader` parametre bloğu paketleme.
+- `stores/shader_store.{hpp,cpp}`: yüzey/ekran shader pipeline havuzu, RT compute pipeline'ları ve özel RT yüzey derleme/geri dönüş yolu.
+- `frame/frame_slot.hpp`: kare halka tamponları (`GrowBuffer`, `FrameSlot`, `FrameRing`).
+- `frame/instances.{hpp,cpp}`: kare başına örnek hazırlama (`prepare_instances`), şeffaf sıralama ve TLAS kurulumu.
+- `renderer.cpp`: `Renderer` cephesi, render graph kurulumu ve kare kaydı (raster ve ışın izlemeli yollar).

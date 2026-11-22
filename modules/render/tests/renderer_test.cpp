@@ -992,3 +992,130 @@ TEST_CASE("post shaders run after tonemapping, in order") {
     f.renderer->destroy(swap);
     f.renderer->destroy(dim);
 }
+
+TEST_CASE("characterization: RenderStats and pass list for raster and ray-traced frames") {
+    auto pass_names = [](const Renderer& r) {
+        std::vector<std::string> names;
+        for (const PassTiming& t : r.gpu_timings()) names.push_back(t.name);
+        return names;
+    };
+
+    SUBCASE("raster frame") {
+        Fixture f;
+        if (!f.device) return;
+        const MeshHandle cube = f.renderer->create_mesh(make_cube());
+        const MeshHandle plane = f.renderer->create_mesh(make_plane(4.0f));
+        const ShaderHandle glass = make_shader(f, glass_shader, "char_glass");
+        const MaterialHandle red = f.renderer->create_material({.base_color = {1, 0, 0, 1}, .roughness = 0.8f});
+        const MaterialHandle pane = f.renderer->create_material({.shader = glass, .params = {0, 1, 0, 0.5f}});
+        const std::array meshes{
+            MeshInstance{.mesh = plane, .material = red, .transform = translate({0, -1, 0})},
+            MeshInstance{.mesh = cube, .material = red, .transform = translate({-1, 0, 0})},
+            MeshInstance{.mesh = cube, .material = red, .transform = translate({1, 0, 0})},
+            MeshInstance{.mesh = cube, .material = pane, .transform = translate({0, 0, 1})},
+        };
+        const std::array sdf{
+            SdfShape{.primitive = SdfPrimitive::Sphere, .position = {0, 0, -2}, .size = {0.5f, 0, 0, 0}},
+        };
+        const std::array lights{
+            PointLight{.position = {0, 2, 2}, .color = {1, 1, 1}, .intensity = 10.0f, .radius = 8.0f},
+        };
+        const std::array rects{
+            RectLight{.position = {0, 3, 0}, .intensity = 5.0f},
+        };
+        DebugDraw debug;
+        debug.line({-1, 0, 0}, {1, 0, 0}, {1, 1, 0, 1});
+        const RenderScene scene{
+            .meshes = meshes,
+            .sdf = sdf,
+            .lights = lights,
+            .rect_lights = rects,
+            .sun = {.direction = {0.4f, -1.0f, -0.3f}, .intensity = 2.0f, .shadows = true},
+            .debug_lines = debug.lines(),
+        };
+        for (int i = 0; i < 6; ++i) f.draw(scene);
+
+        const RenderStats& s = f.renderer->stats();
+        CHECK_FALSE(s.ray_traced);
+        CHECK(s.draw_calls == 3);
+        CHECK(s.instances == 4);
+        CHECK(s.shadow_draw_calls == 2);
+        CHECK(s.sdf_shapes == 1);
+        CHECK(s.point_lights == 1);
+        CHECK(s.rect_lights == 0);
+        CHECK(s.gi_probes == 0);
+        CHECK(s.passes == 7);
+
+        if (!f.device->supports(gpu::Feature::Timestamps)) {
+            MESSAGE("no GPU timestamps — skipping raster pass list assertion");
+        } else {
+            const std::vector<std::string> expected{
+                "shadow", "gbuffer", "sdf", "lighting", "tonemap", "transparent", "debug.lines",
+            };
+            CHECK(pass_names(*f.renderer) == expected);
+        }
+        f.renderer->destroy(glass);
+    }
+
+    SUBCASE("ray-traced frame") {
+        Fixture f(rt_settings());
+        if (!rt_available(f)) return;
+        const MeshHandle cube = f.renderer->create_mesh(make_cube());
+        const MeshHandle plane = f.renderer->create_mesh(make_plane(4.0f));
+        const ShaderHandle glass = make_shader(f, glass_shader, "char_glass_rt");
+        const MaterialHandle red = f.renderer->create_material({.base_color = {1, 0, 0, 1}, .roughness = 0.8f});
+        const MaterialHandle pane = f.renderer->create_material({.shader = glass, .params = {0, 1, 0, 0.5f}});
+        const std::array meshes{
+            MeshInstance{.mesh = plane, .material = red, .transform = translate({0, -1, 0})},
+            MeshInstance{.mesh = cube, .material = red, .transform = translate({-1, 0, 0})},
+            MeshInstance{.mesh = cube, .material = red, .transform = translate({1, 0, 0})},
+            MeshInstance{.mesh = cube, .material = pane, .transform = translate({0, 0, 1})},
+        };
+        const std::array sdf{
+            SdfShape{.primitive = SdfPrimitive::Sphere, .position = {0, 0, -2}, .size = {0.5f, 0, 0, 0}},
+        };
+        const std::array lights{
+            PointLight{.position = {0, 2, 2}, .color = {1, 1, 1}, .intensity = 10.0f, .radius = 8.0f},
+        };
+        const std::array rects{
+            RectLight{.position = {0, 3, 0}, .intensity = 5.0f},
+        };
+        DebugDraw debug;
+        debug.line({-1, 0, 0}, {1, 0, 0}, {1, 1, 0, 1});
+        const RenderScene scene{
+            .meshes = meshes,
+            .sdf = sdf,
+            .lights = lights,
+            .rect_lights = rects,
+            .sun = {.direction = {0.4f, -1.0f, -0.3f}, .intensity = 2.0f, .shadows = true},
+            .debug_lines = debug.lines(),
+        };
+        for (int i = 0; i < 6; ++i) f.draw(scene);
+
+        const RenderStats& s = f.renderer->stats();
+        CHECK(s.ray_traced);
+        CHECK(s.draw_calls == 3);
+        CHECK(s.instances == 4);
+        CHECK(s.shadow_draw_calls == 0);
+        CHECK(s.sdf_shapes == 1);
+        CHECK(s.point_lights == 1);
+        CHECK(s.rect_lights == 1);
+        CHECK(s.gi_probes == 64);
+        CHECK(s.passes == 26);
+
+        if (!f.device->supports(gpu::Feature::Timestamps)) {
+            MESSAGE("no GPU timestamps — skipping ray-traced pass list assertion");
+        } else {
+            const std::vector<std::string> expected{
+                "gbuffer", "sdf", "ddgi.trace", "ddgi.update.irradiance", "ddgi.update.distance",
+                "rt.lighting", "denoise.temporal", "denoise.atrous", "denoise.atrous", "denoise.atrous",
+                "composite", "taa",
+                "bloom.down", "bloom.down", "bloom.down", "bloom.down", "bloom.down", "bloom.down",
+                "bloom.up", "bloom.up", "bloom.up", "bloom.up", "bloom.up",
+                "tonemap", "transparent", "debug.lines",
+            };
+            CHECK(pass_names(*f.renderer) == expected);
+        }
+        f.renderer->destroy(glass);
+    }
+}

@@ -1,260 +1,35 @@
+#include "frame/frame_slot.hpp"
+#include "frame/instances.hpp"
+#include "gpu_layouts.hpp"
+#include "stores/material_store.hpp"
+#include "stores/mesh_store.hpp"
+#include "stores/shader_store.hpp"
+#include "stores/texture_store.hpp"
+
 #include <astral/render/render_graph.hpp>
 #include <astral/render/renderer.hpp>
 
-#include <shaders/bloom_down.comp.hpp>
-#include <shaders/bloom_up.comp.hpp>
-#include <shaders/composite.comp.hpp>
-#include <shaders/ddgi_trace.comp.hpp>
-#include <shaders/ddgi_update.comp.hpp>
-#include <shaders/denoise_atrous.comp.hpp>
-#include <shaders/denoise_temporal.comp.hpp>
+#include <shaders/debug_line.frag.hpp>
+#include <shaders/debug_line.vert.hpp>
 #include <shaders/gbuffer.frag.hpp>
 #include <shaders/gbuffer.vert.hpp>
 #include <shaders/lighting.comp.hpp>
-#include <shaders/rt_lighting.comp.hpp>
 #include <shaders/sdf.comp.hpp>
 #include <shaders/shadow.vert.hpp>
-#include <shaders/taa.comp.hpp>
 #include <shaders/tonemap.frag.hpp>
-#include <shaders/debug_line.vert.hpp>
-#include <shaders/debug_line.frag.hpp>
-#include <shaders/ui.vert.hpp>
-#include <shaders/ui.frag.hpp>
 #include <shaders/tonemap.vert.hpp>
+#include <shaders/ui.frag.hpp>
+#include <shaders/ui.vert.hpp>
 
 #include <algorithm>
-#include <cstring>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <vector>
 
 namespace astral {
 
 namespace {
-
-// --- GPU layouts (scalar; mirror shaders/include/astral/scene.glsl) ----------------------
-struct GpuMesh {
-    gpu::BufferHandle vertices;
-    gpu::BufferHandle indices;
-    gpu::AccelerationStructureHandle blas; // ray-traced path only
-    std::uint32_t index_count = 0;
-    Vec3 bounds_min{}, bounds_max{}; // local-space AABB
-};
-struct GpuInstance {
-    Mat4 model;
-    Mat4 prev_model;
-    std::uint32_t material = 0;
-    std::uint32_t vertices[2] = {0, 0}; // 64-bit addresses as two words (4-byte aligned struct)
-    std::uint32_t indices[2] = {0, 0};
-};
-static_assert(sizeof(GpuInstance) == 148);
-struct GpuMaterial {
-    Vec4 base_color;
-    Vec4 emissive_roughness;
-    Vec4 params;                  // x metallic, y normal scale
-    std::uint32_t textures[4];    // bindless: base colour, metallic-roughness, normal, emissive (~0 = none)
-    std::uint32_t custom[4] = {0, 0, 0, 0}; // x: .ashader parameter offset (words), y: shader index + 1 (0 = standard)
-};
-constexpr std::uint32_t no_texture = 0xFFFFFFFFu;
-
-struct GpuTexture {
-    gpu::TextureHandle texture;
-    std::uint32_t width = 0, height = 0;
-};
-
-float srgb_to_linear(float c) { return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f); }
-float linear_to_srgb(float c) { return c <= 0.0031308f ? c * 12.92f : 1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f; }
-
-} // namespace
-
-/// Box-filtered mip chain (colour images are averaged in linear space, then re-encoded).
-std::vector<std::vector<std::uint8_t>> build_mips(const ImageData& image) {
-    std::vector<std::vector<std::uint8_t>> mips{image.rgba};
-    std::uint32_t w = image.width, h = image.height;
-    while (w > 1 || h > 1) {
-        const std::uint32_t nw = std::max(1u, w / 2), nh = std::max(1u, h / 2);
-        const std::vector<std::uint8_t>& src = mips.back();
-        std::vector<std::uint8_t> dst(std::size_t{nw} * nh * 4);
-        for (std::uint32_t y = 0; y < nh; ++y) {
-            for (std::uint32_t x = 0; x < nw; ++x) {
-                for (std::uint32_t c = 0; c < 4; ++c) {
-                    float sum = 0;
-                    for (std::uint32_t dy = 0; dy < 2; ++dy) {
-                        for (std::uint32_t dx = 0; dx < 2; ++dx) {
-                            const std::uint32_t sx = std::min(w - 1, x * 2 + dx), sy = std::min(h - 1, y * 2 + dy);
-                            const float v = src[(std::size_t{sy} * w + sx) * 4 + c] / 255.0f;
-                            sum += (image.srgb && c < 3) ? srgb_to_linear(v) : v;
-                        }
-                    }
-                    float avg = sum * 0.25f;
-                    if (image.srgb && c < 3) avg = linear_to_srgb(avg);
-                    dst[(std::size_t{y} * nw + x) * 4 + c] = static_cast<std::uint8_t>(std::clamp(avg, 0.0f, 1.0f) * 255.0f + 0.5f);
-                }
-            }
-        }
-        mips.push_back(std::move(dst));
-        w = nw;
-        h = nh;
-    }
-    return mips;
-}
-
-namespace {
-struct GpuFrame {
-    Mat4 view_projection;
-    Mat4 inv_view_projection;
-    Mat4 light_view_projection;
-    Vec4 camera_position;
-    Vec4 sun_direction;
-    Vec4 sun_color;
-    Vec4 sky_color;
-    Vec4 ground_color;
-    std::uint32_t counts[4];
-    Vec4 screen;
-    Mat4 prev_view_projection;
-    Vec4 ddgi_origin;
-    Vec4 ddgi_spacing;
-    std::uint32_t ddgi_counts[4];
-    std::uint32_t rt_counts[4];
-    Vec4 rt_params;
-    Mat4 unjittered_view_projection;
-    std::uint32_t custom[4]; // xy: .ashader parameter block address, z: TIME (float bits)
-};
-struct GpuPointLight {
-    Vec4 position_radius;
-    Vec4 color_intensity;
-    Vec4 source;
-};
-struct GpuRectLight {
-    Vec4 position_two_sided;
-    Vec4 right;
-    Vec4 up;
-    Vec4 radiance;
-};
-struct GBufferIds {
-    std::uint32_t albedo, normal, emissive, depth, velocity, sdf_albedo, sdf_normal, sdf_depth, sdf_velocity;
-};
-struct RtLightingPush {
-    std::uint64_t frame, tlas, instances, materials, lights, rects, shapes;
-    GBufferIds g;
-    std::uint32_t irr, dist, out_diffuse, out_specular, out_geometry;
-    float near_gi_radius;
-};
-struct DdgiTracePush {
-    std::uint64_t frame, tlas, instances, materials, lights, rects, shapes, rays;
-    std::uint32_t irr_prev, dist_prev;
-};
-struct DdgiUpdatePush {
-    std::uint64_t frame, rays;
-    std::uint32_t prev, out, mode;
-};
-struct TemporalPush {
-    std::uint64_t frame;
-    GBufferIds g;
-    std::uint32_t geometry, prev_geometry, diffuse, specular, prev_diffuse, prev_specular, out_diffuse, out_specular;
-    float max_history;
-    std::uint32_t prev_moments, out_moments;
-};
-struct AtrousPush {
-    std::uint64_t frame;
-    GBufferIds g;
-    std::uint32_t geometry, diffuse, specular, out_diffuse, out_specular;
-    std::int32_t step;
-    std::uint32_t moments;
-};
-struct CompositePush {
-    std::uint64_t frame, rects;
-    GBufferIds g;
-    std::uint32_t diffuse, specular, out_hdr, debug_view;
-};
-struct TaaPush {
-    std::uint64_t frame;
-    GBufferIds g;
-    std::uint32_t hdr, history, out_color;
-    float blend;
-};
-struct BloomDownPush {
-    std::uint32_t src, dst;
-    float texel[2];
-    std::uint32_t size[2];
-    std::uint32_t first;
-};
-struct BloomUpPush {
-    std::uint32_t low, current, dst;
-    float texel[2];
-    std::uint32_t size[2];
-    float radius;
-};
-static_assert(sizeof(RtLightingPush) <= gpu::max_push_constant_size);
-static_assert(sizeof(DdgiTracePush) <= gpu::max_push_constant_size);
-static_assert(sizeof(TemporalPush) <= gpu::max_push_constant_size);
-struct GpuSdfShape {
-    Vec4 position_blend;
-    Vec4 rotation;
-    Vec4 size;
-    Vec4 albedo_roughness;
-    Vec4 params;
-};
-struct MeshPush {
-    std::uint64_t vertices, instances, frame, materials;
-    std::uint32_t first_instance;
-    std::uint64_t params; // .ashader parameter block (custom surface shaders)
-    float time;
-    std::uint64_t lights; // point lights (forward-lit blended surfaces)
-};
-struct ScreenPush { // post and sky shaders
-    std::uint64_t frame, materials;
-    std::uint32_t material, scene;
-};
-struct GpuShader {
-    enum class Kind : std::uint8_t { Surface, Post, Sky } kind = Kind::Surface;
-    gpu::PipelineHandle gbuffer, shadow;
-    gpu::PipelineHandle forward; ///< Blended surfaces (kind Surface, blend) and the post / sky pipelines.
-    bool blend = false;
-    bool casts_shadows = true;
-    std::string rt_chunk;                                  ///< Ray-traced surface() (see compose_rt_surfaces)
-    std::vector<SurfaceShaderBuild::Sampler> samplers;     ///< Texture slots of the parameter block
-};
-struct SdfPush {
-    std::uint64_t frame, shapes;
-    std::uint32_t mesh_depth, out_albedo, out_normal, out_depth, out_velocity;
-};
-struct LightingPush {
-    std::uint64_t frame, lights, shapes;
-    std::uint32_t albedo, normal, emissive, depth, sdf_albedo, sdf_normal, sdf_depth, out_hdr;
-};
-struct TonemapPush {
-    std::uint32_t hdr;
-    float exposure;
-    std::uint32_t encode_srgb;
-    std::uint32_t bloom = 0xFFFFFFFFu;
-    float bloom_strength = 0.0f;
-};
-static_assert(sizeof(LightingPush) <= gpu::max_push_constant_size);
-
-constexpr std::uint32_t ring_size = 3;
-constexpr std::uint32_t no_shadow = 0xFFFFFFFFu;
-
-/// A host-visible buffer that grows on demand (old buffers are destroyed deferred).
-struct GrowBuffer {
-    gpu::BufferHandle buffer;
-    std::uint64_t capacity = 0;
-    void write(gpu::Device& device, const void* data, std::uint64_t bytes) {
-        const std::uint64_t needed = std::max<std::uint64_t>(bytes, 64);
-        if (capacity < needed) {
-            device.destroy(buffer);
-            capacity = std::max(needed, capacity * 2);
-            buffer = device.create_buffer({.size = capacity, .usage = gpu::BufferUsage::Storage,
-                                           .memory = gpu::MemoryUsage::CpuToGpu});
-        }
-        if (bytes) device.write_buffer(buffer, data, bytes);
-    }
-};
-
-struct FrameSlot {
-    GrowBuffer instances, lights, shapes, frame, rects, materials, params, debug_lines, ui_vertices, ui_indices;
-    std::shared_ptr<std::uint64_t> last_use = std::make_shared<std::uint64_t>(0);
-};
 
 bool is_srgb(gpu::Format f) { return f == gpu::Format::RGBA8Srgb || f == gpu::Format::BGRA8Srgb; }
 
@@ -333,10 +108,6 @@ float halton(std::uint32_t index, std::uint32_t base) {
     return r;
 }
 
-std::array<float, 12> row_major_3x4(const Mat4& m) {
-    return {m[0].x, m[1].x, m[2].x, m[3].x, m[0].y, m[1].y, m[2].y, m[3].y, m[0].z, m[1].z, m[2].z, m[3].z};
-}
-
 } // namespace
 
 struct Renderer::Impl {
@@ -344,20 +115,31 @@ struct Renderer::Impl {
     gpu::Format target_format;
     RenderSettings settings;
     RenderGraph graph;
-    HandlePool<GpuMesh, MeshTag> meshes;
-    HandlePool<MaterialDesc, MaterialTag> materials;
-    HandlePool<GpuTexture, RenderTextureTag> textures;
-    HandlePool<GpuShader, ShaderTag> shaders;
-    TextureHandle white_texture, flat_normal_texture; // stand-ins for unset .ashader textures
-    std::vector<std::uint32_t> param_words;
-    std::vector<std::uint32_t> instance_shader; // per drawn instance: shader index + 1 (0 = standard)
-    Vec3 camera_position{};
-    struct TransparentDraw {
-        MeshHandle mesh;
-        std::uint32_t instance = 0;
-        ShaderHandle shader;
-    };
-    std::vector<TransparentDraw> transparent_draws; ///< Back to front, this frame.
+    TextureStore textures;
+    ShaderStore shaders;
+    MeshStore meshes;
+    MaterialStore materials;
+    FrameInstances frame_instances;
+    FrameRing ring;
+    gpu::PipelineHandle gbuffer, shadow, sdf, lighting, tonemap, debug_depth, debug_top, ui;
+    gpu::TextureHandle shadow_map;
+    std::vector<UiVertex> ui_vertex_scratch;
+    std::vector<std::uint32_t> ui_index_scratch;
+    std::vector<float> debug_vertices; // scratch: position.xyzw, color per vertex
+    RenderStats stats;
+
+    // Ray-traced path state.
+    bool rt = false;
+    HistoryTextures history;
+    DdgiState ddgi;
+    std::uint32_t frame_index = 0;
+    bool history_valid = false;
+    Mat4 prev_view_projection = Mat4::identity();
+
+    Impl(gpu::Device& d, gpu::Format f, const RenderSettings& s)
+        : device(d), target_format(f), settings(s), graph(d), textures(d), shaders(d, f), meshes(d),
+          materials(d, textures, shaders) {}
+
     void add_sky(RenderGraph& g, RGTexture hdr, RGTexture depth, std::uint64_t frame_address, std::uint64_t material_address,
                  MaterialHandle sky);
     void add_transparent(RenderGraph& g, RGTexture target, RGTexture depth, std::uint64_t instance_address,
@@ -366,58 +148,12 @@ struct Renderer::Impl {
     /// Runs the post chain on `scene_color`; the last effect writes `output`.
     void add_post(RenderGraph& g, RGTexture scene_color, RGTexture output, std::span<const MaterialHandle> chain,
                   std::uint32_t w, std::uint32_t h, std::uint64_t frame_address, std::uint64_t material_address);
-    bool is_post(MaterialHandle m) const;
-    bool rt_surfaces_dirty = false;  ///< Custom shaders came or went: rebuild the ray-traced compute shaders.
-    bool rt_custom_active = false;
-    std::string rt_surface_error;
-    void rebuild_rt_surfaces();
-    MaterialHandle default_material;
-    std::uint32_t material_slots = 0; ///< Highest material index + 1 (size of the GPU table).
-    std::vector<GpuMaterial> material_table;
-    gpu::PipelineHandle gbuffer, shadow, sdf, lighting, tonemap, debug_depth, debug_top, ui;
-    std::vector<UiVertex> ui_vertex_scratch;
-    std::vector<std::uint32_t> ui_index_scratch;
-
     /// The 2D overlay over the final image.
     void add_ui(RenderGraph& g, FrameSlot& slot, RGTexture output, std::uint32_t w, std::uint32_t h,
                 std::span<const UiLayer> layers);
-    std::vector<float> debug_vertices; // scratch: position.xyzw, color per vertex
-
     /// Debug lines over the final image: depth-tested ones against the scene depth, then the rest.
     void add_debug_lines(RenderGraph& g, FrameSlot& slot, RGTexture output, RGTexture depth, const Mat4& view_projection,
                          std::span<const DebugLine> lines);
-    gpu::PipelineHandle rt_lighting, ddgi_trace, ddgi_update, temporal, atrous, composite, taa, bloom_down, bloom_up;
-    gpu::TextureHandle shadow_map;
-    std::array<FrameSlot, ring_size> ring{};
-    std::uint32_t ring_index = 0;
-    RenderStats stats;
-    std::vector<std::uint32_t> order;
-    std::vector<GpuInstance> instances;
-    std::vector<GpuPointLight> lights;
-    std::vector<GpuSdfShape> shapes;
-    std::vector<GpuRectLight> rects;
-    std::vector<gpu::TlasInstance> tlas_instances;
-
-    // Ray-traced path state.
-    bool rt = false;
-    gpu::AccelerationStructureHandle tlas;
-    std::uint32_t tlas_capacity = 0;
-    HistoryTextures history;
-    DdgiState ddgi;
-    std::uint32_t frame_index = 0;
-    bool history_valid = false;
-    Mat4 prev_view_projection = Mat4::identity();
-
-    Impl(gpu::Device& d, gpu::Format f, const RenderSettings& s) : device(d), target_format(f), settings(s), graph(d) {}
-
-    /// Sorted instance list (+ TLAS instances when `rt`) and the material table, into `slot`.
-    void prepare_instances(const RenderScene& scene, FrameSlot& slot, bool with_tlas);
-    GpuMaterial gpu_material(const MaterialDesc& d);
-    gpu::TextureHandle upload_texture(const ImageData& image);
-    bool upload_mesh(const MeshData& data, GpuMesh& mesh);
-    bool create_rt_pipelines();
-    void destroy_rt_pipelines();
-
     void render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle target, const CameraData& camera,
                            const RenderScene& scene, std::uint32_t w, std::uint32_t h);
     void ensure_history(std::uint32_t w, std::uint32_t h);
@@ -475,80 +211,20 @@ Renderer::Renderer(gpu::Device& device, gpu::Format target_format, const RenderS
                                           .format = gpu::Format::D32Float,
                                           .usage = gpu::TextureUsage::DepthTarget | gpu::TextureUsage::Sampled,
                                           .debug_name = "astral.shadow_map"});
-    m.default_material = m.materials.create(MaterialDesc{});
-    m.white_texture = create_texture({.width = 1, .height = 1, .rgba = {255, 255, 255, 255}, .srgb = true});
-    m.flat_normal_texture = create_texture({.width = 1, .height = 1, .rgba = {128, 128, 255, 255}, .srgb = false});
-    m.material_slots = m.default_material.index + 1;
-    m.rt = settings.ray_tracing && device.supports(gpu::Feature::RayTracing) && m.create_rt_pipelines();
+    m.rt = settings.ray_tracing && device.supports(gpu::Feature::RayTracing) && m.shaders.ensure_rt_pipelines();
 }
 
-GpuMaterial Renderer::Impl::gpu_material(const MaterialDesc& d) {
-    auto index = [&](TextureHandle t) {
-        const GpuTexture* tex = textures.get(t);
-        return tex ? device.bindless_index(tex->texture) : no_texture;
-    };
-    return {d.base_color,
-            {d.emissive.x, d.emissive.y, d.emissive.z, d.roughness},
-            {d.metallic, d.normal_scale, 0, 0},
-            {index(d.base_color_texture), index(d.metallic_roughness_texture), index(d.normal_texture), index(d.emissive_texture)}};
-}
-
-gpu::TextureHandle Renderer::Impl::upload_texture(const ImageData& image) {
-    if (image.width == 0 || image.height == 0) return {};
-    gpu::Format format = image.srgb ? gpu::Format::RGBA8Srgb : gpu::Format::RGBA8Unorm;
-    if (!image.levels.empty()) {
-        if (image.format == ImageFormat::BC7) format = image.srgb ? gpu::Format::BC7Srgb : gpu::Format::BC7Unorm;
-        if (image.format == ImageFormat::BC5) format = gpu::Format::BC5Unorm;
-        for (std::size_t l = 0; l < image.levels.size(); ++l) {
-            const std::uint32_t w = std::max(1u, image.width >> l), h = std::max(1u, image.height >> l);
-            if (image.levels[l].size() != gpu::texture_data_size(format, w, h)) return {};
-        }
-    } else if (image.rgba.size() != std::size_t{image.width} * image.height * 4) {
-        return {};
+Renderer::~Renderer() {
+    auto& m = *impl_;
+    // Destroy TLAS and per-frame buffers before member destructors tear down MeshStore (BLAS), ShaderStore, TextureStore.
+    m.frame_instances.destroy(m.device);
+    m.ring.destroy(m.device);
+    for (auto p : {m.gbuffer, m.shadow, m.sdf, m.lighting, m.tonemap, m.debug_depth, m.debug_top, m.ui}) {
+        m.device.destroy(p);
     }
-    const auto mips = image.levels.empty() ? build_mips(image) : image.levels;
-    const gpu::TextureHandle t = device.create_texture({.width = image.width, .height = image.height,
-                                                        .format = format,
-                                                        .usage = gpu::TextureUsage::Sampled,
-                                                        .mip_levels = static_cast<std::uint32_t>(mips.size()),
-                                                        .debug_name = "astral.material_texture"});
-    for (std::uint32_t m = 0; m < mips.size(); ++m) {
-        if (!device.write_texture(t, mips[m].data(), mips[m].size(), m)) {
-            device.destroy(t);
-            return {};
-        }
-    }
-    return t;
-}
-
-bool Renderer::Impl::create_rt_pipelines() {
-    if (rt_lighting.valid()) return true;
-    auto compute = [&](std::span<const std::uint32_t> spirv, const char* name) {
-        return device.create_compute_pipeline({.shader = {spirv}, .debug_name = name});
-    };
-    rt_lighting = compute(shaders::rt_lighting_comp, "astral.rt_lighting");
-    ddgi_trace = compute(shaders::ddgi_trace_comp, "astral.ddgi_trace");
-    ddgi_update = compute(shaders::ddgi_update_comp, "astral.ddgi_update");
-    temporal = compute(shaders::denoise_temporal_comp, "astral.denoise_temporal");
-    atrous = compute(shaders::denoise_atrous_comp, "astral.denoise_atrous");
-    composite = compute(shaders::composite_comp, "astral.composite");
-    taa = compute(shaders::taa_comp, "astral.taa");
-    bloom_down = compute(shaders::bloom_down_comp, "astral.bloom_down");
-    bloom_up = compute(shaders::bloom_up_comp, "astral.bloom_up");
-    for (auto p : {rt_lighting, ddgi_trace, ddgi_update, temporal, atrous, composite, taa, bloom_down, bloom_up}) {
-        if (!p.valid()) {
-            destroy_rt_pipelines(); // fall back to the raster path
-            return false;
-        }
-    }
-    return true;
-}
-
-void Renderer::Impl::destroy_rt_pipelines() {
-    for (auto* p : {&rt_lighting, &ddgi_trace, &ddgi_update, &temporal, &atrous, &composite, &taa, &bloom_down, &bloom_up}) {
-        device.destroy(*p);
-        *p = {};
-    }
+    m.device.destroy(m.shadow_map);
+    m.history.destroy(m.device);
+    m.ddgi.destroy(m.device);
 }
 
 void Renderer::Impl::add_ui(RenderGraph& g, FrameSlot& slot, RGTexture output, std::uint32_t w, std::uint32_t h,
@@ -575,8 +251,7 @@ void Renderer::Impl::add_ui(RenderGraph& g, FrameSlot& slot, RGTexture output, s
             const float x0 = std::clamp(c.clip.x, 0.0f, static_cast<float>(w)), y0 = std::clamp(c.clip.y, 0.0f, static_cast<float>(h));
             const float x1 = std::clamp(c.clip.z, 0.0f, static_cast<float>(w)), y1 = std::clamp(c.clip.w, 0.0f, static_cast<float>(h));
             if (x1 <= x0 || y1 <= y0) continue;
-            std::uint32_t texture = UINT32_MAX;
-            if (const GpuTexture* t = textures.get(c.texture)) texture = device.bindless_index(t->texture);
+            const std::uint32_t texture = textures.bindless_or(c.texture, UINT32_MAX);
             draws.push_back({index_base + c.first_index, c.index_count, vertex_base + c.vertex_offset, texture, c.sdf_softness,
                              static_cast<std::int32_t>(x0), static_cast<std::int32_t>(y0),
                              static_cast<std::uint32_t>(x1 - std::floor(x0)), static_cast<std::uint32_t>(y1 - std::floor(y0))});
@@ -586,13 +261,6 @@ void Renderer::Impl::add_ui(RenderGraph& g, FrameSlot& slot, RGTexture output, s
     if (commands == 0) return;
     slot.ui_vertices.write(device, ui_vertex_scratch.data(), ui_vertex_scratch.size() * sizeof(UiVertex));
     slot.ui_indices.write(device, ui_index_scratch.data(), ui_index_scratch.size() * sizeof(std::uint32_t));
-    struct Push {
-        Vec2 scale, translate;
-        std::uint64_t vertices, indices;
-        std::int32_t vertex_offset;
-        std::uint32_t texture, flags;
-        float sdf_softness;
-    };
     const std::uint64_t vertices = device.buffer_address(slot.ui_vertices.buffer);
     const std::uint64_t indices = device.buffer_address(slot.ui_indices.buffer);
     const std::uint32_t linear_target = is_srgb(target_format) ? 2u : 0u;
@@ -600,8 +268,8 @@ void Renderer::Impl::add_ui(RenderGraph& g, FrameSlot& slot, RGTexture output, s
     g.add_pass("ui", [&](PassBuilder& b) { b.color(output, gpu::LoadOp::Load); }, [=, draws = std::move(draws)](PassContext& ctx) {
         ctx.cmd.bind_pipeline(pipeline);
         for (const Draw& d : draws) {
-            const Push push{{2.0f / static_cast<float>(w), 2.0f / static_cast<float>(h)}, {-1.0f, -1.0f}, vertices, indices,
-                            d.vertex_offset, d.texture, (d.texture != UINT32_MAX ? 1u : 0u) | linear_target, d.sdf_softness};
+            const UiPush push{{2.0f / static_cast<float>(w), 2.0f / static_cast<float>(h)}, {-1.0f, -1.0f}, vertices, indices,
+                              d.vertex_offset, d.texture, (d.texture != UINT32_MAX ? 1u : 0u) | linear_target, d.sdf_softness};
             ctx.cmd.set_scissor(d.x, d.y, d.cw, d.ch);
             ctx.cmd.push_constants(&push, sizeof(push));
             ctx.cmd.draw(d.index_count, 1, d.first_index);
@@ -625,11 +293,7 @@ void Renderer::Impl::add_debug_lines(RenderGraph& g, FrameSlot& slot, RGTexture 
     }
     const auto total = static_cast<std::uint32_t>(debug_vertices.size() / 8);
     slot.debug_lines.write(device, debug_vertices.data(), debug_vertices.size() * sizeof(float));
-    struct Push {
-        Mat4 view_projection;
-        std::uint64_t vertices;
-    };
-    const Push push{view_projection, device.buffer_address(slot.debug_lines.buffer)};
+    const DebugLinePush push{view_projection, device.buffer_address(slot.debug_lines.buffer)};
     const gpu::PipelineHandle depth_pipeline = debug_depth, top_pipeline = debug_top;
     g.add_pass("debug.lines", [&](PassBuilder& b) {
         b.color(output, gpu::LoadOp::Load);
@@ -648,118 +312,9 @@ void Renderer::Impl::add_debug_lines(RenderGraph& g, FrameSlot& slot, RGTexture 
     });
 }
 
-void Renderer::Impl::prepare_instances(const RenderScene& scene, FrameSlot& slot, bool with_tlas) {
-    // Material table indexed by handle slot; dead slots keep the default material's values.
-    material_table.assign(material_slots, {});
-    const MaterialDesc* fallback = materials.get(default_material);
-    const GpuMaterial fallback_gpu = gpu_material(*fallback);
-    for (auto& entry : material_table) entry = fallback_gpu;
-    param_words.clear();
-    materials.for_each([&](MaterialHandle h, MaterialDesc& d) {
-        GpuMaterial gm = gpu_material(d);
-        if (shaders.get(d.shader)) {
-            const auto base = static_cast<std::uint32_t>(param_words.size());
-            gm.custom[0] = base;
-            gm.custom[1] = d.shader.index + 1;
-            const GpuShader* gs = shaders.get(d.shader);
-            std::size_t words = d.params.size();
-            for (const MaterialDesc::ParamTexture& t : d.textures) words = std::max<std::size_t>(words, t.offset + 1);
-            for (const SurfaceShaderBuild::Sampler& sm : gs->samplers) words = std::max<std::size_t>(words, sm.offset + 1);
-            param_words.resize(base + words, 0u);
-            for (std::size_t i = 0; i < d.params.size(); ++i) std::memcpy(&param_words[base + i], &d.params[i], 4);
-            for (const SurfaceShaderBuild::Sampler& sm : gs->samplers) { // unset textures read as white / a flat normal
-                const GpuTexture* stand_in = textures.get(sm.normal ? flat_normal_texture : white_texture);
-                param_words[base + sm.offset] = stand_in ? device.bindless_index(stand_in->texture) : 0u;
-            }
-            for (const MaterialDesc::ParamTexture& t : d.textures) {
-                const GpuTexture* tex = textures.get(t.texture);
-                if (!tex) tex = textures.get(t.normal ? flat_normal_texture : white_texture);
-                param_words[base + t.offset] = tex ? device.bindless_index(tex->texture) : 0u;
-            }
-        }
-        material_table[h.index] = gm;
-    });
-    slot.materials.write(device, material_table.data(), material_table.size() * sizeof(GpuMaterial));
-    if (param_words.empty()) param_words.push_back(0);
-    slot.params.write(device, param_words.data(), param_words.size() * sizeof(std::uint32_t));
-
-    order.clear();
-    std::vector<std::uint32_t> blended;
-    for (std::uint32_t i = 0; i < scene.meshes.size(); ++i) {
-        if (!meshes.get(scene.meshes[i].mesh)) continue; // destroyed meshes are skipped
-        const MaterialDesc* d = materials.get(scene.meshes[i].material);
-        const GpuShader* gs = d ? shaders.get(d->shader) : nullptr;
-        if (gs && gs->kind == GpuShader::Kind::Surface && gs->blend) blended.push_back(i);
-        else order.push_back(i);
-    }
-    // Grouped by shader (pipeline changes), then by mesh (one instanced draw per run).
-    auto shader_key = [&](std::uint32_t i) -> std::uint32_t {
-        const MaterialDesc* d = materials.get(scene.meshes[i].material);
-        const GpuShader* gs = d ? shaders.get(d->shader) : nullptr;
-        return gs && gs->kind == GpuShader::Kind::Surface ? d->shader.index + 1 : 0u; // post / sky shaders draw no meshes
-    };
-    std::sort(order.begin(), order.end(), [&](std::uint32_t a, std::uint32_t b) {
-        const std::uint32_t ka = shader_key(a), kb = shader_key(b);
-        if (ka != kb) return ka < kb;
-        return scene.meshes[a].mesh.index < scene.meshes[b].mesh.index;
-    });
-    instance_shader.clear();
-    for (std::uint32_t i : order) instance_shader.push_back(shader_key(i));
-    instances.clear();
-    tlas_instances.clear();
-    for (std::uint32_t i : order) {
-        const MeshInstance& d = scene.meshes[i];
-        const GpuMesh* mesh = meshes.get(d.mesh);
-        const std::uint32_t material = materials.get(d.material) ? d.material.index : default_material.index;
-        const auto split = [](std::uint64_t a, std::uint32_t (&out)[2]) {
-            out[0] = static_cast<std::uint32_t>(a);
-            out[1] = static_cast<std::uint32_t>(a >> 32);
-        };
-        GpuInstance gi{d.transform, d.previous_transform.value_or(d.transform), material, {0, 0}, {0, 0}};
-        split(device.buffer_address(mesh->vertices), gi.vertices);
-        split(device.buffer_address(mesh->indices), gi.indices);
-        const auto index = static_cast<std::uint32_t>(instances.size());
-        instances.push_back(gi);
-        if (with_tlas && mesh->blas.valid()) {
-            tlas_instances.push_back({.blas = mesh->blas, .transform = row_major_3x4(d.transform), .custom_index = index});
-        }
-    }
-    // Blended surfaces: after the opaque instances, farthest first (their own draws, one instance each).
-    transparent_draws.clear();
-    std::sort(blended.begin(), blended.end(), [&](std::uint32_t a, std::uint32_t b) {
-        auto distance2 = [&](std::uint32_t i) {
-            const Mat4& t = scene.meshes[i].transform;
-            const Vec3 d{t[3].x - camera_position.x, t[3].y - camera_position.y, t[3].z - camera_position.z};
-            return d.x * d.x + d.y * d.y + d.z * d.z;
-        };
-        return distance2(a) > distance2(b);
-    });
-    for (std::uint32_t i : blended) {
-        const MeshInstance& d = scene.meshes[i];
-        const GpuMesh* mesh = meshes.get(d.mesh);
-        const auto split = [](std::uint64_t a, std::uint32_t (&out)[2]) {
-            out[0] = static_cast<std::uint32_t>(a);
-            out[1] = static_cast<std::uint32_t>(a >> 32);
-        };
-        GpuInstance gi{d.transform, d.previous_transform.value_or(d.transform), d.material.index, {0, 0}, {0, 0}};
-        split(device.buffer_address(mesh->vertices), gi.vertices);
-        split(device.buffer_address(mesh->indices), gi.indices);
-        transparent_draws.push_back({d.mesh, static_cast<std::uint32_t>(instances.size()), materials.get(d.material)->shader});
-        instances.push_back(gi);
-    }
-    slot.instances.write(device, instances.data(), instances.size() * sizeof(GpuInstance));
-}
-
-bool Renderer::Impl::is_post(MaterialHandle m) const {
-    const MaterialDesc* d = materials.get(m);
-    const GpuShader* gs = d ? shaders.get(d->shader) : nullptr;
-    return gs && gs->kind == GpuShader::Kind::Post;
-}
-
 void Renderer::Impl::add_sky(RenderGraph& g, RGTexture hdr, RGTexture depth, std::uint64_t frame_address,
                              std::uint64_t material_address, MaterialHandle sky) {
-    const MaterialDesc* d = materials.get(sky);
-    const GpuShader* gs = d ? shaders.get(d->shader) : nullptr;
+    const GpuShader* gs = materials.shader_of(sky);
     if (!gs || gs->kind != GpuShader::Kind::Sky) return;
     const gpu::PipelineHandle pipeline = gs->forward;
     const std::uint32_t index = sky.index;
@@ -777,13 +332,13 @@ void Renderer::Impl::add_sky(RenderGraph& g, RGTexture hdr, RGTexture depth, std
 void Renderer::Impl::add_transparent(RenderGraph& g, RGTexture target, RGTexture depth, std::uint64_t instance_address,
                                      std::uint64_t frame_address, std::uint64_t material_address, std::uint64_t params_address,
                                      std::uint64_t light_address, float time) {
-    if (transparent_draws.empty()) return;
+    if (frame_instances.transparent_draws.empty()) return;
     g.add_pass("transparent", [&](PassBuilder& b) {
         b.color(target, gpu::LoadOp::Load);
         b.depth(depth, gpu::LoadOp::Load);
     }, [=, this](PassContext& ctx) {
         ShaderHandle bound{};
-        for (const TransparentDraw& draw : transparent_draws) {
+        for (const TransparentDraw& draw : frame_instances.transparent_draws) {
             const GpuShader* gs = shaders.get(draw.shader);
             const GpuMesh* mesh = meshes.get(draw.mesh);
             if (!gs || !mesh) continue;
@@ -806,8 +361,7 @@ void Renderer::Impl::add_post(RenderGraph& g, RGTexture scene_color, RGTexture o
                               std::uint32_t w, std::uint32_t h, std::uint64_t frame_address, std::uint64_t material_address) {
     RGTexture source = scene_color;
     for (std::size_t i = 0; i < chain.size(); ++i) {
-        const MaterialDesc* d = materials.get(chain[i]);
-        const GpuShader* gs = d ? shaders.get(d->shader) : nullptr;
+        const GpuShader* gs = materials.shader_of(chain[i]);
         if (!gs) continue;
         const bool last = i + 1 == chain.size();
         const RGTexture target = last ? output : g.create("post", {w, h, target_format});
@@ -827,273 +381,33 @@ void Renderer::Impl::add_post(RenderGraph& g, RGTexture scene_color, RGTexture o
     }
 }
 
-Renderer::~Renderer() {
-    auto& m = *impl_;
-    m.meshes.for_each([&](MeshHandle, GpuMesh& mesh) {
-        m.device.destroy(mesh.vertices);
-        m.device.destroy(mesh.indices);
-        m.device.destroy(mesh.blas);
-    });
-    for (auto& slot : m.ring) {
-        for (GrowBuffer* b : {&slot.instances, &slot.lights, &slot.shapes, &slot.frame, &slot.rects, &slot.materials, &slot.params, &slot.debug_lines, &slot.ui_vertices, &slot.ui_indices}) {
-            m.device.destroy(b->buffer);
-        }
-    }
-    m.shaders.for_each([&](ShaderHandle, GpuShader& shader) {
-        m.device.destroy(shader.forward);
-        m.device.destroy(shader.gbuffer);
-        m.device.destroy(shader.shadow);
-    });
-    for (auto p : {m.gbuffer, m.shadow, m.sdf, m.lighting, m.tonemap, m.debug_depth, m.debug_top, m.ui, m.rt_lighting, m.ddgi_trace, m.ddgi_update,
-                   m.temporal, m.atrous, m.composite, m.taa, m.bloom_down, m.bloom_up}) {
-        m.device.destroy(p);
-    }
-    m.textures.for_each([&](TextureHandle, GpuTexture& t) { m.device.destroy(t.texture); });
-    m.device.destroy(m.shadow_map);
-    m.device.destroy(m.tlas);
-    m.history.destroy(m.device);
-    m.ddgi.destroy(m.device);
-}
-
-bool Renderer::supports(ImageFormat format) const noexcept {
-    return format == ImageFormat::RGBA8 || impl_->device.supports(gpu::Feature::TextureCompressionBC);
-}
-
+bool Renderer::supports(ImageFormat format) const noexcept { return impl_->textures.supports(format); }
 ShaderHandle Renderer::create_shader(const SurfaceShaderBuild& build, std::string_view debug_name) {
-    auto& m = *impl_;
-    if (!build.ok() || (!build.blend && build.shadow_vertex.empty())) return {};
-    const std::string name = debug_name.empty() ? std::string("astral.ashader") : std::string(debug_name);
-    if (build.blend) {
-        GpuShader blended;
-        blended.blend = true;
-        blended.samplers = build.samplers;
-        blended.forward = m.device.create_graphics_pipeline({
-            .vertex = {build.forward_vertex},
-            .fragment = {build.forward_fragment},
-            .color_formats = {m.target_format},
-            .depth = {.format = gpu::Format::D32Float, .test = true, .write = false, .compare = gpu::CompareOp::LessEqual},
-            .cull = build.cull_disabled ? gpu::CullMode::None : (build.cull_front ? gpu::CullMode::Front : gpu::CullMode::Back),
-            .alpha_blend = !build.additive,
-            .additive_blend = build.additive,
-            .debug_name = name + ".forward",
-        });
-        if (!blended.forward.valid()) return {};
-        return m.shaders.create(blended);
-    }
-    const gpu::CullMode cull = build.cull_disabled ? gpu::CullMode::None : (build.cull_front ? gpu::CullMode::Front : gpu::CullMode::Back);
-    GpuShader shader;
-    shader.casts_shadows = build.casts_shadows;
-    shader.rt_chunk = build.rt_chunk;
-    shader.samplers = build.samplers;
-    shader.gbuffer = m.device.create_graphics_pipeline({
-        .vertex = {build.gbuffer_vertex},
-        .fragment = {build.gbuffer_fragment},
-        .color_formats = {gpu::Format::RGBA8Unorm, gpu::Format::RGBA16Float, gpu::Format::RGBA16Float, gpu::Format::RG16Float},
-        .depth = {.format = gpu::Format::D32Float},
-        .cull = cull,
-        .debug_name = name + ".gbuffer",
-    });
-    shader.shadow = m.device.create_graphics_pipeline({
-        .vertex = {build.shadow_vertex},
-        .fragment = {build.shadow_fragment},
-        .color_formats = {},
-        .depth = {.format = gpu::Format::D32Float},
-        .cull = gpu::CullMode::None,
-        .debug_name = name + ".shadow",
-    });
-    if (!shader.gbuffer.valid() || !shader.shadow.valid()) {
-        m.device.destroy(shader.gbuffer);
-        m.device.destroy(shader.shadow);
-        return {};
-    }
-    m.rt_surfaces_dirty = true;
-    return m.shaders.create(shader);
+    return impl_->shaders.create(build, debug_name);
 }
-
 ShaderHandle Renderer::create_shader(const ScreenShaderBuild& build, std::string_view debug_name) {
-    auto& m = *impl_;
-    if (!build.ok()) return {};
-    const std::string name = debug_name.empty() ? std::string("astral.screen") : std::string(debug_name);
-    const bool sky = build.type == ShaderType::Sky;
-    GpuShader shader;
-    shader.kind = sky ? GpuShader::Kind::Sky : GpuShader::Kind::Post;
-    shader.samplers = build.samplers;
-    shader.forward = m.device.create_graphics_pipeline({
-        .vertex = {build.vertex},
-        .fragment = {build.fragment},
-        .color_formats = {sky ? gpu::Format::RGBA16Float : m.target_format},
-        // The sky only fills what is still at the far plane; post effects cover everything.
-        .depth = sky ? gpu::DepthState{.format = gpu::Format::D32Float, .test = true, .write = false, .compare = gpu::CompareOp::LessEqual}
-                     : gpu::DepthState{.format = gpu::Format::Undefined, .test = false, .write = false},
-        .debug_name = name + (sky ? ".sky" : ".post"),
-    });
-    if (!shader.forward.valid()) return {};
-    return m.shaders.create(shader);
+    return impl_->shaders.create(build, debug_name);
 }
+void Renderer::destroy(ShaderHandle shader) { impl_->shaders.destroy(shader); }
+std::string_view Renderer::shader_error() const noexcept { return impl_->shaders.error(); }
 
-void Renderer::destroy(ShaderHandle shader) {
-    auto& m = *impl_;
-    if (GpuShader* s = m.shaders.get(shader)) {
-        m.device.destroy(s->forward);
-        m.device.destroy(s->gbuffer); // deferred by the device until the GPU is done with it
-        m.device.destroy(s->shadow);
-        m.shaders.destroy(shader);
-        m.rt_surfaces_dirty = true;
-    }
-}
+TextureHandle Renderer::create_texture(const ImageData& image) { return impl_->textures.create(image); }
+bool Renderer::update_texture(TextureHandle texture, const ImageData& image) { return impl_->textures.update(texture, image); }
+void Renderer::destroy(TextureHandle texture) { impl_->textures.destroy(texture); }
 
-std::string_view Renderer::shader_error() const noexcept { return impl_->rt_surface_error; }
+MeshHandle Renderer::create_mesh(const MeshData& data) { return impl_->meshes.create(data, impl_->rt); }
+bool Renderer::update_mesh(MeshHandle handle, const MeshData& data) { return impl_->meshes.update(handle, data, impl_->rt); }
+void Renderer::destroy(MeshHandle handle) { impl_->meshes.destroy(handle); }
 
-/// Compiles the ray-traced compute shaders with every live custom surface() in; with none (or if the
-/// compile fails) the precompiled ones are used and the error is kept for shader_error().
-void Renderer::Impl::rebuild_rt_surfaces() {
-    rt_surfaces_dirty = false;
-    std::vector<RtSurface> surfaces;
-    shaders.for_each([&](ShaderHandle h, GpuShader& s) {
-        if (!s.rt_chunk.empty()) surfaces.push_back({h.index, s.rt_chunk});
-    });
-    gpu::PipelineHandle lit, trace;
-    rt_surface_error.clear();
-    if (!surfaces.empty()) {
-        const RtVariants variants = compile_rt_variants(surfaces);
-        if (variants.ok()) {
-            lit = device.create_compute_pipeline({.shader = {variants.lighting}, .debug_name = "astral.rt_lighting.custom"});
-            trace = device.create_compute_pipeline({.shader = {variants.ddgi_trace}, .debug_name = "astral.ddgi_trace.custom"});
-        } else {
-            for (const ShaderError& e : variants.errors) rt_surface_error += "line " + std::to_string(e.line) + ": " + e.message + "\n";
-        }
-    }
-    const bool custom = lit.valid() && trace.valid();
-    if (!custom) {
-        device.destroy(lit);
-        device.destroy(trace);
-        if (!rt_custom_active && rt_lighting.valid()) return; // already the precompiled ones
-        lit = device.create_compute_pipeline({.shader = {shaders::rt_lighting_comp}, .debug_name = "astral.rt_lighting"});
-        trace = device.create_compute_pipeline({.shader = {shaders::ddgi_trace_comp}, .debug_name = "astral.ddgi_trace"});
-    }
-    device.destroy(rt_lighting);
-    device.destroy(ddgi_trace);
-    rt_lighting = lit;
-    ddgi_trace = trace;
-    rt_custom_active = custom;
-}
-
-TextureHandle Renderer::create_texture(const ImageData& image) {
-    auto& m = *impl_;
-    const gpu::TextureHandle t = m.upload_texture(image);
-    if (!t.valid()) return {};
-    return m.textures.create({t, image.width, image.height});
-}
-
-bool Renderer::update_texture(TextureHandle texture, const ImageData& image) {
-    auto& m = *impl_;
-    GpuTexture* tex = m.textures.get(texture);
-    if (!tex) return false;
-    const gpu::TextureHandle t = m.upload_texture(image);
-    if (!t.valid()) return false;
-    m.device.destroy(tex->texture); // deferred until the GPU is done with it
-    *tex = {t, image.width, image.height};
-    return true;
-}
-
-void Renderer::destroy(TextureHandle texture) {
-    auto& m = *impl_;
-    if (const GpuTexture* tex = m.textures.get(texture)) {
-        m.device.destroy(tex->texture);
-        m.textures.destroy(texture);
-    }
-}
-
-bool Renderer::update_mesh(MeshHandle handle, const MeshData& data) {
-    auto& m = *impl_;
-    GpuMesh* mesh = m.meshes.get(handle);
-    if (!mesh) return false;
-    GpuMesh fresh;
-    if (!m.upload_mesh(data, fresh)) return false;
-    m.device.destroy(mesh->vertices);
-    m.device.destroy(mesh->indices);
-    m.device.destroy(mesh->blas);
-    *mesh = fresh;
-    return true;
-}
-
-MeshHandle Renderer::create_mesh(const MeshData& data) {
-    auto& m = *impl_;
-    GpuMesh mesh;
-    if (!m.upload_mesh(data, mesh)) return {};
-    return m.meshes.create(mesh);
-}
-
-bool Renderer::Impl::upload_mesh(const MeshData& data, GpuMesh& mesh) {
-    auto& m = *this;
-    if (data.vertices.empty() || data.indices.empty()) return false;
-    const std::uint64_t vbytes = data.vertices.size() * sizeof(Vertex);
-    const std::uint64_t ibytes = data.indices.size() * sizeof(std::uint32_t);
-    mesh.vertices = m.device.create_buffer({.size = vbytes, .usage = gpu::BufferUsage::Storage});
-    mesh.indices = m.device.create_buffer({.size = ibytes, .usage = gpu::BufferUsage::Index});
-    if (!m.device.write_buffer(mesh.vertices, data.vertices.data(), vbytes) ||
-        !m.device.write_buffer(mesh.indices, data.indices.data(), ibytes)) {
-        m.device.destroy(mesh.vertices);
-        m.device.destroy(mesh.indices);
-        return false;
-    }
-    mesh.index_count = static_cast<std::uint32_t>(data.indices.size());
-    mesh.bounds_min = mesh.bounds_max = data.vertices[0].position;
-    for (const Vertex& v : data.vertices) {
-        mesh.bounds_min = {std::min(mesh.bounds_min.x, v.position.x), std::min(mesh.bounds_min.y, v.position.y),
-                           std::min(mesh.bounds_min.z, v.position.z)};
-        mesh.bounds_max = {std::max(mesh.bounds_max.x, v.position.x), std::max(mesh.bounds_max.y, v.position.y),
-                           std::max(mesh.bounds_max.z, v.position.z)};
-    }
-    if (m.rt) {
-        mesh.blas = m.device.create_blas({.vertices = mesh.vertices,
-                                          .vertex_count = static_cast<std::uint32_t>(data.vertices.size()),
-                                          .vertex_stride = sizeof(Vertex),
-                                          .indices = mesh.indices,
-                                          .index_count = mesh.index_count,
-                                          .debug_name = "astral.mesh_blas"});
-    }
-    return true;
-}
-
-void Renderer::destroy(MeshHandle handle) {
-    auto& m = *impl_;
-    if (const GpuMesh* mesh = m.meshes.get(handle)) {
-        m.device.destroy(mesh->vertices);
-        m.device.destroy(mesh->indices);
-        m.device.destroy(mesh->blas);
-        m.meshes.destroy(handle);
-    }
-}
+MaterialHandle Renderer::create_material(const MaterialDesc& desc) { return impl_->materials.create(desc); }
+bool Renderer::update_material(MaterialHandle material, const MaterialDesc& desc) { return impl_->materials.update(material, desc); }
+void Renderer::destroy(MaterialHandle material) { impl_->materials.destroy(material); }
+const MaterialDesc* Renderer::material(MaterialHandle material) const noexcept { return impl_->materials.get(material); }
+MaterialHandle Renderer::default_material() const noexcept { return impl_->materials.default_material(); }
 
 const RenderStats& Renderer::stats() const noexcept { return impl_->stats; }
-
-MaterialHandle Renderer::create_material(const MaterialDesc& desc) {
-    auto& m = *impl_;
-    const MaterialHandle h = m.materials.create(desc);
-    m.material_slots = std::max(m.material_slots, h.index + 1);
-    return h;
-}
-
 std::span<const PassTiming> Renderer::gpu_timings() const noexcept { return impl_->graph.gpu_timings(); }
 float Renderer::gpu_frame_ms() const noexcept { return impl_->graph.gpu_frame_ms(); }
-
-bool Renderer::update_material(MaterialHandle material, const MaterialDesc& desc) {
-    MaterialDesc* d = impl_->materials.get(material);
-    if (!d) return false;
-    *d = desc;
-    return true;
-}
-
-void Renderer::destroy(MaterialHandle material) {
-    if (material == impl_->default_material) return; // always valid
-    impl_->materials.destroy(material);
-}
-
-const MaterialDesc* Renderer::material(MaterialHandle material) const noexcept { return impl_->materials.get(material); }
-
-MaterialHandle Renderer::default_material() const noexcept { return impl_->default_material; }
-
 const RenderSettings& Renderer::settings() const noexcept { return impl_->settings; }
 
 void Renderer::set_settings(const RenderSettings& settings) {
@@ -1102,17 +416,9 @@ void Renderer::set_settings(const RenderSettings& settings) {
     m.settings = settings;
     const bool want_rt = settings.ray_tracing && m.device.supports(gpu::Feature::RayTracing);
     if (want_rt != m.rt) {
-        m.rt = want_rt && m.create_rt_pipelines();
+        m.rt = want_rt && m.shaders.ensure_rt_pipelines();
         // Meshes created on the raster path have no BLAS yet.
-        if (m.rt) {
-            m.meshes.for_each([&](MeshHandle, GpuMesh& mesh) {
-                if (mesh.blas.valid()) return;
-                const auto vertex_count = static_cast<std::uint32_t>(m.device.buffer_size(mesh.vertices) / sizeof(Vertex));
-                mesh.blas = m.device.create_blas({.vertices = mesh.vertices, .vertex_count = vertex_count,
-                                                  .vertex_stride = sizeof(Vertex), .indices = mesh.indices,
-                                                  .index_count = mesh.index_count, .debug_name = "astral.mesh_blas"});
-            });
-        }
+        if (m.rt) m.meshes.ensure_blas_all();
         reset_history();
     }
     const GiSettings &a = old.gi, &b = settings.gi;
@@ -1143,35 +449,16 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
     const gpu::TextureDesc target_desc = m.device.texture_desc(target);
     if (target_desc.width == 0) return;
     const std::uint32_t w = target_desc.width, h = target_desc.height;
-    m.camera_position = camera.position;
     if (m.rt) {
         m.render_ray_traced(cmd, target, camera, scene, w, h);
         return;
     }
 
     // --- Per-frame data into this ring slot (waits only if the GPU still reads it) --------
-    FrameSlot& slot = m.ring[m.ring_index];
-    m.ring_index = (m.ring_index + 1) % ring_size;
-    m.device.wait({*slot.last_use});
-    cmd.on_submitted([use = slot.last_use](gpu::SubmitTicket t) { *use = t.value; });
+    FrameSlot& slot = m.ring.acquire(m.device, cmd);
 
-    m.prepare_instances(scene, slot, false);
-    m.lights.clear();
-    for (const PointLight& l : scene.lights) {
-        m.lights.push_back({{l.position.x, l.position.y, l.position.z, l.radius},
-                            {l.color.x, l.color.y, l.color.z, l.intensity},
-                            {l.source_radius, 0, 0, 0}});
-    }
-    m.shapes.clear();
-    for (const SdfShape& s : scene.sdf) {
-        m.shapes.push_back({{s.position.x, s.position.y, s.position.z, s.blend},
-                            {s.rotation.x, s.rotation.y, s.rotation.z, s.rotation.w},
-                            s.size,
-                            {s.color.x, s.color.y, s.color.z, s.roughness},
-                            {s.metallic, static_cast<float>(s.operation), static_cast<float>(s.primitive), 0}});
-    }
-    slot.lights.write(m.device, m.lights.data(), m.lights.size() * sizeof(GpuPointLight));
-    slot.shapes.write(m.device, m.shapes.data(), m.shapes.size() * sizeof(GpuSdfShape));
+    prepare_instances(m.device, scene, camera.position, m.meshes, m.materials, slot, m.frame_instances, false);
+    upload_scene_buffers(m.device, scene, slot, m.frame_instances, false);
 
     bool shadow_valid = false;
     float texel_world = 0.0f;
@@ -1180,7 +467,7 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
     const bool shadows = scene.sun.shadows && shadow_valid && !scene.meshes.empty();
     const Mat4 view_projection = camera.projection * camera.view;
     const Vec3 sun = normalize(scene.sun.direction);
-    const auto counts_sdf = static_cast<std::uint32_t>(m.shapes.size());
+    const auto counts_sdf = static_cast<std::uint32_t>(m.frame_instances.shapes.size());
     GpuFrame frame{view_projection,
                    inverse(view_projection),
                    light_vp,
@@ -1190,7 +477,7 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
                     scene.sun.color.z * scene.sun.intensity, 0},
                    {scene.environment.sky.x, scene.environment.sky.y, scene.environment.sky.z, scene.environment.ambient},
                    {scene.environment.ground.x, scene.environment.ground.y, scene.environment.ground.z, scene.environment.exposure},
-                   {static_cast<std::uint32_t>(m.lights.size()), counts_sdf,
+                   {static_cast<std::uint32_t>(m.frame_instances.lights.size()), counts_sdf,
                     shadows ? m.device.bindless_index(m.shadow_map) : no_shadow, 0},
                    {static_cast<float>(w), static_cast<float>(h), 1.0f / static_cast<float>(w), 1.0f / static_cast<float>(h)},
                    Mat4::identity(), {}, {}, {}, {}, {}, view_projection, {}};
@@ -1208,24 +495,23 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
     const std::uint64_t frame_address = m.device.buffer_address(slot.frame.buffer);
     const std::uint64_t light_address = m.device.buffer_address(slot.lights.buffer);
     const std::uint64_t shape_address = m.device.buffer_address(slot.shapes.buffer);
-
     const std::uint64_t params_address = m.device.buffer_address(slot.params.buffer);
+
     // Draws every mesh run (one instanced call per mesh and shader), binding each shader's pipeline.
     auto draw_meshes = [&, instance_address, frame_address](gpu::CommandList& c, bool gbuffer) {
+        const auto& order = m.frame_instances.order;
+        const auto& instance_shader = m.frame_instances.instance_shader;
         std::uint32_t start = 0;
         std::uint32_t bound = 0xFFFFFFFFu;
-        while (start < m.order.size()) {
-            const MeshHandle handle = scene.meshes[m.order[start]].mesh;
-            const std::uint32_t key = m.instance_shader[start];
+        while (start < order.size()) {
+            const MeshHandle handle = scene.meshes[order[start]].mesh;
+            const std::uint32_t key = instance_shader[start];
             std::uint32_t end = start + 1;
-            while (end < m.order.size() && scene.meshes[m.order[end]].mesh == handle && m.instance_shader[end] == key) ++end;
+            while (end < order.size() && scene.meshes[order[end]].mesh == handle && instance_shader[end] == key) ++end;
             if (key != bound) {
                 gpu::PipelineHandle pipeline = gbuffer ? m.gbuffer : m.shadow;
                 if (key != 0) {
-                    const GpuShader* shader = nullptr;
-                    m.shaders.for_each([&](ShaderHandle sh, GpuShader& s) {
-                        if (sh.index + 1 == key) shader = &s;
-                    });
+                    const GpuShader* shader = m.shaders.find_by_key(key);
                     if (shader && !gbuffer && !shader->casts_shadows) {
                         start = end;
                         continue;
@@ -1322,7 +608,7 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
     m.add_sky(g, hdr, depth, frame_address, material_address, scene.sky);
     std::vector<MaterialHandle> post_chain;
     for (MaterialHandle p : scene.post) {
-        if (m.is_post(p)) post_chain.push_back(p);
+        if (m.materials.is_post(p)) post_chain.push_back(p);
     }
     const RGTexture scene_color = post_chain.empty() ? output : g.create("scene.ldr", {w, h, m.target_format});
     g.add_pass("tonemap", [&](PassBuilder& b) {
@@ -1341,10 +627,9 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
     g.execute(cmd);
 
     m.stats.sdf_shapes = counts_sdf;
-    m.stats.point_lights = static_cast<std::uint32_t>(m.lights.size());
+    m.stats.point_lights = static_cast<std::uint32_t>(m.frame_instances.lights.size());
     m.stats.passes = g.stats().passes_executed;
 }
-
 
 // =========================================================================================
 // Ray-traced path (ADR-0011)
@@ -1436,53 +721,18 @@ void Renderer::Impl::ensure_ddgi(const RenderScene& scene) {
 void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle target, const CameraData& camera,
                                        const RenderScene& scene, std::uint32_t w, std::uint32_t h) {
     auto& m = *this;
-    m.camera_position = camera.position;
-    if (m.rt_surfaces_dirty) m.rebuild_rt_surfaces();
-    FrameSlot& slot = m.ring[m.ring_index];
-    m.ring_index = (m.ring_index + 1) % ring_size;
-    m.device.wait({*slot.last_use});
-    cmd.on_submitted([use = slot.last_use](gpu::SubmitTicket t) { *use = t.value; });
+    m.shaders.rebuild_rt_surfaces_if_dirty();
+    const RtPipelines& rt_pipes = m.shaders.rt_pipelines();
+    FrameSlot& slot = m.ring.acquire(m.device, cmd);
 
     ensure_history(w, h);
     ensure_ddgi(scene);
 
     // --- Scene data ------------------------------------------------------------------------
-    m.prepare_instances(scene, slot, true);
-    m.lights.clear();
-    for (const PointLight& l : scene.lights) {
-        m.lights.push_back({{l.position.x, l.position.y, l.position.z, l.radius},
-                            {l.color.x, l.color.y, l.color.z, l.intensity},
-                            {l.source_radius, 0, 0, 0}});
-    }
-    m.shapes.clear();
-    for (const SdfShape& sh : scene.sdf) {
-        m.shapes.push_back({{sh.position.x, sh.position.y, sh.position.z, sh.blend},
-                            {sh.rotation.x, sh.rotation.y, sh.rotation.z, sh.rotation.w},
-                            sh.size,
-                            {sh.color.x, sh.color.y, sh.color.z, sh.roughness},
-                            {sh.metallic, static_cast<float>(sh.operation), static_cast<float>(sh.primitive), 0}});
-    }
-    m.rects.clear();
-    for (const RectLight& r : scene.rect_lights) {
-        m.rects.push_back({{r.position.x, r.position.y, r.position.z, r.two_sided ? 1.0f : 0.0f},
-                           {r.right.x, r.right.y, r.right.z, 0},
-                           {r.up.x, r.up.y, r.up.z, 0},
-                           {r.color.x * r.intensity, r.color.y * r.intensity, r.color.z * r.intensity, 0}});
-    }
-    slot.lights.write(m.device, m.lights.data(), m.lights.size() * sizeof(GpuPointLight));
-    slot.shapes.write(m.device, m.shapes.data(), m.shapes.size() * sizeof(GpuSdfShape));
-    slot.rects.write(m.device, m.rects.data(), m.rects.size() * sizeof(GpuRectLight));
+    prepare_instances(m.device, scene, camera.position, m.meshes, m.materials, slot, m.frame_instances, true);
+    upload_scene_buffers(m.device, scene, slot, m.frame_instances, true);
 
-    // TLAS grows in powers of two; the old one is destroyed once the GPU is done with it.
-    const auto needed = static_cast<std::uint32_t>(m.tlas_instances.size());
-    if (!m.tlas.valid() || needed > m.tlas_capacity) {
-        m.device.destroy(m.tlas);
-        m.tlas_capacity = 64;
-        while (m.tlas_capacity < needed) m.tlas_capacity *= 2;
-        m.tlas = m.device.create_tlas({.max_instances = m.tlas_capacity, .debug_name = "astral.scene_tlas"});
-        if (!m.tlas.valid()) return;
-    }
-    cmd.build_tlas(m.tlas, m.tlas_instances);
+    if (!build_tlas(m.device, cmd, m.frame_instances)) return;
 
     // --- Frame constants: jittered projection for TAA -------------------------------------
     const std::uint32_t jitter_index = (m.frame_index % 16) + 1;
@@ -1490,7 +740,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
     const Mat4 unjittered = camera.projection * camera.view;
     const Mat4 jittered = translate({2.0f * jx / static_cast<float>(w), 2.0f * jy / static_cast<float>(h), 0}) * unjittered;
     const Vec3 sun = normalize(scene.sun.direction);
-    const auto sdf_count = static_cast<std::uint32_t>(m.shapes.size());
+    const auto sdf_count = static_cast<std::uint32_t>(m.frame_instances.shapes.size());
     const std::uint32_t parity = m.frame_index & 1u, prev = parity ^ 1u;
     GpuFrame frame{};
     frame.view_projection = jittered;
@@ -1502,7 +752,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
     frame.sun_color = {scene.sun.color.x * sun_on, scene.sun.color.y * sun_on, scene.sun.color.z * sun_on, 0};
     frame.sky_color = {scene.environment.sky.x, scene.environment.sky.y, scene.environment.sky.z, scene.environment.ambient};
     frame.ground_color = {scene.environment.ground.x, scene.environment.ground.y, scene.environment.ground.z, scene.environment.exposure};
-    frame.counts[0] = static_cast<std::uint32_t>(m.lights.size());
+    frame.counts[0] = static_cast<std::uint32_t>(m.frame_instances.lights.size());
     frame.counts[1] = sdf_count;
     frame.counts[2] = no_shadow;
     frame.screen = {static_cast<float>(w), static_cast<float>(h), 1.0f / static_cast<float>(w), 1.0f / static_cast<float>(h)};
@@ -1513,7 +763,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
     frame.ddgi_counts[1] = ddgi.ny;
     frame.ddgi_counts[2] = ddgi.nz;
     frame.ddgi_counts[3] = ddgi.rays;
-    frame.rt_counts[0] = static_cast<std::uint32_t>(m.rects.size());
+    frame.rt_counts[0] = static_cast<std::uint32_t>(m.frame_instances.rects.size());
     frame.rt_counts[1] = m.frame_index;
     frame.rt_counts[2] = m.history_valid ? 1u : 0u;
     frame.rt_counts[3] = ddgi.valid ? 1u : 0u;
@@ -1534,7 +784,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
     const std::uint64_t light_address = m.device.buffer_address(slot.lights.buffer);
     const std::uint64_t shape_address = m.device.buffer_address(slot.shapes.buffer);
     const std::uint64_t rect_address = m.device.buffer_address(slot.rects.buffer);
-    const std::uint64_t tlas_address = m.device.acceleration_structure_address(m.tlas);
+    const std::uint64_t tlas_address = m.device.acceleration_structure_address(m.frame_instances.tlas);
     const std::uint64_t rays_address = m.device.buffer_address(ddgi.ray_buffer);
 
     // --- Graph -------------------------------------------------------------------------------
@@ -1567,19 +817,18 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
 
     const std::uint64_t params_address = m.device.buffer_address(slot.params.buffer);
     auto draw_meshes = [&](gpu::CommandList& c) {
+        const auto& order = m.frame_instances.order;
+        const auto& instance_shader = m.frame_instances.instance_shader;
         std::uint32_t start = 0;
         std::uint32_t bound = 0xFFFFFFFFu;
-        while (start < m.order.size()) {
-            const MeshHandle handle = scene.meshes[m.order[start]].mesh;
-            const std::uint32_t key = m.instance_shader[start];
+        while (start < order.size()) {
+            const MeshHandle handle = scene.meshes[order[start]].mesh;
+            const std::uint32_t key = instance_shader[start];
             std::uint32_t end = start + 1;
-            while (end < m.order.size() && scene.meshes[m.order[end]].mesh == handle && m.instance_shader[end] == key) ++end;
+            while (end < order.size() && scene.meshes[order[end]].mesh == handle && instance_shader[end] == key) ++end;
             if (key != bound) {
-                gpu::PipelineHandle pipeline = m.gbuffer;
-                m.shaders.for_each([&](ShaderHandle sh, GpuShader& s) {
-                    if (sh.index + 1 == key) pipeline = s.gbuffer;
-                });
-                c.bind_pipeline(pipeline);
+                const GpuShader* shader = m.shaders.find_by_key(key);
+                c.bind_pipeline(shader ? shader->gbuffer : m.gbuffer);
                 bound = key;
             }
             const GpuMesh* mesh = m.meshes.get(handle);
@@ -1643,7 +892,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
     }, [&](PassContext& ctx) {
         const DdgiTracePush push{frame_address, tlas_address, instance_address, material_address, light_address, rect_address,
                                  shape_address, rays_address, ctx.bindless(irr_prev), ctx.bindless(dist_prev)};
-        ctx.cmd.bind_pipeline(m.ddgi_trace);
+        ctx.cmd.bind_pipeline(rt_pipes.ddgi_trace);
         ctx.cmd.push_constants(&push, sizeof(push));
         ctx.cmd.dispatch((probe_rays + 63) / 64);
     });
@@ -1657,7 +906,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
         }, [&, src, dst, mode, desc](PassContext& ctx) {
             ctx.cmd.memory_barrier(); // probe ray buffer written by ddgi.trace
             const DdgiUpdatePush push{frame_address, rays_address, ctx.bindless(src), ctx.bindless(dst), mode};
-            ctx.cmd.bind_pipeline(m.ddgi_update);
+            ctx.cmd.bind_pipeline(rt_pipes.ddgi_update);
             ctx.cmd.push_constants(&push, sizeof(push));
             ctx.cmd.dispatch((desc.width + 7) / 8, (desc.height + 7) / 8);
         });
@@ -1675,7 +924,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
                                   gbuffer_ids(ctx), ctx.bindless(irr), ctx.bindless(dist),
                                   ctx.bindless(noisy_d), ctx.bindless(noisy_s), ctx.bindless(geometry),
                                   std::max(settings.near_gi_radius, 0.0f)};
-        ctx.cmd.bind_pipeline(m.rt_lighting);
+        ctx.cmd.bind_pipeline(rt_pipes.rt_lighting);
         ctx.cmd.push_constants(&push, sizeof(push));
         ctx.cmd.dispatch((w + 7) / 8, (h + 7) / 8);
     });
@@ -1690,7 +939,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
                                 ctx.bindless(noisy_d), ctx.bindless(noisy_s), ctx.bindless(hist_d_prev),
                                 ctx.bindless(hist_s_prev), ctx.bindless(hist_d), ctx.bindless(hist_s),
                                 std::max(settings.max_history, 1.0f), ctx.bindless(moments_prev), ctx.bindless(moments)};
-        ctx.cmd.bind_pipeline(m.temporal);
+        ctx.cmd.bind_pipeline(rt_pipes.temporal);
         ctx.cmd.push_constants(&push, sizeof(push));
         ctx.cmd.dispatch((w + 7) / 8, (h + 7) / 8);
     });
@@ -1712,7 +961,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
             const AtrousPush push{frame_address, gbuffer_ids(ctx), ctx.bindless(geometry), ctx.bindless(in_d),
                                   ctx.bindless(in_s), ctx.bindless(out_d), ctx.bindless(out_s), step,
                                   ctx.bindless(moments)};
-            ctx.cmd.bind_pipeline(m.atrous);
+            ctx.cmd.bind_pipeline(rt_pipes.atrous);
             ctx.cmd.push_constants(&push, sizeof(push));
             ctx.cmd.dispatch((w + 7) / 8, (h + 7) / 8);
         });
@@ -1726,7 +975,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
     }, [&](PassContext& ctx) {
         const CompositePush push{frame_address, rect_address, gbuffer_ids(ctx), ctx.bindless(final_d),
                                  ctx.bindless(final_s), ctx.bindless(hdr), static_cast<std::uint32_t>(settings.debug_view)};
-        ctx.cmd.bind_pipeline(m.composite);
+        ctx.cmd.bind_pipeline(rt_pipes.composite);
         ctx.cmd.push_constants(&push, sizeof(push));
         ctx.cmd.dispatch((w + 7) / 8, (h + 7) / 8);
     });
@@ -1739,7 +988,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
     }, [&](PassContext& ctx) {
         const TaaPush push{frame_address, gbuffer_ids(ctx), ctx.bindless(hdr), ctx.bindless(taa_prev),
                            ctx.bindless(taa_out), std::clamp(settings.taa_blend, 0.01f, 1.0f)};
-        ctx.cmd.bind_pipeline(m.taa);
+        ctx.cmd.bind_pipeline(rt_pipes.taa);
         ctx.cmd.push_constants(&push, sizeof(push));
         ctx.cmd.dispatch((w + 7) / 8, (h + 7) / 8);
     });
@@ -1764,7 +1013,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
             const BloomDownPush push{ctx.bindless(src), ctx.bindless(dst),
                                      {1.0f / static_cast<float>(src_size.width), 1.0f / static_cast<float>(src_size.height)},
                                      {lw, lh}, i == 0 ? 1u : 0u};
-            ctx.cmd.bind_pipeline(m.bloom_down);
+            ctx.cmd.bind_pipeline(rt_pipes.bloom_down);
             ctx.cmd.push_constants(&push, sizeof(push));
             ctx.cmd.dispatch((lw + 7) / 8, (lh + 7) / 8);
         });
@@ -1787,7 +1036,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
                 const BloomUpPush push{ctx.bindless(lower), ctx.bindless(current), ctx.bindless(dst),
                                        {1.0f / static_cast<float>(low_size.width), 1.0f / static_cast<float>(low_size.height)},
                                        {size.width, size.height}, 1.0f};
-                ctx.cmd.bind_pipeline(m.bloom_up);
+                ctx.cmd.bind_pipeline(rt_pipes.bloom_up);
                 ctx.cmd.push_constants(&push, sizeof(push));
                 ctx.cmd.dispatch((size.width + 7) / 8, (size.height + 7) / 8);
             });
@@ -1797,7 +1046,7 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
     }
     std::vector<MaterialHandle> post_chain;
     for (MaterialHandle p : scene.post) {
-        if (m.is_post(p)) post_chain.push_back(p);
+        if (m.materials.is_post(p)) post_chain.push_back(p);
     }
     const RGTexture scene_color = post_chain.empty() ? output : g.create("scene.ldr", {w, h, m.target_format});
     g.add_pass("tonemap", [&](PassBuilder& b) {
@@ -1826,8 +1075,8 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
     ++m.frame_index;
     m.stats.ray_traced = true;
     m.stats.sdf_shapes = sdf_count;
-    m.stats.point_lights = static_cast<std::uint32_t>(m.lights.size());
-    m.stats.rect_lights = static_cast<std::uint32_t>(m.rects.size());
+    m.stats.point_lights = static_cast<std::uint32_t>(m.frame_instances.lights.size());
+    m.stats.rect_lights = static_cast<std::uint32_t>(m.frame_instances.rects.size());
     m.stats.gi_probes = ddgi.nx * ddgi.ny * ddgi.nz;
     m.stats.passes = g.stats().passes_executed;
 }
