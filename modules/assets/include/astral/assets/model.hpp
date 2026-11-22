@@ -3,12 +3,13 @@
 // and thread-safe, so they run on worker threads; AssetManager uploads the results to the Renderer.
 
 #include <astral/core/math.hpp>
+#include <astral/render/image.hpp>
 #include <astral/render/mesh.hpp>
-#include <astral/render/renderer.hpp>
 
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 

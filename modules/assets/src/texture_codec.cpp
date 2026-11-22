@@ -1,4 +1,5 @@
 #include <astral/assets/cook.hpp>
+#include <astral/render/renderer.hpp>
 
 #include <algorithm>
 #include <cmath>

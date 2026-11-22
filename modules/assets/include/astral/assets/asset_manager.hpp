@@ -12,6 +12,7 @@
 #include <astral/core/json.hpp>
 #include <astral/core/log.hpp>
 #include <astral/core/reflect.hpp>
+#include <astral/render/renderer.hpp>
 
 #include <cstdint>
 #include <filesystem>

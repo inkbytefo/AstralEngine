@@ -62,6 +62,7 @@ astral_add_tests(MODULE assets
     SOURCES
         tests/test_main.cpp
         tests/gltf_test.cpp
+        tests/model_header_test.cpp
         tests/asset_manager_test.cpp
         tests/cook_test.cpp)
 if(TARGET astral_assets_tests)

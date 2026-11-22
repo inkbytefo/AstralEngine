@@ -1,6 +1,8 @@
 #include <astral/assets/cook.hpp>
 #include <astral/core/bytes.hpp>
 
+#include <algorithm>
+
 namespace astral {
 
 namespace {

@@ -1,6 +1,7 @@
 #include <astral/assets/asset_manager.hpp>
 #include <astral/assets/cook.hpp>
 #include <astral/assets/pack.hpp>
+#include <astral/render/renderer.hpp>
 
 #include "file_util.hpp"
 
