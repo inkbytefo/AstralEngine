@@ -12,6 +12,7 @@
 
 #include <astral/core/log.hpp>
 #include <astral/core/math.hpp>
+#include <astral/core/profiler.hpp>
 #include <astral/world/event_registry.hpp>
 #include <astral/world/serialize.hpp>
 
@@ -99,6 +100,7 @@ struct ScriptEnv {
     ScriptInput* input = nullptr; ///< Null: every action reads as idle.
     ScriptStorage* storage = nullptr; ///< Null: astral.save / astral.load report that saving is not available.
     ScriptPhysics* physics = nullptr; ///< Null: astral.physics.* and astral.fields.* report that physics is not available.
+    Profiler* profiler = nullptr; ///< Null: per-module profiler scopes are skipped.
 };
 
 struct ScriptLimits {

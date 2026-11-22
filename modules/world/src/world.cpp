@@ -122,6 +122,35 @@ void Commands::apply(World& world) {
 
 // --- World -------------------------------------------------------------------------------
 
+namespace {
+
+struct ThreadTickState {
+    const World* world = nullptr;
+    Tick baseline = 0;
+    Tick tick = 1;
+};
+
+thread_local ThreadTickState tls_tick_state{};
+
+} // namespace
+
+World::ScopedTick::ScopedTick(const World& world, Tick baseline, Tick write_tick) noexcept
+    : prev_world_(tls_tick_state.world), prev_baseline_(tls_tick_state.baseline), prev_tick_(tls_tick_state.tick) {
+    tls_tick_state = {&world, baseline, write_tick};
+}
+
+World::ScopedTick::~ScopedTick() {
+    tls_tick_state = {prev_world_, prev_baseline_, prev_tick_};
+}
+
+Tick World::tick() const noexcept {
+    return tls_tick_state.world == this ? tls_tick_state.tick : tick_;
+}
+
+Tick World::change_baseline() const noexcept {
+    return tls_tick_state.world == this ? tls_tick_state.baseline : baseline_;
+}
+
 World::World() { root_ = archetype_for({}); }
 
 World::~World() {
@@ -179,7 +208,7 @@ void World::each_raw(std::span<const ComponentId> ids, const std::function<void(
     std::sort(sorted.begin(), sorted.end());
     sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
     IterationGuard guard(*this);
-    for (detail::Archetype* a : find_query(std::move(sorted)).matches) {
+    for (detail::Archetype* a : find_query(std::move(sorted))) {
         for (std::size_t row = 0; row < a->size(); ++row) fn(a->entity(row));
     }
 }
@@ -312,8 +341,9 @@ std::size_t World::move_entity(Entity entity, Slot& s, detail::Archetype* to) {
     return to_row;
 }
 
-World::Query& World::find_query(std::vector<ComponentId> ids) {
+std::vector<detail::Archetype*> World::find_query(std::vector<ComponentId> ids) {
     std::sort(ids.begin(), ids.end());
+    std::scoped_lock lock(query_mutex_);
     auto [it, inserted] = queries_.try_emplace(ids);
     Query& q = it->second;
     const std::vector<ComponentId>& key = it->first;
@@ -324,10 +354,11 @@ World::Query& World::find_query(std::vector<ComponentId> ids) {
                                        [a](ComponentId id) { return a->contains(id); });
         if (match) q.matches.push_back(a);
     }
-    return q;
+    return q.matches;
 }
 
 void World::update_events() {
+    std::scoped_lock lock(event_mutex_);
     for (auto& [id, update] : event_updaters_) {
         if (auto it = resources_.find(id); it != resources_.end()) update(it->second.ptr);
     }

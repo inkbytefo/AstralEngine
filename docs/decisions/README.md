@@ -36,3 +36,4 @@ ADR eskisini "yerini aldı" diye işaretler.
 | [0029](0029-physics-fields-and-joints.md) | Fizik altyapısı: katmanlar, yeni şekiller, eklemler, rüzgâr/su alanları (CPU+GPU aynı işlev), kuvvetler, tetik olayları | Kabul |
 | [0030](0030-refactor-rules-and-size-budget.md) | Refaktör kuralları ve boyut bütçesi: 600/80/25 sınırı, tek sorumluluk ölçütü, tutarlı ayrıştırıcı istisnası, karakterizasyon testleri, bayt bayt golden kapısı | Kabul |
 | [0031](0031-hardware-independent-golden-tests.md) | Donanımdan bağımsız görüntü testleri: `golden` (lavapipe) / `golden-hw` (SSIM + güçlü piksel sınırı), cihaz kimliği, paralel kilit | Kabul |
+| [0032](0032-scalable-runtime-and-parallel-scheduler.md) | Ölçeklenebilir çalışma zamanı: erişim bildiren sistemler, paralel zamanlayıcı, paralel transform ve G/Ç ayrımı (M13.6) | Kabul |

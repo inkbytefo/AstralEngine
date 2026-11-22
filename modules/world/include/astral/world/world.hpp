@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <functional>
 #include <span>
@@ -149,18 +150,33 @@ public:
     template <class... Cs> [[nodiscard]] std::size_t count();
 
     // Change detection -----------------------------------------------------------------------
-    /// Current tick: writes are stamped with it.
-    [[nodiscard]] Tick tick() const noexcept { return tick_; }
+    /// Current tick: writes are stamped with it (respects ScopedTick on worker threads).
+    [[nodiscard]] Tick tick() const noexcept;
     void advance_tick() noexcept { ++tick_; }
-    /// added<T>()/changed<T>() filters match rows stamped after this tick.
+    void set_tick(Tick tick) noexcept { tick_ = tick; }
+    /// added<T>()/changed<T>() filters match rows stamped after this tick (respects ScopedTick).
     void set_change_baseline(Tick tick) noexcept { baseline_ = tick; }
-    [[nodiscard]] Tick change_baseline() const noexcept { return baseline_; }
+    [[nodiscard]] Tick change_baseline() const noexcept;
     /// Simple mode: "changes since the previous clear_trackers()". (App instead gives every
     /// system its own baseline: changes since that system last ran.)
     void clear_trackers() noexcept {
         baseline_ = tick_;
         ++tick_;
     }
+
+    /// Thread-local change-detection baseline and write tick for a system running on a worker thread (ADR-0032).
+    class ScopedTick {
+    public:
+        ScopedTick(const World& world, Tick baseline, Tick write_tick) noexcept;
+        ~ScopedTick();
+        ScopedTick(const ScopedTick&) = delete;
+        ScopedTick& operator=(const ScopedTick&) = delete;
+
+    private:
+        const World* prev_world_ = nullptr;
+        Tick prev_baseline_ = 0;
+        Tick prev_tick_ = 0;
+    };
 
     // Events -------------------------------------------------------------------------------
     template <class T> void send(T event);
@@ -211,7 +227,7 @@ private:
     std::size_t move_entity(Entity entity, Slot& s, detail::Archetype* to);
     void place(Entity entity, detail::Archetype* archetype, std::size_t row);
     void fix_moved(Entity moved, std::size_t row);
-    Query& find_query(std::vector<ComponentId> ids);
+    std::vector<detail::Archetype*> find_query(std::vector<ComponentId> ids);
     void mark_changed(Slot& s, ComponentId id) noexcept;
     void check_not_iterating(const char* operation) const;
 
@@ -223,9 +239,11 @@ private:
     std::map<std::vector<ComponentId>, detail::Archetype*> archetype_index_;
     detail::Archetype* root_ = nullptr; // no components
     std::map<std::vector<ComponentId>, Query> queries_;
+    mutable std::mutex query_mutex_;
+    mutable std::mutex event_mutex_;
     std::unordered_map<ComponentId, Resource> resources_;
     Commands commands_;
-    int iterating_ = 0;
+    std::atomic<int> iterating_{0};
     Tick tick_ = 1;
     Tick baseline_ = 0;
     std::vector<std::pair<ComponentId, void (*)(void*)>> event_updaters_;
@@ -377,7 +395,7 @@ template <class T> T* World::get(Entity entity) noexcept {
 
 inline void World::mark_changed(Slot& s, ComponentId id) noexcept {
     const int c = s.archetype->column_of(id);
-    if (c >= 0) s.archetype->column(static_cast<std::size_t>(c)).changed[s.row] = tick_;
+    if (c >= 0) s.archetype->column(static_cast<std::size_t>(c)).changed[s.row] = tick();
 }
 
 template <class T> bool World::has(Entity entity) const noexcept {
@@ -403,6 +421,7 @@ template <class Fn> void World::for_each_entity(Fn&& fn) const {
 }
 
 template <class T> void World::send(T event) {
+    std::scoped_lock lock(event_mutex_);
     auto* events = resource<Events<T>>();
     if (!events) {
         events = &set_resource(Events<T>{});
@@ -418,7 +437,7 @@ template <class... Cs> template <class Visit> void QueryView<Cs...>::for_matches
     ids.insert(ids.end(), with_.begin(), with_.end());
     std::sort(ids.begin(), ids.end());
     ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
-    for (detail::Archetype* a : world_.find_query(std::move(ids)).matches) {
+    for (detail::Archetype* a : world_.find_query(std::move(ids))) {
         if (a->size() == 0) continue;
         const bool excluded = std::any_of(without_.begin(), without_.end(), [a](ComponentId id) { return a->contains(id); });
         if (!excluded) visit(*a);
@@ -427,7 +446,7 @@ template <class... Cs> template <class Visit> void QueryView<Cs...>::for_matches
 
 template <class... Cs>
 bool QueryView<Cs...>::row_passes(detail::Archetype& a, std::size_t row) const noexcept {
-    const Tick since = world_.baseline_;
+    const Tick since = world_.change_baseline();
     for (ComponentId id : added_) {
         if (a.column(static_cast<std::size_t>(a.column_of(id))).added[row] <= since) return false;
     }
@@ -446,7 +465,7 @@ void QueryView<Cs...>::run_rows(detail::Archetype& a, Fn& fn, std::size_t begin,
     std::array<std::uint32_t*, sizeof...(Cs)> stamps{
         (std::is_const_v<Cs> ? nullptr : a.column(static_cast<std::size_t>(a.column_of(component_id<Cs>()))).changed)...};
     const bool filtered = !added_.empty() || !changed_.empty();
-    const Tick now = world_.tick_;
+    const Tick now = world_.tick();
     Entity* entities = a.entities();
     for (std::size_t row = begin; row < end; ++row) {
         if (filtered && !row_passes(a, row)) continue;

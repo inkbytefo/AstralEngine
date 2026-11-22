@@ -93,3 +93,106 @@ TEST_CASE("engine and game components save and load through ctx.types") {
     CHECK(first["astral::PointLight"]["radius"].as_number() == 8.0);
     CHECK(game.saved["entities"][2]["components"]["astral::Sdf"]["shape"]["primitive"].as_string() == "Torus"); // enums by name
 }
+
+namespace {
+struct PosX {
+    float x = 0.0f;
+};
+struct PosY {
+    float y = 0.0f;
+};
+struct VelX {
+    float dx = 1.0f;
+};
+struct VelY {
+    float dy = 2.0f;
+};
+struct Combined {
+    float sum = 0.0f;
+};
+
+class StepXSystem final : public System {
+public:
+    void configure(SystemAccess& access) override { access.query<PosX, const VelX>(); }
+    void update(Context& ctx) override {
+        ctx.world.each<PosX, const VelX>([&](PosX& p, const VelX& v) { p.x += v.dx; });
+    }
+};
+
+class StepYSystem final : public System {
+public:
+    void configure(SystemAccess& access) override { access.query<PosY, const VelY>(); }
+    void update(Context& ctx) override {
+        ctx.world.each<PosY, const VelY>([&](PosY& p, const VelY& v) { p.y += v.dy; });
+    }
+};
+
+class CombineXYSystem final : public System {
+public:
+    std::size_t changed_x_total = 0;
+    std::size_t changed_y_total = 0;
+    void configure(SystemAccess& access) override { access.query<const PosX, const PosY, Combined>(); }
+    void update(Context& ctx) override {
+        changed_x_total += ctx.world.query<const PosX>().changed<PosX>().count();
+        changed_y_total += ctx.world.query<const PosY>().changed<PosY>().count();
+        ctx.world.each<const PosX, const PosY, Combined>(
+            [&](const PosX& x, const PosY& y, Combined& c) { c.sum += x.x + y.y; });
+    }
+};
+} // namespace
+
+TEST_CASE("SystemAccess conflict rules distinguish shared reads from read-write and exclusive systems") {
+    SystemAccess read_xy;
+    read_xy.reads<PosX, PosY>();
+
+    SystemAccess read_x_only;
+    read_x_only.reads<PosX>();
+    CHECK_FALSE(read_xy.conflicts_with(read_x_only));
+
+    SystemAccess write_x;
+    write_x.query<PosX, const VelX>();
+    CHECK(read_xy.conflicts_with(write_x));
+    CHECK(write_x.conflicts_with(read_x_only));
+
+    SystemAccess write_y;
+    write_y.query<PosY, const VelY>();
+    CHECK_FALSE(write_x.conflicts_with(write_y));
+
+    SystemAccess undeclared;
+    CHECK(undeclared.exclusive());
+    CHECK(undeclared.conflicts_with(write_x));
+}
+
+TEST_CASE("parallel wave scheduler matches serial execution and change detection over 200 frames") {
+    auto run_simulation = [](bool parallel) {
+        AppDesc desc = headless();
+        desc.parallel_systems = parallel;
+        App app(desc);
+        struct SimGame final : Game {
+            CombineXYSystem* combiner = nullptr;
+            double total_sum = 0.0;
+            void on_start(Context& ctx) override {
+                for (int i = 0; i < 256; ++i) {
+                    const float fi = static_cast<float>(i + 1);
+                    ctx.world.create(PosX{fi}, PosY{fi * 0.5f}, VelX{0.25f}, VelY{0.75f}, Combined{0.0f});
+                }
+                ctx.add_system<StepXSystem>(Phase::FixedUpdate);
+                ctx.add_system<StepYSystem>(Phase::FixedUpdate);
+                combiner = &ctx.add_system<CombineXYSystem>(Phase::FixedUpdate);
+            }
+            void on_shutdown(Context& ctx) override {
+                ctx.world.each<const Combined>([&](const Combined& c) { total_sum += c.sum; });
+            }
+        } game;
+        app.run_frames(game, 200);
+        return std::tuple{game.total_sum, game.combiner->changed_x_total, game.combiner->changed_y_total};
+    };
+
+    const auto [serial_sum, serial_cx, serial_cy] = run_simulation(false);
+    const auto [parallel_sum, parallel_cx, parallel_cy] = run_simulation(true);
+    CHECK(parallel_sum == doctest::Approx(serial_sum));
+    CHECK(parallel_cx == serial_cx);
+    CHECK(parallel_cy == serial_cy);
+    CHECK(parallel_cx == 256u * 200u);
+    CHECK(parallel_cy == 256u * 200u);
+}

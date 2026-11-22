@@ -45,6 +45,7 @@ astral.system { phase = "Update", run = function(ctx) end }          -- fazda bi
 astral.on("event::Name", function(ctx, payload) end, "FixedUpdate")  -- sistemlerden önce, modülün sırasıyla
 astral.send("event::Name", { field = value })
 astral.query({"A", "B"})            -- { {entity, a, b}, ... }
+astral.each({"A", "B"}, function(entity, a, b) end) -- ara tablo ayırmadan toplu sorgu
 astral.spawn { ["astral::Name"] = {value = "x"} }  astral.find("x")
 entity:get("A")  :has  :add("A", {fields})  :remove  :destroy()  :alive()
 astral.input.axis("move")  astral.input.pressed("fire")

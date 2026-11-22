@@ -37,7 +37,7 @@ Sonraki fazların numarası birer kaydı.
 | M12 | Fizik altyapısı: katmanlar, mesh/heightfield, eklemler, sorgular; **alan sistemi** (rüzgâr, su hacmi) ve kuvvetler ([ADR-0029](decisions/0029-physics-fields-and-joints.md)) | M8 | ✅ |
 | M13 | Gelişmiş PBR: clearcoat, sheen, anizotropi, transmission, subsurface, decal, path tracer referansı | M10 | 🔜 |
 | M13.5 | **Kod sağlığı ve modülerlik:** güvenlik ağı (Windows Debug CI, `.gitattributes`, doctest, donanımdan bağımsız görüntü testleri, boyut bütçesi), god class'ların bölünmesi (renderer, app/Context, debug UI, cook, glTF, asset yöneticisi, fizik, script bağlamaları, sahne, GPU cihazı), header ve derleme süresi hijyeni; davranış değişmez ([ADR-0030](decisions/0030-refactor-rules-and-size-budget.md), [ADR-0031](decisions/0031-hardware-independent-golden-tests.md)) | M13 | ✅ |
-| M13.6 | **Ölçeklenebilir çalışma zamanı:** erişim bildiren sistemler + deterministik paralel zamanlayıcı, paralel transform yayılımı, ana thread'den çıkan shader derleme ve hücre G/Ç, toplu script sorguları, ölçek benchmark'ları | M13.5 | ⬜ |
+| M13.6 | **Ölçeklenebilir çalışma zamanı:** erişim bildiren sistemler + deterministik paralel zamanlayıcı, paralel transform yayılımı, ana thread'den çıkan hücre G/Ç, toplu script sorguları (`astral.each`), modül başına script profiler kapsamı, ölçek benchmark'ları ([ADR-0032](decisions/0032-scalable-runtime-and-parallel-scheduler.md)) | M13.5 | ✅ |
 | M14 | **Atmosfer ve VFX:** fiziksel gökyüzü, froxel sis, **hacimsel efektler (CS2 dumanı)**, GPU partikülleri, decal/iz, `.vfx` ([ADR-0024](decisions/0024-volumetric-vfx.md)) | M10, M12 | ⬜ |
 | M15 | Arazi I: Terrain3D benzeri heightfield (clipmap, bölgeler, 32 katman, sculpt, delik, fizik, yerleştirme), dünya hücreleriyle stream ([ADR-0018](decisions/0018-terrain-and-sdf-world.md)) | M9, M10, M12 | ⬜ |
 | M16 | Su I: okyanus ve göller (FFT dalga, kırılma, köpük, su altı, kıyılar) + dalgayı izleyen kaldırma kuvveti | M14, M15 | ⬜ |
@@ -608,3 +608,20 @@ Luau bytecode cook'u, luau-analyze doğrulaması, iç içe reflection'ın script
 - **Script:** `astral.physics.*` ve `astral.fields.*` (`ScriptPhysics` arayüzü), olaylar `astral.on` ile; üretilen API ve tip tanımı güncel.
 - **Demo:** `examples/physics_playground` (arazi + göl, yüzen/batan gövdeler, rüzgâr, menteşeli köprü, zıplatma pedi, kanat), görüntü testi.
 - **Ertelenen:** Jolt'u `JobSystem`'e bağlama, SixDOF/motorlu eklem, alan GLSL'ini tüketen shader'lar (M14/M16/M17).
+
+## M13.5 — Kod sağlığı ve modülerlik ✅
+
+**Sonuç (0.18.0):** Kararlar: [ADR-0030](decisions/0030-refactor-rules-and-size-budget.md), [ADR-0031](decisions/0031-hardware-independent-golden-tests.md).
+- **R0 (Güvenlik ağı):** Windows Debug CI, `.gitattributes` LF normalizasyonu ve CRLF testleri, doctest 2.5.3, `golden` (lavapipe) / `golden-hw` (donanım GPU'su SSIM + güçlü piksel sınırı) ayrımı, `tools/check_sizes.py` (`code_size_check`) ve `tools/check_layers.py` (`layer_check`).
+- **R1 (`Astral::Render`):** `renderer.cpp` store'lara (`stores/`), kare yuvalarına (`frame/`), tek sorumluluklu pass'lere (`passes/`) ve raster/RT yollarına (`paths/`) bölündü.
+- **R2 (`Astral::App`):** `app.cpp` iç servislere (`FrameLoop`, `RenderBridge`, `PhysicsBridge`, `AudioBridge`, `ScriptBridge`, `WorldBridge`, `DevTools`) ve gruplu `Context` servis arayüzlerine (`scenes()`, `maps()`, `materials()`, `audio_service()`, `script_service()`, `physics_service()`) ayrıldı.
+- **R3 & R4 (Bütçe tamamlama ve derleme süresi):** `debug_ui` (`DebugPanelRegistry` + `panels/`), `cook.cpp`, `cooked_model.cpp`, `gltf.cpp`, `asset_manager.cpp`, `physics.cpp` (`physics_queries_joints.cpp`), `bindings.cpp` (`bindings_services.cpp`), `api.cpp`, `scene.cpp` (`prefab.cpp`), `serialize.hpp`, `device.cpp` (`device_init.cpp`), `pipelines.cpp` ve `examples/physics_playground` (`playground.scene`) bütçe sınırları içine çekildi; `ASTRAL_SIZE_BUDGET_STRICT=ON` varsayılan olarak açıldı (yalnızca `Context` M14 kaynak uyumluluğu istisnası kaldı). İleri bildirim başlıkları (`world_fwd.hpp`, `render_fwd.hpp`, `assets_fwd.hpp`), `ASTRAL_PCH` ve `ASTRAL_UNITY_BUILD` eklendi.
+
+## M13.6 — Ölçeklenebilir çalışma zamanı ✅
+
+**Sonuç (0.19.0):** Karar: [ADR-0032](decisions/0032-scalable-runtime-and-parallel-scheduler.md).
+- **P0 (Ölçek benchmark'ları):** `bench/` altında başsız `astral-bench` yürütülebilir hedefi (`bench_ecs`, `bench_transforms`, `bench_script`, `bench_streaming`, `bench_shader_compile`) ve `astral_benchmarks_smoke` CTest testi eklendi.
+- **P1 (Erişim bildiren sistemler ve deterministik paralel zamanlayıcı):** `SystemAccess` (`reads<...>()`, `writes<...>()`, `query<...>()`, `mark_exclusive()`) ve `System::configure(SystemAccess&)` eklendi. `App::run_phase` çakışmasız ardışık sistemleri `JobSystem` üzerinde paralel dalgalar (waves) halinde çalıştırır; `World::ScopedTick` iş parçacığı-yerel (`thread_local`) tick ve değişiklik taban çizgisi (`change_baseline`) sağlayarak paralel ve seri koşunun `changed<T>()` dahil birebir aynı sonucu üretmesini garanti eder (`AppDesc::parallel_systems`, `ctx.set_parallel_systems(bool)`).
+- **P2 (Paralel transform yayılımı):** `update_transforms(World&, JobSystem*)` kökleri `parallel_each` ile, çocuk hiyerarşisini ise düz dizi tabanlı derinlik seviyelerine ayırıp seviye başına `jobs->parallel_for` ile paralel yayar (MSVC Debug 100k entity derinlik=4: seri 577 ms → paralel 211 ms, önceki tabana göre ~7,2× hızlanma).
+- **P3 (Ana iş parçacığından çıkan hücre G/Ç):** `MapRuntime::begin_load` içinde `.cell` dosya okuması (`assets->read`) ve JSON/hücre ayrıştırması tamamen `JobSystem` iş parçacığına taşındı.
+- **P4 (Script verimi ve profiler):** Ara tablo ayırmadan eşleşen entity'leri dolaşan `astral.each({"A", "B"}, fn)` bağlaması (`astral.d.luau` ve `API.md` üretimi dahil) ve `ScriptHost::run` içinde modül başına `ASTRAL_PROFILE_SCOPE` (`<modül>.luau`) eklendi.

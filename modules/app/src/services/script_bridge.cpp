@@ -90,7 +90,7 @@ ScriptBridge::ScriptBridge(World& world, AssetManager& assets, TypeRegistry& typ
       script_input_(std::make_unique<ActionInput>(actions_)),
       script_storage_(std::make_unique<FileStorage>(std::move(save_folder))),
       scripts_(std::make_unique<ScriptHost>(
-          ScriptEnv{world, types_, events_, log_, script_input_.get(), script_storage_.get(), physics})) {}
+          ScriptEnv{world, types_, events_, log_, script_input_.get(), script_storage_.get(), physics, profiler_})) {}
 
 ScriptBridge::~ScriptBridge() {
     scripts_.reset();

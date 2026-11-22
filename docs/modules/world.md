@@ -15,9 +15,9 @@ sunucuda ve testlerde pencere/GPU olmadan çalışır. Kullanım rehberi: [writi
 | `count<A, B>()` | A ve B'ye sahip entity sayısı |
 | `commands()` + `apply_commands()` | ertelenmiş yapısal değişiklik |
 | `set_resource(T)`, `resource<T>()` | dünya başına tekil değerler |
-| `Transform`, `Parent`, `WorldTransform`, `update_transforms()` | hiyerarşi |
+| `Transform`, `Parent`, `WorldTransform`, `update_transforms(world, jobs)` | hiyerarşi (kökler ve derinlik seviyeleri `JobSystem` ile paralel yayılır) |
 | `query<A, const B>().with<C>().without<D>().added<A>().changed<B>()` | filtreli sorgu: `.each`, `.parallel_each`, `.count` |
-| `tick()`, `advance_tick()`, `set_change_baseline(t)`, `clear_trackers()` | değişiklik takibi saati |
+| `tick()`, `advance_tick()`, `set_change_baseline(t)`, `ScopedTick`, `clear_trackers()` | değişiklik takibi saati (paralel sistemler için thread-local `ScopedTick`) |
 | `send(T)`, `EventReader<T>::read(world, fn)`, `update_events()` | olaylar |
 | `TypeRegistry`, `save_world`, `load_world` (`astral/world/serialize.hpp`) | reflection ile JSON kaydet/yükle |
 
@@ -152,8 +152,9 @@ yeni dinamik component eklenince vektör büyüyebilir; indeks ya da ad tut.
 
 ## Bilinen sınırlar
 
-- `update_transforms` tek thread'de, her entity'yi bir kez hesaplar (derinlik sınırı yok, döngüler kök
-  sayılır). İleride derinliğe göre sıralı, paralel yayılım.
+- `update_transforms(world, jobs)` kökleri `parallel_each` ile, çocukları ise derinlik seviyesine göre gruplayıp
+  seviye başına `jobs->parallel_for` ile yayar (döngüler ve silinmiş ebeveynler kök sayılır); değişmeyen alt ağaçları
+  tamamen atlayan dirty-flag optimizasyonu henüz yok.
 - Component kimlikleri paylaşılan kütüphaneler (DLL) arasında farklı olabilir: motor ve oyun aynı
   ikili içinde statik linklenmeli (varsayılan).
 - Tick'ler 32 bit: ~4 milyar sistem çalışmasından sonra sarar (pratikte sorun değil, ileride wrap koruması).

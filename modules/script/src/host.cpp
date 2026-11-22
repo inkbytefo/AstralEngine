@@ -327,6 +327,7 @@ void ScriptHost::run(ScriptPhase phase, const ScriptFrame& frame) {
     for (std::size_t i = 0; i < impl.modules.size(); ++i) {
         Module& m = *impl.modules[i];
         if (m.failed) continue;
+        ASTRAL_PROFILE_SCOPE(impl.env.profiler, m.name.c_str());
         run_listeners(impl, m, phase);
         for (std::size_t s = 0; s < m.systems.size() && !m.failed; ++s) {
             if (m.systems[s].phase == phase) run_system(impl, m, m.systems[s]);

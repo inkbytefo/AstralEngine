@@ -44,6 +44,7 @@ TEST_CASE("the type definitions and the reference list every component, field an
     CHECK(d.find("get: <K>(self: Entity, name: K & keyof<Components>) -> index<Components, K>?") != std::string::npos);
     CHECK(d.find("[\"Scored\"]: E_Scored") != std::string::npos);
     CHECK(d.find("declare astral: {") != std::string::npos);
+    CHECK(d.find("each: (components: {string}, fn: (entity: Entity, ...any) -> ()) -> number") != std::string::npos);
 
     const std::string& m = api.markdown;
     CHECK(m.find("### `Paddle` (feature `pong_rules`)") != std::string::npos);
@@ -53,4 +54,5 @@ TEST_CASE("the type definitions and the reference list every component, field an
     CHECK(m.find("### `Scored` (feature `pong_rules`)") != std::string::npos);
     CHECK(m.find("### `game::Ping` (script-only") != std::string::npos);
     CHECK(m.find("astral.system") != std::string::npos);
+    CHECK(m.find("astral.each") != std::string::npos);
 }

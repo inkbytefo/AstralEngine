@@ -262,6 +262,7 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc.worker_threads
         .script_bridge = *m.script_bridge,
         .run_phase = &App::run_phase,
         .fixed_timestep = desc.fixed_timestep,
+        .parallel_systems = desc.parallel_systems,
     });
     m.services = std::make_unique<ContextServices>(*m.world_bridge, *m.frame_loop, *m.script_bridge, *m.context);
 }
@@ -292,15 +293,71 @@ App::~App() {
     m.graphics.shutdown(); // renderer, swapchain, device, window
 }
 
+void SystemAccess::add_read(ComponentId id) {
+    if (std::find(writes_.begin(), writes_.end(), id) != writes_.end()) return;
+    if (std::find(reads_.begin(), reads_.end(), id) == reads_.end()) reads_.push_back(id);
+}
+
+void SystemAccess::add_write(ComponentId id) {
+    std::erase(reads_, id);
+    if (std::find(writes_.begin(), writes_.end(), id) == writes_.end()) writes_.push_back(id);
+}
+
+bool SystemAccess::conflicts_with(const SystemAccess& other) const noexcept {
+    if (exclusive() || other.exclusive()) return true;
+    const auto overlaps = [](std::span<const ComponentId> a, std::span<const ComponentId> b) {
+        return std::any_of(a.begin(), a.end(), [&](ComponentId id) {
+            return std::find(b.begin(), b.end(), id) != b.end();
+        });
+    };
+    return overlaps(writes_, other.writes_) || overlaps(writes_, other.reads_) || overlaps(reads_, other.writes_);
+}
+
 /// Each system sees changes made since it last ran (its own writes are stamped with the tick it
-/// ran at, so it does not see them next time).
+/// ran at, so it does not see them next time). Non-conflicting access-declaring systems run in
+/// parallel waves on ctx.jobs while preserving registration-order change ticks (ADR-0032).
 void App::run_phase(std::vector<std::unique_ptr<System>>& systems, Context& ctx) {
-    for (auto& s : systems) {
-        ASTRAL_PROFILE_SCOPE(ctx.profiler, s->name_.c_str());
-        ctx.world.set_change_baseline(s->last_run_);
-        s->update(ctx);
-        s->last_run_ = ctx.world.tick();
-        ctx.world.advance_tick();
+    const bool allow_parallel = ctx.parallel_systems();
+    std::size_t i = 0;
+    while (i < systems.size()) {
+        std::size_t end = i + 1;
+        if (allow_parallel && !systems[i]->access().exclusive()) {
+            while (end < systems.size() && !systems[end]->access().exclusive()) {
+                bool conflict = false;
+                for (std::size_t k = i; k < end && !conflict; ++k) {
+                    conflict = systems[end]->access().conflicts_with(systems[k]->access());
+                }
+                if (conflict) break;
+                ++end;
+            }
+        }
+        if (end - i == 1) {
+            auto& s = systems[i];
+            ASTRAL_PROFILE_SCOPE(ctx.profiler, s->name_.c_str());
+            ctx.world.set_change_baseline(s->last_run_);
+            s->update(ctx);
+            s->last_run_ = ctx.world.tick();
+            ctx.world.advance_tick();
+        } else {
+            ASTRAL_PROFILE_SCOPE(ctx.profiler, "parallel_systems");
+            const Tick base_tick = ctx.world.tick();
+            JobCounter counter;
+            for (std::size_t k = i; k < end; ++k) {
+                System* sys = systems[k].get();
+                const Tick baseline = sys->last_run_;
+                const Tick write_tick = base_tick + static_cast<Tick>(k - i);
+                ctx.jobs.submit(counter, [&ctx, sys, baseline, write_tick] {
+                    World::ScopedTick scope(ctx.world, baseline, write_tick);
+                    sys->update(ctx);
+                });
+            }
+            ctx.jobs.wait(counter);
+            for (std::size_t k = i; k < end; ++k) {
+                systems[k]->last_run_ = base_tick + static_cast<Tick>(k - i);
+            }
+            ctx.world.set_tick(base_tick + static_cast<Tick>(end - i));
+        }
+        i = end;
     }
 }
 
@@ -341,6 +398,14 @@ bool App::read_frame(std::vector<std::uint8_t>& rgba) const { return impl_->rend
 void Context::register_system(Phase phase, std::unique_ptr<System> system) {
     system->name_ = demangle(typeid(*system).name());
     app_.impl_->frame_loop->add_system(phase, std::move(system));
+}
+
+void Context::set_parallel_systems(bool enabled) noexcept {
+    app_.impl_->frame_loop->set_parallel_systems(enabled);
+}
+
+bool Context::parallel_systems() const noexcept {
+    return app_.impl_->frame_loop->parallel_systems();
 }
 
 Vec2 Context::screen_size() const { return app_.impl_->render_bridge->screen_size(); }

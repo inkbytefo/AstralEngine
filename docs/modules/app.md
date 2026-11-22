@@ -13,8 +13,8 @@ Swapchain, Renderer, hazır mesh'ler. `Game` + `System`'ler bunlara `Context` ü
 | Dosya | Sorumluluk |
 |---|---|
 | `include/astral/app/{scene,map,material,audio,script,physics}_service.hpp` | `Context` üzerinden erişilen küçük public servis arayüzleri (`SceneService`, `MapService`, `MaterialService`, `AudioService`, `ScriptService`, `PhysicsService`) |
-| `src/app.cpp` | `App` yaşam döngüsü, grafik yığını kurulum/yıkım sırası, `Context` servis bağlamaları |
-| `src/services/frame_loop.{hpp,cpp}` | Sıralı kare boru hattı (`run_frame`), sistem fazları, kare saati |
+| `src/app.cpp` | `App` yaşam döngüsü, grafik yığını kurulum/yıkım sırası, `Context` servis bağlamaları, `SystemAccess` ve dalga tabanlı paralel sistem zamanlayıcısı (`App::run_phase`, [ADR-0032](../decisions/0032-scalable-runtime-and-parallel-scheduler.md)) |
+| `src/services/frame_loop.{hpp,cpp}` | Sıralı kare boru hattı (`run_frame`), sistem fazları, `System::configure(SystemAccess&)`, paralel transform yayılımı, kare saati |
 | `src/services/render_bridge.{hpp,cpp}` | `PrimitiveMesh`/`ModelRef` senkronizasyonu, sahne çıkarma, kamera, `MaterialLibrary`, offscreen okuma (`MaterialService`) |
 | `src/services/physics_bridge.{hpp,cpp}` | `RigidBody`/`CharacterController`/`Joint` senkronizasyonu, alan kuvvetleri, sabit adım, temas olayları, `ScriptPhysics` (`PhysicsService`) |
 | `src/services/audio_bridge.{hpp,cpp}` | `AudioSource`/`AudioListener` senkronizasyonu, ses önbelleği (`AudioService`) |
@@ -68,6 +68,7 @@ F1 debug arayüzü artık tek bir büyük çizim fonksiyonu yerine `DebugPanel` 
 | `pack` | boş | `.apak` (göreli = exe'nin yanında); **varsa** asset'ler ondan okunur, yoksa `asset_root` |
 | `hot_reload` | true | gevşek dosyalar değişince yeniden yükle |
 | `offscreen` | false | pencere yerine iç görüntüye çiz (`App::read_frame`) |
+| `parallel_systems` | true | `System::configure(SystemAccess&)` ile erişim bildiren çakışmasız sistemleri dalga tabanlı paralel çalıştır (`ctx.set_parallel_systems(bool)` ile çalışma anında aç/kapa) |
 
 ## Kare
 
@@ -127,10 +128,17 @@ Karar: [ADR-0029](../decisions/0029-physics-fields-and-joints.md); ayrıntı [ph
 - `PrimitiveMesh` materyalleri önbellekte kalır, hiç silinmez (tanım başına bir materyal).
 - Sahne dosyası render kalite ayarlarını taşımaz (GI hacmi mesh'lere kendiliğinden oturur).
 
-## ECS entegrasyonu (M5a)
+## ECS entegrasyonu (M5a / M13.6)
 
 - Her `System::update` öncesi dünyanın değişiklik referansı o sistemin son çalışma tick'ine ayarlanır:
   sistem içinde `query<...>().changed<T>()` = "bu sistem son çalıştığından beri".
+- **Erişim bildirimi ve paralel zamanlayıcı (M13.6, [ADR-0032](../decisions/0032-scalable-runtime-and-parallel-scheduler.md)):**
+  Sistemler `void configure(SystemAccess& access) override` içinde `access.query<Pos, const Vel>()` veya
+  `access.reads<A>() / access.writes<B>()` ile component erişimini bildirebilir. Bildirmeyen sistemler
+  varsayılan olarak `exclusive()` kabul edilir ve tek başına çalışır (geriye uyumlu). Aynı faz içinde birbirleriyle
+  yazma/okuma veya yazma/yazma çakışması olmayan ardışık sistemler `JobSystem` üzerinde paralel bir **dalga (wave)**
+  olarak koşar; her sistem iş parçacığı-yerel `World::ScopedTick` ile kendi kayıt sırasındaki tick ve değişiklik
+  taban çizgisini (`change_baseline`) görür, dalga sonunda `world.apply_commands()` çağrılır.
 - Kare başında `world.update_events()`; `ctx.world.send(...)` / `EventReader<T>`.
 - `ctx.types`: `astral::Transform`, `Parent`, `Camera`, `PointLight`, `RectLight`, `Sdf` kayıtlı;
   oyun kendi component'lerini `ctx.types.add<T>()` ile ekler. `save_world(ctx.world, ctx.types)`.
@@ -198,13 +206,12 @@ Karar: [ADR-0021](../decisions/0021-world-and-level-system.md). Örnek: `example
 | `debug_show.world_cells`, F1 → World | Yüklü hücreler ve yükleme yarıçapı; orijin, hücre sayıları, katman kutucukları |
 
 Kare sırası: girdi → olaylar → **dünya streaming'i** (orijin kayması, katmanlar, hücre ekle/çıkar) →
-asset'ler → sistemler. Hücre dosyaları ana iş parçacığında okunur, JobSystem'de çözülür, ana iş
-parçacığında bütçeyle eklenir. Orijin kayınca kök `Transform`'lar, fizik gövdeleri, kinematik geçmişi ve
-`RenderHistory` birlikte kayar; renderer'ın zamansal geçmişi sıfırlanır.
+asset'ler → sistemler. Hücre dosyaları (`*.cell`) `JobSystem` iş parçacığında okunup çözülür (M13.6 P3),
+ana iş parçacığında kare bütçesiyle eklenir. Orijin kayınca kök `Transform`'lar, fizik gövdeleri, kinematik
+geçmişi ve `RenderHistory` birlikte kayar; renderer'ın zamansal geçmişi sıfırlanır.
 
 **Bilinen sınırlar (M9):** kayan orijin yalnızca bir harita açıkken çalışır. Orijin kayınca TAA/GI
-geçmişi bir kare sıfırlanır (kısa bir yumuşama). Hücre okuma (dosya G/Ç) ana iş parçacığında; büyük
-hücrelerde G/Ç de iş parçacığına taşınmalı. Gökyüzü arka planı `environment.sky`'ı izlemiyor (M14).
+geçmişi bir kare sıfırlanır (kısa bir yumuşama). Gökyüzü arka planı `environment.sky`'ı izlemiyor (M14).
 
 ## Materyaller ve shader'lar (M10)
 
@@ -227,5 +234,4 @@ kontrol yok). Materyal handle'ları sabit kalır (yerinde güncellenir). Derlenm
 `.material` (ebeveynli) kullan. glTF materyalleri yerleşik standart yolda kalır (`standard.ashader` örneği
 olarak yüklenmiyor). Doku dosyaları hot reload edilmez. Shader derleme ana iş parçacığında (yüklemede ve
 düzenlemede kısa takılma).
-- Tek gamepad (ilk bağlı olan), titreşim yok. Script'ler her karede ve fazda çalışır (profiler'da "scripts" kapsamı); script başına süre
-  ayrımı yok. `.actions` ve script dosyalarının hot reload'u içerik karşılaştırır (dosya sistemi izleme yok).
+- Tek gamepad (ilk bağlı olan), titreşim yok. Script'ler her karede ve fazda çalışır (profiler'da toplam `"scripts"` kapsamının altında modül başına `<script>.luau` kapsamı ölçülür, M13.6 P4). `.actions` ve script dosyalarının hot reload'u içerik karşılaştırır (dosya sistemi izleme yok).

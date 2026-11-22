@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astral/core/jobs.hpp>
 #include <astral/core/math.hpp>
 #include <astral/world/world.hpp>
 
@@ -25,7 +26,8 @@ struct WorldTransform {
 };
 
 /// Computes WorldTransform for every entity with a Transform (adding the component where
-/// missing). Parents that no longer exist are ignored; cycles are broken.
-void update_transforms(World& world);
+/// missing). Parents that no longer exist are ignored; cycles are broken. When `jobs` is given,
+/// roots and each hierarchy depth level propagate in parallel (ADR-0032).
+void update_transforms(World& world, JobSystem* jobs = nullptr);
 
 } // namespace astral

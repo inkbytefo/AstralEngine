@@ -32,9 +32,11 @@ FrameLoop::FrameLoop(const Services& s)
       audio_bridge_(s.audio_bridge),
       script_bridge_(s.script_bridge),
       run_phase_(s.run_phase),
-      fixed_timestep_(s.fixed_timestep) {}
+      fixed_timestep_(s.fixed_timestep),
+      parallel_systems_(s.parallel_systems) {}
 
 void FrameLoop::add_system(Phase phase, std::unique_ptr<System> system) {
+    system->configure(system->access_);
     systems_[static_cast<std::size_t>(phase)].push_back(std::move(system));
 }
 
@@ -134,7 +136,7 @@ void FrameLoop::run_physics(float delta) {
 
 void FrameLoop::update_transforms_and_primitives() {
     ASTRAL_PROFILE_SCOPE(&dev_tools_.profiler(), "transforms");
-    update_transforms(world_);
+    update_transforms(world_, &context_.jobs);
     render_bridge_.sync_primitives();
 }
 

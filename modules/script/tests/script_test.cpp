@@ -384,6 +384,49 @@ TEST_CASE("astral.query lists entities with live component proxies") {
     CHECK(f.world.get<Mover>(find_by_name(f.world, "a"))->steps == 7);
 }
 
+TEST_CASE("astral.each streams matching entities without row tables and records per-module profiler scopes") {
+    World world;
+    TypeRegistry types;
+    EventRegistry events;
+    Logger log;
+    Profiler profiler;
+    register_world_types(types);
+    types.add<Mover>();
+    ScriptHost host({world, types, events, log, nullptr, nullptr, nullptr, &profiler});
+    const Entity a = world.create(Mover{.steps = 2}, Name{"a"});
+    const Entity b = world.create(Mover{.steps = 5});
+    world.create(Name{"only_name"});
+
+    REQUIRE(host.load("batch.luau", R"(
+        astral.system { run = function()
+            local seen = 0
+            astral.each({"Mover"}, function(entity, mover)
+                mover.steps = mover.steps + 10
+                seen = seen + 1
+            end)
+            assert(seen == 2)
+            astral.each({"Mover", "astral::Name"}, function(entity, mover, name)
+                if name.value == "a" then
+                    mover.steps = mover.steps + 100
+                end
+            end)
+        end }
+    )").empty());
+
+    profiler.begin_frame();
+    host.run(ScriptPhase::Update, {.delta = 0.1f});
+    profiler.end_frame();
+
+    CHECK(host.take_errors().empty());
+    CHECK(world.get<Mover>(a)->steps == 112);
+    CHECK(world.get<Mover>(b)->steps == 15);
+    bool found_module_scope = false;
+    for (const auto& s : profiler.last_frame()) {
+        if (std::string_view(s.name) == "batch.luau") found_module_scope = true;
+    }
+    CHECK(found_module_scope);
+}
+
 TEST_CASE("astral.quat composes and rotates like the C++ Quat") {
     Fixture f;
     const Entity e = f.world.create(Transform{});

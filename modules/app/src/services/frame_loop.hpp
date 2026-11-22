@@ -41,6 +41,7 @@ public:
         ScriptBridge& script_bridge;
         PhaseRunner run_phase;
         float fixed_timestep = 0.0f;
+        bool parallel_systems = true;
     };
 
     explicit FrameLoop(const Services& services);
@@ -50,6 +51,8 @@ public:
 
     void add_system(Phase phase, std::unique_ptr<System> system);
     void clear_systems();
+    void set_parallel_systems(bool enabled) noexcept { parallel_systems_ = enabled; }
+    [[nodiscard]] bool parallel_systems() const noexcept { return parallel_systems_; }
 
     bool start(Game& game);
     [[nodiscard]] float next_delta();
@@ -85,6 +88,7 @@ private:
     ScriptBridge& script_bridge_;
     PhaseRunner run_phase_;
     float fixed_timestep_;
+    bool parallel_systems_ = true;
     Clock clock_;
     std::array<std::vector<std::unique_ptr<System>>, 4> systems_;
     bool started_ = false;

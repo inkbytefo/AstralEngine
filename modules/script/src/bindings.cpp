@@ -393,6 +393,40 @@ int astral_query(lua_State* L) {
     return 1;
 }
 
+/// astral.each({"A", "B"}, function(entity, a, b) ... end) -> number of visited entities.
+/// Streams matching entities directly into the callback without allocating intermediate Lua tables (ADR-0032).
+int astral_each(lua_State* L) {
+    Impl& impl = Impl::of(L);
+    luaL_checktype(L, 1, LUA_TTABLE);
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    std::vector<std::uint32_t> types;
+    std::vector<ComponentId> ids;
+    const int n = lua_objlen(L, 1);
+    for (int i = 1; i <= n; ++i) {
+        lua_rawgeti(L, 1, i);
+        if (lua_type(L, -1) != LUA_TSTRING) luaL_error(L, "each: expected a list of component names");
+        const std::uint32_t t = require_type(L, impl, lua_tostring(L, -1));
+        lua_pop(L, 1);
+        types.push_back(t);
+        ids.push_back(entry_of(impl, t).component);
+    }
+    std::vector<Entity> entities;
+    impl.env.world.each_raw(ids, [&](Entity e) { entities.push_back(e); });
+    std::size_t visited = 0;
+    for (Entity e : entities) {
+        bool ok = impl.env.world.alive(e);
+        for (std::size_t i = 0; ok && i < ids.size(); ++i) ok = impl.env.world.has_raw(e, ids[i]);
+        if (!ok) continue;
+        lua_pushvalue(L, 2);
+        push_entity(L, e);
+        for (std::uint32_t t : types) push_component(L, e, t);
+        lua_call(L, 1 + static_cast<int>(types.size()), 0);
+        ++visited;
+    }
+    lua_pushnumber(L, static_cast<double>(visited));
+    return 1;
+}
+
 int astral_find(lua_State* L) {
     Impl& impl = Impl::of(L);
     const Entity e = find_by_name(impl.env.world, luaL_checkstring(L, 1));
@@ -510,6 +544,7 @@ void open_astral(lua_State* L, ScriptHost::Impl&) {
     set_function(L, "spawn", astral_spawn);
     set_function(L, "find", astral_find);
     set_function(L, "query", astral_query);
+    set_function(L, "each", astral_each);
     set_function(L, "send", astral_send);
     set_function(L, "after", astral_after);
     set_function(L, "every", astral_every);

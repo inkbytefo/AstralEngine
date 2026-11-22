@@ -48,20 +48,65 @@ class Context;
 /// times at a fixed rate) → PostUpdate → transforms → render. Commands are applied after each.
 enum class Phase : std::uint8_t { PreUpdate, Update, FixedUpdate, PostUpdate };
 
+/// Declares which components a System reads and writes so non-conflicting systems can run in parallel (ADR-0032).
+/// A system that declares nothing (or calls mark_exclusive()) runs alone on the main thread.
+class SystemAccess {
+public:
+    template <class... Cs> SystemAccess& reads() {
+        (add_read(component_id<Cs>()), ...);
+        return *this;
+    }
+    template <class... Cs> SystemAccess& writes() {
+        (add_write(component_id<Cs>()), ...);
+        return *this;
+    }
+    /// Infers reads (const T) and writes (non-const T) from a query signature: `access.query<const Vel, Pos>()`.
+    template <class... Cs> SystemAccess& query() {
+        ((std::is_const_v<Cs> ? add_read(component_id<Cs>()) : add_write(component_id<Cs>())), ...);
+        return *this;
+    }
+    SystemAccess& mark_exclusive() noexcept {
+        exclusive_ = true;
+        return *this;
+    }
+
+    void add_read(ComponentId id);
+    void add_write(ComponentId id);
+    [[nodiscard]] bool exclusive() const noexcept { return exclusive_ || (reads_.empty() && writes_.empty()); }
+    [[nodiscard]] std::span<const ComponentId> read_ids() const noexcept { return reads_; }
+    [[nodiscard]] std::span<const ComponentId> write_ids() const noexcept { return writes_; }
+    [[nodiscard]] bool conflicts_with(const SystemAccess& other) const noexcept;
+
+private:
+    std::vector<ComponentId> reads_;
+    std::vector<ComponentId> writes_;
+    bool exclusive_ = false;
+};
+
 /// Game logic that runs every frame. Read and write components through ctx.world.
 /// Inside update(), `added<T>()`/`changed<T>()` query filters mean "since this system last ran".
+/// Declare component access with `reads<...>()` / `writes<...>()` (or override `configure`) to allow
+/// parallel execution alongside non-conflicting systems in the same phase (ADR-0032).
 class System {
 public:
     virtual ~System() = default;
+    virtual void configure(SystemAccess&) {}
     virtual void update(Context& ctx) = 0;
     /// Its type name ("PlayerControl"): how the profiler and debug UI show it.
     [[nodiscard]] const std::string& name() const noexcept { return name_; }
+    [[nodiscard]] const SystemAccess& access() const noexcept { return access_; }
+
+protected:
+    template <class... Cs> void reads() { access_.reads<Cs...>(); }
+    template <class... Cs> void writes() { access_.writes<Cs...>(); }
 
 private:
     friend class App;
     friend class Context;
+    friend class FrameLoop;
     Tick last_run_ = 0;
     std::string name_;
+    SystemAccess access_;
 };
 
 /// Your game. Override what you need; spawn entities and add systems in on_start().
@@ -193,6 +238,10 @@ public:
     void quit() noexcept { quit_requested_ = true; }
     [[nodiscard]] bool quit_requested() const noexcept { return quit_requested_; }
 
+    /// Enables or disables parallel execution of non-conflicting access-declaring systems (ADR-0032).
+    void set_parallel_systems(bool enabled) noexcept;
+    [[nodiscard]] bool parallel_systems() const noexcept;
+
 private:
     friend class App;
     Context(World& w, const Input& i, const Time& t, Logger& l, JobSystem& j, class App& app)
@@ -236,6 +285,8 @@ struct AppDesc {
     /// Smooth motion between physics steps: dynamic bodies are drawn between their last two simulated poses (up to one step behind)
     /// instead of jumping once per step. Matters when physics_rate is below the frame rate. Transform then lags the simulation a little.
     bool physics_interpolation = false;
+    /// Run non-conflicting access-declaring C++ systems in parallel waves on the JobSystem (ADR-0032).
+    bool parallel_systems = true;
 };
 
 /// Owns the main loop and every engine service; your Game plugs into it.

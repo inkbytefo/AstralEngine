@@ -22,10 +22,9 @@ std::optional<Json> decode(const std::vector<std::uint8_t>& bytes, std::string* 
 
 } // namespace
 
-/// A cell being read: bytes are read on the main thread, decoded on a worker.
+/// A cell being read and decoded on a worker thread (ADR-0032).
 struct MapRuntime::Pending {
     JobCounter counter;
-    std::vector<std::uint8_t> bytes;
     std::vector<MapEntity> entities;
     std::string error;
 };
@@ -158,20 +157,15 @@ void MapRuntime::begin_load(CellKey cell) {
         pending_[cell] = std::move(pending);
         return;
     }
-    std::string error;
-    auto bytes = assets_.read(cells_folder_ + name + ".cell", &error);
-    if (!bytes) {
-        log_.log(LogLevel::Error, "world cell " + name + ": " + error);
-        pending_[cell] = std::move(pending); // attaches empty
-        return;
-    }
-    pending->bytes = std::move(*bytes);
+    const std::string file = cells_folder_ + name + ".cell";
+    AssetManager* assets = &assets_;
     const MapDesc* map = &map_;
     Pending* job = pending.get();
-    jobs_.submit(pending->counter, [job, map] {
-        auto doc = decode(job->bytes, &job->error);
+    jobs_.submit(pending->counter, [job, assets, map, file] {
+        auto bytes = assets->read(file, &job->error);
+        if (!bytes) return;
+        auto doc = decode(*bytes, &job->error);
         if (doc) job->entities = read_cell(*map, *doc);
-        job->bytes.clear();
     });
     pending_[cell] = std::move(pending);
 }

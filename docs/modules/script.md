@@ -37,7 +37,8 @@ astral.behaviour { on_start = function(self, ctx) end, on_update = function(self
   Değer türleri: sayı/bool/string, `vector` (Vec3), `{x,y}`/`{x,y,z,w}` tabloları (Vec2/Vec4/Quat), enum = ad
   (string), entity alanı = entity ya da `nil`.
 - **Entity:** `get/has/add/remove/destroy/alive/id`. Ölü entity'ye `get/has/add/remove` hata verir.
-- **Dünya:** `astral.spawn{}`, `astral.find(ad)`, `astral.query{"A","B"}` (`{ {entity, a, b}, ... }`).
+- **Dünya:** `astral.spawn{}`, `astral.find(ad)`, `astral.query{"A","B"}` (`{ {entity, a, b}, ... }`),
+  `astral.each({"A","B"}, function(entity, a, b) ... end)` (ara tablo ayırmadan eşleşen entity'leri akış halinde dolaşır — sıcak sorgular için tercih edilir, M13.6 P4).
 - **Zaman:** `astral.after/every/cancel`. `ctx.delta`, `ctx.fixed_delta`, `ctx.time`.
 - **Fizik ve alanlar** (`ScriptEnv::physics`; App sağlar): `astral.physics.raycast(origin, direction, max, {layers, ignore})` ve `.spherecast(origin, radius, displacement, opts)` → `{entity, position, normal, distance, surface}`
   ya da nil; `.overlap_sphere(center, radius, opts)`, `.overlap_box(center, half, rotation?, opts)` → entity listesi; `.impulse/.force/.set_velocity(entity, v)`, `.velocity(entity)` (entity'nin `RigidBody`'si üstünde);
