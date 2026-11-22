@@ -13,16 +13,10 @@
 
 namespace astral {
 
+/// Ray-traced compute pipelines that incorporate custom .ashader surface() chunks.
 struct RtPipelines {
     gpu::PipelineHandle rt_lighting;
     gpu::PipelineHandle ddgi_trace;
-    gpu::PipelineHandle ddgi_update;
-    gpu::PipelineHandle temporal;
-    gpu::PipelineHandle atrous;
-    gpu::PipelineHandle composite;
-    gpu::PipelineHandle taa;
-    gpu::PipelineHandle bloom_down;
-    gpu::PipelineHandle bloom_up;
 };
 
 class ShaderStore {

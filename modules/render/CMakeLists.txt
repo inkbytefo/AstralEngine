@@ -27,6 +27,24 @@ astral_add_module(NAME render
         src/stores/material_store.cpp
         src/stores/shader_store.cpp
         src/frame/instances.cpp
+        src/passes/shadow_pass.cpp
+        src/passes/gbuffer_pass.cpp
+        src/passes/sdf_pass.cpp
+        src/passes/lighting_pass.cpp
+        src/passes/ddgi_pass.cpp
+        src/passes/rt_lighting_pass.cpp
+        src/passes/denoise_pass.cpp
+        src/passes/composite_pass.cpp
+        src/passes/sky_pass.cpp
+        src/passes/taa_pass.cpp
+        src/passes/bloom_pass.cpp
+        src/passes/tonemap_pass.cpp
+        src/passes/transparent_pass.cpp
+        src/passes/post_pass.cpp
+        src/passes/debug_lines_pass.cpp
+        src/passes/ui_pass.cpp
+        src/paths/raster_path.cpp
+        src/paths/ray_traced_path.cpp
         src/render_graph.cpp
         src/debug_draw.cpp
         src/fonts.cpp
@@ -65,6 +83,7 @@ astral_add_tests(MODULE render
         tests/test_main.cpp
         tests/renderer_test.cpp
         tests/stores_test.cpp
+        tests/passes_test.cpp
         tests/render_graph_test.cpp
         tests/surface_shader_test.cpp
         tests/material_file_test.cpp

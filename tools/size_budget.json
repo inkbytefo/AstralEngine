@@ -78,42 +78,6 @@
     "reason": "M13.5 R3: to be split"
   },
   {
-    "path": "modules/render/src/render_graph.cpp",
-    "kind": "function",
-    "name": "RenderGraph::execute",
-    "reason": "M13.5 R1: to be split"
-  },
-  {
-    "path": "modules/render/src/renderer.cpp",
-    "kind": "file",
-    "name": "renderer.cpp",
-    "reason": "M13.5 R1: to be split"
-  },
-  {
-    "path": "modules/render/src/renderer.cpp",
-    "kind": "members",
-    "name": "Renderer::Impl",
-    "reason": "M13.5 R1: to be split"
-  },
-  {
-    "path": "modules/render/src/renderer.cpp",
-    "kind": "function",
-    "name": "Renderer::render",
-    "reason": "M13.5 R1: to be split"
-  },
-  {
-    "path": "modules/render/src/renderer.cpp",
-    "kind": "function",
-    "name": "Renderer::Impl::render_ray_traced",
-    "reason": "M13.5 R1: to be split"
-  },
-  {
-    "path": "modules/render/src/text.cpp",
-    "kind": "function",
-    "name": "Font::create",
-    "reason": "M13.5 R1/R3: to be split"
-  },
-  {
     "path": "modules/script/src/api.cpp",
     "kind": "function",
     "name": "generate_script_api",

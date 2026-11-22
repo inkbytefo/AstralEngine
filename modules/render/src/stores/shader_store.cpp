@@ -1,14 +1,7 @@
 #include "stores/shader_store.hpp"
 
-#include <shaders/bloom_down.comp.hpp>
-#include <shaders/bloom_up.comp.hpp>
-#include <shaders/composite.comp.hpp>
 #include <shaders/ddgi_trace.comp.hpp>
-#include <shaders/ddgi_update.comp.hpp>
-#include <shaders/denoise_atrous.comp.hpp>
-#include <shaders/denoise_temporal.comp.hpp>
 #include <shaders/rt_lighting.comp.hpp>
-#include <shaders/taa.comp.hpp>
 
 #include <span>
 #include <string>
@@ -116,35 +109,23 @@ const GpuShader* ShaderStore::find_by_key(std::uint32_t key) noexcept {
 }
 
 bool ShaderStore::ensure_rt_pipelines() {
-    if (rt_.rt_lighting.valid()) return true;
-    auto compute = [&](std::span<const std::uint32_t> spirv, const char* name) {
-        return device_.create_compute_pipeline({.shader = {spirv}, .debug_name = name});
-    };
-    rt_.rt_lighting = compute(shaders::rt_lighting_comp, "astral.rt_lighting");
-    rt_.ddgi_trace = compute(shaders::ddgi_trace_comp, "astral.ddgi_trace");
-    rt_.ddgi_update = compute(shaders::ddgi_update_comp, "astral.ddgi_update");
-    rt_.temporal = compute(shaders::denoise_temporal_comp, "astral.denoise_temporal");
-    rt_.atrous = compute(shaders::denoise_atrous_comp, "astral.denoise_atrous");
-    rt_.composite = compute(shaders::composite_comp, "astral.composite");
-    rt_.taa = compute(shaders::taa_comp, "astral.taa");
-    rt_.bloom_down = compute(shaders::bloom_down_comp, "astral.bloom_down");
-    rt_.bloom_up = compute(shaders::bloom_up_comp, "astral.bloom_up");
-    for (auto p : {rt_.rt_lighting, rt_.ddgi_trace, rt_.ddgi_update, rt_.temporal, rt_.atrous, rt_.composite,
-                   rt_.taa, rt_.bloom_down, rt_.bloom_up}) {
-        if (!p.valid()) {
-            destroy_rt_pipelines(); // fall back to the raster path
-            return false;
-        }
+    if (rt_.rt_lighting.valid() && rt_.ddgi_trace.valid()) return true;
+    rt_.rt_lighting =
+        device_.create_compute_pipeline({.shader = {shaders::rt_lighting_comp}, .debug_name = "astral.rt_lighting"});
+    rt_.ddgi_trace =
+        device_.create_compute_pipeline({.shader = {shaders::ddgi_trace_comp}, .debug_name = "astral.ddgi_trace"});
+    if (!rt_.rt_lighting.valid() || !rt_.ddgi_trace.valid()) {
+        destroy_rt_pipelines(); // fall back to the raster path
+        return false;
     }
     return true;
 }
 
 void ShaderStore::destroy_rt_pipelines() {
-    for (auto* p : {&rt_.rt_lighting, &rt_.ddgi_trace, &rt_.ddgi_update, &rt_.temporal, &rt_.atrous, &rt_.composite,
-                    &rt_.taa, &rt_.bloom_down, &rt_.bloom_up}) {
-        device_.destroy(*p);
-        *p = {};
-    }
+    device_.destroy(rt_.rt_lighting);
+    device_.destroy(rt_.ddgi_trace);
+    rt_.rt_lighting = {};
+    rt_.ddgi_trace = {};
 }
 
 /// Compiles the ray-traced compute shaders with every live custom surface() in; with none (or if the

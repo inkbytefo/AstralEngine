@@ -16,6 +16,84 @@ struct Font::Info {
 
 namespace {
 std::uint8_t to_byte(float v) { return static_cast<std::uint8_t>(std::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f); }
+
+struct GlyphBitmap {
+    char32_t cp;
+    int w, h;
+    std::vector<std::uint8_t> pixels;
+};
+
+std::vector<GlyphBitmap> rasterize_glyphs(const stbtt_fontinfo& info, float scale, const FontDesc& desc,
+                                          std::unordered_map<char32_t, Glyph>& glyphs) {
+    std::vector<GlyphBitmap> bitmaps;
+    for (const auto& [first, last] : desc.ranges) {
+        for (char32_t cp = first; cp <= last; ++cp) {
+            if (stbtt_FindGlyphIndex(&info, static_cast<int>(cp)) == 0 && cp != U' ') continue;
+            int advance = 0, lsb = 0;
+            stbtt_GetCodepointHMetrics(&info, static_cast<int>(cp), &advance, &lsb);
+            Glyph g;
+            g.advance = static_cast<float>(advance) * scale;
+            int w = 0, h = 0, xoff = 0, yoff = 0;
+            unsigned char* sdf = stbtt_GetCodepointSDF(&info, scale, static_cast<int>(cp), desc.padding, 128,
+                                                       128.0f / static_cast<float>(desc.padding), &w, &h, &xoff, &yoff);
+            if (sdf) {
+                g.size = {static_cast<float>(w), static_cast<float>(h)};
+                g.offset = {static_cast<float>(xoff), static_cast<float>(yoff)};
+                bitmaps.push_back({cp, w, h, std::vector<std::uint8_t>(sdf, sdf + w * h)});
+                stbtt_FreeSDF(sdf, nullptr);
+            }
+            glyphs[cp] = g;
+        }
+    }
+    return bitmaps;
+}
+
+void pack_glyph_atlas(std::vector<GlyphBitmap>& bitmaps, std::unordered_map<char32_t, Glyph>& glyphs,
+                      ImageData& atlas) {
+    std::sort(bitmaps.begin(), bitmaps.end(), [](const GlyphBitmap& a, const GlyphBitmap& b) { return a.h > b.h; });
+    const int width = 1024;
+    int x = 1, y = 1, shelf = 0;
+    struct Placement {
+        int x, y;
+    };
+    std::vector<Placement> places;
+    for (const GlyphBitmap& b : bitmaps) {
+        if (x + b.w + 1 > width) {
+            x = 1;
+            y += shelf + 1;
+            shelf = 0;
+        }
+        places.push_back({x, y});
+        x += b.w + 1;
+        shelf = std::max(shelf, b.h);
+    }
+    int height = 1;
+    while (height < y + shelf + 1) height *= 2;
+    atlas = {.width = static_cast<std::uint32_t>(width),
+             .height = static_cast<std::uint32_t>(height),
+             .rgba = {},
+             .srgb = false,
+             .format = ImageFormat::RGBA8,
+             .levels = {}};
+    atlas.rgba.assign(std::size_t{atlas.width} * atlas.height * 4, 0);
+    for (std::size_t i = 0; i < atlas.rgba.size(); i += 4) atlas.rgba[i] = atlas.rgba[i + 1] = atlas.rgba[i + 2] = 255;
+    for (std::size_t i = 0; i < bitmaps.size(); ++i) {
+        const GlyphBitmap& b = bitmaps[i];
+        for (int row = 0; row < b.h; ++row) {
+            for (int col = 0; col < b.w; ++col) {
+                atlas.rgba[(static_cast<std::size_t>(places[i].y + row) * atlas.width +
+                            static_cast<std::size_t>(places[i].x + col)) *
+                               4 +
+                           3] = b.pixels[static_cast<std::size_t>(row * b.w + col)];
+            }
+        }
+        Glyph& g = glyphs[b.cp];
+        g.uv = {static_cast<float>(places[i].x) / static_cast<float>(width),
+                static_cast<float>(places[i].y) / static_cast<float>(height),
+                static_cast<float>(places[i].x + b.w) / static_cast<float>(width),
+                static_cast<float>(places[i].y + b.h) / static_cast<float>(height)};
+    }
+}
 } // namespace
 
 std::uint32_t pack_color(Vec4 c) noexcept {
@@ -64,68 +142,8 @@ std::unique_ptr<Font> Font::create(std::span<const std::uint8_t> ttf, const Font
     font->line_gap_ = static_cast<float>(ascent - descent + gap) * scale;
 
     // Rasterise every glyph's distance field, then shelf-pack them into one atlas.
-    struct Bitmap {
-        char32_t cp;
-        int w, h;
-        std::vector<std::uint8_t> pixels;
-    };
-    std::vector<Bitmap> bitmaps;
-    for (const auto& [first, last] : desc.ranges) {
-        for (char32_t cp = first; cp <= last; ++cp) {
-            if (stbtt_FindGlyphIndex(&info, static_cast<int>(cp)) == 0 && cp != U' ') continue;
-            int advance = 0, lsb = 0;
-            stbtt_GetCodepointHMetrics(&info, static_cast<int>(cp), &advance, &lsb);
-            Glyph g;
-            g.advance = static_cast<float>(advance) * scale;
-            int w = 0, h = 0, xoff = 0, yoff = 0;
-            unsigned char* sdf = stbtt_GetCodepointSDF(&info, scale, static_cast<int>(cp), desc.padding, 128,
-                                                       128.0f / static_cast<float>(desc.padding), &w, &h, &xoff, &yoff);
-            if (sdf) {
-                g.size = {static_cast<float>(w), static_cast<float>(h)};
-                g.offset = {static_cast<float>(xoff), static_cast<float>(yoff)};
-                bitmaps.push_back({cp, w, h, std::vector<std::uint8_t>(sdf, sdf + w * h)});
-                stbtt_FreeSDF(sdf, nullptr);
-            }
-            font->glyphs_[cp] = g;
-        }
-    }
-    std::sort(bitmaps.begin(), bitmaps.end(), [](const Bitmap& a, const Bitmap& b) { return a.h > b.h; });
-    const int width = 1024;
-    int x = 1, y = 1, shelf = 0;
-    struct Placement {
-        int x, y;
-    };
-    std::vector<Placement> places;
-    for (const Bitmap& b : bitmaps) {
-        if (x + b.w + 1 > width) {
-            x = 1;
-            y += shelf + 1;
-            shelf = 0;
-        }
-        places.push_back({x, y});
-        x += b.w + 1;
-        shelf = std::max(shelf, b.h);
-    }
-    int height = 1;
-    while (height < y + shelf + 1) height *= 2;
-    ImageData& atlas = font->atlas_;
-    atlas = {.width = static_cast<std::uint32_t>(width), .height = static_cast<std::uint32_t>(height), .rgba = {}, .srgb = false,
-             .format = ImageFormat::RGBA8, .levels = {}};
-    atlas.rgba.assign(std::size_t{atlas.width} * atlas.height * 4, 0);
-    for (std::size_t i = 0; i < atlas.rgba.size(); i += 4) atlas.rgba[i] = atlas.rgba[i + 1] = atlas.rgba[i + 2] = 255;
-    for (std::size_t i = 0; i < bitmaps.size(); ++i) {
-        const Bitmap& b = bitmaps[i];
-        for (int row = 0; row < b.h; ++row) {
-            for (int col = 0; col < b.w; ++col) {
-                atlas.rgba[(static_cast<std::size_t>(places[i].y + row) * atlas.width + static_cast<std::size_t>(places[i].x + col)) * 4 + 3] =
-                    b.pixels[static_cast<std::size_t>(row * b.w + col)];
-            }
-        }
-        Glyph& g = font->glyphs_[b.cp];
-        g.uv = {static_cast<float>(places[i].x) / static_cast<float>(width), static_cast<float>(places[i].y) / static_cast<float>(height),
-                static_cast<float>(places[i].x + b.w) / static_cast<float>(width),
-                static_cast<float>(places[i].y + b.h) / static_cast<float>(height)};
-    }
+    std::vector<GlyphBitmap> bitmaps = rasterize_glyphs(info, scale, desc, font->glyphs_);
+    pack_glyph_atlas(bitmaps, font->glyphs_, font->atlas_);
     return font;
 }
 

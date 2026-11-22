@@ -150,6 +150,92 @@ struct RenderGraph::Impl {
         pool.push_back(e);
         return e.texture;
     }
+
+    void cull_and_allocate() {
+        // 1. Cull backwards: a pass lives if it writes something needed (an import or a later
+        //    live pass's input) or has a side effect; its inputs then become needed.
+        std::vector<bool> needed(resources.size(), false);
+        for (std::size_t i = 0; i < resources.size(); ++i) needed[i] = resources[i].imported;
+        for (auto it = passes.rbegin(); it != passes.rend(); ++it) {
+            Pass& p = *it;
+            p.alive = p.side_effect;
+            for (const Access& a : p.accesses) {
+                if (writes(a) && needed[a.resource]) p.alive = true;
+            }
+            if (!p.alive) continue;
+            for (const Access& a : p.accesses) {
+                if (reads(a)) needed[a.resource] = true;
+            }
+        }
+        // 2. Usage per resource (over live passes), then bind pool textures.
+        for (const Pass& p : passes) {
+            if (!p.alive) continue;
+            for (const Access& a : p.accesses) {
+                auto& r = resources[a.resource];
+                r.usage = r.usage | usage_for(a.use);
+            }
+        }
+        for (auto& r : resources) {
+            if (!r.imported && r.usage != gpu::TextureUsage::None) r.texture = acquire(r);
+        }
+    }
+
+    TimingSlot* begin_timing(gpu::CommandList& cmd) {
+        if (!profiling || !device.supports(gpu::Feature::Timestamps)) return nullptr;
+        timing_slot = (timing_slot + 1) % timing_ring;
+        TimingSlot* timing = &timing_slots[timing_slot];
+        if (!timing->pool.valid()) timing->pool = device.create_timestamp_pool(max_timed_passes + 1);
+        collect(*timing); // this slot's previous frame, if the GPU finished it
+        // Any slot that finished since then too: the newest available result wins.
+        for (std::size_t k = 1; k < timing_ring; ++k) collect(timing_slots[(timing_slot + k) % timing_ring]);
+        if (!timing->pool.valid()) return nullptr;
+        timing->names.clear();
+        timing->pending = false;
+        cmd.reset_queries(timing->pool, 0, max_timed_passes + 1);
+        cmd.write_timestamp(timing->pool, 0);
+        return timing;
+    }
+
+    void record_pass(gpu::CommandList& cmd, Pass& p, RenderGraph* graph) {
+        cmd.begin_debug_label(p.name.c_str());
+        gpu::RenderingDesc rendering;
+        gpu::Extent2D extent{};
+        for (const Access& a : p.accesses) {
+            const Resource& r = resources[a.resource];
+            cmd.transition(r.texture, state_for(a.use));
+            if (extent.width == 0 && (writes(a) || a.use == Use::Read)) extent = {r.desc.width, r.desc.height};
+            if (a.use == Use::Color) {
+                rendering.color.push_back({.texture = r.texture, .load = a.load, .clear = a.clear});
+                extent = {r.desc.width, r.desc.height};
+            } else if (a.use == Use::Depth) {
+                rendering.depth = {.texture = r.texture, .load = a.load, .clear = a.depth_clear};
+                extent = {r.desc.width, r.desc.height};
+            }
+        }
+        const bool raster = !rendering.color.empty() || rendering.depth.texture.valid();
+        if (raster) cmd.begin_rendering(rendering);
+        PassContext ctx{cmd, extent, graph};
+        if (p.execute) p.execute(ctx);
+        if (raster) cmd.end_rendering();
+        cmd.end_debug_label();
+    }
+
+    void prune_pool() {
+        // Release pool textures unused for a while (destruction is deferred by the device).
+        std::erase_if(pool, [&](const PoolEntry& e) {
+            // Entries not used this frame whose size matches nothing in it (e.g. while the window
+            // is being resized) go right away; others after a few idle frames.
+            bool size_in_use = false;
+            for (const auto& r : resources) {
+                size_in_use |= !r.imported && r.desc.width == e.desc.width && r.desc.height == e.desc.height;
+            }
+            const bool stale = e.last_frame != frame && !size_in_use;
+            if (!stale && frame - e.last_frame <= pool_keep_frames) return false;
+            device.destroy(e.texture);
+            return true;
+        });
+        stats.transient_textures = static_cast<std::uint32_t>(pool.size());
+    }
 };
 
 // Builder forwards to the graph through a thread-local-free back pointer stored next to the pass.
@@ -255,78 +341,14 @@ void RenderGraph::execute(gpu::CommandList& cmd) {
     m.stats.passes_executed = 0;
     m.stats.passes_culled = 0;
 
-    // 1. Cull backwards: a pass lives if it writes something needed (an import or a later
-    //    live pass's input) or has a side effect; its inputs then become needed.
-    std::vector<bool> needed(m.resources.size(), false);
-    for (std::size_t i = 0; i < m.resources.size(); ++i) needed[i] = m.resources[i].imported;
-    for (auto it = m.passes.rbegin(); it != m.passes.rend(); ++it) {
-        Pass& p = *it;
-        p.alive = p.side_effect;
-        for (const Access& a : p.accesses) {
-            if (writes(a) && needed[a.resource]) p.alive = true;
-        }
-        if (!p.alive) continue;
-        for (const Access& a : p.accesses) {
-            if (reads(a)) needed[a.resource] = true;
-        }
-    }
-
-    // 2. Usage per resource (over live passes), then bind pool textures.
-    for (const Pass& p : m.passes) {
-        if (!p.alive) continue;
-        for (const Access& a : p.accesses) {
-            auto& r = m.resources[a.resource];
-            r.usage = r.usage | usage_for(a.use);
-        }
-    }
-    for (auto& r : m.resources) {
-        if (!r.imported && r.usage != gpu::TextureUsage::None) r.texture = m.acquire(r);
-    }
-
-    // 3. Record (with a timestamp before the first live pass and after each one when profiling).
-    Impl::TimingSlot* timing = nullptr;
-    if (m.profiling && m.device.supports(gpu::Feature::Timestamps)) {
-        m.timing_slot = (m.timing_slot + 1) % Impl::timing_ring;
-        timing = &m.timing_slots[m.timing_slot];
-        if (!timing->pool.valid()) timing->pool = m.device.create_timestamp_pool(Impl::max_timed_passes + 1);
-        m.collect(*timing); // this slot's previous frame, if the GPU finished it
-        // Any slot that finished since then too: the newest available result wins.
-        for (std::size_t k = 1; k < Impl::timing_ring; ++k) m.collect(m.timing_slots[(m.timing_slot + k) % Impl::timing_ring]);
-        if (timing->pool.valid()) {
-            timing->names.clear();
-            timing->pending = false;
-            cmd.reset_queries(timing->pool, 0, Impl::max_timed_passes + 1);
-            cmd.write_timestamp(timing->pool, 0);
-        } else {
-            timing = nullptr;
-        }
-    }
+    m.cull_and_allocate();
+    Impl::TimingSlot* timing = m.begin_timing(cmd);
     for (Pass& p : m.passes) {
         if (!p.alive) {
             ++m.stats.passes_culled;
             continue;
         }
-        cmd.begin_debug_label(p.name.c_str());
-        gpu::RenderingDesc rendering;
-        gpu::Extent2D extent{};
-        for (const Access& a : p.accesses) {
-            const Resource& r = m.resources[a.resource];
-            cmd.transition(r.texture, state_for(a.use));
-            if (extent.width == 0 && (writes(a) || a.use == Use::Read)) extent = {r.desc.width, r.desc.height};
-            if (a.use == Use::Color) {
-                rendering.color.push_back({.texture = r.texture, .load = a.load, .clear = a.clear});
-                extent = {r.desc.width, r.desc.height};
-            } else if (a.use == Use::Depth) {
-                rendering.depth = {.texture = r.texture, .load = a.load, .clear = a.depth_clear};
-                extent = {r.desc.width, r.desc.height};
-            }
-        }
-        const bool raster = !rendering.color.empty() || rendering.depth.texture.valid();
-        if (raster) cmd.begin_rendering(rendering);
-        PassContext ctx{cmd, extent, this};
-        if (p.execute) p.execute(ctx);
-        if (raster) cmd.end_rendering();
-        cmd.end_debug_label();
+        m.record_pass(cmd, p, this);
         ++m.stats.passes_executed;
         if (timing && timing->names.size() < Impl::max_timed_passes) {
             timing->names.push_back(p.name);
@@ -338,21 +360,7 @@ void RenderGraph::execute(gpu::CommandList& cmd) {
     for (const auto& r : m.resources) {
         if (r.imported && r.final_state != gpu::ResourceState::Undefined) cmd.transition(r.texture, r.final_state);
     }
-
-    // 4. Release pool textures unused for a while (destruction is deferred by the device).
-    std::erase_if(m.pool, [&](const PoolEntry& e) {
-        // Entries not used this frame whose size matches nothing in it (e.g. while the window
-        // is being resized) go right away; others after a few idle frames.
-        bool size_in_use = false;
-        for (const auto& r : m.resources) {
-            size_in_use |= !r.imported && r.desc.width == e.desc.width && r.desc.height == e.desc.height;
-        }
-        const bool stale = e.last_frame != m.frame && !size_in_use;
-        if (!stale && m.frame - e.last_frame <= pool_keep_frames) return false;
-        m.device.destroy(e.texture);
-        return true;
-    });
-    m.stats.transient_textures = static_cast<std::uint32_t>(m.pool.size());
+    m.prune_pool();
 }
 
 gpu::TextureHandle RenderGraph::texture(RGTexture t) const {
