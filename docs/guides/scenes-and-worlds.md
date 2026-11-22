@@ -17,6 +17,7 @@ Bir oyun alanı **tek bir sahne dosyasıdır** (`.scene`, JSON metni). Pong'un b
 { "id": 2, "components": {
     "astral::Name":  { "value": "court" },
     "pong::Court":   { "seed": 7 },
+    "pong::Match":   {},
     "pong::Sounds":  {},
     "astral::AudioSource": { "sound": "sounds/hum.wav", "volume": 0.12, "spatial": false } } }
 ```
@@ -29,7 +30,7 @@ Okuma kılavuzu:
   component'leri (`pong::Paddle`).
 - **Prefab** (`.prefab`) = tekrar kullanılan hazır nesne (raket, top). Sahne prefab'ı yerleştirir ve yalnızca
   farkını yazar ("bu raket kırmızı olsun"). Prefab'ın **varyantı** da olabilir (rakip raket = raket + yapay zekâ).
-- **Sistem** = davranış, kodda (`BallPhysics` topu hareket ettirir). Sahne dosyası davranış içermez.
+- **Sistem** = davranış, kodda ya da Luau'da (`ball_physics` topu hareket ettirir). Sahne dosyası davranış içermez.
 - Oyun çalışırken dosyayı düzenleyip kaydedersen sahne anında güncellenir (hot-reload). F1 ile açılan
   panelden de component'ler düzenlenir.
 - Paketlemede (`<oyun>_package`) sahne ikili biçime çevrilip `.apak` içine girer.

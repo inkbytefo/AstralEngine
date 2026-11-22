@@ -71,7 +71,8 @@ AssetManager assets({.root = "content", .renderer = &renderer, .jobs = &jobs, .p
 | Kaynak | Cook çıktısı (aynı yol) |
 |---|---|
 | `.gltf` / `.glb` | `AMDL` cook edilmiş model: texture'lar kullanıma göre BC7 sRGB (renk), BC7 (veri), BC5 (normal) + tam mip zinciri; `.bin` ve görüntüler içine katılır |
-| `.scene` / `.prefab` / `.json` | ikili JSON (`AJB1`) |
+| `.scene` / `.prefab` / `.json` / `.material` | ikili JSON (`AJB1`); `feature.json` da buna girer (App ikili/metin ayırt eder) |
+| `.luau`, `.actions`, diğerleri | olduğu gibi kopyalanır (Luau bytecode cook'u henüz yok) |
 | diğer | kopya |
 
 - `AssetManager` türü içerikten anlar: gevşek klasörde kaynak da cook edilmiş dosya da açılır;

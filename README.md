@@ -62,16 +62,17 @@ places three prefabs (room, mirror pedestal, box ×3 with per-instance overrides
 
 ## First game: 3D Pong
 
-`examples/pong` is the smallest complete game on the engine: two source files of rules (components +
-systems) and a scene with prefabs for everything you see. Keep the ball in the tunnel; where it hits your
-paddle bends its path. `pong --demo` lets the AI play both sides.
+`examples/pong` is the smallest complete game on the engine, written as three feature packages: the rules
+(paddles, AI, ball, scoring) are Luau scripts you can edit while it runs, two small C++ features add the score
+lights and the sound, and a scene with prefabs describes everything you see. Keep the ball in the tunnel; where
+it hits your paddle bends its path. `pong --demo` lets the AI play both sides.
 
 ![3D Pong](docs/images/m7-pong.png)
 
 ## Build
 
 Requires CMake ≥ 3.24, Ninja, a C++20 compiler (GCC 13, Clang 18, MSVC 2022) and the Vulkan SDK
-(headers, loader, `glslc`). SDL3, VMA, Jolt, stb, zstd and bc7enc are fetched automatically.
+(headers, loader, `glslc`). SDL3, VMA, Jolt, glslang, Luau, Dear ImGui, miniaudio, stb, zstd and bc7enc are fetched automatically.
 
 ```sh
 cmake --preset debug
@@ -79,7 +80,8 @@ cmake --build --preset debug
 ctest --preset debug
 ```
 
-Presets: `debug`, `release`, `tsan` (ThreadSanitizer).
+Presets: `debug`, `release`, `tsan` (ThreadSanitizer), `asan`. Games are written in C++ and/or Luau: see
+[docs/guides/writing-a-game.md](docs/guides/writing-a-game.md) and, for AI agents, [AGENTS.md](AGENTS.md).
 
 ## Shipping a game
 

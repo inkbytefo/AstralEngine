@@ -2,7 +2,8 @@
 
 AstralEngine'de oyun üç parçadan oluşur: **component** (veri), **system** (mantık), **Game** (kurulum).
 Döngüyü, pencereyi, GPU'yu ve render'ı `App` yönetir. En küçük örnek: `examples/spinning_cubes/main.cpp`.
-Tam bir oyun: `examples/pong` — kurallar iki dosyada, saha ve nesneler `court.scene` + prefab'larda,
+Tam bir oyun: `examples/pong` — üç özellik paketi (kurallar Luau'da, ışıklar ve ses C++'ta; bkz.
+[Özellik paketleri ve Luau](#özellik-paketleri-ve-luau)), saha ve nesneler `court.scene` + prefab'larda,
 headless testler `pong_test.cpp`'de.
 
 ## 1. main
@@ -121,8 +122,8 @@ Tam örnek: `examples/physics_demo/main.cpp`.
 
 ## Kare sırası
 
-`input → PreUpdate → Game::on_update → Update → fizik (FixedUpdate + adım, sabit 60 Hz) → PostUpdate → transform hiyerarşisi → render`
-Her aşamadan sonra `commands()` uygulanır.
+`input → PreUpdate → Game::on_update → Update → fizik (FixedUpdate + adım, sabit 60 Hz) → PostUpdate → transform hiyerarşisi → ses → render`
+Her fazda önce C++ sistemleri, sonra o fazın Luau script'leri çalışır. Her aşamadan sonra `commands()` uygulanır.
 
 ## Context'te neler var
 
@@ -137,6 +138,14 @@ Her aşamadan sonra `commands()` uygulanır.
 | `sun`, `environment` | güneş (yön, renk, gölge) ve gök/yer ambient, pozlama |
 | `renderer`, `window`, `device` | alt katman (headless'ta `nullptr`) |
 | `physics`, `contacts()` | fizik dünyası (raycast, impulse…) ve bu karenin temasları |
+| `audio`, `sound(yol)` | ses ([Ses, HUD ve debug arayüzü](#ses-hud-ve-debug-arayüzü)) |
+| `hud`, `font`, `screen_size()` | 2D katman: metin, dikdörtgen, görüntü |
+| `debug`, `debug_show`, `show_debug_ui` | debug çizgileri, hazır katmanlar, F1 arayüzü |
+| `assets`, `prefabs`, `types` | asset'ler, prefab şablonları, kayıtlı component'ler |
+| `load_scene`, `spawn_prefab`, `open_world` | sahne, prefab ve açık dünya |
+| `load_material`, `sky`, `post` | `.material` dosyaları, gökyüzü ve post efektleri ([shaders-and-materials.md](shaders-and-materials.md)) |
+| `scripts`, `events`, `actions` | Luau, adlı olaylar, girdi eylemleri; `load_script`, `load_actions`, `write_script_api` |
+| `profiler` | CPU/GPU süreleri (`ASTRAL_PROFILE_SCOPE`) |
 | `quit()` | oyundan çık |
 
 ## Hiyerarşi

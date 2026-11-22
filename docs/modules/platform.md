@@ -17,6 +17,7 @@ while (window->poll(input)) {             // olayları işler, input'u güncelle
 
 - `down(key)`: basılı mı · `pressed(key)`: bu karede basıldı · `released(key)`: bu karede bırakıldı.
 - Fare: `mouse_position()`, `mouse_delta()` (kare başına toplam), `scroll()`.
+- Adlandırılmış eylemler (`move`, `fire`) App'tedir: [app.md → Oyun çatısı](app.md#oyun-çatısı-m11). Gamepad yok.
 - `Input` saf veridir (SDL bilmez) → oyun mantığı pencere açmadan test edilebilir.
 - FPS kamerası için `window->set_mouse_captured(true)`.
 

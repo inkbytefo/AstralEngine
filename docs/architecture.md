@@ -53,6 +53,8 @@ Ayrıntı ve yapay zekâ dostu düzen: [ADR-0023](decisions/0023-modular-game-co
 - ECS ve çekirdek veri yapıları bizim: hazır ECS kütüphanesi (EnTT vb.) kullanılmaz ([ADR-0005](decisions/0005-own-ecs.md)).
 - Kaynaklara ham pointer ile değil `Handle<T>` ile erişilir.
 - Sıcak veri data-oriented (SoA/ECS); OOP arayüzler sadece modül sınırlarında.
+- Oyun kodu özellik paketleridir; özellikler birbirini çağırmaz, olay ve component ile konuşur, sınırı `astral-features check` denetler ([ADR-0023](decisions/0023-modular-game-code.md)).
+- Script (Luau) durum tutmaz: durum component'lerdedir ([ADR-0017](decisions/0017-gameplay-scripting.md), [ADR-0026](decisions/0026-script-host-and-features.md)).
 - Her modül tek başına derlenir ve test edilir; renderer olmadan headless çalışma desteklenir.
 
 ## Klasör yapısı
@@ -64,6 +66,8 @@ modules/<ad>/tests/                 birim testleri
 examples/                           çalışan örnekler
 tests/consumer/                     find_package duman testi
 tests/integration/                  modüller arası testler (gerektiğinde)
+tests/golden/                       görüntü testleri (`ctest -L golden`)
+tools/                              astral-cook, astral-features
 cmake/                              derleme yardımcıları
 docs/                               bu dokümanlar
 ```
