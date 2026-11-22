@@ -357,6 +357,11 @@ struct LightingInputs {
     RectLights rects;
 };
 
+// Distance a ray starts away from the surface it leaves. The surface position is rebuilt from the depth
+// buffer, whose error grows with distance from the camera: a fixed offset let far ground flip between lit
+// and self-shadowed from one camera position to the next (open_world). Scale it with the distance.
+float ray_bias(Frame f, vec3 p) { return 0.002 + 0.0005 * distance(p, f.camera_position.xyz); }
+
 // One stochastic sample per light, visibility by shadow ray. Returns the diffuse part divided by
 // albedo (`diffuse`, for denoising) and the full specular part of the sun and point lights
 // (rect light highlights come from reflection rays that hit the rect).
@@ -365,7 +370,7 @@ void direct_light(Frame f, LightingInputs li, Surface s, vec3 v, inout uint seed
     specular = vec3(0);
     vec3 f0 = mix(vec3(0.04), s.albedo, s.metallic);
     float kd = 1.0 - s.metallic;
-    vec3 origin = s.p + s.n * 0.002;
+    vec3 origin = s.p + s.n * ray_bias(f, s.p);
     float max_t = f.rt_params.w;
 
     // Sun: a cone of the sun's angular radius gives physically soft shadows.

@@ -34,7 +34,7 @@ void OpenWorldGame::on_start(Context& ctx) {
     ctx.world.create(day_night::DayNight{.night = night_, .applied = night_ ? 1 : 0});
     // Start near one corner, 40 m up, looking into the world; the first frames already cross the
     // 2 km origin threshold (the start is 2.4 km from zero).
-    ctx.world.create(Transform{.position = {1700, 40, 1700}}, Camera{.far_plane = 2500.0f}, StreamingSource{},
+    ctx.world.create(Transform{.position = {1700, 40, 1700 + nudge_}}, Camera{.far_plane = 2500.0f}, StreamingSource{},
                      fly::FlyCamera{.speed = 80.0f, .fast_speed = 400.0f, .yaw = radians(-135.0f), .pitch = radians(-12.0f),
                                     .autopilot = capturing_ ? 120.0f : 0.0f});
     if (capturing_) ctx.add_system<FinishLoading>(Phase::PostUpdate);

@@ -50,6 +50,8 @@ endif()
 if(TARGET open_world)
     astral_add_golden_test(open_world TARGET open_world ARGS --frames 40 --width 320 --height 180)
     astral_add_golden_test(open_world_night TARGET open_world ARGS --frames 40 --width 320 --height 180 --night)
+    # Stability: the start moved by a hair must give the same picture (a fixed ray offset once made the ground flip lit/shadowed).
+    astral_add_golden_test(open_world_nudged TARGET open_world ARGS --frames 40 --width 320 --height 180 --nudge 0.0003 MAX_BAD 0.08)
 endif()
 if(TARGET shader_showcase)
     astral_add_golden_test(shader_showcase TARGET shader_showcase ARGS --frames 60 --width 320 --height 180)

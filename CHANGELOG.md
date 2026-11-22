@@ -13,6 +13,12 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 - Görüntü testleri: blank, hello_triangle, spinning_cubes, sdf_scene.
 - ADR-0027.
 
+### Fixed
+- render: ışın izleme gölge/yansıma ışınlarının yüzeyden başlangıç payı sabitti (2 mm); derinlikten yeniden kurulan konumun hatası uzaklıkla
+  büyüdüğü için uzak zemin kamera konumuna göre rastgele aydınlık/kendi gölgesinde çıkıyordu (open_world'de kamera 1e-4 m kayınca zemin
+  parlaklığı 20 ile 150 arasında zıpladı). Pay artık kameraya uzaklıkla ölçekleniyor (`ray_bias`); `open_world_nudged` görüntü testi eklendi.
+  open_world ve pong referans görüntüleri yenilendi.
+
 ### Changed
 - Bütün örnekler şablon düzeninde yeniden yazıldı (src/ + assets/features/ + tests/): hello_headless (eski hello_core), hello_triangle
   (artık `App` + `.ashader`), spinning_cubes, sdf_scene, physics_demo (özellikler: player, shooter, rain, lifetime), rt_showcase,

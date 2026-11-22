@@ -29,4 +29,4 @@
 - `rt_showcase` ve `model_viewer` artık kendi renderer döngüsünü değil `App`'in çevrimdışı yolunu kullanıyor (daha az kod, aynı görüntü;
   rt_showcase golden'ı değişmeden geçti).
 - Alt katman (RHI) kullanımını gösteren bağımsız örnek kalmadı; `tests/integration` pencere + swapchain yolunu sınar.
-- `open_world` görüntü testi kameranın float yuvarlamasına duyarlı çıktı (bkz. render.md → Bilinen sınırlar).
+- `open_world` görüntü testi kameranın float yuvarlamasına duyarlı çıktı; kök neden ışın başlangıç payıydı, düzeltildi (CHANGELOG, `open_world_nudged` testi).
