@@ -26,6 +26,14 @@
 - [ ] `README.md` durum tablosu.
 - [ ] Oyun yazmayı etkileyen değişiklikte `docs/guides/writing-a-game.md` ve `AGENTS.md`.
 
+## Yerel ajan dosyaları ve paylaşılan rehberler
+
+- **Paylaşılan rehberler (git'te takip edilir):** `CLAUDE.md`, `AGENTS.md` ve `docs/` altındaki mimari,
+  süreç ve ADR belgeleri bilinçli kararla paylaşılır ve incelemeyle güncellenir.
+- **Yerel ajan/çalışma zamanı ve üretilmiş grafik çıktıları (`.gitignore`):** `/.agents/`, `/.codex/`,
+  `/.claude/` (depo içi `/.claude/worktrees/` dahil) ve `/graphify-out/` kök kurallarıyla yoksayılır;
+  yerel ayar, çalışma zamanı ve üretilmiş grafik dosyaları commit'lenmez ve olağan `git status` çıktısını kirletmez.
+
 ## Commit mesajları
 
 `feat(modül): …`, `fix(modül): …`, `build: …`, `docs: …`, `test(modül): …`.

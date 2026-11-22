@@ -1,6 +1,13 @@
 /build/
 /out/
 /.superpowers/
+# Local agent/runtime files, in-repo worktrees, and generated knowledge graphs.
+# Shared guidance belongs in tracked docs (CLAUDE.md, AGENTS.md, docs/).
+/.agents/
+/.codex/
+/.claude/
+/.claude/worktrees/
+/graphify-out/
 .vscode/
 .idea/
 *.user

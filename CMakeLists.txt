@@ -43,6 +43,8 @@ add_subdirectory(modules/render)
 add_subdirectory(modules/audio)
 add_subdirectory(modules/assets)
 add_subdirectory(modules/app)
+set(ASTRAL_MODULE_GRAPH_FILE "${CMAKE_CURRENT_BINARY_DIR}/astral_module_graph.json")
+astral_export_module_graph("${ASTRAL_MODULE_GRAPH_FILE}")
 add_subdirectory(tools)
 include(AstralGame)
 
@@ -58,8 +60,15 @@ if(ASTRAL_BUILD_TESTS)
         endif()
         add_test(NAME code_size_check
             COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/tools/check_sizes.py ${_size_check_args})
+        add_test(NAME layer_check
+            COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_layers.py"
+                    --manifest "${ASTRAL_MODULE_GRAPH_FILE}"
+                    --allowlist "${CMAKE_CURRENT_SOURCE_DIR}/tools/module_layers.json")
+        add_test(NAME layer_check_self_test
+            COMMAND Python3::Interpreter -B -m unittest discover
+                    -s "${CMAKE_CURRENT_SOURCE_DIR}/tools/tests" -p "test_check_layers.py" -v)
     else()
-        message(STATUS "Python3 interpreter not found: skipping shared_features_in_sync and code_size_check")
+        message(STATUS "Python3 interpreter not found: skipping shared_features_in_sync, code_size_check, and layer_check")
     endif()
     add_test(NAME astral_public_headers_clean
         COMMAND ${CMAKE_COMMAND} -DROOT=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/CheckPublicHeaders.cmake)

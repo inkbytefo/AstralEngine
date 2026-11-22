@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "modules": {
+    "core": {
+      "layer": 0,
+      "allowed_deps": []
+    },
+    "shader": {
+      "layer": 1,
+      "allowed_deps": ["core"]
+    },
+    "gpu": {
+      "layer": 1,
+      "allowed_deps": ["core"]
+    },
+    "platform": {
+      "layer": 1,
+      "allowed_deps": ["core", "gpu"]
+    },
+    "world": {
+      "layer": 2,
+      "allowed_deps": ["core"]
+    },
+    "physics": {
+      "layer": 2,
+      "allowed_deps": ["core"]
+    },
+    "audio": {
+      "layer": 2,
+      "allowed_deps": ["core"]
+    },
+    "script": {
+      "layer": 2,
+      "allowed_deps": ["core", "world"]
+    },
+    "render": {
+      "layer": 2,
+      "allowed_deps": ["core", "gpu", "shader"]
+    },
+    "assets": {
+      "layer": 2,
+      "allowed_deps": ["core", "world", "render"]
+    },
+    "app": {
+      "layer": 3,
+      "allowed_deps": [
+        "core",
+        "platform",
+        "gpu",
+        "world",
+        "script",
+        "render",
+        "assets",
+        "physics",
+        "audio"
+      ]
+    }
+  },
+  "third_party_aliases": {
+    "Astral::ImGui": {
+      "allowed_from": ["app"],
+      "reason": "Dear ImGui static wrapper target (astral_imgui) built in modules/app/CMakeLists.txt"
+    }
+  }
+}

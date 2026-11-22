@@ -22,15 +22,39 @@ Alt katman her zaman doğrudan kullanılabilir kalır.
 ## Katmanlar
 
 ```
-Katman 3  │ app (Game + System + Context)        — oyunlar buradan yazılır
-Katman 2  │ world (ECS) · script (Luau; yalnız Core+World) · render · physics (Jolt) · assets · audio
-Katman 1  │ gpu (Vulkan RHI) ← platform (pencere/input, SDL3)
+Katman 3  │ app (Game + System + Context; + Astral::ImGui) — oyunlar buradan yazılır
+Katman 2  │ world (ECS) ← script (Luau) · physics (Jolt) · audio · render · assets (→ world, render)
+Katman 1  │ shader (.ashader / glslang) · gpu (Vulkan RHI) ← platform (pencere/input, SDL3)
 Katman 0  │ core (log, handle, clock, jobs, math)
 ```
 
-**Kural:** bir modül yalnızca kendinden alttaki katmanlara (ve aynı katmanda ok yönünde) bağımlı
-olabilir. Platform GPU'yu bilir (pencere yüzeyi verir), GPU platformu bilmez. CMake bunu
-zorlar: bir modül, linklemediği modülün header'ını bulamaz.
+CMake'te tanımlı doğrudan yönlü bağımlılık grafiği (`Astral::*` modül kenarları, `tools/module_layers.json` ile aynı):
+
+| Modül | Katman | Doğrudan bağımlılıklar (`DEPS` / `PRIVATE_DEPS`) |
+|---|---|---|
+| `core` | 0 | — |
+| `shader` | 1 | `core` |
+| `gpu` | 1 | `core` |
+| `platform` | 1 | `core`, `gpu` |
+| `world` | 2 | `core` |
+| `physics` | 2 | `core` |
+| `audio` | 2 | `core` |
+| `script` | 2 | `core`, `world` |
+| `render` | 2 | `core`, `gpu`, `shader` |
+| `assets` | 2 | `core`, `world`, `render` |
+| `app` | 3 | `core`, `platform`, `gpu`, `world`, `script`, `render`, `assets`, `physics`, `audio` (+ üçüncü parti sarmalayıcı `Astral::ImGui`) |
+
+**Kural ve denetim:**
+- Bir modül yalnızca kendinden alttaki katmanlara (veya izin listesinde açıkça belirtilen aynı katmandaki ok yönüne) bağımlı olabilir; döngü yasaktır.
+- Tüm motor modülleri yalnızca `modules/<ad>/CMakeLists.txt` içinde `astral_add_module(...)` ile kaydedilir; elle motor-arası `target_link_libraries` çağrısı yapılmaz (yalnız sistem kütüphaneleri için örn. Linux'ta `m`, veya `app` içindeki `Astral::ImGui` sarmalayıcısı vardır).
+- Configure anında `astral_export_module_graph` (`cmake/AstralModule.cmake`), `astral_add_module` meta verilerini ve hedef link özelliklerini (`DEPS`, `PRIVATE_DEPS`, `LINK_LIBRARIES`, `INTERFACE_LINK_LIBRARIES`) okuyup `${CMAKE_BINARY_DIR}/astral_module_graph.json` dosyasına yazar.
+- CTest `layer_check` (`tools/check_layers.py`), bu çıktıyı `tools/module_layers.json` ile doğrular: izin listesinde olmayan yeni/özel kenar, üst katmana bağımlılık, döngü veya tanınmayan `Astral::` / `astral_*` hedefi testi kırar.
+
+**İzin verilen bir kenarı değiştirmek:**
+1. Bağımlılığın döngü oluşturmadığını ve katman yönüne (`katman(kaynak) >= katman(hedef)`) uyduğunu doğrulayın.
+2. `modules/<ad>/CMakeLists.txt` içinde `DEPS` / `PRIVATE_DEPS` alanını (ve gerekirse kök `CMakeLists.txt` içindeki `add_subdirectory` sırasını) güncelleyin.
+3. Aynı değişiklikte `tools/module_layers.json` izin listesini ve bu sayfadaki yönlü grafik tablosunu güncelleyin (yeni bir mimari sınır açılıyorsa `docs/decisions/` altına ADR ekleyin).
+4. Projeyi yeniden configure edip `ctest --preset debug -R layer_check` çalıştırarak doğrulayın.
 
 ## SOLID'in motordaki karşılığı
 
