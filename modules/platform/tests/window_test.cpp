@@ -9,7 +9,11 @@ using namespace astral;
 namespace {
 // Tests run without a display: SDL's dummy video driver gives real windows with no output.
 std::unique_ptr<Window> make_window() {
+#if defined(_WIN32)
+    if (!std::getenv("SDL_VIDEO_DRIVER")) _putenv_s("SDL_VIDEO_DRIVER", "dummy");
+#else
     setenv("SDL_VIDEO_DRIVER", "dummy", 0);
+#endif
     auto window = Window::create({.title = "test", .width = 320, .height = 200, .hidden = true});
     if (!window) MESSAGE("no video driver available — skipping");
     return window;

@@ -110,7 +110,10 @@ std::optional<std::vector<float>> parse_default(std::string_view s, UniformType 
         if (!v) return std::nullopt;
         values.push_back(*v);
     }
-    if (values.size() == 1 && n > 1) values.assign(n, values[0]);
+    if (values.size() == 1 && n > 1) {
+        const auto first = values[0]; // copy: assign() must not read from the vector it overwrites
+        values.assign(n, first);
+    }
     if (values.size() != n) return std::nullopt;
     return values;
 }

@@ -1,7 +1,8 @@
 # astral_set_warnings(<target>) — project warning policy, applied PRIVATE only.
 function(astral_set_warnings target)
     if(MSVC)
-        target_compile_options(${target} PRIVATE /W4 /permissive-)
+        # /utf-8: sources are UTF-8; without it MSVC reads them in the system code page.
+        target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8)
         if(ASTRAL_WARNINGS_AS_ERRORS)
             target_compile_options(${target} PRIVATE /WX)
         endif()

@@ -275,8 +275,11 @@ void replace_all(std::string& text, std::string_view from, std::string_view to) 
     for (std::size_t at = text.find(from); at != std::string::npos; at = text.find(from, at + to.size())) text.replace(at, from.size(), to);
 }
 
+/// Embedded GLSL as text with '\n' line ends (a Windows checkout may give the files CRLF).
 std::string embedded_text(const std::uint8_t* data, std::size_t size) {
-    return std::string(reinterpret_cast<const char*>(data), size);
+    std::string text(reinterpret_cast<const char*>(data), size);
+    std::erase(text, '\r');
+    return text;
 }
 
 /// Lines past the user's body (#line 100000) are the engine's: report them without a line.

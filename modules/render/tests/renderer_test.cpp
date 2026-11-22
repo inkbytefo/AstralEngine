@@ -3,6 +3,7 @@
 #include <astral/render/renderer.hpp>
 #include <astral/render/text.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <deque>

@@ -18,6 +18,7 @@ set(ENABLE_OBJECT_STREAM OFF CACHE BOOL "" FORCE)
 set(ENABLE_INSTALL ${ASTRAL_INSTALL} CACHE BOOL "" FORCE)
 set(CPP_RTTI_ENABLED ON CACHE BOOL "" FORCE)       # keep RTTI/exceptions consistent with the engine
 set(CPP_EXCEPTIONS_ENABLED ON CACHE BOOL "" FORCE)
+set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE) # MSVC: same dynamic CRT (/MD) as the engine
 FetchContent_Declare(JoltPhysics
     GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
     GIT_TAG v5.3.0
