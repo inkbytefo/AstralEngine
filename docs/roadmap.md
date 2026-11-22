@@ -40,9 +40,10 @@ Sonraki fazların numarası birer kaydı.
 | M17 | Hava: hacimsel bulutlar, hava durumu (yağmur, ıslaklık), ileri aerodinamik | M13, M14 | ⬜ |
 | M18 | Su II: etkileşimli su (GPU sığ su simülasyonu, iz, sıçrama, nehir akışı) | M16 | ⬜ |
 | M19 | SDF dünya ve yıkım: seyrek SDF hacimleri, çalışma anında CSG, yıkılabilir nesneler ([ADR-0018](decisions/0018-terrain-and-sdf-world.md)) | M12, M15 | ⬜ |
-| M20 | Animasyon: iskelet, GPU skinning, blend, root motion, skinned RT | M10 | ⬜ |
-| M21 | Fizik II: ragdoll + aktif ragdoll, araçlar, kumaş/soft body, kopan parçalar | M12, M19, M20 | ⬜ |
+| M20 | Animasyon: iskelet, GPU skinning, blend, root motion, IK (ayak yerleştirme, bakış, uzanma), skinned RT | M10 | ⬜ |
+| M21 | **Karakter fiziği:** ragdoll, kaslar, aktif ragdoll, Euphoria tarzı davranışlar (denge, darbe, düşüş, kalkma) ([ADR-0025](decisions/0025-physics-based-character-animation.md)) | M12, M20 | ⬜ |
 | M22 | Dünya ölçeği II: HLOD, büyük ölçekli bitki örtüsü, GPU-driven culling, meshlet LOD | M9, M15, M19 | ⬜ |
+| M23 | Fizik III: araçlar, kumaş/soft body (rüzgâr alanıyla), kopan parçalar, önceden kırılmış mesh'ler | M12, M19, M21 | ⬜ |
 | — | Kılıç arenası (yer tutucu): animasyon ve aktif ragdoll olgunlaşınca | M20, M21 | ⬜ |
 
 ### İlkeler
@@ -141,14 +142,23 @@ fizikte kuvvet. *Çıkış:* suya düşen nesne dalga yapıyor; nehirde sürükl
 **M19 — SDF dünya ve yıkım.** Seyrek tuğla SDF hacimleri (mağara, kemer), GPU'da mesh'e çevirme, çalışma
 anında CSG (krater, tünel), yıkılabilir nesneler. *Çıkış:* patlama kraterleri, kazılan tünel, delinen duvar.
 
-**M20 — Animasyon.** İskelet, GPU skinning, glTF animasyonları, blend ağaçları, root motion, morph target,
-skinned BLAS. *Çıkış:* animasyonlu karakter RT gölge ve yansımada doğru.
+**M20 — Animasyon.** Yeni `Astral::Animation` modülü: iskelet, poz, GPU skinning, glTF animasyonları, blend
+ağaçları, root motion, morph target, IK (iki kemik, FABRIK zinciri, bakış, ayak yerleştirme, el uzanma),
+skinned BLAS. *Çıkış:* animasyonlu karakter merdivende ayakları basamağa oturarak yürür; RT gölge ve
+yansımada doğru.
 
-**M21 — Fizik II.** Ragdoll ve aktif ragdoll, araçlar, kumaş ve soft body (rüzgâr alanıyla), yıkım
-parçaları dinamik body olarak, önceden kırılmış mesh'ler.
+**M21 — Karakter fiziği ([ADR-0025](decisions/0025-physics-based-character-animation.md)).** `.ragdoll` (Jolt
+ragdoll + swing-twist eklemler), kaslar (eklem başına güç/sönüm, kas profilleri, yorgunluk/acı), durumlar
+(kinematik → güçlü → kısmi → aktif → pasif → kalkma), Euphoria tarzı davranışlar (denge, sendeleme, darbe
+tepkisi, düşüşü yakalama, başını koruma, kalkma), fizik LOD'u ve ragdoll bütçesi. Yeni `Astral::Character`
+modülü. *Çıkış:* kılıç arenası yer tutucusu: vurulan karakter sendeler, düşerken elleriyle yakalanır,
+kalkar; aynı girdiyle aynı sonuç.
 
 **M22 — Dünya ölçeği II.** HLOD (hücre vekil mesh'leri), büyük ölçekli bitki örtüsü, GPU-driven culling,
 meshlet LOD. *Çıkış:* birkaç km² açık dünya, uzakta da dolu ufuk, sabit kare süresi.
+
+**M23 — Fizik III.** Araçlar, kumaş ve soft body (rüzgâr alanıyla), yıkım parçaları dinamik body olarak,
+önceden kırılmış mesh'ler.
 
 ### Neden bu sıra
 

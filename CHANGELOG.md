@@ -21,6 +21,8 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 ### Changed
 - Yol haritası v4: M9 dünya/harita sistemi, M10 shader dili, M11 modüler oyun kodu + Luau, M12 fizik
   alanları, M14 atmosfer + hacimsel VFX; sonraki fazlar birer kaydı (M22'ye kadar).
+- Karakter fiziği planı (ADR-0025, Euphoria tarzı aktif ragdoll): M20'ye IK eklendi, M21 karakter
+  fiziğine ayrıldı (ragdoll, kaslar, davranışlar), araçlar/kumaş/soft body yeni M23'e taşındı.
 
 ## [0.12.0] — 2026-11-21 — M7 (ilk oyun: 3D Pong)
 

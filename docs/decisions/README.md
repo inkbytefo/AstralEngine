@@ -29,3 +29,4 @@ ADR eskisini "yerini aldı" diye işaretler.
 | [0022](0022-shader-and-material-language.md) | Shader dili `.ashader` (gdshader benzeri) ve `.material`; tek shader → raster, RT, gölge, forward | Kabul |
 | [0023](0023-modular-game-code.md) | Modüler oyun kodu: özellik paketleri, SOLID kuralları, yapay zekâ dostu düzen | Kabul |
 | [0024](0024-volumetric-vfx.md) | VFX: CS2 tarzı hacimsel duman (deterministik ızgara + GPU görüntü hacmi), GPU partikülleri, `.vfx` | Kabul |
+| [0025](0025-physics-based-character-animation.md) | Fizik tabanlı karakter animasyonu: iskelet, IK, kaslar, aktif ragdoll, Euphoria tarzı davranışlar | Kabul |
