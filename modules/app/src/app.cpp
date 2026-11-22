@@ -106,6 +106,62 @@ struct GraphicsBackend {
     }
 };
 
+/// Context-bound adapters for grouped services whose operations combine Context fields or multiple bridges.
+struct ContextServices {
+    class Scenes final : public SceneService {
+    public:
+        Scenes(WorldBridge& bridge, DirectionalLight& sun, Environment& environment)
+            : bridge_(bridge), sun_(sun), environment_(environment) {}
+        LoadResult load_scene(std::string_view path) override { return bridge_.load_scene(path, sun_, environment_); }
+        bool save_scene(std::string_view path) override { return bridge_.save_scene(path, sun_, environment_); }
+        Entity spawn_prefab(std::string_view path, const Transform& transform) override {
+            return bridge_.spawn_prefab(path, transform);
+        }
+
+    private:
+        WorldBridge& bridge_;
+        DirectionalLight& sun_;
+        Environment& environment_;
+    };
+
+    class Maps final : public MapService {
+    public:
+        Maps(WorldBridge& bridge, FrameLoop& loop) : bridge_(bridge), loop_(loop) {}
+        bool open_world(std::string_view path) override { return bridge_.open_world(path); }
+        void close_world() override { bridge_.close_world(); }
+        void finish_world_loading() override { loop_.finish_world_loading(); }
+        MapLayers* world_layers() noexcept override { return bridge_.layers(); }
+        const StreamingStats* world_streaming() const noexcept override { return bridge_.streaming(); }
+        WorldPosition world_origin() const noexcept override { return bridge_.origin(); }
+
+    private:
+        WorldBridge& bridge_;
+        FrameLoop& loop_;
+    };
+
+    class Scripts final : public ScriptService {
+    public:
+        Scripts(ScriptBridge& bridge, const std::map<std::string, std::string>& api_owners)
+            : bridge_(bridge), api_owners_(api_owners) {}
+        std::vector<std::string> load_script(std::string_view path) override { return bridge_.load_script(path); }
+        bool write_script_api(std::string_view folder) override { return bridge_.write_script_api(folder, api_owners_); }
+        bool load_actions(std::string_view path) override { return bridge_.load_actions(path); }
+
+    private:
+        ScriptBridge& bridge_;
+        const std::map<std::string, std::string>& api_owners_;
+    };
+
+    ContextServices(WorldBridge& world_bridge, FrameLoop& frame_loop, ScriptBridge& script_bridge, Context& ctx)
+        : scenes(world_bridge, ctx.sun, ctx.environment),
+          maps(world_bridge, frame_loop),
+          scripts(script_bridge, ctx.api_owners) {}
+
+    Scenes scenes;
+    Maps maps;
+    Scripts scripts;
+};
+
 } // namespace
 
 struct App::Impl {
@@ -128,6 +184,7 @@ struct App::Impl {
     std::unique_ptr<WorldBridge> world_bridge;
     std::unique_ptr<ScriptBridge> script_bridge;
     std::unique_ptr<FrameLoop> frame_loop;
+    std::unique_ptr<ContextServices> services;
 
     explicit Impl(unsigned worker_threads) : jobs(worker_threads) {}
 };
@@ -206,6 +263,7 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc.worker_threads
         .run_phase = &App::run_phase,
         .fixed_timestep = desc.fixed_timestep,
     });
+    m.services = std::make_unique<ContextServices>(*m.world_bridge, *m.frame_loop, *m.script_bridge, *m.context);
 }
 
 App::~App() {
@@ -214,6 +272,7 @@ App::~App() {
     // Systems may release GPU resources in their destructors: they go first, while the
     // renderer and device still exist. Then the services, device last, window after it.
     m.frame_loop->clear_systems();
+    m.services.reset();
     m.frame_loop.reset();
     m.context->scripts = nullptr;
     m.script_bridge.reset();
@@ -277,44 +336,31 @@ World& App::world() noexcept { return impl_->world; }
 const Time& App::time() const noexcept { return impl_->time; }
 bool App::read_frame(std::vector<std::uint8_t>& rgba) const { return impl_->render_bridge->read_frame(rgba); }
 
-// --- Context forwarding methods (public API unchanged) -----------------------------------------
+// --- Context grouped service accessors ---------------------------------------------------------
 
 void Context::register_system(Phase phase, std::unique_ptr<System> system) {
     system->name_ = demangle(typeid(*system).name());
     app_.impl_->frame_loop->add_system(phase, std::move(system));
 }
 
-MeshHandle Context::create_mesh(const MeshData& data) { return app_.impl_->render_bridge->create_mesh(data); }
-MaterialHandle Context::create_material(const MaterialDesc& desc) { return app_.impl_->render_bridge->create_material(desc); }
-bool Context::update_material(MaterialHandle material, const MaterialDesc& desc) {
-    return app_.impl_->render_bridge->update_material(material, desc);
-}
-MaterialHandle Context::load_material(std::string_view path) { return app_.impl_->render_bridge->load_material(path); }
-std::string_view Context::shader_error() const noexcept { return app_.impl_->render_bridge->shader_error(); }
 Vec2 Context::screen_size() const { return app_.impl_->render_bridge->screen_size(); }
 
-SoundHandle Context::sound(std::string_view path) { return app_.impl_->audio_bridge->sound(path); }
+SceneService& Context::scenes() noexcept { return app_.impl_->services->scenes; }
+const SceneService& Context::scenes() const noexcept { return app_.impl_->services->scenes; }
 
-std::span<const ContactEvent> Context::contacts() const noexcept { return app_.impl_->physics_bridge->contacts(); }
+MapService& Context::maps() noexcept { return app_.impl_->services->maps; }
+const MapService& Context::maps() const noexcept { return app_.impl_->services->maps; }
 
-LoadResult Context::load_scene(std::string_view path) {
-    return app_.impl_->world_bridge->load_scene(path, sun, environment);
-}
-bool Context::save_scene(std::string_view path) { return app_.impl_->world_bridge->save_scene(path, sun, environment); }
-Entity Context::spawn_prefab(std::string_view path, const Transform& transform) {
-    return app_.impl_->world_bridge->spawn_prefab(path, transform);
-}
-bool Context::open_world(std::string_view path) { return app_.impl_->world_bridge->open_world(path); }
-void Context::close_world() { app_.impl_->world_bridge->close_world(); }
-void Context::finish_world_loading() { app_.impl_->frame_loop->finish_world_loading(); }
-MapLayers* Context::world_layers() noexcept { return app_.impl_->world_bridge->layers(); }
-const StreamingStats* Context::world_streaming() const noexcept { return app_.impl_->world_bridge->streaming(); }
-WorldPosition Context::world_origin() const noexcept { return app_.impl_->world_bridge->origin(); }
+MaterialService& Context::materials() noexcept { return *app_.impl_->render_bridge; }
+const MaterialService& Context::materials() const noexcept { return *app_.impl_->render_bridge; }
 
-std::vector<std::string> Context::load_script(std::string_view path) { return app_.impl_->script_bridge->load_script(path); }
-bool Context::load_actions(std::string_view path) { return app_.impl_->script_bridge->load_actions(path); }
-bool Context::write_script_api(std::string_view folder) {
-    return app_.impl_->script_bridge->write_script_api(folder, api_owners);
-}
+AudioService& Context::audio_service() noexcept { return *app_.impl_->audio_bridge; }
+const AudioService& Context::audio_service() const noexcept { return *app_.impl_->audio_bridge; }
+
+ScriptService& Context::script_service() noexcept { return app_.impl_->services->scripts; }
+const ScriptService& Context::script_service() const noexcept { return app_.impl_->services->scripts; }
+
+PhysicsService& Context::physics_service() noexcept { return *app_.impl_->physics_bridge; }
+const PhysicsService& Context::physics_service() const noexcept { return *app_.impl_->physics_bridge; }
 
 } // namespace astral

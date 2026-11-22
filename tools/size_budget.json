@@ -9,25 +9,7 @@
     "path": "modules/app/include/astral/app/app.hpp",
     "kind": "members",
     "name": "Context",
-    "reason": "M13.5 R2: to be split"
-  },
-  {
-    "path": "modules/app/src/debug_ui.cpp",
-    "kind": "function",
-    "name": "edit_json",
-    "reason": "M13.5 R3: to be split"
-  },
-  {
-    "path": "modules/app/src/debug_ui.cpp",
-    "kind": "function",
-    "name": "DebugUi::draw_panels",
-    "reason": "M13.5 R3: to be split"
-  },
-  {
-    "path": "modules/app/src/input_actions.cpp",
-    "kind": "function",
-    "name": "InputActions::load",
-    "reason": "M13.5 R3: to be split"
+    "reason": "M13.5 R2: public Context fields kept for source compatibility until M14"
   },
   {
     "path": "modules/assets/src/cook.cpp",

@@ -98,7 +98,7 @@ TEST_CASE("actions files with CRLF line endings load identically to LF") {
             bool ok = false;
             std::vector<std::string>* names = nullptr;
             void on_start(Context& ctx) override {
-                ok = ctx.load_actions(file);
+                ok = ctx.script_service().load_actions(file);
                 *names = ctx.actions.names();
             }
         } game;

@@ -17,7 +17,7 @@ struct Run final : Game {
     std::function<void(Context&)> setup, each_frame;
     void on_start(Context& ctx) override {
         REQUIRE(pong::install(ctx));
-        REQUIRE(ctx.load_scene("court.scene").errors.empty());
+        REQUIRE(ctx.scenes().load_scene("court.scene").errors.empty());
         pong::set_player_ai(ctx.world, player_ai);
         if (setup) setup(ctx);
     }
@@ -163,8 +163,9 @@ TEST_CASE("the match is heard: serves and bounces are events, the court sounds l
     EventReader<pong::Bounced> reader;
     run.setup = [&](Context& ctx) {
         const pong::Sounds s;
-        sounds_load = ctx.sound(s.paddle).valid() && ctx.sound(s.wall).valid() && ctx.sound(s.serve).valid() &&
-                      ctx.sound(s.point_won).valid() && ctx.sound(s.match_lost).valid();
+        sounds_load = ctx.audio_service().sound(s.paddle).valid() && ctx.audio_service().sound(s.wall).valid() &&
+                      ctx.audio_service().sound(s.serve).valid() && ctx.audio_service().sound(s.point_won).valid() &&
+                      ctx.audio_service().sound(s.match_lost).valid();
     };
     run.each_frame = [&](Context& ctx) {
         reader.read(ctx.world, [&](const pong::Bounced& b) {

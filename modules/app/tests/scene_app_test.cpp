@@ -55,9 +55,9 @@ TEST_CASE("the App loads scenes, spawns prefabs and saves scenes that load back 
         int frame = 0;
         bool saved = false;
         void on_start(Context& ctx) override {
-            loaded = ctx.load_scene("level.scene");
+            loaded = ctx.scenes().load_scene("level.scene");
             exposure = ctx.environment.exposure;
-            spawned = ctx.spawn_prefab("props/lamp.prefab", {.position = {-3, 0, 0}});
+            spawned = ctx.scenes().spawn_prefab("props/lamp.prefab", {.position = {-3, 0, 0}});
             spawned_parts = ctx.world.query<const PrefabPart>().count();
         }
         void on_update(Context& ctx) override {
@@ -68,7 +68,7 @@ TEST_CASE("the App loads scenes, spawns prefabs and saves scenes that load back 
                 const Entity lamp2 = loaded.entities[1];
                 bulb_intensity = ctx.world.get<PointLight>(find_part(ctx.world, lamp2, "bulb"))->intensity;
                 ctx.world.get<PointLight>(find_part(ctx.world, spawned, "bulb"))->intensity = 2; // an edit to save
-                saved = ctx.save_scene("out/saved.scene");
+                saved = ctx.scenes().save_scene("out/saved.scene");
             }
         }
     } game;
@@ -100,8 +100,8 @@ TEST_CASE("the App loads scenes, spawns prefabs and saves scenes that load back 
     struct H final : Game {
         bool saved = false;
         void on_start(Context& ctx) override {
-            CHECK(ctx.load_scene("out/saved.scene").errors.empty());
-            saved = ctx.save_scene("out/again.scene");
+            CHECK(ctx.scenes().load_scene("out/saved.scene").errors.empty());
+            saved = ctx.scenes().save_scene("out/again.scene");
         }
     } again;
     {

@@ -47,11 +47,11 @@ struct RenderFrameInput {
     std::span<const MaterialHandle> post;
 };
 
-class RenderBridge {
+class RenderBridge final : public MaterialService {
 public:
     RenderBridge(World& world, AssetManager& assets, Logger& log, gpu::Device* device, gpu::Swapchain* swapchain,
                  Window* window, Renderer* renderer, const RenderBridgeConfig& config);
-    ~RenderBridge();
+    ~RenderBridge() override;
     RenderBridge(const RenderBridge&) = delete;
     RenderBridge& operator=(const RenderBridge&) = delete;
 
@@ -63,11 +63,11 @@ public:
     [[nodiscard]] Vec2 screen_size() const;
     [[nodiscard]] bool read_frame(std::vector<std::uint8_t>& rgba) const;
 
-    MeshHandle create_mesh(const MeshData& data);
-    MaterialHandle create_material(const MaterialDesc& desc);
-    bool update_material(MaterialHandle material, const MaterialDesc& desc);
-    MaterialHandle load_material(std::string_view path);
-    [[nodiscard]] std::string_view shader_error() const noexcept;
+    MeshHandle create_mesh(const MeshData& data) override;
+    MaterialHandle create_material(const MaterialDesc& desc) override;
+    bool update_material(MaterialHandle material, const MaterialDesc& desc) override;
+    MaterialHandle load_material(std::string_view path) override;
+    [[nodiscard]] std::string_view shader_error() const noexcept override;
 
     void update_materials(double elapsed);
     void sync_models();

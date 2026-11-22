@@ -63,8 +63,8 @@ TEST_CASE("a .material file draws, follows edits while the game runs and survive
             return d ? std::vector<float>(d->params.begin(), d->params.begin() + 3) : std::vector<float>{};
         }
         void on_start(Context& ctx) override {
-            red = ctx.load_material("materials/base.material");
-            green = ctx.load_material("materials/child.material");
+            red = ctx.materials().load_material("materials/base.material");
+            green = ctx.materials().load_material("materials/child.material");
             ctx.world.create(Transform{.position = {0, 0, 0}, .scale = {3, 3, 3}},
                              PrimitiveMesh{.shape = Primitive::Cube, .material_file = "materials/child.material"});
             ctx.world.create(Transform{.position = {0, 0, 6}}, Camera{});
@@ -119,7 +119,7 @@ TEST_CASE("load_material without a renderer or with a missing file gives an inva
     App headless({.headless = true});
     struct G final : Game {
         MaterialHandle m{};
-        void on_start(Context& ctx) override { m = ctx.load_material("nothing.material"); }
+        void on_start(Context& ctx) override { m = ctx.materials().load_material("nothing.material"); }
     } game;
     headless.run_frames(game, 1);
     CHECK_FALSE(game.m.valid());

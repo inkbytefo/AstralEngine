@@ -1,6 +1,7 @@
 #pragma once
 // Internal to Astral::App: bridges AudioSource / AudioListener components to AudioEngine and caches loaded sounds.
 
+#include <astral/app/audio_service.hpp>
 #include <astral/audio/audio.hpp>
 
 #include <memory>
@@ -14,15 +15,15 @@ class AssetManager;
 class Logger;
 class World;
 
-class AudioBridge {
+class AudioBridge final : public AudioService {
 public:
     AudioBridge(World& world, AssetManager& assets, Logger& log, bool enable_device);
-    ~AudioBridge();
+    ~AudioBridge() override;
     AudioBridge(const AudioBridge&) = delete;
     AudioBridge& operator=(const AudioBridge&) = delete;
 
     [[nodiscard]] AudioEngine* engine() noexcept { return audio_.get(); }
-    SoundHandle sound(std::string_view path);
+    SoundHandle sound(std::string_view path) override;
     void sync();
 
 private:

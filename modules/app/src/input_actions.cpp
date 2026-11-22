@@ -45,6 +45,34 @@ bool pressed_any(const Input& in, const std::vector<Key>& keys) {
     return std::any_of(keys.begin(), keys.end(), [&](Key k) { return in.down(k); });
 }
 
+bool read_gamepad_buttons(const Json* pad, std::vector<GamepadButton>& out, const std::string& where, std::string* error) {
+    if (!pad) return true;
+    for (const Json& b : pad->as_array()) {
+        const auto button = gamepad_button_from_name(b.as_string());
+        if (!button) {
+            if (error) *error = where + ": unknown gamepad button " + b.dump() + " (A B X Y Back Start LeftStick RightStick LeftShoulder RightShoulder DpadUp DpadDown DpadLeft DpadRight)";
+            return false;
+        }
+        out.push_back(*button);
+    }
+    return true;
+}
+
+bool read_mouse_buttons(const Json* mouse, std::vector<MouseButton>& out, const std::string& where, std::string* error) {
+    if (!mouse) return true;
+    for (const Json& b : mouse->as_array()) {
+        const std::string& n = b.as_string();
+        if (n == "Left") out.push_back(MouseButton::Left);
+        else if (n == "Right") out.push_back(MouseButton::Right);
+        else if (n == "Middle") out.push_back(MouseButton::Middle);
+        else {
+            if (error) *error = where + ": unknown mouse button " + b.dump() + " (Left, Right, Middle)";
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 std::optional<GamepadButton> gamepad_button_from_name(std::string_view name) noexcept {
@@ -102,17 +130,7 @@ bool InputActions::load(const Json& document, std::string* error) {
                 a.mouse_delta_scale = {static_cast<float>((*md)[0].as_number()), static_cast<float>((*md)[1].as_number())};
             }
         }
-        if (!ok) return false;
-        if (const Json* pad = spec.find("gamepad")) {
-            for (const Json& b : pad->as_array()) {
-                const auto button = gamepad_button_from_name(b.as_string());
-                if (!button) {
-                    if (error) *error = where + ": unknown gamepad button " + b.dump() + " (A B X Y Back Start LeftStick RightStick LeftShoulder RightShoulder DpadUp DpadDown DpadLeft DpadRight)";
-                    return false;
-                }
-                a.pad_buttons.push_back(*button);
-            }
-        }
+        if (!ok || !read_gamepad_buttons(spec.find("gamepad"), a.pad_buttons, where, error)) return false;
         if (const Json* axis = spec.find("gamepad_axis")) {
             a.pad_axis = gamepad_axis_from_name(axis->as_string());
             if (!a.pad_axis) {
@@ -132,18 +150,7 @@ bool InputActions::load(const Json& document, std::string* error) {
         if (const Json* scale = spec.find("stick_scale"); scale && scale->is_array() && scale->size() == 2) {
             a.stick_scale = {static_cast<float>((*scale)[0].as_number()), static_cast<float>((*scale)[1].as_number())};
         }
-        if (const Json* mouse = spec.find("mouse")) {
-            for (const Json& b : mouse->as_array()) {
-                const std::string& n = b.as_string();
-                if (n == "Left") a.mouse.push_back(MouseButton::Left);
-                else if (n == "Right") a.mouse.push_back(MouseButton::Right);
-                else if (n == "Middle") a.mouse.push_back(MouseButton::Middle);
-                else {
-                    if (error) *error = where + ": unknown mouse button " + b.dump() + " (Left, Right, Middle)";
-                    return false;
-                }
-            }
-        }
+        if (!read_mouse_buttons(spec.find("mouse"), a.mouse, where, error)) return false;
         out.push_back(std::move(a));
     }
     actions_ = std::move(out);

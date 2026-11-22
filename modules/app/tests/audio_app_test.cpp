@@ -36,8 +36,8 @@ TEST_CASE("AudioSource components play, follow their entity, end and stop; ctx.s
             REQUIRE(ctx.audio);
             blip = ctx.world.create(Transform{}, AudioSource{.sound = "sounds/blip.wav", .bus = AudioBus::Effects, .loop = false});
             loop = ctx.world.create(Transform{.position = {3, 0, 0}}, AudioSource{.sound = "sounds/loop.wav"});
-            cached = ctx.sound("sounds/blip.wav") == ctx.sound("sounds/blip.wav");
-            missing_invalid = !ctx.sound("sounds/nope.wav").valid();
+            cached = ctx.audio_service().sound("sounds/blip.wav") == ctx.audio_service().sound("sounds/blip.wav");
+            missing_invalid = !ctx.audio_service().sound("sounds/nope.wav").valid();
         }
         void on_update(Context& ctx) override {
             ++frame;

@@ -16,7 +16,7 @@ void ViewerGame::on_start(Context& ctx) {
     const Studio studio;
     ctx.world.create(Transform{}, ModelRef{file_});
     ctx.world.create(Transform{.position = {0, -0.5f, 0}, .scale = {12, 1, 12}},
-                     MeshRenderer{ctx.meshes.plane, ctx.create_material({.base_color = {0.5f, 0.5f, 0.52f, 1}, .roughness = 0.55f})});
+                     MeshRenderer{ctx.meshes.plane, ctx.materials().create_material({.base_color = {0.5f, 0.5f, 0.52f, 1}, .roughness = 0.55f})});
     ctx.world.create(Transform{.position = studio.key.position}, RectLight{studio.key});
     ctx.world.create(Transform{.position = studio.eye, .rotation = rotation_of(inverse(look_at(studio.eye, studio.target, {0, 1, 0})))},
                      Camera{.fov_y = radians(40.0f), .near_plane = 0.05f});

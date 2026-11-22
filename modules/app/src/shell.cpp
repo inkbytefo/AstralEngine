@@ -64,7 +64,7 @@ public:
     ShellGame(Game& inner, const ShellOptions& options) : inner_(inner), options_(options) {}
     void on_start(Context& ctx) override {
         inner_.on_start(ctx);
-        if (!options_.script_api.empty()) ctx.write_script_api(options_.script_api);
+        if (!options_.script_api.empty()) ctx.script_service().write_script_api(options_.script_api);
     }
     void on_update(Context& ctx) override {
         if (!options_.capturing() && ctx.input.pressed(Key::Escape)) ctx.quit();

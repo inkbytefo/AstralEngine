@@ -31,6 +31,15 @@ astral_add_module(NAME app
         src/feature_check.cpp
         src/shell.cpp
         src/debug_ui.cpp
+        src/panels/debug_panel.cpp
+        src/panels/demo_panel.cpp
+        src/panels/inspector_panel.cpp
+        src/panels/json_editor.cpp
+        src/panels/materials_panel.cpp
+        src/panels/performance_panel.cpp
+        src/panels/render_panel.cpp
+        src/panels/scene_panel.cpp
+        src/panels/world_panel.cpp
         src/map_runtime.cpp
         src/material_library.cpp
     DEPS
@@ -51,6 +60,8 @@ astral_add_tests(MODULE app
         tests/actions_test.cpp
         tests/actions_crlf_test.cpp
         tests/app_test.cpp
+        tests/context_services_test.cpp
+        tests/debug_panels_test.cpp
         tests/frame_order_test.cpp
         tests/services_test.cpp
         tests/physics_app_test.cpp

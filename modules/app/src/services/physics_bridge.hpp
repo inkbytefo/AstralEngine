@@ -2,6 +2,7 @@
 // Internal to Astral::App: bridges RigidBody, CharacterController, Joint, fields and contacts to PhysicsWorld.
 
 #include <astral/app/components.hpp>
+#include <astral/app/physics_service.hpp>
 #include <astral/physics/fields.hpp>
 #include <astral/physics/physics.hpp>
 
@@ -22,19 +23,19 @@ struct PhysicsBridgeConfig {
     bool interpolation = false;
 };
 
-class PhysicsBridge {
+class PhysicsBridge final : public PhysicsService {
 public:
     using FixedStepCallback = void (*)(void*);
 
     PhysicsBridge(World& world, FieldWorld& fields, const Time& time, Profiler* profiler, Logger& log,
                   PhysicsBridgeConfig config);
-    ~PhysicsBridge();
+    ~PhysicsBridge() override;
     PhysicsBridge(const PhysicsBridge&) = delete;
     PhysicsBridge& operator=(const PhysicsBridge&) = delete;
 
     [[nodiscard]] PhysicsWorld* world() noexcept { return physics_.get(); }
     [[nodiscard]] ScriptPhysics* script_physics() noexcept { return script_physics_.get(); }
-    [[nodiscard]] std::span<const ContactEvent> contacts() const noexcept;
+    [[nodiscard]] std::span<const ContactEvent> contacts() const noexcept override;
 
     void step(float delta, FixedStepCallback on_fixed_update = nullptr, void* user = nullptr);
     void shift_origin(Vec3 offset);

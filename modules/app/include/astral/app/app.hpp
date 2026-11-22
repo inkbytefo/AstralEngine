@@ -1,7 +1,13 @@
 #pragma once
 
+#include <astral/app/audio_service.hpp>
 #include <astral/app/components.hpp>
 #include <astral/app/input_actions.hpp>
+#include <astral/app/map_service.hpp>
+#include <astral/app/material_service.hpp>
+#include <astral/app/physics_service.hpp>
+#include <astral/app/scene_service.hpp>
+#include <astral/app/script_service.hpp>
 #include <astral/core/jobs.hpp>
 #include <astral/core/log.hpp>
 #include <astral/core/profiler.hpp>
@@ -92,9 +98,6 @@ public:
     AssetManager* assets = nullptr;
     /// Sound output (a silent mixer when headless or without a device). Always available.
     AudioEngine* audio = nullptr;
-    /// Loads a sound by asset path once (from the pack or the asset folder) and returns it; invalid
-    /// (and logged once) if it cannot be read or decoded. ctx.audio->play(ctx.sound("sfx/hit.wav")).
-    SoundHandle sound(std::string_view path);
     /// Prefab templates (from asset documents). Always available.
     PrefabLibrary* prefabs = nullptr;
     /// CPU frame profiler: the App times its phases and every system; add your own scopes with
@@ -123,7 +126,7 @@ public:
     } debug_show;
     /// The engine's debug UI (F1): performance, entities, inspector, render settings. Needs a renderer.
     bool show_debug_ui = false;
-    /// A material whose shader is `shader_type sky` (ctx.load_material): replaces the background.
+    /// A material whose shader is `shader_type sky` (ctx.materials().load_material): replaces the background.
     MaterialHandle sky{};
     /// Materials with `shader_type post` shaders, applied in order after tonemapping.
     std::vector<MaterialHandle> post;
@@ -136,23 +139,13 @@ public:
     /// Events by name (scripts send and listen through it): add your ASTRAL_REFLECT'ed events with
     /// events.add<T>(); scripts can define their own with astral.define_event.
     EventRegistry events;
-    /// Named input actions ("move", "fire"): fill with load_actions(); scripts read them as astral.input.
+    /// Named input actions ("move", "fire"): fill with ctx.script_service().load_actions(); scripts read them as astral.input.
     InputActions actions;
     /// The Luau host (ADR-0017). Always available; scripts run in the phases of the frame, after the C++
     /// systems of the same phase.
     ScriptHost* scripts = nullptr;
-    /// Loads (or reloads) a script file relative to the asset root; it is reloaded when the file
-    /// changes (development builds). Returns the problems as "file:line: message" (empty = fine; they are
-    /// logged too). A failing reload keeps the previous version running.
-    std::vector<std::string> load_script(std::string_view path);
     /// Which feature owns a component or event (filled by FeatureSet::install; shown in API.md).
     std::map<std::string, std::string> api_owners;
-    /// Writes astral.d.luau (Luau type definitions) and API.md (reference) for everything registered now:
-    /// call after the features are installed. False (logged) if a file cannot be written.
-    bool write_script_api(std::string_view folder);
-    /// Loads an .actions file (see input_actions.hpp) into `actions`; reloaded when edited. False (logged)
-    /// if it cannot be read or is invalid.
-    bool load_actions(std::string_view path);
 
     template <class S, class... Args> S& add_system(Phase phase, Args&&... args) {
         auto system = std::make_unique<S>(std::forward<Args>(args)...);
@@ -160,48 +153,41 @@ public:
         register_system(phase, std::move(system));
         return ref;
     }
-    /// Render resources. Safe in headless mode: they return an invalid handle (nothing is drawn).
-    MeshHandle create_mesh(const MeshData& data);
-    MaterialHandle create_material(const MaterialDesc& desc);
-    /// False in headless mode or for a dead handle.
-    bool update_material(MaterialHandle material, const MaterialDesc& desc);
 
-    /// A material from a .material file (ADR-0022): its shader (.ashader) and values, with the parent chain
-    /// applied. Loaded on first use and cached; the handle stays valid while the file is edited (hot reload
-    /// updates it in place; a version that does not compile is logged and the last good one stays). Invalid
-    /// (logged) if it cannot be built, and in headless mode. Draw with MeshRenderer, or give a
-    /// PrimitiveMesh a material_file.
-    MaterialHandle load_material(std::string_view path);
-    /// Why the custom shaders could not be compiled into the ray-traced shaders ("" = fine).
-    [[nodiscard]] std::string_view shader_error() const noexcept;
-    /// Appends a scene file (relative to the asset root) to the world. Its "sun" and "environment",
-    /// if present, replace ctx.sun / ctx.environment. Problems are logged and returned.
-    LoadResult load_scene(std::string_view path);
-    /// Writes the world as a scene file (with ctx.sun / ctx.environment). False if it cannot be written.
-    bool save_scene(std::string_view path);
-    /// Opens a map (.world, ADR-0021) in place of the current one: its always-loaded entities spawn now,
-    /// its cells stream in and out around StreamingSource entities (else the active camera), and the
-    /// floating origin follows the first source. Works with source maps (development) and cooked ones.
-    /// False (logged) if the map cannot be read.
-    bool open_world(std::string_view path);
-    /// Removes the open map's entities and forgets it.
-    void close_world();
-    /// Blocks until every cell in range is loaded and spawned (loading screens, tests).
-    void finish_world_loading();
-    /// The open map's data layers (set("night", true)); null without an open map.
-    [[nodiscard]] MapLayers* world_layers() noexcept;
-    /// Cell counts of the open map; null without one.
-    [[nodiscard]] const StreamingStats* world_streaming() const noexcept;
-    /// World position of local zero. Transform positions are relative to it; OriginShifted events tell
-    /// when it moves (only while a map is open).
-    [[nodiscard]] WorldPosition world_origin() const noexcept;
+    /// Grouped engine services (preferred over the deprecated flat methods below).
+    [[nodiscard]] SceneService& scenes() noexcept;
+    [[nodiscard]] const SceneService& scenes() const noexcept;
+    [[nodiscard]] MapService& maps() noexcept;
+    [[nodiscard]] const MapService& maps() const noexcept;
+    [[nodiscard]] MaterialService& materials() noexcept;
+    [[nodiscard]] const MaterialService& materials() const noexcept;
+    [[nodiscard]] AudioService& audio_service() noexcept;
+    [[nodiscard]] const AudioService& audio_service() const noexcept;
+    [[nodiscard]] ScriptService& script_service() noexcept;
+    [[nodiscard]] const ScriptService& script_service() const noexcept;
+    [[nodiscard]] PhysicsService& physics_service() noexcept;
+    [[nodiscard]] const PhysicsService& physics_service() const noexcept;
 
-    /// Creates an instance of a prefab now: its parts exist when this returns. Components of the
-    /// prefab's root other than Transform come from the prefab.
-    Entity spawn_prefab(std::string_view path, const Transform& transform = {});
-
-    /// Contacts that began or ended during this frame's physics steps.
-    [[nodiscard]] std::span<const ContactEvent> contacts() const noexcept;
+    // Deprecated flat service forwards (scheduled for removal in M14).
+    [[deprecated("use ctx.audio_service().sound")]] SoundHandle sound(std::string_view path) { return audio_service().sound(path); }
+    [[deprecated("use ctx.script_service().load_script")]] std::vector<std::string> load_script(std::string_view path) { return script_service().load_script(path); }
+    [[deprecated("use ctx.script_service().write_script_api")]] bool write_script_api(std::string_view folder) { return script_service().write_script_api(folder); }
+    [[deprecated("use ctx.script_service().load_actions")]] bool load_actions(std::string_view path) { return script_service().load_actions(path); }
+    [[deprecated("use ctx.materials().create_mesh")]] MeshHandle create_mesh(const MeshData& data) { return materials().create_mesh(data); }
+    [[deprecated("use ctx.materials().create_material")]] MaterialHandle create_material(const MaterialDesc& desc) { return materials().create_material(desc); }
+    [[deprecated("use ctx.materials().update_material")]] bool update_material(MaterialHandle material, const MaterialDesc& desc) { return materials().update_material(material, desc); }
+    [[deprecated("use ctx.materials().load_material")]] MaterialHandle load_material(std::string_view path) { return materials().load_material(path); }
+    [[deprecated("use ctx.materials().shader_error"), nodiscard]] std::string_view shader_error() const noexcept { return materials().shader_error(); }
+    [[deprecated("use ctx.scenes().load_scene")]] LoadResult load_scene(std::string_view path) { return scenes().load_scene(path); }
+    [[deprecated("use ctx.scenes().save_scene")]] bool save_scene(std::string_view path) { return scenes().save_scene(path); }
+    [[deprecated("use ctx.scenes().spawn_prefab")]] Entity spawn_prefab(std::string_view path, const Transform& transform = {}) { return scenes().spawn_prefab(path, transform); }
+    [[deprecated("use ctx.maps().open_world")]] bool open_world(std::string_view path) { return maps().open_world(path); }
+    [[deprecated("use ctx.maps().close_world")]] void close_world() { maps().close_world(); }
+    [[deprecated("use ctx.maps().finish_world_loading")]] void finish_world_loading() { maps().finish_world_loading(); }
+    [[deprecated("use ctx.maps().world_layers"), nodiscard]] MapLayers* world_layers() noexcept { return maps().world_layers(); }
+    [[deprecated("use ctx.maps().world_streaming"), nodiscard]] const StreamingStats* world_streaming() const noexcept { return maps().world_streaming(); }
+    [[deprecated("use ctx.maps().world_origin"), nodiscard]] WorldPosition world_origin() const noexcept { return maps().world_origin(); }
+    [[deprecated("use ctx.physics_service().contacts"), nodiscard]] std::span<const ContactEvent> contacts() const noexcept { return physics_service().contacts(); }
 
     /// Ends the run loop after the current frame.
     void quit() noexcept { quit_requested_ = true; }

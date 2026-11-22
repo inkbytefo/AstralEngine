@@ -91,7 +91,7 @@ TEST_CASE("frame stage order with 0 fixed steps: C++ phases, scripts, and profil
         std::vector<std::string> tags;
         void on_start(Context& ctx) override {
             ctx.events.add<TraceEvent>();
-            REQUIRE(ctx.load_script("trace.luau").empty());
+            REQUIRE(ctx.script_service().load_script("trace.luau").empty());
             ctx.add_system<TraceSystem>(Phase::PreUpdate, "cpp:PreUpdate");
             ctx.add_system<TraceSystem>(Phase::Update, "cpp:Update");
             ctx.add_system<TraceSystem>(Phase::FixedUpdate, "cpp:FixedUpdate");
@@ -177,7 +177,7 @@ TEST_CASE("frame stage order with 2 fixed steps: interleaved FixedUpdate, physic
         explicit UpdateProbe(Probe& p) : probe_(p) {}
         void update(Context& ctx) override {
             ctx.world.send(TraceEvent{"cpp:Update"});
-            probe_.contacts_in_update = ctx.contacts().size();
+            probe_.contacts_in_update = ctx.physics_service().contacts().size();
         }
 
     private:
@@ -189,7 +189,7 @@ TEST_CASE("frame stage order with 2 fixed steps: interleaved FixedUpdate, physic
         explicit PostProbe(Probe& p) : probe_(p) {}
         void update(Context& ctx) override {
             ctx.world.send(TraceEvent{"cpp:PostUpdate"});
-            probe_.contacts_in_post = ctx.contacts().size();
+            probe_.contacts_in_post = ctx.physics_service().contacts().size();
             probe_.contact_events_in_post = probe_.contact_reader.read(ctx.world, [](const Contact&) {});
             probe_.transform_y_in_post = ctx.world.get<const Transform>(probe_.ball)->position.y;
         }
@@ -204,7 +204,7 @@ TEST_CASE("frame stage order with 2 fixed steps: interleaved FixedUpdate, physic
         std::vector<std::string> tags;
         void on_start(Context& ctx) override {
             ctx.events.add<TraceEvent>();
-            REQUIRE(ctx.load_script("trace.luau").empty());
+            REQUIRE(ctx.script_service().load_script("trace.luau").empty());
             // Static floor at y = 0 (top at y = 0.5) and a dynamic sphere touching it plus a falling sphere.
             ctx.world.create(Transform{.position = {0, 0, 0}},
                              RigidBody{.desc = {.shape = ShapeDesc::box({10, 0.5f, 10}), .motion = MotionType::Static}});
@@ -338,7 +338,7 @@ TEST_CASE("world streaming, model sync, primitive sync, audio sync, and overlays
         PostSpawner(Observations& obs, Entities& ents) : obs_(obs), ents_(ents) {}
         void update(Context& ctx) override {
             if (ctx.time.frame != 0) return; // first frame
-            ctx.world_layers()->set("night", true);
+            ctx.maps().world_layers()->set("night", true);
             ents_.prim = ctx.world.create(Transform{.position = {7, 0, 0}}, PrimitiveMesh{});
             ents_.model = ctx.world.create(Transform{}, ModelRef{"quad.gltf"});
             ents_.sound = ctx.world.create(Transform{}, AudioSource{.sound = "sounds/beep.wav", .loop = true});
@@ -362,9 +362,9 @@ TEST_CASE("world streaming, model sync, primitive sync, audio sync, and overlays
         Observations* obs = nullptr;
         Entities* ents = nullptr;
         void on_start(Context& ctx) override {
-            REQUIRE(ctx.open_world("maps/test.world"));
+            REQUIRE(ctx.maps().open_world("maps/test.world"));
             ctx.world.create(Transform{}, StreamingSource{});
-            ctx.finish_world_loading();
+            ctx.maps().finish_world_loading();
             // Preload quad.gltf so sync_models can spawn pieces deterministically on the very next assets stage.
             (void)ctx.assets->load_model("quad.gltf");
             ctx.assets->wait_all();

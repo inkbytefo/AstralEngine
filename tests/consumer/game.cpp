@@ -10,7 +10,7 @@ int main() {
         bool packed = false;
         void on_start(astral::Context& ctx) override {
             packed = ctx.assets->from_pack();
-            loaded = ctx.load_scene("hello.scene").entities.size();
+            loaded = ctx.scenes().load_scene("hello.scene").entities.size();
         }
     } game;
     astral::App app({.headless = true, .asset_root = ASTRAL_GAME_ASSETS, .pack = ASTRAL_GAME_PACK});

@@ -1,10 +1,11 @@
 #pragma once
-// Internal: the engine's debug UI (Dear ImGui) — its renderer backend and the built-in panels.
+// Internal: the engine's debug UI (Dear ImGui) — its renderer backend and panel menu/dispatch loop.
+
+#include "panels/debug_panel.hpp"
 
 #include <astral/app/app.hpp>
 
 #include <cstdint>
-#include <string>
 #include <vector>
 
 struct ImGuiContext;
@@ -28,9 +29,9 @@ public:
     [[nodiscard]] bool wants_keyboard() const;
     [[nodiscard]] bool wants_text() const;
 
-    /// The built-in windows: performance, entities, inspector, render settings.
+    /// Draws the main menu bar and every open panel in `panels`.
     /// `materials`: the .material library for the Materials panel (null: no panel content).
-    void draw_panels(Context& ctx, class MaterialLibrary* materials = nullptr);
+    void draw_panels(Context& ctx, DebugPanelRegistry& panels, class MaterialLibrary* materials = nullptr);
 
 private:
     void update_textures();
@@ -42,17 +43,7 @@ private:
     std::vector<UiCommand> commands_;
     bool keys_down_[256] = {};
     bool mouse_down_[3] = {};
-
-    // Panel state.
-    bool show_performance_ = true;
-    bool show_scene_ = true;
-    bool show_inspector_ = true;
-    bool show_render_ = false;
-    bool show_world_ = false;
-    bool show_materials_ = false;
-    bool show_demo_ = false;
-    Entity selected_{};
-    std::string filter_;
+    DebugPanelState panel_state_{};
 };
 
 } // namespace astral

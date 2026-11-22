@@ -6,7 +6,7 @@ Bu dosya, motoru kullanarak **oyun** yazan ajanlar içindir (motorun kendisini d
 ## İş akışı (kapalı döngü)
 
 1. `API.md` ve `astral.d.luau` dosyalarını oku: `pong --script-api docs/api` gibi, oyunun kendi çalıştırılabilirinden
-   üretilir (`ctx.write_script_api`). Her component, alan, enum ve olay orada; kodu tahmin etme.
+   üretilir (`ctx.script_service().write_script_api`). Her component, alan, enum ve olay orada; kodu tahmin etme.
 2. Önce başarısız test yaz (başsız `App`, `fixed_timestep = 1/60`), sonra kuralı yaz, sonra testi geçir.
 3. Derle ve koş: `cmake --preset debug && cmake --build --preset debug && xvfb-run -a ctest --preset debug`.
 4. Sınır ve tip denetimi: `ctest -R "features|script_types"` (özellik sınırları; script'ler `astral.d.luau`'ya karşı `--!strict` tip denetimi) (`astral-features check`). Hata mesajı ne yapacağını söyler.

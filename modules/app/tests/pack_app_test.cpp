@@ -35,7 +35,7 @@ TEST_CASE("a shipped game reads scenes, prefabs and models from its .apak; witho
         float intensity = 0;
         void on_start(Context& ctx) override {
             from_pack = ctx.assets->from_pack();
-            const LoadResult r = ctx.load_scene("level.scene");
+            const LoadResult r = ctx.scenes().load_scene("level.scene");
             REQUIRE(r.errors.empty());
             intensity = ctx.world.get<PointLight>(find_part(ctx.world, r.entities[0], "bulb"))->intensity;
         }

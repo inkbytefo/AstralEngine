@@ -70,9 +70,9 @@ void PlaygroundGame::on_start(Context& ctx) {
             heights[z * grid + x] = terrain_height(static_cast<float>(x) * cell - half_size, static_cast<float>(z) * cell - half_size);
         }
     }
-    const MeshHandle terrain = ctx.create_mesh(terrain_mesh(heights));
+    const MeshHandle terrain = ctx.materials().create_mesh(terrain_mesh(heights));
     w.create(Name{"terrain"}, Transform{},
-             MeshRenderer{terrain, ctx.create_material({.base_color = {0.32f, 0.42f, 0.22f, 1}, .roughness = 0.9f})},
+             MeshRenderer{terrain, ctx.materials().create_material({.base_color = {0.32f, 0.42f, 0.22f, 1}, .roughness = 0.9f})},
              RigidBody{.desc = {.shape = ShapeDesc::height_field(heights, grid, cell), .motion = MotionType::Static, .friction = 0.8f, .surface = 1}});
 
     // The lake: a water volume over the basin (its top is y = 0) and a see-through surface.
@@ -88,19 +88,19 @@ void PlaygroundGame::on_start(Context& ctx) {
         BodyDesc body = crate;
         body.mass = 90.0f;
         w.create(Transform{.position = {-6.0f + static_cast<float>(i) * 1.5f, 3.0f + static_cast<float>(i % 3), -4.0f}, .scale = {0.6f, 0.6f, 0.6f}},
-                 MeshRenderer{ctx.meshes.cube, ctx.create_material({.base_color = {0.85f, 0.6f, 0.3f, 1}, .roughness = 0.6f})}, RigidBody{.desc = body},
+                 MeshRenderer{ctx.meshes.cube, ctx.materials().create_material({.base_color = {0.85f, 0.6f, 0.3f, 1}, .roughness = 0.6f})}, RigidBody{.desc = body},
                  Buoyant{.volume = 0.216f, .height = 0.6f, .area = 0.36f}, AirDrag{.area = 0.36f, .drag = 1.0f});
     }
     for (int i = 0; i < 3; ++i) {
         BodyDesc body = crate;
         body.mass = 420.0f; // denser than water: sinks
         w.create(Transform{.position = {4.0f + static_cast<float>(i), 4.0f, 3.0f}, .scale = {0.6f, 0.6f, 0.6f}},
-                 MeshRenderer{ctx.meshes.cube, ctx.create_material({.base_color = {0.45f, 0.45f, 0.5f, 1}, .roughness = 0.5f, .metallic = 0.6f})}, RigidBody{.desc = body},
+                 MeshRenderer{ctx.meshes.cube, ctx.materials().create_material({.base_color = {0.45f, 0.45f, 0.5f, 1}, .roughness = 0.5f, .metallic = 0.6f})}, RigidBody{.desc = body},
                  Buoyant{.volume = 0.216f, .height = 0.6f, .area = 0.36f});
     }
     for (int i = 0; i < 5; ++i) {
         w.create(Transform{.position = {-3.0f + static_cast<float>(i) * 1.8f, 2.0f, 6.0f}, .scale = {0.8f, 0.8f, 0.8f}},
-                 MeshRenderer{ctx.meshes.sphere, ctx.create_material({.base_color = {0.95f, 0.3f + 0.12f * static_cast<float>(i), 0.25f, 1}, .roughness = 0.4f})},
+                 MeshRenderer{ctx.meshes.sphere, ctx.materials().create_material({.base_color = {0.95f, 0.3f + 0.12f * static_cast<float>(i), 0.25f, 1}, .roughness = 0.4f})},
                  RigidBody{.desc = {.shape = ShapeDesc::sphere(0.4f), .mass = 1.2f, .restitution = 0.6f, .linear_damping = 0.02f, .surface = 2}},
                  Buoyant{.volume = 0.0f, .height = 0.8f, .area = 0.5f, .drag = 0.8f}, AirDrag{.area = 0.5f, .drag = 0.47f});
     }
@@ -113,7 +113,7 @@ void PlaygroundGame::on_start(Context& ctx) {
     std::vector<Entity> chain;
     for (int i = 0; i < planks; ++i) {
         chain.push_back(w.create(Transform{.position = {start_x + (static_cast<float>(i) + 0.5f) * plank, bridge_y, bridge_z}, .scale = {plank, 0.15f, 1.8f}},
-                                 MeshRenderer{ctx.meshes.cube, ctx.create_material({.base_color = {0.5f, 0.35f, 0.2f, 1}, .roughness = 0.8f})},
+                                 MeshRenderer{ctx.meshes.cube, ctx.materials().create_material({.base_color = {0.5f, 0.35f, 0.2f, 1}, .roughness = 0.8f})},
                                  RigidBody{.desc = {.shape = ShapeDesc::box({plank * 0.5f, 0.075f, 0.9f}), .mass = 20.0f, .friction = 1.0f, .surface = 2}}));
     }
     w.create(Joint{.type = JointType::Hinge, .b = chain.front(), .anchor = {start_x, bridge_y, bridge_z}, .axis = {0, 0, 1}});
@@ -126,12 +126,12 @@ void PlaygroundGame::on_start(Context& ctx) {
     // A jump pad on the shore and a dropper above it; a glider in the wind.
     const float pad_x = 24.0f, pad_y = terrain_height(pad_x, 0.0f);
     w.create(Name{"pad"}, Transform{.position = {pad_x, pad_y + 0.2f, 0}, .scale = {2.4f, 0.3f, 2.4f}},
-             MeshRenderer{ctx.meshes.cube, ctx.create_material({.base_color = {0.1f, 0.9f, 0.5f, 1}, .roughness = 0.3f, .emissive = {0.1f, 1.2f, 0.5f}})},
+             MeshRenderer{ctx.meshes.cube, ctx.materials().create_material({.base_color = {0.1f, 0.9f, 0.5f, 1}, .roughness = 0.3f, .emissive = {0.1f, 1.2f, 0.5f}})},
              RigidBody{.desc = {.shape = ShapeDesc::box({1.2f, 0.6f, 1.2f}), .motion = MotionType::Static, .sensor = true}}, playground::JumpPad{.speed = 14.0f});
     w.create(Name{"dropper"}, Transform{.position = {pad_x, pad_y + 7.0f, 0}}, playground::Dropper{.interval = 3.0f, .timer = 2.0f});
     const Quat pitch = Quat::from_axis_angle({1, 0, 0}, radians(5.0f));
     w.create(Name{"glider"}, Transform{.position = {-30.0f, 14.0f, 10.0f}, .rotation = pitch, .scale = {2.4f, 0.08f, 0.9f}},
-             MeshRenderer{ctx.meshes.cube, ctx.create_material({.base_color = {0.95f, 0.95f, 0.9f, 1}, .roughness = 0.6f})},
+             MeshRenderer{ctx.meshes.cube, ctx.materials().create_material({.base_color = {0.95f, 0.95f, 0.9f, 1}, .roughness = 0.6f})},
              RigidBody{.desc = {.shape = ShapeDesc::box({1.2f, 0.04f, 0.45f}), .linear_velocity = {0, 0, -9.0f}, .mass = 4.0f, .linear_damping = 0.0f}},
              Airfoil{.area = 2.0f, .lift_slope = 6.0f}, AirDrag{.area = 0.2f, .drag = 0.3f});
 

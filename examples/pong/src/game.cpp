@@ -35,7 +35,7 @@ void PongGame::on_start(Context& ctx) {
         ctx.quit();
         return;
     }
-    ctx.load_scene("court.scene");
+    ctx.scenes().load_scene("court.scene");
     if (demo_) set_player_ai(ctx.world, true);
     if (ctx.window && !demo_) ctx.window->set_mouse_captured(true);
 }

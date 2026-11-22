@@ -101,7 +101,7 @@ TEST_CASE("install registers components, events and scripts; the manifest must l
                 order.push_back("scoring");
             });
             ok = set.install(ctx);
-            api_written = ctx.write_script_api(api_folder);
+            api_written = ctx.script_service().write_script_api(api_folder);
             ctx.world.create(Name{"board"}, Score{});
         }
     } game;

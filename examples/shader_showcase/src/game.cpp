@@ -26,8 +26,8 @@ void ShowcaseGame::on_start(Context& ctx) {
     ctx.environment.ground = {0.05f, 0.04f, 0.05f};
     ctx.environment.ambient = 0.30f;
     ctx.environment.exposure = 0.75f;
-    ctx.sky = ctx.load_material("materials/dusk_sky.material");
-    ctx.post = {ctx.load_material("materials/vignette.material")};
+    ctx.sky = ctx.materials().load_material("materials/dusk_sky.material");
+    ctx.post = {ctx.materials().load_material("materials/vignette.material")};
 
     // Ground and a backdrop wall (plain PBR: the standard shader is the default).
     ctx.world.create(Transform{.position = {0, 0, 0}, .scale = {40, 1, 40}},

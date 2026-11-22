@@ -26,11 +26,11 @@ public:
 class StreamingHud final : public System {
 public:
     void update(Context& ctx) override {
-        const StreamingStats* s = ctx.world_streaming();
+        const StreamingStats* s = ctx.maps().world_streaming();
         if (!s) return;
         bool night = false;
         ctx.world.each<const DayNight>([&](const DayNight& d) { night = d.night; });
-        const WorldPosition w = ctx.world_origin();
+        const WorldPosition w = ctx.maps().world_origin();
         const Vec2 screen = ctx.screen_size();
         const float unit = screen.y / 720.0f;
         char line[160];
@@ -43,7 +43,7 @@ public:
 } // namespace
 
 void apply(Context& ctx, bool night) {
-    if (MapLayers* layers = ctx.world_layers()) layers->set("night", night);
+    if (MapLayers* layers = ctx.maps().world_layers()) layers->set("night", night);
     ctx.sun.intensity = night ? 0.08f : 3.0f;
     ctx.sun.color = night ? Vec3{0.6f, 0.7f, 1.0f} : Vec3{1, 1, 1};
     ctx.environment.sky = night ? Vec3{0.02f, 0.03f, 0.06f} : Vec3{0.45f, 0.6f, 0.85f};

@@ -13,7 +13,7 @@ int main(int argc, char** argv) {
     astral::App app({.headless = true, .fixed_timestep = 1.0f / 60.0f, .asset_root = ASTRAL_GAME_ASSETS, .pack = ASTRAL_GAME_PACK, .hot_reload = false});
     hello_headless::HeadlessGame game;
     app.run_frames(game, options.script_api_only ? 1 : options.frames ? options.frames : 180);
-    if (!options.script_api.empty()) app.context().write_script_api(options.script_api);
+    if (!options.script_api.empty()) app.context().script_service().write_script_api(options.script_api);
     if (options.script_api_only) return 0;
     const astral::Entity counter = astral::find_by_name(app.world(), "counter");
     const tally::Tally* t = app.world().get<const tally::Tally>(counter);

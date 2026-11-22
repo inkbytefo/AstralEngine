@@ -19,7 +19,7 @@ public:
             spawner.timer = 0;
             const float a = static_cast<float>(ctx.time.frame) * 0.37f;
             ctx.world.commands().spawn(Transform{.position = {std::cos(a) * 3.0f, 14.0f, std::sin(a) * 3.0f - 2.0f}},
-                                       MeshRenderer{ctx.meshes.sphere, ctx.create_material({.base_color = {0.3f, 0.6f, 0.95f, 1}, .roughness = 0.25f, .metallic = 0.0f})},
+                                       MeshRenderer{ctx.meshes.sphere, ctx.materials().create_material({.base_color = {0.3f, 0.6f, 0.95f, 1}, .roughness = 0.25f, .metallic = 0.0f})},
                                        RigidBody{.desc = {.shape = ShapeDesc::sphere(0.5f), .restitution = 0.4f}}, lifetime::Lifetime{});
         });
     }

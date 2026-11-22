@@ -92,11 +92,11 @@ std::size_t room_object_count() { return build_room().objects.size(); }
 
 void spawn_room(Context& ctx, int view_index) {
     const Room room = build_room();
-    const MeshHandle smooth_sphere = ctx.create_mesh(make_sphere(96, 64));
+    const MeshHandle smooth_sphere = ctx.materials().create_mesh(make_sphere(96, 64));
     for (const Object& o : room.objects) {
         ctx.world.create(WorldTransform{o.transform}, // placed by matrix (no Transform: never recomputed)
                          MeshRenderer{o.shape == Shape::Cube ? ctx.meshes.cube : smooth_sphere,
-                                      ctx.create_material({.base_color = o.color, .roughness = o.roughness, .metallic = o.metallic})});
+                                      ctx.materials().create_material({.base_color = o.color, .roughness = o.roughness, .metallic = o.metallic})});
     }
     for (std::size_t i = 0; i < room.sdf.size(); ++i) {
         const SdfShape& s = room.sdf[i];

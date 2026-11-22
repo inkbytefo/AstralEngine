@@ -17,7 +17,7 @@ void BlankGame::on_start(Context& ctx) {
         ctx.quit();
         return;
     }
-    ctx.load_scene("main.scene");
+    ctx.scenes().load_scene("main.scene");
 }
 
 } // namespace blank

@@ -156,10 +156,10 @@ bool FeatureSet::install(Context& ctx, std::string_view folder) {
         for (const std::string& name : m.components) ctx.api_owners[name] = m.name;
         for (const std::string& name : m.events) ctx.api_owners[name] = m.name;
         for (const std::string& path : m.actions) {
-            if (!ctx.load_actions(path)) return fail("feature \"" + m.name + "\": cannot load " + path);
+            if (!ctx.script_service().load_actions(path)) return fail("feature \"" + m.name + "\": cannot load " + path);
         }
         for (const std::string& path : m.scripts) {
-            const auto problems = ctx.load_script(path);
+            const auto problems = ctx.script_service().load_script(path);
             if (!problems.empty()) return fail("feature \"" + m.name + "\": " + problems.front());
         }
     }

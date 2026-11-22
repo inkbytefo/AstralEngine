@@ -1,5 +1,7 @@
 #pragma once
-// Internal to Astral::App: owns Profiler, DebugUi, built-in Font, debug overlay drawing, and UI layer assembly.
+// Internal to Astral::App: owns Profiler, DebugUi, DebugPanelRegistry, built-in Font, debug overlay drawing, and UI layer assembly.
+
+#include "../panels/debug_panel.hpp"
 
 #include <astral/app/app.hpp>
 #include <astral/core/profiler.hpp>
@@ -34,6 +36,9 @@ public:
 
     [[nodiscard]] Profiler& profiler() noexcept { return profiler_; }
     [[nodiscard]] Font* font() noexcept { return font_.get(); }
+    [[nodiscard]] DebugPanelRegistry& panels() noexcept { return panels_; }
+    [[nodiscard]] const DebugPanelRegistry& panels() const noexcept { return panels_; }
+    DebugPanel* register_panel(std::unique_ptr<DebugPanel> panel) { return panels_.add(std::move(panel)); }
 
     void begin_frame() { profiler_.begin_frame(); }
     void end_frame() { profiler_.end_frame(); }
@@ -48,6 +53,7 @@ private:
     World& world_;
     Window* window_;
     Profiler profiler_;
+    DebugPanelRegistry panels_;
     std::unique_ptr<DebugUi> debug_ui_;
     std::unique_ptr<Font> font_;
     UiLayer ui_layer_{};

@@ -131,7 +131,7 @@ TEST_CASE("contacts of the frame are available to systems") {
     public:
         bool* seen;
         void update(Context& ctx) override {
-            for (const ContactEvent& c : ctx.contacts()) {
+            for (const ContactEvent& c : ctx.physics_service().contacts()) {
                 *seen |= c.type == ContactEvent::Type::Begin;
             }
         }
@@ -209,7 +209,7 @@ TEST_CASE("fixed update systems see the contacts of the previous step") {
     class Watch final : public System {
     public:
         bool* seen;
-        void update(Context& ctx) override { *seen |= !ctx.contacts().empty(); }
+        void update(Context& ctx) override { *seen |= !ctx.physics_service().contacts().empty(); }
     };
     App app(headless());
     Scene game;

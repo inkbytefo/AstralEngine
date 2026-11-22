@@ -37,8 +37,8 @@ TEST_CASE("scripts run in the phases of the frame; the App's C++ systems and scr
         bool actions_loaded = false;
         void on_start(Context& ctx) override {
             ctx.types.add<Counter>();
-            errors = ctx.load_script("rules.luau");
-            actions_loaded = ctx.load_actions("game.actions");
+            errors = ctx.script_service().load_script("rules.luau");
+            actions_loaded = ctx.script_service().load_actions("game.actions");
             e = ctx.world.create(Counter{});
         }
     } game;
@@ -60,8 +60,8 @@ TEST_CASE("a missing or broken script is reported with file and line, and the ga
     struct G final : Game {
         std::vector<std::string> missing, broken;
         void on_start(Context& ctx) override {
-            missing = ctx.load_script("nothing.luau");
-            broken = ctx.load_script("broken.luau");
+            missing = ctx.script_service().load_script("nothing.luau");
+            broken = ctx.script_service().load_script("broken.luau");
         }
     } game;
     App app({.headless = true, .fixed_timestep = 1.0f / 60.0f, .asset_root = dir.string(), .hot_reload = false});
@@ -83,7 +83,7 @@ TEST_CASE("editing a script file while the game runs reloads it; a bad edit keep
         std::int32_t after_first_edit = 0, after_bad_edit = 0;
         void on_start(Context& ctx) override {
             ctx.types.add<Counter>();
-            ctx.load_script("rules.luau");
+            ctx.script_service().load_script("rules.luau");
             e = ctx.world.create(Counter{});
         }
         void on_update(Context& ctx) override {

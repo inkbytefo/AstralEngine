@@ -25,7 +25,7 @@ void ViewerGame::on_update(Context& ctx) {
 }
 
 void ViewerGame::load(Context& ctx) {
-    const LoadResult r = ctx.load_scene(file_);
+    const LoadResult r = ctx.scenes().load_scene(file_);
     loaded_ = r.entities;
     const Document* doc = ctx.assets->document(ctx.assets->load_document(file_));
     version_ = doc ? doc->version : 0;

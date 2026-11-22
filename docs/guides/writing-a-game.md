@@ -65,7 +65,7 @@ class ArenaGame final : public Game {
 public:
     void on_start(Context& ctx) override {
         ctx.world.create(Transform{.position = {0, 0, 0}},
-                         MeshRenderer{ctx.meshes.cube, ctx.create_material({.base_color = {0.8f, 0.2f, 0.2f, 1}})},
+                         MeshRenderer{ctx.meshes.cube, ctx.materials().create_material({.base_color = {0.8f, 0.2f, 0.2f, 1}})},
                          Player{}, Health{});
         ctx.world.create(Transform{.position = {0, 3, 8}}, Camera{});
 
@@ -78,11 +78,11 @@ public:
 
 ```cpp
 // PBR materyal: paylaşılan bir kaynak. Bir kez oluştur, istediğin kadar entity'de kullan;
-// update_material hepsini birden değiştirir. Headless modda geçersiz handle döner (çizim yok).
-const MaterialHandle gold = ctx.create_material({.base_color = {0.9f, 0.7f, 0.3f, 1}, .roughness = 0.2f, .metallic = 1.0f});
+// ctx.materials().update_material hepsini birden değiştirir. Headless modda geçersiz handle döner (çizim yok).
+const MaterialHandle gold = ctx.materials().create_material({.base_color = {0.9f, 0.7f, 0.3f, 1}, .roughness = 0.2f, .metallic = 1.0f});
 ctx.world.create(Transform{}, MeshRenderer{ctx.meshes.sphere, gold});
 // Işık yayan yüzey (ray-traced yolda sahneyi aydınlatır)
-ctx.world.create(Transform{}, MeshRenderer{ctx.meshes.cube, ctx.create_material({.emissive = {4, 3, 2}})});
+ctx.world.create(Transform{}, MeshRenderer{ctx.meshes.cube, ctx.materials().create_material({.emissive = {4, 3, 2}})});
 // Alan ışığı (tavan paneli, pencere): ray-traced yolda yumuşak gölge, yansımalarda görünür
 ctx.world.create(Transform{.position = {0, 4, 0}}, RectLight{.right = {1, 0, 0}, .up = {0, 0, 1}, .intensity = 15});
 
@@ -173,14 +173,14 @@ Her fazda önce C++ sistemleri, sonra o fazın Luau script'leri çalışır. Her
 | `meshes` | hazır `cube`, `sphere`, `plane` |
 | `sun`, `environment` | güneş (yön, renk, gölge) ve gök/yer ambient, pozlama |
 | `renderer`, `window`, `device` | alt katman (headless'ta `nullptr`) |
-| `physics`, `contacts()` | fizik dünyası (raycast, impulse…) ve bu karenin temasları |
-| `audio`, `sound(yol)` | ses ([Ses, HUD ve debug arayüzü](#ses-hud-ve-debug-arayüzü)) |
+| `physics`, `physics_service()` | fizik dünyası (raycast, impulse…) ve bu karenin temasları (`contacts()`) |
+| `audio`, `audio_service()` | ses (`sound(yol)`; [Ses, HUD ve debug arayüzü](#ses-hud-ve-debug-arayüzü)) |
 | `hud`, `font`, `screen_size()` | 2D katman: metin, dikdörtgen, görüntü |
 | `debug`, `debug_show`, `show_debug_ui` | debug çizgileri, hazır katmanlar, F1 arayüzü |
 | `assets`, `prefabs`, `types` | asset'ler, prefab şablonları, kayıtlı component'ler |
-| `load_scene`, `spawn_prefab`, `open_world` | sahne, prefab ve açık dünya |
-| `load_material`, `sky`, `post` | `.material` dosyaları, gökyüzü ve post efektleri ([shaders-and-materials.md](shaders-and-materials.md)) |
-| `scripts`, `events`, `actions` | Luau, adlı olaylar, girdi eylemleri; `load_script`, `load_actions`, `write_script_api` |
+| `scenes()`, `maps()` | sahne/prefab (`load_scene`, `save_scene`, `spawn_prefab`) ve açık dünya (`open_world`, `close_world`, `finish_world_loading`, `world_layers`, `world_streaming`, `world_origin`) |
+| `materials()`, `sky`, `post` | mesh/materyal (`create_mesh`, `create_material`, `update_material`, `load_material`, `shader_error`), gökyüzü ve post efektleri ([shaders-and-materials.md](shaders-and-materials.md)) |
+| `scripts`, `script_service()`, `events`, `actions` | Luau, adlı olaylar, girdi eylemleri; `load_script`, `load_actions`, `write_script_api` |
 | `profiler` | CPU/GPU süreleri (`ASTRAL_PROFILE_SCOPE`) |
 | `quit()` | oyundan çık |
 
@@ -230,8 +230,8 @@ Seviyeyi kodda kurmak yerine dosyaya yaz; kod yalnız davranışı tutsun.
 
 ```cpp
 void on_start(Context& ctx) override {
-    ctx.load_scene("levels/arena.scene");                      // asset_root'a göre
-    Entity goblin = ctx.spawn_prefab("enemies/goblin.prefab", {.position = {0, 0, 5}});
+    ctx.scenes().load_scene("levels/arena.scene");                      // asset_root'a göre
+    Entity goblin = ctx.scenes().spawn_prefab("enemies/goblin.prefab", {.position = {0, 0, 5}});
     Entity sword = find_part(ctx.world, goblin, "sword");      // prefab içindeki parça, Name ile
 }
 ```
@@ -248,7 +248,7 @@ void on_start(Context& ctx) override {
 
 - Prefab = tek köklü sahne dosyası. Örnek yalnız farklarını saklar; prefab'ı düzenleyince bütün örnekler
   güncellenir (çalışırken de), örneklerin kendi değişiklikleri korunur.
-- Oyunda bir parçayı değiştirip `ctx.save_scene(...)` dersen değişiklik override olarak yazılır.
+- Oyunda bir parçayı değiştirip `ctx.scenes().save_scene(...)` dersen değişiklik override olarak yazılır.
 - Kendi component'lerin dosyada görünsün diye: `ASTRAL_REFLECT(...)` + `ctx.types.add<T>()`.
   Enum alanları isimle yazılsın diye `ASTRAL_REFLECT_ENUM(game::Team, Red, Blue)`.
 - Mesh'i dosyadan: `PrimitiveMesh` (küp/küre/düzlem + materyal) veya `ModelRef` (glTF).
@@ -256,14 +256,14 @@ void on_start(Context& ctx) override {
 
 ## Ses, HUD ve debug arayüzü
 
-- **Ses:** `ctx.audio->play(ctx.sound("sfx/hit.wav"), {.pitch = 1.2f, .spatial = true, .position = p})`. Sürekli ses
+- **Ses:** `ctx.audio->play(ctx.audio_service().sound("sfx/hit.wav"), {.pitch = 1.2f, .spatial = true, .position = p})`. Sürekli ses
   için sahneye `astral::AudioSource` koy. Başsız/offscreen çalışmada ses sessiz karışır (test yazmak güvenli).
 - **HUD:** `ctx.hud.text(*ctx.font, "Skor 3", {x, y}, {.size = 48, .shadow = true})`, `ctx.hud.rect(...)`; piksel
   koordinatı, sol üst orijin; her kare temizlenir, kendi kodun her kare çizer. Boyut için `ctx.screen_size()`.
 - **Debug:** F1 debug arayüzünü açar (performans, entity listesi, reflection inspector). Kendi paneli
   `Game::on_debug_ui` içinde Dear ImGui ile çiz; `ctx.debug.line/cross/...` ile 3D çizgi, `ctx.debug_show` ile hazır
   katmanlar (fizik şekilleri, ışıklar, dünya hücreleri).
-- **Açık dünya:** `ctx.open_world("maps/island.world")`; hücreler `StreamingSource` ya da kamera çevresinde akar
+- **Açık dünya:** `ctx.maps().open_world("maps/island.world")`; hücreler `StreamingSource` ya da kamera çevresinde akar
   ([scenes-and-worlds.md](scenes-and-worlds.md)).
 
 ## Özellik paketleri ve Luau
@@ -310,7 +310,7 @@ astral.system {
   Paketlemede script'ler bytecode'a derlenir. Hazır yardımcılar: `astral.tween`, `astral.state_machine`, `astral.save/load`, `astral.quat.*`.
 - **Gamepad:** `.actions` içinde `"gamepad": ["A"]`, `"stick": "left"` vb.; oyun kodu değişmez.
 - **Ortak özellikler:** `features/` altındakiler (şimdilik `fly_camera`) birden çok oyunun tek kaynağı; `tools/sync_features.py` kopyalar.
-- **API belgesi:** `ctx.write_script_api("docs/api")` her component, alan ve olayı `astral.d.luau` (editör/AI tip
+- **API belgesi:** `ctx.script_service().write_script_api("docs/api")` her component, alan ve olayı `astral.d.luau` (editör/AI tip
   tanımı) ve `API.md` olarak yazar. `examples/pong --script-api klasör` ile dene.
 - **Örnek:** `examples/pong` — `pong_rules` (Luau kuralları), `pong_scorelights`, `pong_audio`. Yapay zekâ ajanları
   için kurallar kökteki `AGENTS.md`'de.

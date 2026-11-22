@@ -16,8 +16,8 @@ MeshData triangle_mesh() {
 }
 
 void TriangleGame::on_start(Context& ctx) {
-    const MeshHandle mesh = ctx.create_mesh(triangle_mesh());
-    const MaterialHandle material = ctx.load_material("materials/triangle.material");
+    const MeshHandle mesh = ctx.materials().create_mesh(triangle_mesh());
+    const MaterialHandle material = ctx.materials().load_material("materials/triangle.material");
     ctx.world.create(Transform{}, MeshRenderer{mesh, material});
     ctx.world.create(Transform{.position = {0, 0, 3.2f}}, Camera{});
     ctx.environment.sky = {0.02f, 0.02f, 0.04f};

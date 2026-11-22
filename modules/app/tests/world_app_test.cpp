@@ -46,15 +46,15 @@ struct Explorer final : Game {
     EventReader<OriginShifted> shifts;
 
     void on_start(Context& ctx) override {
-        opened = ctx.open_world("maps/strip.world");
+        opened = ctx.maps().open_world("maps/strip.world");
         source = ctx.world.create(Transform{}, StreamingSource{});
-        ctx.finish_world_loading();
+        ctx.maps().finish_world_loading();
         near_at_start = find_by_name(ctx.world, "near").valid();
         far_at_start = find_by_name(ctx.world, "far").valid();
         rules = find_by_name(ctx.world, "rules").valid();
         lamp_off = !find_by_name(ctx.world, "lamp").valid();
-        REQUIRE(ctx.world_layers() != nullptr);
-        ctx.world_layers()->set("night", true);
+        REQUIRE(ctx.maps().world_layers() != nullptr);
+        ctx.maps().world_layers()->set("night", true);
     }
     void on_update(Context& ctx) override {
         const std::uint64_t frame = ctx.time.frame;
@@ -63,14 +63,14 @@ struct Explorer final : Game {
             lamp_on = find_by_name(ctx.world, "lamp").valid(); // layers refresh at the start of a frame
             ctx.world.get<Transform>(source)->position.x = 1050.0f;
         } else if (frame == 4) {
-            ctx.finish_world_loading();
+            ctx.maps().finish_world_loading();
             far_later = find_by_name(ctx.world, "far").valid();
             near_later = find_by_name(ctx.world, "near").valid();
             ctx.world.get<Transform>(source)->position.x = 2550.0f; // past the 2 km origin threshold
         } else if (frame == 6) {
-            origin_x = ctx.world_origin().x;
+            origin_x = ctx.maps().world_origin().x;
             source_local_x = ctx.world.get<Transform>(source)->position.x;
-            stats = *ctx.world_streaming();
+            stats = *ctx.maps().world_streaming();
         }
     }
 };
@@ -118,8 +118,8 @@ TEST_CASE("open_world reports a missing or wrong map") {
     struct G final : Game {
         bool missing = true, wrong = true;
         void on_start(Context& ctx) override {
-            missing = ctx.open_world("maps/none.world");
-            wrong = ctx.open_world("maps/wrong.world");
+            missing = ctx.maps().open_world("maps/none.world");
+            wrong = ctx.maps().open_world("maps/wrong.world");
         }
     } game;
     app.run_frames(game, 1);

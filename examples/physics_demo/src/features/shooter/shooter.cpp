@@ -18,7 +18,7 @@ public:
         });
         if (ctx.actions.pressed("shoot")) {
             ctx.world.create(Transform{.position = origin + forward * 1.5f, .scale = {0.6f, 0.6f, 0.6f}},
-                             MeshRenderer{ctx.meshes.sphere, ctx.create_material({.base_color = {0.95f, 0.3f, 0.2f, 1}, .roughness = 0.3f})},
+                             MeshRenderer{ctx.meshes.sphere, ctx.materials().create_material({.base_color = {0.95f, 0.3f, 0.2f, 1}, .roughness = 0.3f})},
                              RigidBody{.desc = {.shape = ShapeDesc::sphere(0.3f), .linear_velocity = forward * 30.0f,
                                                 .mass = 20.0f, .continuous = true}},
                              lifetime::Lifetime{});

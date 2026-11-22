@@ -211,10 +211,12 @@ yükü demek. İlk Windows/MSVC derlemesi de CI'ın yakalamadığı dört hata b
 
 - App ctor (111 satır) yalnız servisleri kurar; yıkım sırası tek yerde, yorumlu (bugün 373–400).
 - **Context (arayüz ayrımı):** düz metot yığını yerine gruplu erişim: `ctx.scenes()` (load/save, prefab),
-  `ctx.maps()` (open/close/layers/streaming/origin), `ctx.materials()`, `ctx.audio()`, `ctx.scripts()`
-  (load, actions, API yazımı), `ctx.physics()` (temaslar). Eski metotlar bir faz `[[deprecated]]` sarmalayıcı,
-  örnekler, şablon, `AGENTS.md`, `writing-a-game.md` ve üretilen `API.md` aynı adımda güncellenir; M14'te
-  sarmalayıcılar silinir. Yeni servis eklemek `Context`'i değil yalnız ilgili grubu büyütür.
+  `ctx.maps()` (open/close/layers/streaming/origin), `ctx.materials()`, `ctx.audio_service()`,
+  `ctx.script_service()` (load, actions, API yazımı), `ctx.physics_service()` (temaslar). Mevcut public
+  işaretçi alanları `ctx.audio`, `ctx.scripts` ve `ctx.physics` kaynak uyumluluğu için aynı ad ve tiplerle
+  kalır; servis erişicileri `*_service()` adlarını kullanır. Eski metotlar bir faz `[[deprecated]]`
+  sarmalayıcı, örnekler, şablon, `AGENTS.md`, `writing-a-game.md` ve üretilen `API.md` aynı adımda
+  güncellenir; M14'te sarmalayıcılar silinir. Yeni servis eklemek `Context`'i değil yalnız ilgili grubu büyütür.
 - Karakterizasyon: kare aşama sırası (olay günlüğü testi), Pong ve physics_playground başsız testleri,
   `*_features_check`, script tip denetimi.
 - *Çıkış:* `app.cpp` ≤ 400 satır, `App::Impl` ≤ 20 üye, `frame()` ≤ 40 satır; bütün örnekler değişmeden geçiyor.

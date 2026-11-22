@@ -24,7 +24,7 @@ public:
         auto play = [&](const std::string& path, PlayDesc desc) {
             if (path.empty()) return;
             desc.volume *= s.volume;
-            ctx.audio->play(ctx.sound(path), desc);
+            ctx.audio->play(ctx.audio_service().sound(path), desc);
         };
         int walls = 0;
         bounces_.read(w, [&](const Bounced& b) {

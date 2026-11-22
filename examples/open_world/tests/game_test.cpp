@@ -13,11 +13,11 @@ TEST_CASE("the world opens around the camera; the day/night state drives the map
     open_world::OpenWorldGame game(true, true); // capturing mode: autopilot and loading every frame; start at night
     app.run_frames(game, 10);
     Context& ctx = app.context();
-    REQUIRE(ctx.world_streaming());
-    CHECK(ctx.world_streaming()->attached > 0);
+    REQUIRE(ctx.maps().world_streaming());
+    CHECK(ctx.maps().world_streaming()->attached > 0);
     CHECK(app.world().count<fly::FlyCamera>() == 1);
     CHECK(app.world().count<StreamingSource>() == 1);
     CHECK(ctx.sun.intensity == doctest::Approx(0.08f)); // night
-    CHECK(ctx.world_layers()->active("night"));
+    CHECK(ctx.maps().world_layers()->active("night"));
     CHECK(ctx.scripts->take_errors().empty());
 }
