@@ -1,6 +1,6 @@
 # Astral::Assets
 
-Katman 3 (Core + Render). Dosyadan yükleme: görüntüler ve glTF 2.0 modelleri, asenkron, hot-reload'lu
+Katman 2 (Core, World ve Render). Dosyadan yükleme: görüntüler ve glTF 2.0 modelleri, asenkron, hot-reload'lu
 ([ADR-0014](../decisions/0014-assets.md)).
 
 ```cpp

@@ -43,7 +43,7 @@ if(ASTRAL_BUILD_TESTS)
     find_package(Python3 COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
         add_test(NAME check_sizes_self_test
-            COMMAND Python3::Interpreter -B -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p "test_*.py" -v)
+            COMMAND Python3::Interpreter -B -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p "test_check_sizes.py" -v)
     else()
         message(STATUS "Python3 interpreter not found: skipping check_sizes_self_test")
     endif()

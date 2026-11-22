@@ -135,8 +135,8 @@ yükü demek. İlk Windows/MSVC derlemesi de CI'ın yakalamadığı dört hata b
   bölünmez.
 - **Hedef bütçe:** `src/` dosyası ≤ 600 satır, fonksiyon ≤ 80 satır, `Impl` ≤ 25 üye. Aşan yerler bilinçli
   istisna listesinde (gerekçeli) durur; liste yalnızca küçülür.
-- **Her adım ayrı worktree, ayrı merge.** Aşağıdaki R1–R3 maddeleri farklı dosyalara dokunduğu için paralel
-  yürüyebilir; R0 hepsinden önce biter.
+- **Her adım ayrı worktree, ayrı merge.** R1–R3 işleri dosya sahipliği ayrıştığında paralel yürüyebilir.
+  R1 hazırlığı R0 doğrulanırken başlayabilir. R1 adayları tamamlanmış R0 üzerine alınıp doğrulanır.
 
 *R0 — Güvenlik ağı (önce bu).*
 - **Windows Debug CI job'u:** MSVC Debug (`_ITERATOR_DEBUG_LEVEL=2`), `ASTRAL_WARNINGS_AS_ERRORS=ON`, unit
@@ -158,8 +158,21 @@ yükü demek. İlk Windows/MSVC derlemesi de CI'ın yakalamadığı dört hata b
   sayısı, istisna listesi `tools/size_budget.json`). Önce uyarı, R1–R3 bitince hata.
 - **Include hijyeni:** CI'da clang-tidy `misc-include-cleaner` (yalnız bizim kaynaklar). `std::clamp` için
   eksik `<algorithm>` türü hatalar derleyiciye bağlı kalmaz.
-- *Çıkış:* Linux (GCC, Clang) ve Windows (MSVC Debug + Release) CI yeşil; Windows geliştirme makinesinde
-  `ctest` 60/60 (donanım golden'ları ayrı etiketle).
+- **Katman diyagramı gerçeği gösterir ve denetlenir:** [architecture.md](architecture.md) diyagramında `shader`
+  modülü yok (`render` ona bağlı); Katman 2 içi bağımlılıkların oku yok (`assets → render, world`,
+  `script → world`, `render → shader`), bu yüzden "aynı katmanda ok yönünde" kuralı denetlenemiyor. Diyagram
+  gerçek DAG olarak yeniden çizilir. `tools/check_layers.py` ve CTest `layer_check`, yapılandırılmış
+  CMake modüllerinin `DEPS` ve `PRIVATE_DEPS` içindeki motor bağımlılıklarını izinli kenarlarla
+  karşılaştırır. Yeni kenarlar belge ve gerekirse ADR ile eklenir. Döngüler hata sayılır.
+- **`assets` → `render` başlık bağını daraltmak:** `assets/model.hpp` zaten `render/mesh.hpp` kullanıyor.
+  `ModelImage`, `ImageData`yı değer olarak tuttuğundan tam tanım gerekiyor. `ImageData` hafif bir
+  public başlığa taşınır ve `renderer.hpp` mevcut kullanıcıları için tipi sunmaya devam eder.
+  Geçişli include'a dayanan kaynaklar aynı adımda düzeltilir. GPU yükleme `asset_manager.cpp`'de kalır.
+- **Repo hijyeni:** yerel ajan ayarları, çalışma klasörleri ve üretilen Graphify çıktıları ignore edilir.
+  Paylaşılan kurallar açıkça benimsenip izlenen proje dokümanlarına eklenir.
+- *Çıkış:* `layer_check` ve başlık denetimi geçer. Windows MSVC Debug `/WX` derlemesi, tüm görüntü
+  dışı testler ve 12 donanım golden geçer. RTX üzerinde 12 yazılım golden beklenen şekilde atlanır.
+  Linux lavapipe, GCC/Clang ve Windows Release kanıtı CI koşusundan kaydedilir.
 
 *R1 — Renderer'ı bölmek* (`modules/render/src/renderer.cpp`). Hedef düzen:
 
@@ -212,6 +225,7 @@ yükü demek. İlk Windows/MSVC derlemesi de CI'ın yakalamadığı dört hata b
 |---|---|---|
 | `app/debug_ui.cpp` `draw_panels` | 268 satır, tüm paneller tek fonksiyon | `panels/` altında panel başına dosya (entity, materyal, profiler, streaming, fizik); `DebugPanel` arayüzü + kayıt, özellikler kendi panelini ekleyebilir |
 | `assets/cook.cpp` `cook_directory` | 260 satır | tür başına cooker (doku, model, sahne, dünya/hücre, script, ses) tablosu; `cook_directory` = dolaş + dağıt + rapor |
+| Çevrimdışı shader doğrulaması | cook, render'ın surface/screen derleyicisini çağırıyor; derleyici gömülü `bindless.glsl` ve `scene.glsl` kullanıyor | önce teşhisleri ve cook çıktı baytlarını testle sabitle; GPU gerektirmeyen derleme ve doğrulamayı shader modülüne taşımanın sınırını belirle. GPU pipeline kurulumu render'da kalır |
 | `assets/gltf.cpp` `Loader` | 324 satırlık yapı | glTF bölümüne göre dosyalar: buffer/accessor, görüntü/materyal, mesh, düğüm/sahne |
 | `assets/asset_manager.cpp` `Impl` | 257 satır | yükleme kuyruğu, önbellek/handle tablosu, hot reload izleyicisi |
 | `assets/cooked_model.cpp` | okuma 102, yazma 67 satır | bölüm başına okuyucu/yazıcı çifti (primitive, materyal, görüntü, düğüm) |
