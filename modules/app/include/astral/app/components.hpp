@@ -27,6 +27,8 @@ enum class Primitive : std::uint8_t { Cube, Sphere, Plane };
 struct PrimitiveMesh {
     Primitive shape = Primitive::Cube;
     MaterialDesc material{};
+    /// A .material file (ADR-0022); when set it replaces `material`.
+    std::string material_file{};
 };
 
 /// A signed-distance-field shape at the entity's WorldTransform (position and rotation; use
@@ -118,7 +120,7 @@ struct StreamingSource {
 } // namespace astral
 
 ASTRAL_REFLECT_ENUM(astral::Primitive, Cube, Sphere, Plane)
-ASTRAL_REFLECT(astral::PrimitiveMesh, shape, material)
+ASTRAL_REFLECT(astral::PrimitiveMesh, shape, material, material_file)
 ASTRAL_REFLECT(astral::Sdf, shape, order)
 ASTRAL_REFLECT(astral::StreamingSource, active)
 ASTRAL_REFLECT(astral::Camera, fov_y, near_plane, far_plane, active)

@@ -29,7 +29,8 @@ public:
     [[nodiscard]] bool wants_text() const;
 
     /// The built-in windows: performance, entities, inspector, render settings.
-    void draw_panels(Context& ctx);
+    /// `materials`: the .material library for the Materials panel (null: no panel content).
+    void draw_panels(Context& ctx, class MaterialLibrary* materials = nullptr);
 
 private:
     void update_textures();
@@ -48,6 +49,7 @@ private:
     bool show_inspector_ = true;
     bool show_render_ = false;
     bool show_world_ = false;
+    bool show_materials_ = false;
     bool show_demo_ = false;
     Entity selected_{};
     std::string filter_;

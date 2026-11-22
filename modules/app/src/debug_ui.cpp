@@ -1,4 +1,5 @@
 #include "debug_ui.hpp"
+#include "material_library.hpp"
 
 #include <astral/render/text.hpp>
 #include <astral/world/scene.hpp>
@@ -265,7 +266,7 @@ bool DebugUi::wants_mouse() const { return ImGui::GetCurrentContext() == context
 bool DebugUi::wants_keyboard() const { return ImGui::GetCurrentContext() == context_ && ImGui::GetIO().WantCaptureKeyboard; }
 bool DebugUi::wants_text() const { return ImGui::GetCurrentContext() == context_ && ImGui::GetIO().WantTextInput; }
 
-void DebugUi::draw_panels(Context& ctx) {
+void DebugUi::draw_panels(Context& ctx, MaterialLibrary* materials) {
     if (ImGui::BeginMainMenuBar()) {
         ImGui::TextDisabled("Astral");
         if (ImGui::BeginMenu("Windows")) {
@@ -274,6 +275,7 @@ void DebugUi::draw_panels(Context& ctx) {
             ImGui::MenuItem("Inspector", nullptr, &show_inspector_);
             ImGui::MenuItem("Render", nullptr, &show_render_);
             ImGui::MenuItem("World", nullptr, &show_world_);
+            ImGui::MenuItem("Materials", nullptr, &show_materials_);
             ImGui::MenuItem("ImGui demo", nullptr, &show_demo_);
             ImGui::EndMenu();
         }
@@ -286,6 +288,65 @@ void DebugUi::draw_panels(Context& ctx) {
         ImGui::SameLine(ImGui::GetWindowWidth() - 200);
         ImGui::TextDisabled("F1 hides | %.1f ms", static_cast<double>(ctx.profiler->last_frame_ms()));
         ImGui::EndMainMenuBar();
+    }
+
+    if (show_materials_) {
+        ImGui::SetNextWindowSize(ImVec2(340, 360), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Materials", &show_materials_)) {
+            if (const std::string_view rt = ctx.shader_error(); !rt.empty()) {
+                ImGui::TextColored(ImVec4(1, 0.5f, 0.3f, 1), "Ray-traced shaders: not built");
+                ImGui::TextWrapped("%.*s", static_cast<int>(rt.size()), rt.data());
+                ImGui::Separator();
+            }
+            if (!materials) ImGui::TextDisabled("No renderer: no materials.");
+            for (MaterialLibrary::Info& info : materials ? materials->loaded() : std::vector<MaterialLibrary::Info>{}) {
+                if (!ImGui::CollapsingHeader(info.path.c_str())) continue;
+                ImGui::PushID(info.path.c_str());
+                ImGui::TextDisabled("%s", info.shader.c_str());
+                bool changed = false;
+                // The widgets come from the uniform hints: range → slider, source_color → colour picker.
+                for (const MaterialLibrary::Parameter& p : info.parameters) {
+                    const ShaderUniform& u = *p.uniform;
+                    float* v = info.values->data() + p.offset;
+                    const char* label = u.name.c_str();
+                    switch (u.type) {
+                    case UniformType::Float:
+                        if (u.hints.range) changed |= ImGui::SliderFloat(label, v, u.hints.range->min, u.hints.range->max);
+                        else changed |= ImGui::DragFloat(label, v, 0.01f);
+                        break;
+                    case UniformType::Vec2: changed |= ImGui::DragFloat2(label, v, 0.01f); break;
+                    case UniformType::Vec3:
+                        if (u.hints.source_color) changed |= ImGui::ColorEdit3(label, v, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
+                        else changed |= ImGui::DragFloat3(label, v, 0.01f);
+                        break;
+                    case UniformType::Vec4:
+                        if (u.hints.source_color) changed |= ImGui::ColorEdit4(label, v, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
+                        else changed |= ImGui::DragFloat4(label, v, 0.01f);
+                        break;
+                    case UniformType::Int: {
+                        int n = static_cast<int>(*v);
+                        if (ImGui::DragInt(label, &n)) {
+                            *v = static_cast<float>(n);
+                            changed = true;
+                        }
+                        break;
+                    }
+                    case UniformType::Bool: {
+                        bool b = *v != 0.0f;
+                        if (ImGui::Checkbox(label, &b)) {
+                            *v = b ? 1.0f : 0.0f;
+                            changed = true;
+                        }
+                        break;
+                    }
+                    case UniformType::Sampler2D: ImGui::TextDisabled("%s (texture, set in the file)", label); break;
+                    }
+                }
+                if (changed) materials->apply(info.path); // live only: the .material file is not written
+                ImGui::PopID();
+            }
+        }
+        ImGui::End();
     }
 
     if (show_world_) {

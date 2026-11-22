@@ -133,6 +133,14 @@ public:
     /// False in headless mode or for a dead handle.
     bool update_material(MaterialHandle material, const MaterialDesc& desc);
 
+    /// A material from a .material file (ADR-0022): its shader (.ashader) and values, with the parent chain
+    /// applied. Loaded on first use and cached; the handle stays valid while the file is edited (hot reload
+    /// updates it in place; a version that does not compile is logged and the last good one stays). Invalid
+    /// (logged) if it cannot be built, and in headless mode. Draw with MeshRenderer, or give a
+    /// PrimitiveMesh a material_file.
+    MaterialHandle load_material(std::string_view path);
+    /// Why the custom shaders could not be compiled into the ray-traced shaders ("" = fine).
+    [[nodiscard]] std::string_view shader_error() const noexcept;
     /// Appends a scene file (relative to the asset root) to the world. Its "sun" and "environment",
     /// if present, replace ctx.sun / ctx.environment. Problems are logged and returned.
     LoadResult load_scene(std::string_view path);

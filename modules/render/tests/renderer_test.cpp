@@ -793,3 +793,67 @@ TEST_CASE("create_shader refuses a failed build") {
     if (!f.device) return;
     CHECK_FALSE(f.renderer->create_shader(SurfaceShaderBuild{}).valid());
 }
+
+TEST_CASE("ray-traced reflections show a .ashader material the way the raster path does") {
+    Fixture f(rt_settings());
+    if (!rt_available(f)) return;
+    const ShaderParse p = parse_ashader(R"(shader_type surface;
+uniform vec3 glow = vec3(0.0, 1.0, 0.0);
+uniform sampler2D mask : source_color;
+void surface() {
+    ALBEDO = vec3(0.0);
+    EMISSION = glow * 3.0 * texture(mask, UV).r;   // an unset texture reads as white
+}
+)");
+    REQUIRE(p.errors.empty());
+    const SurfaceShaderBuild build = compile_surface_shader(p.source, "glow.ashader");
+    REQUIRE(build.ok());
+    const ShaderHandle shader = f.renderer->create_shader(build, "glow");
+    REQUIRE(shader.valid());
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    // A mirror wall in front of the camera; behind the camera a block whose surface is the custom shader.
+    const MaterialHandle mirror = f.renderer->create_material(
+        {.base_color = {0.95f, 0.95f, 0.95f, 1}, .roughness = 0.02f, .metallic = 1.0f});
+    const MaterialHandle glow = f.renderer->create_material({.shader = shader, .params = {0, 1, 0, 0, 0, 0, 0, 0}});
+    const std::array items{
+        MeshInstance{.mesh = cube, .material = mirror, .transform = translate({0, 0, -1.5f}) * scale({6, 6, 1})},
+        MeshInstance{.mesh = cube, .material = glow, .transform = translate({0, 0, 9}) * scale({6, 6, 1})},
+    };
+    const DirectionalLight sun{.direction = {0, 0, 1}, .intensity = 0.0f};
+    const auto pixels = converge(f, {.meshes = items, .sun = sun}, 4);
+    const Rgb c = rgb(Fixture::center(pixels));
+    CHECK(c.g > 100);
+    CHECK(c.g > c.r + 60);
+    CHECK(c.g > c.b + 60);
+    f.renderer->destroy(shader);
+}
+
+TEST_CASE("a custom shader the ray-traced build cannot take does not break rendering and reports why") {
+    Fixture f(rt_settings());
+    if (!rt_available(f)) return;
+    // Two shaders declaring the same global: fine for raster (one shader per pipeline), a redefinition
+    // once both are compiled into the ray-traced shaders.
+    const char* text = "shader_type surface;\nconst float k = 1.0;\nvoid surface() { ALBEDO = vec3(k); }\n";
+    const ShaderParse p = parse_ashader(text);
+    REQUIRE(p.errors.empty());
+    const SurfaceShaderBuild build = compile_surface_shader(p.source, "dup.ashader");
+    REQUIRE(build.ok());
+    const ShaderHandle a = f.renderer->create_shader(build, "a");
+    const ShaderHandle b = f.renderer->create_shader(build, "b");
+    REQUIRE(a.valid());
+    REQUIRE(b.valid());
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const MaterialHandle material = f.renderer->create_material({.shader = a, .params = {0, 0, 0, 0}});
+    const std::array items{MeshInstance{.mesh = cube, .material = material, .transform = translate({0, 0, -2}) * scale({1, 1, 1})}};
+    const RenderScene scene{.meshes = items, .sun = front_sun};
+    const auto pixels = converge(f, scene, 3);
+    CHECK(luminance(Fixture::center(pixels)) > 100); // still drawn (the raster stage is per shader)
+    CHECK_FALSE(f.renderer->shader_error().empty());
+    // Dropping one of the two fixes the ray-traced build.
+    f.renderer->destroy(b);
+    converge(f, scene, 2);
+    CHECK(f.renderer->shader_error().empty());
+    f.renderer->destroy(a);
+    converge(f, scene, 2);
+    CHECK(f.renderer->shader_error().empty());
+}

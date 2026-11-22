@@ -27,6 +27,7 @@ astral_add_module(NAME render
         src/fonts.cpp
         src/text.cpp
         src/surface_shader.cpp
+        src/material_file.cpp
     DEPS
         Astral::Core
         Astral::Gpu
@@ -35,6 +36,11 @@ astral_embed_file(astral_render ${imgui_SOURCE_DIR}/misc/fonts/Roboto-Medium.ttf
 # Engine shader headers, for .ashader pipelines compiled at run time (ADR-0022).
 astral_embed_file(astral_render ${CMAKE_SOURCE_DIR}/modules/gpu/shaders/include/astral/bindless.glsl astral_bindless_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/scene.glsl astral_scene_glsl)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/rt.glsl astral_rt_glsl)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/primary.glsl astral_primary_glsl)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/sdf.glsl astral_sdf_glsl)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rt_lighting.comp astral_rt_lighting_comp)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/ddgi_trace.comp astral_ddgi_trace_comp)
 target_include_directories(astral_render SYSTEM PRIVATE $<BUILD_INTERFACE:${stb_SOURCE_DIR}>)
 
 astral_add_shaders(astral_render
@@ -54,7 +60,8 @@ astral_add_tests(MODULE render
         tests/test_main.cpp
         tests/renderer_test.cpp
         tests/render_graph_test.cpp
-        tests/surface_shader_test.cpp)
+        tests/surface_shader_test.cpp
+        tests/material_file_test.cpp)
 if(TARGET astral_render_tests)
     target_include_directories(astral_render_tests PRIVATE ${CMAKE_SOURCE_DIR}/modules/gpu/tests)
 endif()

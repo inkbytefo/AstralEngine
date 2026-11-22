@@ -230,6 +230,9 @@ public:
     /// that use it (until then they draw with it).
     ShaderHandle create_shader(const SurfaceShaderBuild& build, std::string_view debug_name = {});
     void destroy(ShaderHandle shader);
+    /// Why the last attempt to compile the custom surfaces into the ray-traced shaders failed ("" = fine).
+    /// While it fails, custom materials show their base values in ray-traced reflections and GI.
+    [[nodiscard]] std::string_view shader_error() const noexcept;
     /// Whether textures in `format` can be created (BC needs gpu::Feature::TextureCompressionBC).
     [[nodiscard]] bool supports(ImageFormat format) const noexcept;
     /// Replaces the image behind a handle (hot reload); materials using it see the new one.

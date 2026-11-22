@@ -2,6 +2,7 @@
 
 #include "debug_ui.hpp"
 #include "map_runtime.hpp"
+#include "material_library.hpp"
 
 #include <astral/core/clock.hpp>
 #include <astral/gpu/device.hpp>
@@ -92,6 +93,7 @@ struct App::Impl {
     std::vector<BodyLink> body_links;
     std::vector<CharacterLink> character_links;
 
+    std::unique_ptr<MaterialLibrary> material_library; ///< .material / .ashader files (needs a renderer)
     std::unique_ptr<MapRuntime> map; ///< Open map (ctx.open_world); null until the first one.
     std::filesystem::path asset_root; ///< Copied at construction (AppDesc holds views).
     FloatingOrigin origin;
@@ -206,6 +208,10 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc)) {
                                                                .logger = &m.log, .hot_reload = desc.hot_reload,
                                                                .reload_poll_seconds = 0.5f, .pack = pack});
     m.context->assets = m.assets.get();
+    if (m.renderer) {
+        m.material_library = std::make_unique<MaterialLibrary>(*m.renderer, *m.assets, m.asset_root,
+                                                                desc.hot_reload && pack.empty(), m.log);
+    }
     m.prefabs = std::make_unique<PrefabLibrary>(types, [&m](std::string_view path) {
         const AssetId id = m.assets->load_document(path);
         if (const Document* d = m.assets->document(id)) return SourceDocument{.json = &d->json, .version = d->version, .error = {}};
@@ -236,6 +242,7 @@ App::~App() {
     // renderer and device still exist. Then the services, device last, window after it.
     for (auto& phase : m.systems) phase.clear();
     m.map.reset(); // waits for cell reads in flight
+    m.material_library.reset(); // materials and shaders belong to the renderer
     m.context->physics = nullptr;
     m.physics.reset();
     m.debug_ui.reset(); // owns renderer textures
@@ -345,7 +352,9 @@ void App::Impl::sync_primitives() {
         const BuiltinMeshes& meshes = context->meshes;
         const MeshHandle mesh = p.shape == Primitive::Sphere ? meshes.sphere : p.shape == Primitive::Plane ? meshes.plane : meshes.cube;
         MaterialHandle material;
-        if (renderer) {
+        if (renderer && !p.material_file.empty()) {
+            material = material_library ? material_library->get(p.material_file) : MaterialHandle{}; // invalid: default material
+        } else if (renderer) {
             const MaterialDesc& d = p.material;
             std::string key = to_json(d, {}).dump();
             for (TextureHandle t : {d.base_color_texture, d.metallic_roughness_texture, d.normal_texture, d.emissive_texture}) {
@@ -622,6 +631,7 @@ void App::Impl::frame(Game& game, float delta) {
     {
         ASTRAL_PROFILE_SCOPE(prof, "assets");
         assets->update();      // finished loads, hot reloads
+        if (material_library) material_library->update(time.elapsed); // edited .material / .ashader files
         prefabs->refresh();    // templates whose documents reloaded are rebuilt on next use
         std::vector<std::string> problems;
         sync_prefabs(world, *prefabs, &problems); // instances spawned by code / prefabs that changed
@@ -871,7 +881,7 @@ void App::Impl::build_debug_ui(Game& game, float delta) {
                                  : swapchain                ? swapchain->extent()
                                                             : gpu::Extent2D{desc.width, desc.height};
     debug_ui->begin(input, delta, extent, window ? window->pixel_density() : 1.0f);
-    debug_ui->draw_panels(ctx);
+    debug_ui->draw_panels(ctx, material_library.get());
     game.on_debug_ui(ctx);
     debug_ui->end();
     ui_layer = debug_ui->layer();
@@ -998,6 +1008,15 @@ void App::Impl::update_world(bool finish) {
     }
     if (finish) map->finish(stream_points);
     else map->update(stream_points, static_cast<double>(desc.world_stream_budget_ms) / 1000.0);
+}
+
+MaterialHandle Context::load_material(std::string_view path) {
+    auto& library = app_.impl_->material_library;
+    return library ? library->get(path) : MaterialHandle{};
+}
+
+std::string_view Context::shader_error() const noexcept {
+    return renderer ? renderer->shader_error() : std::string_view{};
 }
 
 bool Context::open_world(std::string_view path) {

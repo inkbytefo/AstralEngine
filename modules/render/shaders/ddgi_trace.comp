@@ -11,6 +11,7 @@ layout(local_size_x = 64) in;
 
 void main() {
     Frame f = pc.frame.f;
+    astral_rt_begin(f);
     uint rays = f.ddgi_counts.w;
     uint id = gl_GlobalInvocationID.x;
     if (id >= ddgi_probe_count(f) * rays) return;

@@ -12,6 +12,7 @@ layout(local_size_x = 8, local_size_y = 8) in;
 
 void main() {
     Frame f = pc.frame.f;
+    astral_rt_begin(f);
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     if (pixel.x >= int(f.screen.x) || pixel.y >= int(f.screen.y)) return;
     Surface s;

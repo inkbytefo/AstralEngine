@@ -105,6 +105,22 @@ struct Surface {
     bool backface;  // the ray hit the back of a mesh triangle
 };
 
+// Custom (.ashader) surfaces, ADR-0022: the renderer compiles every shader's surface() into
+// <astral/rt_custom.glsl> (ASTRAL_RT_CUSTOM) and these compute shaders again; without custom shaders
+// the stub at the end of this file does nothing. astral_rt_begin() is the first call of main() (with the frame).
+ASTRAL_BUFFER(AstralParams, uint);
+AstralParams astral_params;
+uint astral_base;
+float astral_time;
+float astral_pf(uint o) { return uintBitsToFloat(astral_params.data[astral_base + o]); }
+uint astral_pu(uint o) { return astral_params.data[astral_base + o]; }
+#define TIME astral_time
+void astral_rt_begin(Frame f) {
+    astral_params = AstralParams(uint64_t(f.custom.x) | (uint64_t(f.custom.y) << 32));
+    astral_time = uintBitsToFloat(f.custom.z);
+}
+void astral_custom_surface(uint shader, uint base, vec2 uv, vec3 view_dir, inout Surface s);
+
 // Triangle hit -> interpolated surface. `dir` is the ray direction.
 Surface triangle_surface(Instances instances, Materials materials, uint instance, uint prim, vec2 bary,
                          vec3 origin, vec3 dir, float t) {
@@ -142,6 +158,7 @@ Surface triangle_surface(Instances instances, Materials materials, uint instance
     }
     if (mat.textures.w != NO_TEXTURE) s.emissive *= textureLod(sampler2D(astral_textures[nonuniformEXT(mat.textures.w)], astral_samplers[ASTRAL_SAMPLER_LINEAR_REPEAT]), uv, lod).rgb;
     s.roughness = clamp(roughness, 0.02, 1.0);
+    if (mat.custom.y != 0u) astral_custom_surface(mat.custom.y - 1u, mat.custom.x, uv, -dir, s);
     return s;
 }
 
@@ -422,5 +439,11 @@ vec3 shade_secondary(Frame f, LightingInputs li, Surface s, vec3 v, uint irr_tex
     vec3 mirror = ddgi_irradiance(f, irr_tex, dist_tex, s.p, reflect(-v, s.n), v);
     return s.albedo * (d + indirect * (1.0 - dfg) * (1.0 - s.metallic)) + sp + mirror * dfg + s.emissive;
 }
+
+#ifdef ASTRAL_RT_CUSTOM
+#include <astral/rt_custom.glsl>
+#else
+void astral_custom_surface(uint shader, uint base, vec2 uv, vec3 view_dir, inout Surface s) {}
+#endif
 
 #endif

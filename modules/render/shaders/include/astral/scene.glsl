@@ -38,6 +38,7 @@ struct Frame {
     uvec4 rt_counts;      // x rect lights, y frame index, z history valid, w ddgi history valid
     vec4 rt_params;       // x sun cone half-angle (rad), yz jitter (pixels), w max ray distance
     mat4 unjittered_view_projection; // this frame without TAA jitter (motion vectors)
+    uvec4 custom;         // xy: .ashader parameter block address, z: TIME (float bits)
 };
 struct PointLight { vec4 position_radius; vec4 color_intensity; vec4 source; /* x source radius */ };
 struct SdfShape {

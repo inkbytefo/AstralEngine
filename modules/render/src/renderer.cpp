@@ -118,6 +118,7 @@ struct GpuFrame {
     std::uint32_t rt_counts[4];
     Vec4 rt_params;
     Mat4 unjittered_view_projection;
+    std::uint32_t custom[4]; // xy: .ashader parameter block address, z: TIME (float bits)
 };
 struct GpuPointLight {
     Vec4 position_radius;
@@ -203,6 +204,8 @@ struct MeshPush {
 struct GpuShader {
     gpu::PipelineHandle gbuffer, shadow;
     bool casts_shadows = true;
+    std::string rt_chunk;                                  ///< Ray-traced surface() (see compose_rt_surfaces)
+    std::vector<SurfaceShaderBuild::Sampler> samplers;     ///< Texture slots of the parameter block
 };
 struct SdfPush {
     std::uint64_t frame, shapes;
@@ -340,6 +343,10 @@ struct Renderer::Impl {
     TextureHandle white_texture, flat_normal_texture; // stand-ins for unset .ashader textures
     std::vector<std::uint32_t> param_words;
     std::vector<std::uint32_t> instance_shader; // per drawn instance: shader index + 1 (0 = standard)
+    bool rt_surfaces_dirty = false;  ///< Custom shaders came or went: rebuild the ray-traced compute shaders.
+    bool rt_custom_active = false;
+    std::string rt_surface_error;
+    void rebuild_rt_surfaces();
     MaterialHandle default_material;
     std::uint32_t material_slots = 0; ///< Highest material index + 1 (size of the GPU table).
     std::vector<GpuMaterial> material_table;
@@ -630,10 +637,16 @@ void Renderer::Impl::prepare_instances(const RenderScene& scene, FrameSlot& slot
             const auto base = static_cast<std::uint32_t>(param_words.size());
             gm.custom[0] = base;
             gm.custom[1] = d.shader.index + 1;
+            const GpuShader* gs = shaders.get(d.shader);
             std::size_t words = d.params.size();
             for (const MaterialDesc::ParamTexture& t : d.textures) words = std::max<std::size_t>(words, t.offset + 1);
+            for (const SurfaceShaderBuild::Sampler& sm : gs->samplers) words = std::max<std::size_t>(words, sm.offset + 1);
             param_words.resize(base + words, 0u);
             for (std::size_t i = 0; i < d.params.size(); ++i) std::memcpy(&param_words[base + i], &d.params[i], 4);
+            for (const SurfaceShaderBuild::Sampler& sm : gs->samplers) { // unset textures read as white / a flat normal
+                const GpuTexture* stand_in = textures.get(sm.normal ? flat_normal_texture : white_texture);
+                param_words[base + sm.offset] = stand_in ? device.bindless_index(stand_in->texture) : 0u;
+            }
             for (const MaterialDesc::ParamTexture& t : d.textures) {
                 const GpuTexture* tex = textures.get(t.texture);
                 if (!tex) tex = textures.get(t.normal ? flat_normal_texture : white_texture);
@@ -722,6 +735,8 @@ ShaderHandle Renderer::create_shader(const SurfaceShaderBuild& build, std::strin
     const gpu::CullMode cull = build.cull_disabled ? gpu::CullMode::None : (build.cull_front ? gpu::CullMode::Front : gpu::CullMode::Back);
     GpuShader shader;
     shader.casts_shadows = build.casts_shadows;
+    shader.rt_chunk = build.rt_chunk;
+    shader.samplers = build.samplers;
     shader.gbuffer = m.device.create_graphics_pipeline({
         .vertex = {build.gbuffer_vertex},
         .fragment = {build.gbuffer_fragment},
@@ -743,6 +758,7 @@ ShaderHandle Renderer::create_shader(const SurfaceShaderBuild& build, std::strin
         m.device.destroy(shader.shadow);
         return {};
     }
+    m.rt_surfaces_dirty = true;
     return m.shaders.create(shader);
 }
 
@@ -752,7 +768,44 @@ void Renderer::destroy(ShaderHandle shader) {
         m.device.destroy(s->gbuffer); // deferred by the device until the GPU is done with it
         m.device.destroy(s->shadow);
         m.shaders.destroy(shader);
+        m.rt_surfaces_dirty = true;
     }
+}
+
+std::string_view Renderer::shader_error() const noexcept { return impl_->rt_surface_error; }
+
+/// Compiles the ray-traced compute shaders with every live custom surface() in; with none (or if the
+/// compile fails) the precompiled ones are used and the error is kept for shader_error().
+void Renderer::Impl::rebuild_rt_surfaces() {
+    rt_surfaces_dirty = false;
+    std::vector<RtSurface> surfaces;
+    shaders.for_each([&](ShaderHandle h, GpuShader& s) {
+        if (!s.rt_chunk.empty()) surfaces.push_back({h.index, s.rt_chunk});
+    });
+    gpu::PipelineHandle lit, trace;
+    rt_surface_error.clear();
+    if (!surfaces.empty()) {
+        const RtVariants variants = compile_rt_variants(surfaces);
+        if (variants.ok()) {
+            lit = device.create_compute_pipeline({.shader = {variants.lighting}, .debug_name = "astral.rt_lighting.custom"});
+            trace = device.create_compute_pipeline({.shader = {variants.ddgi_trace}, .debug_name = "astral.ddgi_trace.custom"});
+        } else {
+            for (const ShaderError& e : variants.errors) rt_surface_error += "line " + std::to_string(e.line) + ": " + e.message + "\n";
+        }
+    }
+    const bool custom = lit.valid() && trace.valid();
+    if (!custom) {
+        device.destroy(lit);
+        device.destroy(trace);
+        if (!rt_custom_active && rt_lighting.valid()) return; // already the precompiled ones
+        lit = device.create_compute_pipeline({.shader = {shaders::rt_lighting_comp}, .debug_name = "astral.rt_lighting"});
+        trace = device.create_compute_pipeline({.shader = {shaders::ddgi_trace_comp}, .debug_name = "astral.ddgi_trace"});
+    }
+    device.destroy(rt_lighting);
+    device.destroy(ddgi_trace);
+    rt_lighting = lit;
+    ddgi_trace = trace;
+    rt_custom_active = custom;
 }
 
 TextureHandle Renderer::create_texture(const ImageData& image) {
@@ -969,7 +1022,7 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
                    {static_cast<std::uint32_t>(m.lights.size()), counts_sdf,
                     shadows ? m.device.bindless_index(m.shadow_map) : no_shadow, 0},
                    {static_cast<float>(w), static_cast<float>(h), 1.0f / static_cast<float>(w), 1.0f / static_cast<float>(h)},
-                   Mat4::identity(), {}, {}, {}, {}, {}, view_projection};
+                   Mat4::identity(), {}, {}, {}, {}, {}, view_projection, {}};
     slot.frame.write(m.device, &frame, sizeof(frame));
 
     const std::uint64_t instance_address = m.device.buffer_address(slot.instances.buffer);
@@ -1197,6 +1250,7 @@ void Renderer::Impl::ensure_ddgi(const RenderScene& scene) {
 void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle target, const CameraData& camera,
                                        const RenderScene& scene, std::uint32_t w, std::uint32_t h) {
     auto& m = *this;
+    if (m.rt_surfaces_dirty) m.rebuild_rt_surfaces();
     FrameSlot& slot = m.ring[m.ring_index];
     m.ring_index = (m.ring_index + 1) % ring_size;
     m.device.wait({*slot.last_use});
@@ -1278,6 +1332,12 @@ void Renderer::Impl::render_ray_traced(gpu::CommandList& cmd, gpu::TextureHandle
     frame.rt_counts[3] = ddgi.valid ? 1u : 0u;
     frame.rt_params = {std::max(scene.sun.angular_radius, 0.0f), jx, jy, settings.max_ray_distance};
     frame.unjittered_view_projection = unjittered;
+    {
+        const std::uint64_t params = m.device.buffer_address(slot.params.buffer); // written by prepare_instances
+        frame.custom[0] = static_cast<std::uint32_t>(params);
+        frame.custom[1] = static_cast<std::uint32_t>(params >> 32);
+        std::memcpy(&frame.custom[2], &scene.time, sizeof(float));
+    }
     slot.frame.write(m.device, &frame, sizeof(frame));
 
     const std::uint64_t frame_address = m.device.buffer_address(slot.frame.buffer);

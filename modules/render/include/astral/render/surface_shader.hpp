@@ -9,6 +9,8 @@
 #include <astral/shader/ashader.hpp>
 
 #include <cstdint>
+#include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -22,11 +24,40 @@ struct SurfaceShaderBuild {
     bool cull_front = false;
     bool casts_shadows = true;
     UniformLayout layout;
+    /// The sampler2D uniforms: where their bindless index goes in the parameter block.
+    struct Sampler {
+        std::uint32_t offset = 0;
+        bool normal = false; ///< hint_normal: unset reads as a flat normal instead of white.
+    };
+    std::vector<Sampler> samplers;
+    /// Ray-traced variant of surface(): GLSL for the RT compute shaders, with "@ID@" standing for the
+    /// shader's slot (see compose_rt_surfaces). Empty if there is no surface().
+    std::string rt_chunk;
     std::vector<ShaderError> errors; ///< Lines of the .ashader file.
     [[nodiscard]] bool ok() const noexcept { return errors.empty() && !gbuffer_fragment.empty(); }
 };
 
 /// Generates and compiles every stage. Thread-safe (compile in a job for hot reload).
 [[nodiscard]] SurfaceShaderBuild compile_surface_shader(const ShaderSource& source, std::string_view name);
+
+/// One shader's part of the ray-traced include: `slot` is its ShaderHandle index.
+struct RtSurface {
+    std::uint32_t slot = 0;
+    std::string chunk; ///< SurfaceShaderBuild::rt_chunk
+};
+/// The text of <astral/rt_custom.glsl>: every shader's surface() as a function of the ray-traced
+/// hit, and astral_custom_surface() choosing by slot. Differences from the raster stage: no
+/// derivatives (dFdx/dFdy read 0), texture() samples a fixed coarse mip, varyings are 0 (vertex() does
+/// not run), NORMAL_MAP and ALPHA are ignored.
+[[nodiscard]] std::string compose_rt_surfaces(std::span<const RtSurface> surfaces);
+
+/// The ray-traced compute shaders with the custom surfaces compiled in (empty spirv + errors on failure).
+struct RtVariants {
+    std::vector<std::uint32_t> lighting, ddgi_trace;
+    std::vector<ShaderError> errors;
+    std::string log;
+    [[nodiscard]] bool ok() const noexcept { return errors.empty() && !lighting.empty() && !ddgi_trace.empty(); }
+};
+[[nodiscard]] RtVariants compile_rt_variants(std::span<const RtSurface> surfaces);
 
 } // namespace astral

@@ -9,6 +9,16 @@ extern const std::uint8_t astral_bindless_glsl[];
 extern const std::size_t astral_bindless_glsl_size;
 extern const std::uint8_t astral_scene_glsl[];
 extern const std::size_t astral_scene_glsl_size;
+extern const std::uint8_t astral_rt_glsl[];
+extern const std::size_t astral_rt_glsl_size;
+extern const std::uint8_t astral_primary_glsl[];
+extern const std::size_t astral_primary_glsl_size;
+extern const std::uint8_t astral_sdf_glsl[];
+extern const std::size_t astral_sdf_glsl_size;
+extern const std::uint8_t astral_rt_lighting_comp[];
+extern const std::size_t astral_rt_lighting_comp_size;
+extern const std::uint8_t astral_ddgi_trace_comp[];
+extern const std::size_t astral_ddgi_trace_comp_size;
 } // namespace astral::embedded
 
 namespace astral {
@@ -21,22 +31,9 @@ std::vector<GlslInclude> engine_includes() {
             {"astral/scene.glsl", text(embedded::astral_scene_glsl, embedded::astral_scene_glsl_size)}};
 }
 
-/// Shared by every stage: push constants, parameter access, uniforms as macros.
-std::string prelude(const ShaderSource& source, const UniformLayout& layout) {
-    std::string s = R"(#version 460
-#extension GL_GOOGLE_include_directive : require
-#include <astral/scene.glsl>
-layout(push_constant, scalar) uniform Push {
-    Vertices vertices; Instances instances; FrameRef frame; Materials materials; uint first_instance;
-    uint64_t params; float time;
-} pc;
-ASTRAL_BUFFER(AstralParams, uint);
-AstralParams astral_params;
-uint astral_base;
-float astral_pf(uint o) { return uintBitsToFloat(astral_params.data[astral_base + o]); }
-uint astral_pu(uint o) { return astral_params.data[astral_base + o]; }
-#define TIME pc.time
-)";
+/// `#define name value` for every uniform, reading the parameter block (astral_pf / astral_pu).
+std::string uniform_macros(const ShaderSource& source, const UniformLayout& layout) {
+    std::string s;
     for (std::size_t i = 0; i < source.uniforms.size(); ++i) {
         const ShaderUniform& u = source.uniforms[i];
         const std::string o = std::to_string(layout.offsets[i]) + "u";
@@ -60,6 +57,25 @@ uint astral_pu(uint o) { return astral_params.data[astral_base + o]; }
         s += "#define " + u.name + " " + value + "\n";
     }
     return s;
+}
+
+/// Shared by every stage: push constants, parameter access, uniforms as macros.
+std::string prelude(const ShaderSource& source, const UniformLayout& layout) {
+    std::string s = R"(#version 460
+#extension GL_GOOGLE_include_directive : require
+#include <astral/scene.glsl>
+layout(push_constant, scalar) uniform Push {
+    Vertices vertices; Instances instances; FrameRef frame; Materials materials; uint first_instance;
+    uint64_t params; float time;
+} pc;
+ASTRAL_BUFFER(AstralParams, uint);
+AstralParams astral_params;
+uint astral_base;
+float astral_pf(uint o) { return uintBitsToFloat(astral_params.data[astral_base + o]); }
+uint astral_pu(uint o) { return astral_params.data[astral_base + o]; }
+#define TIME pc.time
+)";
+    return s + uniform_macros(source, layout);
 }
 
 std::string vertex_stage(const ShaderSource& source, const UniformLayout& layout, bool shadow) {
@@ -170,6 +186,45 @@ void main() {
     return s;
 }
 
+/// The ray-traced version of one shader's surface() (see compose_rt_surfaces).
+std::string rt_chunk(const ShaderSource& source, const UniformLayout& layout) {
+    if (!source.has_function("surface")) return {};
+    const std::string prefix = "astral_s@ID@_";
+    std::string s = "// ---- " + std::string("shader slot @ID@") + "\n";
+    s += uniform_macros(source, layout);
+    for (const std::string& f : source.functions) s += "#define " + f + " " + prefix + f + "\n";
+    for (const ShaderVarying& v : source.varyings) s += "#define " + v.name + " " + prefix + v.name + "\n" + v.type + " " + v.name + ";\n";
+    s += "#define texture(s, uv) textureLod(s, uv, 2.0)\n#define dFdx(x) ((x) * 0.0)\n#define dFdy(x) ((x) * 0.0)\n";
+    s += "#line 1\n" + source.body_without("vertex") + "\n#line 100000\n";
+    s += R"(void astral_run_@ID@(uint base, vec2 uv, vec3 view_dir, inout Surface s) {
+    astral_base = base;
+    UV = uv; NORMAL = s.n; WORLD_POSITION = s.p; VIEW_DIR = view_dir; FRONT_FACING = !s.backface; SCREEN_UV = vec2(0.0);
+    ALBEDO = vec3(1.0); ROUGHNESS = 0.6; METALLIC = 0.0; EMISSION = vec3(0.0); ALPHA = 1.0; ALPHA_SCISSOR = 0.5;
+    NORMAL_MAP = vec3(0.5, 0.5, 1.0); NORMAL_MAP_DEPTH = 1.0; AO = 1.0;
+    surface();
+    s.albedo = ALBEDO * AO;
+    s.roughness = clamp(ROUGHNESS, 0.02, 1.0);
+    s.metallic = clamp(METALLIC, 0.0, 1.0);
+    s.emissive = EMISSION;
+}
+#undef texture
+#undef dFdx
+#undef dFdy
+)";
+    for (const ShaderVarying& v : source.varyings) s += "#undef " + v.name + "\n";
+    for (const std::string& f : source.functions) s += "#undef " + f + "\n";
+    for (const ShaderUniform& u : source.uniforms) s += "#undef " + u.name + "\n";
+    return s;
+}
+
+void replace_all(std::string& text, std::string_view from, std::string_view to) {
+    for (std::size_t at = text.find(from); at != std::string::npos; at = text.find(from, at + to.size())) text.replace(at, from.size(), to);
+}
+
+std::string embedded_text(const std::uint8_t* data, std::size_t size) {
+    return std::string(reinterpret_cast<const char*>(data), size);
+}
+
 /// Lines past the user's body (#line 100000) are the engine's: report them without a line.
 void collect(const GlslCompile& c, std::vector<ShaderError>& errors, const char* stage) {
     for (const ShaderError& e : c.errors) {
@@ -193,6 +248,10 @@ SurfaceShaderBuild compile_surface_shader(const ShaderSource& source, std::strin
         return out;
     }
     out.layout = layout_uniforms(source);
+    for (std::size_t i = 0; i < source.uniforms.size(); ++i) {
+        if (source.uniforms[i].type == UniformType::Sampler2D) out.samplers.push_back({out.layout.offsets[i], source.uniforms[i].hints.hint_normal});
+    }
+    out.rt_chunk = rt_chunk(source, out.layout);
     out.cull_disabled = source.has_render_mode("cull_disabled");
     out.cull_front = source.has_render_mode("cull_front");
     out.casts_shadows = !source.has_render_mode("shadows_disabled");
@@ -218,6 +277,53 @@ SurfaceShaderBuild compile_surface_shader(const ShaderSource& source, std::strin
         out.gbuffer_fragment.clear();
         out.gbuffer_vertex.clear();
     }
+    return out;
+}
+
+std::string compose_rt_surfaces(std::span<const RtSurface> surfaces) {
+    std::string s = R"(// Generated: the custom surface() functions for ray-traced hits.
+vec2 UV; vec3 NORMAL; vec3 WORLD_POSITION; vec3 VIEW_DIR; bool FRONT_FACING; vec2 SCREEN_UV;
+vec3 ALBEDO; float ROUGHNESS; float METALLIC; vec3 EMISSION; float ALPHA; float ALPHA_SCISSOR;
+vec3 NORMAL_MAP; float NORMAL_MAP_DEPTH; float AO;
+)";
+    for (const RtSurface& surface : surfaces) {
+        std::string chunk = surface.chunk;
+        replace_all(chunk, "@ID@", std::to_string(surface.slot));
+        s += chunk;
+    }
+    s += "void astral_custom_surface(uint shader, uint base, vec2 uv, vec3 view_dir, inout Surface s) {\n    switch (shader) {\n";
+    for (const RtSurface& surface : surfaces) {
+        if (surface.chunk.empty()) continue;
+        s += "    case " + std::to_string(surface.slot) + "u: astral_run_" + std::to_string(surface.slot) + "(base, uv, view_dir, s); break;\n";
+    }
+    s += "    default: break;\n    }\n}\n";
+    return s;
+}
+
+RtVariants compile_rt_variants(std::span<const RtSurface> surfaces) {
+    RtVariants out;
+    std::vector<GlslInclude> includes = engine_includes();
+    includes.push_back({"astral/rt.glsl", embedded_text(embedded::astral_rt_glsl, embedded::astral_rt_glsl_size)});
+    includes.push_back({"astral/primary.glsl", embedded_text(embedded::astral_primary_glsl, embedded::astral_primary_glsl_size)});
+    includes.push_back({"astral/sdf.glsl", embedded_text(embedded::astral_sdf_glsl, embedded::astral_sdf_glsl_size)});
+    includes.push_back({"astral/rt_custom.glsl", compose_rt_surfaces(surfaces)});
+
+    auto build = [&](const std::uint8_t* data, std::size_t size, std::vector<std::uint32_t>& spirv, const char* name) {
+        std::string text = embedded_text(data, size);
+        const std::string header = "#version 460\n";
+        if (text.starts_with(header)) text.insert(header.size(), "#extension GL_GOOGLE_include_directive : require\n#define ASTRAL_RT_CUSTOM\n");
+        GlslCompile c = compile_glsl(text, ShaderStage::Compute, includes, name);
+        std::vector<ShaderError> errors;
+        collect(c, errors, name);
+        for (ShaderError& e : errors) {
+            e.message = std::string("ray-traced variant: ") + e.message;
+            out.errors.push_back(std::move(e));
+        }
+        out.log += c.log;
+        spirv = std::move(c.spirv);
+    };
+    build(embedded::astral_rt_lighting_comp, embedded::astral_rt_lighting_comp_size, out.lighting, "rt_lighting");
+    build(embedded::astral_ddgi_trace_comp, embedded::astral_ddgi_trace_comp_size, out.ddgi_trace, "ddgi_trace");
     return out;
 }
 

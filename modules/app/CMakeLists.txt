@@ -21,6 +21,7 @@ astral_add_module(NAME app
         src/app.cpp
         src/debug_ui.cpp
         src/map_runtime.cpp
+        src/material_library.cpp
     DEPS
         Astral::Core
         Astral::Platform
@@ -43,7 +44,8 @@ astral_add_tests(MODULE app
         tests/pack_app_test.cpp
         tests/devtools_app_test.cpp
         tests/audio_app_test.cpp
-        tests/world_app_test.cpp)
+        tests/world_app_test.cpp
+        tests/material_app_test.cpp)
 if(TARGET astral_app_tests)
     FetchContent_GetProperties(stb)
     target_include_directories(astral_app_tests SYSTEM PRIVATE ${stb_SOURCE_DIR})
