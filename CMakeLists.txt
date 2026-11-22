@@ -9,6 +9,7 @@ option(ASTRAL_BUILD_TESTS "Build unit tests" ${PROJECT_IS_TOP_LEVEL})
 option(ASTRAL_BUILD_EXAMPLES "Build examples" ${PROJECT_IS_TOP_LEVEL})
 option(ASTRAL_INSTALL "Generate install rules" ${PROJECT_IS_TOP_LEVEL})
 option(ASTRAL_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
+option(ASTRAL_SIZE_BUDGET_STRICT "Fail code_size_check when unexcepted offenders exceed the M13.5 size budget" OFF)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(AstralWarnings)
@@ -51,6 +52,14 @@ if(ASTRAL_BUILD_TESTS)
     if(Python3_Interpreter_FOUND)
         # The shared features (features/) and their copies inside the games must be identical.
         add_test(NAME shared_features_in_sync COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/tools/sync_features.py --check)
+        set(_size_check_args --root ${CMAKE_SOURCE_DIR})
+        if(ASTRAL_SIZE_BUDGET_STRICT)
+            list(APPEND _size_check_args --strict)
+        endif()
+        add_test(NAME code_size_check
+            COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/tools/check_sizes.py ${_size_check_args})
+    else()
+        message(STATUS "Python3 interpreter not found: skipping shared_features_in_sync and code_size_check")
     endif()
     add_test(NAME astral_public_headers_clean
         COMMAND ${CMAKE_COMMAND} -DROOT=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/CheckPublicHeaders.cmake)

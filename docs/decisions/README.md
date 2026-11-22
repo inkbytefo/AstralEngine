@@ -34,3 +34,4 @@ ADR eskisini "yerini aldı" diye işaretler.
 | [0027](0027-blank-template-and-game-shell.md) | Boş oyun şablonu (`templates/blank`), standart oyun kabuğu (`run_game`), örneklerin şablon düzeninde yeniden kurulması | Kabul |
 | [0028](0028-script-tooling-and-shared-features.md) | Script araçları (tip denetimi, bytecode cook), ortak özellikler, gamepad, tween/durum makinesi/kayıt | Kabul |
 | [0029](0029-physics-fields-and-joints.md) | Fizik altyapısı: katmanlar, yeni şekiller, eklemler, rüzgâr/su alanları (CPU+GPU aynı işlev), kuvvetler, tetik olayları | Kabul |
+| [0030](0030-refactor-rules-and-size-budget.md) | Refaktör kuralları ve boyut bütçesi: 600/80/25 sınırı, tek sorumluluk ölçütü, tutarlı ayrıştırıcı istisnası, karakterizasyon testleri, bayt bayt golden kapısı | Kabul |

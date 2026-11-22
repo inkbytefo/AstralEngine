@@ -1,0 +1,182 @@
+[
+  {
+    "path": "examples/physics_playground/src/game.cpp",
+    "kind": "function",
+    "name": "PlaygroundGame::on_start",
+    "reason": "M13.5 R3: to be split"
+  },
+  {
+    "path": "modules/app/include/astral/app/app.hpp",
+    "kind": "members",
+    "name": "Context",
+    "reason": "M13.5 R2: to be split"
+  },
+  {
+    "path": "modules/app/src/app.cpp",
+    "kind": "file",
+    "name": "app.cpp",
+    "reason": "M13.5 R2: to be split"
+  },
+  {
+    "path": "modules/app/src/app.cpp",
+    "kind": "members",
+    "name": "App::Impl",
+    "reason": "M13.5 R2: to be split"
+  },
+  {
+    "path": "modules/app/src/app.cpp",
+    "kind": "function",
+    "name": "App::App",
+    "reason": "M13.5 R2: to be split"
+  },
+  {
+    "path": "modules/app/src/app.cpp",
+    "kind": "function",
+    "name": "App::Impl::step_physics",
+    "reason": "M13.5 R2: to be split"
+  },
+  {
+    "path": "modules/app/src/app.cpp",
+    "kind": "function",
+    "name": "App::Impl::frame",
+    "reason": "M13.5 R2: to be split"
+  },
+  {
+    "path": "modules/app/src/app.cpp",
+    "kind": "function",
+    "name": "App::Impl::draw_debug_overlays",
+    "reason": "M13.5 R2: to be split"
+  },
+  {
+    "path": "modules/app/src/debug_ui.cpp",
+    "kind": "function",
+    "name": "edit_json",
+    "reason": "M13.5 R3: to be split"
+  },
+  {
+    "path": "modules/app/src/debug_ui.cpp",
+    "kind": "function",
+    "name": "DebugUi::draw_panels",
+    "reason": "M13.5 R3: to be split"
+  },
+  {
+    "path": "modules/app/src/input_actions.cpp",
+    "kind": "function",
+    "name": "InputActions::load",
+    "reason": "M13.5 R3: to be split"
+  },
+  {
+    "path": "modules/assets/src/cook.cpp",
+    "kind": "function",
+    "name": "cook_directory",
+    "reason": "M13.5 R3: to be split"
+  },
+  {
+    "path": "modules/assets/src/cooked_model.cpp",
+    "kind": "function",
+    "name": "read_cooked_model",
+    "reason": "M13.5 R3: to be split"
+  },
+  {
+    "path": "modules/gpu/src/device.cpp",
+    "kind": "file",
+    "name": "device.cpp",
+    "reason": "M13.5 R3: to be split"
+  },
+  {
+    "path": "modules/gpu/src/device.cpp",
+    "kind": "function",
+    "name": "create_logical_device",
+    "reason": "M13.5 R3: to be split"
+  },
+  {
+    "path": "modules/gpu/src/pipelines.cpp",
+    "kind": "function",
+    "name": "Device::create_graphics_pipeline",
+    "reason": "M13.5 R3: to be split"
+  },
+  {
+    "path": "modules/gpu/src/vk_device.hpp",
+    "kind": "members",
+    "name": "Device::Impl",
+    "reason": "M13.5 R3: to be split"
+  },
+  {
+    "path": "modules/physics/src/physics.cpp",
+    "kind": "file",
+    "name": "physics.cpp",
+    "reason": "M13.5 R3: to be split"
+  },
+  {
+    "path": "modules/physics/src/physics.cpp",
+    "kind": "function",
+    "name": "PhysicsWorld::create_joint",
+    "reason": "M13.5 R3: to be split"
+  },
+  {
+    "path": "modules/render/src/render_graph.cpp",
+    "kind": "function",
+    "name": "RenderGraph::execute",
+    "reason": "M13.5 R1: to be split"
+  },
+  {
+    "path": "modules/render/src/renderer.cpp",
+    "kind": "file",
+    "name": "renderer.cpp",
+    "reason": "M13.5 R1: to be split"
+  },
+  {
+    "path": "modules/render/src/renderer.cpp",
+    "kind": "members",
+    "name": "Renderer::Impl",
+    "reason": "M13.5 R1: to be split"
+  },
+  {
+    "path": "modules/render/src/renderer.cpp",
+    "kind": "function",
+    "name": "Renderer::Impl::prepare_instances",
+    "reason": "M13.5 R1: to be split"
+  },
+  {
+    "path": "modules/render/src/renderer.cpp",
+    "kind": "function",
+    "name": "Renderer::render",
+    "reason": "M13.5 R1: to be split"
+  },
+  {
+    "path": "modules/render/src/renderer.cpp",
+    "kind": "function",
+    "name": "Renderer::Impl::render_ray_traced",
+    "reason": "M13.5 R1: to be split"
+  },
+  {
+    "path": "modules/render/src/text.cpp",
+    "kind": "function",
+    "name": "Font::create",
+    "reason": "M13.5 R1/R3: to be split"
+  },
+  {
+    "path": "modules/script/src/api.cpp",
+    "kind": "function",
+    "name": "generate_script_api",
+    "reason": "M13.5 R3: to be split"
+  },
+  {
+    "path": "modules/script/src/bindings.cpp",
+    "kind": "file",
+    "name": "bindings.cpp",
+    "reason": "M13.5 R3: to be split"
+  },
+  {
+    "path": "modules/world/include/astral/world/serialize.hpp",
+    "kind": "function",
+    "name": "from_json",
+    "reason": "M13.5 R3: to be split"
+  },
+  {
+    "path": "modules/world/src/scene.cpp",
+    "kind": "file",
+    "name": "scene.cpp",
+    "reason": "M13.5 R3: to be split"
+  }
+]

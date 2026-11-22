@@ -39,4 +39,12 @@ if(ASTRAL_BUILD_TESTS)
                 --pack ${out}/prefabs.apak -q)
     add_test(NAME astral_cook_cli_usage COMMAND $<TARGET_FILE:astral_cook>)
     set_tests_properties(astral_cook_cli_usage PROPERTIES WILL_FAIL TRUE)
+
+    find_package(Python3 COMPONENTS Interpreter)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME check_sizes_self_test
+            COMMAND Python3::Interpreter -B -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p "test_*.py" -v)
+    else()
+        message(STATUS "Python3 interpreter not found: skipping check_sizes_self_test")
+    endif()
 endif()

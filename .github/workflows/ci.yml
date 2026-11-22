@@ -32,6 +32,9 @@ jobs:
         run: cmake --build build
       - name: Test (virtual display for window tests)
         run: xvfb-run -a ctest --test-dir build --output-on-failure
+      - name: Code size budget
+        if: matrix.compiler == 'gcc'
+        run: python3 tools/check_sizes.py --summary
       - name: Install
         run: cmake --install build --prefix ${{ github.workspace }}/astral-install
       - name: Consumer (find_package)
@@ -100,3 +103,25 @@ jobs:
       - run: ./build/tsan/modules/world/astral_world_tests
       - run: ./build/tsan/modules/physics/astral_physics_tests
       - run: ./build/tsan/modules/script/astral_script_tests
+
+  include-hygiene:
+    name: linux-clang-include-hygiene
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    env:
+      CXX: clang++-18
+      CC: clang-18
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $LINUX_DEPS clang-tidy-18
+      - name: Configure (export compile_commands.json)
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DASTRAL_BUILD_TESTS=OFF
+      - name: Generate shader headers
+        run: cmake --build build --target astral_render_shaders
+      - name: Include cleaner (clang-tidy misc-include-cleaner)
+        run: >-
+          run-clang-tidy-18 -p build
+          -clang-tidy-binary clang-tidy-18
+          -checks='-*,misc-include-cleaner'
+          -header-filter="^${{ github.workspace }}/(modules|tools|examples|templates)/"
+          "^${{ github.workspace }}/(modules/[^/]+/src|tools|examples/[^/]+/src|templates/[^/]+/src)/"
