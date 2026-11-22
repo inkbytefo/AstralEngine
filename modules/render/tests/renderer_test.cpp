@@ -709,14 +709,14 @@ TEST_CASE("fonts: distance-field glyphs with Turkish letters, measuring, lines a
     CHECK(font->measure("AV", 40).x < font->measure("A", 40).x + font->measure("V", 40).x); // kerning
 
     UiCanvas canvas;
-    const Vec2 size = canvas.text(*font, "Merhaba dünya", {100, 10}, {.size = 30, .align = TextAlign::Center});
+    const Vec2 text_size = canvas.text(*font, "Merhaba dünya", {100, 10}, {.size = 30, .align = TextAlign::Center});
     float min_x = 1e9f, max_x = -1e9f;
     for (const UiVertex& v : canvas.layer().vertices) {
         min_x = std::min(min_x, v.position.x);
         max_x = std::max(max_x, v.position.x);
     }
-    CHECK(min_x < 100 - size.x * 0.4f); // centred around x = 100
-    CHECK(max_x > 100 + size.x * 0.4f);
+    CHECK(min_x < 100 - text_size.x * 0.4f); // centred around x = 100
+    CHECK(max_x > 100 + text_size.x * 0.4f);
     CHECK(canvas.layer().commands.size() == 1); // one draw for all glyphs
     canvas.rect({0, 0}, {10, 10}, {1, 0, 0, 1});
     CHECK(canvas.layer().commands.size() == 2);

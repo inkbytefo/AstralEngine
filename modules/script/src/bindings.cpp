@@ -185,7 +185,6 @@ ScriptPhase phase_from(lua_State* L, const char* name) {
     if (s == "FixedUpdate") return ScriptPhase::FixedUpdate;
     if (s == "PostUpdate") return ScriptPhase::PostUpdate;
     luaL_error(L, "unknown phase \"%s\" (PreUpdate, Update, FixedUpdate, PostUpdate)", name);
-    return ScriptPhase::Update;
 }
 
 std::vector<std::string> string_list(lua_State* L, int table, const char* key) {

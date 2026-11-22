@@ -29,4 +29,5 @@ astral_add_tests(MODULE shader
     SOURCES
         ${CMAKE_SOURCE_DIR}/modules/core/tests/test_main.cpp
         tests/ashader_test.cpp
+        tests/ashader_crlf_test.cpp
         tests/compile_test.cpp)

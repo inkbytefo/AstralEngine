@@ -72,7 +72,7 @@ it hits your paddle bends its path. `pong --demo` lets the AI play both sides.
 
 ## Build
 
-Requires CMake ≥ 3.24, Ninja, a C++20 compiler (GCC 13, Clang 18, MSVC 2022) and the Vulkan SDK
+Requires CMake ≥ 3.24 (including 4.x), Ninja, a C++20 compiler (GCC 13, Clang 18, MSVC 2022/2026) and the Vulkan SDK
 (headers, loader, `glslc`). SDL3, VMA, Jolt, glslang, Luau, Dear ImGui, miniaudio, stb, zstd and bc7enc are fetched automatically.
 
 ```sh
@@ -80,6 +80,9 @@ cmake --preset debug
 cmake --build --preset debug
 ctest --preset debug
 ```
+
+On Windows, open an **x64 Native Tools Command Prompt** (or run `vcvars64.bat`),
+then run `cmake --preset debug && cmake --build --preset debug && ctest --preset debug`.
 
 Presets: `debug`, `release`, `tsan` (ThreadSanitizer), `asan`. Games are written in C++ and/or Luau: see
 [docs/guides/writing-a-game.md](docs/guides/writing-a-game.md) and, for AI agents, [AGENTS.md](AGENTS.md).

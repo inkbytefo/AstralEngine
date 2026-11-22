@@ -7,6 +7,7 @@
 
 #include "image_compare.hpp"
 
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -55,6 +56,20 @@ bool save_png(const char* path, const Image& img) {
                           static_cast<int>(img.width * 3)) != 0;
 }
 
+std::optional<std::string> env_var(const char* name) {
+#if defined(_WIN32)
+    std::size_t len = 0;
+    if (getenv_s(&len, nullptr, 0, name) != 0 || len == 0) return std::nullopt;
+    std::string value(len, '\0');
+    if (getenv_s(&len, value.data(), value.size(), name) != 0 || len == 0) return std::nullopt;
+    value.resize(len - 1);
+    return value;
+#else
+    const char* value = std::getenv(name);
+    return value ? std::optional<std::string>(value) : std::nullopt;
+#endif
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -75,7 +90,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--max-bad")) tol.max_bad_fraction = std::atof(next());
         else if (!std::strcmp(argv[i], "--update")) update = true;
     }
-    if (const char* env = std::getenv("ASTRAL_UPDATE_GOLDEN"); env && std::strcmp(env, "0") != 0) update = true;
+    if (const auto env = env_var("ASTRAL_UPDATE_GOLDEN"); env && *env != "0") update = true;
 
     const auto actual = load(actual_path);
     if (!actual) {

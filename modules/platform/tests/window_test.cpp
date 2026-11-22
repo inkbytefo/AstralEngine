@@ -2,6 +2,7 @@
 #include <astral/platform/window.hpp>
 #include <doctest/doctest.h>
 
+#include <cstddef>
 #include <cstdlib>
 
 using namespace astral;
@@ -10,7 +11,8 @@ namespace {
 // Tests run without a display: SDL's dummy video driver gives real windows with no output.
 std::unique_ptr<Window> make_window() {
 #if defined(_WIN32)
-    if (!std::getenv("SDL_VIDEO_DRIVER")) _putenv_s("SDL_VIDEO_DRIVER", "dummy");
+    std::size_t len = 0;
+    if (getenv_s(&len, nullptr, 0, "SDL_VIDEO_DRIVER") != 0 || len == 0) _putenv_s("SDL_VIDEO_DRIVER", "dummy");
 #else
     setenv("SDL_VIDEO_DRIVER", "dummy", 0);
 #endif

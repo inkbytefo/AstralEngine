@@ -67,6 +67,25 @@ jobs:
       - name: Test (GPU tests skip without a Vulkan device)
         run: ctest --test-dir build --output-on-failure
 
+  windows-debug:
+    name: windows-msvc-debug
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: 1.3.296.0
+          install_runtime: true
+          cache: true
+          stripdown: true
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DASTRAL_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build
+      - name: Test (GPU tests skip without a Vulkan device)
+        run: ctest --test-dir build --output-on-failure -LE golden
+
   tsan:
     name: linux-tsan
     runs-on: ubuntu-24.04

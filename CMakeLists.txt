@@ -20,10 +20,12 @@ include(GNUInstallDirs)
 if(ASTRAL_BUILD_TESTS)
     enable_testing()
     set(DOCTEST_NO_INSTALL ON CACHE BOOL "" FORCE)
+    # doctest's forward declaration of std::basic_ostream breaks with the MSVC 14.51 STL.
+    set(DOCTEST_USE_STD_HEADERS ON CACHE BOOL "" FORCE)
     include(FetchContent)
     FetchContent_Declare(doctest
         GIT_REPOSITORY https://github.com/doctest/doctest.git
-        GIT_TAG v2.4.11
+        GIT_TAG v2.5.3
         GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(doctest)
 endif()

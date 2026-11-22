@@ -19,9 +19,10 @@ std::string_view trim(std::string_view s) {
     return s;
 }
 
-/// Replaces comments with spaces (newlines kept): same length, same lines.
+/// Drops '\r' (CRLF -> LF) and replaces comments with spaces (newlines kept): same lines.
 std::string strip_comments(std::string_view text) {
     std::string out(text);
+    std::erase(out, '\r');
     for (std::size_t i = 0; i < out.size(); ++i) {
         if (out[i] == '/' && i + 1 < out.size() && out[i + 1] == '/') {
             while (i < out.size() && out[i] != '\n') out[i++] = ' ';

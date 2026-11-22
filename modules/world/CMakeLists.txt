@@ -25,6 +25,7 @@ astral_add_tests(MODULE world
         tests/serialize_test.cpp
         tests/dynamic_test.cpp
         tests/scene_test.cpp
+        tests/scene_world_crlf_test.cpp
         tests/map_test.cpp
         tests/streaming_test.cpp
         tests/map_state_test.cpp

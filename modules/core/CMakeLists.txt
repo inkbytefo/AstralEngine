@@ -25,6 +25,7 @@ astral_add_tests(MODULE core
         tests/jobs_test.cpp
         tests/math_test.cpp
         tests/json_test.cpp
+        tests/json_crlf_test.cpp
         tests/reflect_test.cpp
         tests/bytes_test.cpp
         tests/profiler_test.cpp)

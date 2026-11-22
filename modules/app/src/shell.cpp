@@ -4,6 +4,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#if defined(_MSC_VER)
+#include <share.h>
+#endif
 
 namespace astral {
 
@@ -75,7 +78,11 @@ private:
 };
 
 bool write_ppm(const std::string& path, const std::vector<std::uint8_t>& rgba, std::uint32_t w, std::uint32_t h) {
+#if defined(_MSC_VER)
+    std::FILE* f = _fsopen(path.c_str(), "wb", _SH_DENYNO);
+#else
     std::FILE* f = std::fopen(path.c_str(), "wb");
+#endif
     if (!f) return false;
     std::fprintf(f, "P6\n%u %u\n255\n", w, h);
     for (std::size_t p = 0; p < std::size_t{w} * h; ++p) std::fwrite(&rgba[p * 4], 1, 3, f);
