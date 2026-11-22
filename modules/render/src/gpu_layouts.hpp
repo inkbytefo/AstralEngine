@@ -31,6 +31,7 @@ struct GpuShader {
     gpu::PipelineHandle gbuffer, shadow;
     gpu::PipelineHandle forward; ///< Blended surfaces (kind Surface, blend) and the post / sky pipelines.
     bool blend = false;
+    bool alpha_test = false;
     bool casts_shadows = true;
     std::string rt_chunk;                              ///< Ray-traced surface() (see compose_rt_surfaces)
     std::vector<SurfaceShaderBuild::Sampler> samplers; ///< Texture slots of the parameter block
@@ -86,15 +87,17 @@ struct GpuFrame {
     std::uint32_t rt_counts[4];
     Vec4 rt_params;
     Mat4 unjittered_view_projection;
-    std::uint32_t custom[4]; // xy: .ashader parameter block address, z: TIME (float bits)
+    std::uint32_t custom[4]; // xy: .ashader parameter block address, z: TIME (float bits), w: encode_srgb
+    Vec4 prev_camera_position;
 };
-static_assert(sizeof(GpuFrame) == 528);
+static_assert(sizeof(GpuFrame) == 544);
 static_assert(offsetof(GpuFrame, camera_position) == 192);
 static_assert(offsetof(GpuFrame, counts) == 272);
 static_assert(offsetof(GpuFrame, prev_view_projection) == 304);
 static_assert(offsetof(GpuFrame, ddgi_origin) == 368);
 static_assert(offsetof(GpuFrame, unjittered_view_projection) == 448);
 static_assert(offsetof(GpuFrame, custom) == 512);
+static_assert(offsetof(GpuFrame, prev_camera_position) == 528);
 
 struct GpuPointLight {
     Vec4 position_radius;
@@ -218,8 +221,9 @@ struct BloomUpPush {
     float texel[2];
     std::uint32_t size[2];
     float radius;
+    float blend;
 };
-static_assert(sizeof(BloomUpPush) == 32);
+static_assert(sizeof(BloomUpPush) == 36);
 static_assert(sizeof(BloomUpPush) <= gpu::max_push_constant_size);
 
 struct MeshPush {

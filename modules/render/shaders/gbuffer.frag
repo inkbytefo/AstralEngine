@@ -16,7 +16,7 @@ vec4 tex(uint index, vec2 uv) {
     return texture(sampler2D(astral_textures[nonuniformEXT(index)], astral_samplers[ASTRAL_SAMPLER_LINEAR_REPEAT]), uv);
 }
 
-// Tangent frame from screen-space derivatives (Schüler, "Followup: Normal Mapping Without
+// Tangent frame from screen-space derivatives (Schuler, "Followup: Normal Mapping Without
 // Precomputed Tangents"): normal maps work on any mesh, no tangent attribute needed.
 vec3 perturb(vec3 n, vec3 map, float scale) {
     vec3 dp1 = dFdx(in_world), dp2 = dFdy(in_world);
@@ -52,7 +52,5 @@ void main() {
     out_albedo = vec4(albedo, roughness);
     out_normal = vec4(n, metallic);
     out_emissive = vec4(emissive, 1.0);
-    vec2 now = in_clip_now.xy / in_clip_now.w * 0.5 + 0.5;
-    vec2 prev = in_clip_prev.xy / max(in_clip_prev.w, 1e-6) * 0.5 + 0.5;
-    out_velocity = now - prev;
+    out_velocity = compute_velocity(in_clip_now, in_clip_prev);
 }

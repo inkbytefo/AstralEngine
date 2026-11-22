@@ -27,9 +27,11 @@ bool load_primary(Frame f, GBufferIds g, ivec2 pixel, out Surface s, out float d
     if (depth >= 1.0) return false;
     vec2 uv = (vec2(pixel) + 0.5) * f.screen.zw;
     s.p = reconstruct_world(f, uv, depth);
-    s.n = normalize(normal_m.xyz);
+    float nlen = length(normal_m.xyz);
+    s.n = nlen > 1e-6 ? normal_m.xyz / nlen : vec3(0.0, 1.0, 0.0);
+    s.ng = s.n;
     s.albedo = albedo_r.rgb;
-    s.roughness = clamp(albedo_r.a, 0.02, 1.0);
+    s.roughness = clamp(albedo_r.a, ASTRAL_MIN_ROUGHNESS, 1.0);
     s.metallic = normal_m.w;
     s.emissive = emissive;
     s.backface = false;
@@ -38,6 +40,12 @@ bool load_primary(Frame f, GBufferIds g, ivec2 pixel, out Surface s, out float d
 
 vec3 camera_ray(Frame f, ivec2 pixel) {
     vec2 uv = (vec2(pixel) + 0.5) * f.screen.zw;
+    return normalize(reconstruct_world(f, uv, 1.0) - f.camera_position.xyz);
+}
+
+// Unjittered world-space view ray for sky reprojection (eliminates subpixel jitter drift on sky/stars).
+vec3 unjittered_camera_ray(Frame f, ivec2 pixel) {
+    vec2 uv = (vec2(pixel) + 0.5 + f.rt_params.yz) * f.screen.zw;
     return normalize(reconstruct_world(f, uv, 1.0) - f.camera_position.xyz);
 }
 

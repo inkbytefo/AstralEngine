@@ -50,12 +50,17 @@ SdfHit sdf_scene(SdfShapes shapes, uint count, vec3 p) {
         float k = max(s.position_blend.w, 1e-4);
         vec3 a = s.albedo_roughness.rgb;
         float r = s.albedo_roughness.a, m = s.params.x;
-        if (op == OP_UNION || i == 0u && op != OP_SUBTRACT && op != OP_SMOOTH_SUBTRACT) {
+        if (op == OP_UNION || (i == 0u && op != OP_SUBTRACT && op != OP_SMOOTH_SUBTRACT)) {
             if (d < h.dist) h = SdfHit(d, a, r, m);
         } else if (op == OP_SUBTRACT) {
             h.dist = max(h.dist, -d);
         } else if (op == OP_INTERSECT) {
-            h.dist = max(h.dist, d);
+            if (d > h.dist) {
+                h.dist = d;
+                h.albedo = a;
+                h.roughness = r;
+                h.metallic = m;
+            }
         } else if (op == OP_SMOOTH_UNION) {
             float t = clamp(0.5 + 0.5 * (d - h.dist) / k, 0.0, 1.0);
             h.dist = mix(d, h.dist, t) - k * t * (1.0 - t);
@@ -74,10 +79,12 @@ float sdf_distance(SdfShapes shapes, uint count, vec3 p) { return sdf_scene(shap
 
 vec3 sdf_normal(SdfShapes shapes, uint count, vec3 p, float eps) {
     const vec2 k = vec2(1.0, -1.0);
-    return normalize(k.xyy * sdf_distance(shapes, count, p + k.xyy * eps) +
-                     k.yyx * sdf_distance(shapes, count, p + k.yyx * eps) +
-                     k.yxy * sdf_distance(shapes, count, p + k.yxy * eps) +
-                     k.xxx * sdf_distance(shapes, count, p + k.xxx * eps));
+    vec3 g = k.xyy * sdf_distance(shapes, count, p + k.xyy * eps) +
+             k.yyx * sdf_distance(shapes, count, p + k.yyx * eps) +
+             k.yxy * sdf_distance(shapes, count, p + k.yxy * eps) +
+             k.xxx * sdf_distance(shapes, count, p + k.xxx * eps);
+    float len2 = dot(g, g);
+    return len2 > 1e-20 ? g * inversesqrt(len2) : vec3(0.0, 1.0, 0.0);
 }
 
 // Soft shadow toward the light (Inigo Quilez's technique). 1 = lit, 0 = fully shadowed.

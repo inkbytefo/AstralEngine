@@ -1,5 +1,6 @@
 #version 460
 #include <astral/bindless.glsl>
+#include <astral/color.glsl>
 layout(push_constant, scalar) uniform Push {
     vec2 scale; vec2 translate; uint64_t vertices; uint64_t indices;
     int vertex_offset; uint texture; uint flags; float sdf_softness;
@@ -10,8 +11,6 @@ layout(location = 0) out vec4 out_color;
 
 const uint FLAG_TEXTURE = 1u;
 const uint FLAG_LINEAR_TARGET = 2u; // sRGB target: hardware encodes, so hand it linear values
-
-vec3 srgb_to_linear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }
 
 void main() {
     vec4 c = in_color;
@@ -25,6 +24,6 @@ void main() {
             c *= t;
         }
     }
-    if ((pc.flags & FLAG_LINEAR_TARGET) != 0u) c.rgb = srgb_to_linear(c.rgb);
+    if ((pc.flags & FLAG_LINEAR_TARGET) != 0u) c.rgb = astral_srgb_to_linear(c.rgb);
     out_color = c;
 }

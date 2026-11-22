@@ -74,6 +74,8 @@ RGTexture BloomPass::add_upsample(RenderGraph& graph, const DownChain& chain) co
         const RGTexture lower = low;
         const gpu::Extent2D low_size = chain.sizes[li + 1];
         const gpu::Extent2D size = chain.sizes[li];
+        const auto step = static_cast<float>(chain.levels - 1 - li);
+        const float blend = step / (step + 1.0f); // equal 1/N weight across all N pyramid scales (unit DC gain)
         graph.add_pass(
             "bloom.up",
             [lower, current, dst](PassBuilder& b) {
@@ -81,14 +83,15 @@ RGTexture BloomPass::add_upsample(RenderGraph& graph, const DownChain& chain) co
                 b.read(current);
                 b.write_storage(dst);
             },
-            [pipeline, lower, current, dst, low_size, size](PassContext& ctx) {
+            [pipeline, lower, current, dst, low_size, size, blend](PassContext& ctx) {
                 const BloomUpPush push{
                     ctx.bindless(lower),
                     ctx.bindless(current),
                     ctx.bindless(dst),
                     {1.0f / static_cast<float>(low_size.width), 1.0f / static_cast<float>(low_size.height)},
                     {size.width, size.height},
-                    1.0f};
+                    1.0f,
+                    blend};
                 ctx.cmd.bind_pipeline(pipeline);
                 ctx.cmd.push_constants(&push, sizeof(push));
                 ctx.cmd.dispatch((size.width + 7) / 8, (size.height + 7) / 8);

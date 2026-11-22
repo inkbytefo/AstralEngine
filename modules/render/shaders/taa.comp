@@ -1,8 +1,8 @@
 #version 460
 #include <astral/primary.glsl>
 // Temporal anti-aliasing: the projection is jittered every frame (Halton 2,3); history is
-// reprojected by depth, sampled with a Catmull-Rom filter, and clipped to the current pixel
-// neighbourhood's colour distribution (YCoCg variance clipping) to avoid ghosting.
+// reprojected by nearest-depth velocity (or unjittered camera ray for sky), sampled with a
+// Catmull-Rom filter, and clipped to the current pixel neighbourhood's YCoCg variance AABB.
 layout(push_constant, scalar) uniform Push {
     FrameRef frame; GBufferIds g; uint hdr; uint history; uint out_color; float blend;
 } pc;
@@ -70,7 +70,7 @@ void main() {
     if (nearest < 1.0) {
         // Motion of the nearest surface in the 3x3 (keeps moving edges crisp).
         uv = uv_now - primary_velocity(f, pc.g, nearest_px);
-    } else if (!reproject(f, f.camera_position.xyz + camera_ray(f, nearest_px) * 1e4, uv)) {
+    } else if (!reproject(f, f.camera_position.xyz + unjittered_camera_ray(f, nearest_px) * 1e4, uv)) {
         imageStore(astral_storage_images[pc.out_color], pixel, vec4(current, 1));
         return;
     }
@@ -80,7 +80,7 @@ void main() {
     }
     uv += (vec2(pixel) - vec2(nearest_px)) * f.screen.zw;
     vec3 history = to_ycocg(compress(sample_history(uv, f.screen.xy)));
-    // Clip the history toward the neighbourhood mean (AABB of mean ± γσ).
+    // Clip the history toward the neighbourhood mean (AABB of mean +/- gamma*sigma).
     vec3 lo = mean - 1.25 * sigma, hi = mean + 1.25 * sigma;
     vec3 center = 0.5 * (lo + hi), extent = 0.5 * (hi - lo) + 1e-5;
     vec3 offset = history - center;

@@ -199,7 +199,9 @@ void CommandList::build_tlas(AccelerationStructureHandle tlas, std::span<const T
         vk.instanceCustomIndex = in.custom_index & 0xFFFFFFu;
         vk.mask = in.mask;
         vk.instanceShaderBindingTableRecordOffset = 0;
-        vk.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+        vk.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR |
+                   (in.opaque ? VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR
+                              : VK_GEOMETRY_INSTANCE_FORCE_NO_OPAQUE_BIT_KHR);
         vk.accelerationStructureReference = blas->address;
     }
     vmaFlushAllocation(s.allocator, upload.allocation, 0, bytes);

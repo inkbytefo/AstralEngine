@@ -42,6 +42,7 @@ ShaderHandle ShaderStore::create(const SurfaceShaderBuild& build, std::string_vi
     }
     GpuShader shader;
     shader.casts_shadows = build.casts_shadows;
+    shader.alpha_test = build.alpha_test;
     shader.rt_chunk = build.rt_chunk;
     shader.samplers = build.samplers;
     shader.gbuffer = device_.create_graphics_pipeline({
@@ -135,7 +136,7 @@ void ShaderStore::rebuild_rt_surfaces_if_dirty() {
     rt_surfaces_dirty_ = false;
     std::vector<RtSurface> surfaces;
     shaders_.for_each([&](ShaderHandle h, GpuShader& s) {
-        if (!s.rt_chunk.empty()) surfaces.push_back({h.index, s.rt_chunk});
+        if (!s.rt_chunk.empty()) surfaces.push_back({h.index, s.rt_chunk, s.alpha_test});
     });
     gpu::PipelineHandle lit, trace;
     rt_surface_error_.clear();

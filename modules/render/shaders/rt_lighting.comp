@@ -1,8 +1,7 @@
 #version 460
 #include <astral/primary.glsl>
-// Per pixel, one sample each: direct light with ray-traced visibility (sun cone, point bulbs,
-// rect area lights) and one GGX reflection ray. Writes noisy, albedo-free signals for the
-// denoiser, plus the pixel's geometry (normal, view distance) for reprojection next frame.
+// Per pixel: direct light with ray-traced visibility (sun cone, point bulbs, rect area lights with
+// MIS), near-field GI falling back to DDGI, and one Heitz VNDF reflection ray (unbiased demodulated).
 layout(push_constant, scalar) uniform Push {
     FrameRef frame; uint64_t tlas; Instances instances; Materials materials; PointLights lights; RectLights rects; SdfShapes shapes;
     GBufferIds g; uint irr; uint dist;
@@ -12,7 +11,7 @@ layout(local_size_x = 8, local_size_y = 8) in;
 
 void main() {
     Frame f = pc.frame.f;
-    astral_rt_begin(f);
+    astral_rt_begin(f, pc.instances, pc.materials);
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     if (pixel.x >= int(f.screen.x) || pixel.y >= int(f.screen.y)) return;
     Surface s;
@@ -27,74 +26,97 @@ void main() {
     LightingInputs li = LightingInputs(pc.tlas, pc.shapes, sdf_count, pc.lights, pc.rects);
     vec3 v = normalize(f.camera_position.xyz - s.p);
     if (dot(s.n, v) < 0.0) s.n = normalize(s.n - v * (dot(s.n, v) * 1.01)); // normals facing away from the camera
+    s.ng = s.n;
     uint seed = make_seed(uvec2(pixel), f.rt_counts.y, 1u);
 
     vec3 diffuse, specular_direct;
-    direct_light(f, li, s, v, seed, diffuse, specular_direct);
+    direct_light(f, li, s, v, true, seed, diffuse, specular_direct);
 
-    // Indirect diffuse. Near field: one cosine-weighted ray; if it hits within `near_gi_radius`,
-    // that surface's actual outgoing light is gathered (contact shadows *and* colour bounce).
-    // Far field (the ray escaped): DDGI probe irradiance.
-    vec3 f0_ = mix(vec3(0.04), s.albedo, s.metallic);
-    vec3 kd = (1.0 - env_brdf(f0_, s.roughness, max(dot(s.n, v), 1e-4))) * (1.0 - s.metallic);
-    vec3 indirect = ddgi_irradiance(f, pc.irr, pc.dist, s.p, s.n, v);
+    // Pre-integrated specular reflectance: computed once and reused for diffuse kd and specular demodulation.
+    vec3 f0 = mix(vec3(0.04), s.albedo, s.metallic);
+    float nv = max(dot(s.n, v), 1e-4);
+    vec3 dfg_raw = env_brdf(f0, s.roughness, nv);
+    vec3 dfg = max(dfg_raw, vec3(1e-3));
+    vec3 kd = (1.0 - dfg_raw) * (1.0 - s.metallic);
+
+    // Indirect diffuse. Near field: one cosine-weighted ray; only query DDGI when the ray escapes.
+    vec3 origin = primary_ray_origin(f, s.p, s.n);
+    vec3 indirect;
+    bool near_hit = false;
     if (pc.near_gi_radius > 0.0) {
         vec2 u = r2(f.rt_counts.y + 17u, seed);
         float r = sqrt(u.x), phi = 2.0 * PI * u.y;
         vec3 dir = to_world(vec3(r * cos(phi), r * sin(phi), sqrt(max(0.0, 1.0 - u.x))), s.n);
-        vec3 origin = s.p + s.n * ray_bias(f, s.p);
         TraceHit nh = trace(pc.tlas, pc.shapes, sdf_count, origin, dir, pc.near_gi_radius);
         if (nh.hit) {
+            near_hit = true;
             Surface hs = nh.sdf ? sdf_surface(pc.shapes, sdf_count, origin, dir, nh.t)
                                 : triangle_surface(pc.instances, pc.materials, nh.instance, nh.prim, nh.bary, origin, dir, nh.t);
-            indirect = hs.backface ? vec3(0) : shade_secondary(f, li, hs, -dir, pc.irr, pc.dist, seed);
+            indirect = hs.backface ? vec3(0) : shade_secondary(f, li, hs, -dir, pc.irr, pc.dist, true, seed);
         }
+    }
+    if (!near_hit) {
+        indirect = ddgi_irradiance(f, pc.irr, pc.dist, s.p, s.n, v);
     }
     diffuse += indirect * kd;
 
-    // Reflection: GGX visible-normal sample (exact mirror for very smooth surfaces).
-    vec3 f0 = mix(vec3(0.04), s.albedo, s.metallic);
-    float nv = max(dot(s.n, v), 1e-4);
-    float a = s.roughness * s.roughness;
+    // Reflection: Heitz VNDF sample (exact mirror for roughness < 0.04), unbiasedly demodulated by dfg.
+    float a = max(s.roughness * s.roughness, 0.002);
     vec3 l;
-    float weight = 1.0;
-    if (s.roughness < 0.04) {
+    vec3 h_vec = s.n;
+    vec3 spec_weight = vec3(0.0);
+    bool is_mirror = s.roughness < ASTRAL_MIRROR_ROUGHNESS;
+    if (is_mirror) {
         l = reflect(-v, s.n);
+        spec_weight = fresnel_schlick(f0, nv) / dfg;
     } else {
         vec3 t = tangent_of(s.n), b = cross(s.n, t);
         vec3 v_local = vec3(dot(v, t), dot(v, b), dot(v, s.n));
         vec2 u = r2(f.rt_counts.y, seed);
         vec3 h_local = sample_vndf(v_local, a, u);
-        vec3 h = t * h_local.x + b * h_local.y + s.n * h_local.z;
-        l = reflect(-v, h);
+        h_vec = normalize(t * h_local.x + b * h_local.y + s.n * h_local.z);
+        l = reflect(-v, h_vec);
         float nl = dot(s.n, l);
-        weight = nl > 0.0 ? smith_g1(nl, a) : 0.0; // G2/G1 ≈ G1(l) for the VNDF estimator
+        float vh = max(dot(v, h_vec), 0.0);
+        if (nl > 0.0) {
+            spec_weight = fresnel_schlick(f0, vh) * smith_vndf_weight(nv, nl, a) / dfg;
+        }
     }
     vec3 reflected = vec3(0);
-    if (weight > 0.0 && dot(s.n, l) > 0.0) {
-        vec3 origin = s.p + s.n * ray_bias(f, s.p);
+    if (dot(s.n, l) > 0.0 && any(greaterThan(spec_weight, vec3(0.0)))) {
         TraceHit h = trace(pc.tlas, pc.shapes, sdf_count, origin, l, f.rt_params.w);
         float hit_t = h.hit ? h.t : 1e30;
         float rect_t = 1e30;
+        uint rect_idx = 0u;
         vec3 rect_radiance = vec3(0);
         for (uint i = 0u; i < f.rt_counts.x; ++i) {
             RectLight r = pc.rects.data[i];
             float t = intersect_rect(r, origin, l);
-            if (t > 0.0 && t < rect_t) { rect_t = t; rect_radiance = r.radiance.rgb; }
+            if (t > 0.0 && t < rect_t) { rect_t = t; rect_idx = i; rect_radiance = r.radiance.rgb; }
         }
         if (rect_t < hit_t) {
-            reflected = rect_radiance;
+            float w_mis = 1.0;
+            if (!is_mirror) {
+                RectLight rl = pc.rects.data[rect_idx];
+                vec3 ln = cross(rl.right.xyz, rl.up.xyz);
+                float area = 4.0 * length(ln);
+                float cos_l = abs(dot(normalize(ln), -l));
+                float prob = rect_light_select_prob(f, pc.rects, rect_idx, s.p, s.n);
+                float pdf_light = prob * (rect_t * rect_t) / max(area * cos_l, 1e-8);
+                float pdf_brdf = vndf_reflection_pdf(nv, max(dot(s.n, h_vec), 0.0), a);
+                w_mis = mis_power2(pdf_brdf, pdf_light);
+            }
+            reflected = rect_radiance * w_mis;
         } else if (h.hit) {
             Surface hs = h.sdf ? sdf_surface(pc.shapes, sdf_count, origin, l, h.t)
                                : triangle_surface(pc.instances, pc.materials, h.instance, h.prim, h.bary, origin, l, h.t);
-            reflected = hs.backface ? vec3(0) : shade_secondary(f, li, hs, -l, pc.irr, pc.dist, seed);
+            reflected = hs.backface ? vec3(0) : shade_secondary(f, li, hs, -l, pc.irr, pc.dist, true, seed);
         } else {
             reflected = sky_radiance(f, l);
         }
-        reflected *= weight;
+        reflected *= spec_weight;
     }
-    // Demodulate: the composite multiplies by the pre-integrated BRDF again.
-    vec3 dfg = max(env_brdf(f0, s.roughness, nv), vec3(1e-3));
+    // Demodulate: composite multiplies by env_brdf(f0, roughness, nv) again.
     vec3 specular = reflected + specular_direct / dfg;
 
     // Clamp fireflies (rare high-energy samples) before they enter the temporal history.

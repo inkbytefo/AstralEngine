@@ -101,16 +101,17 @@ void DdgiPass::ensure(const RenderScene& scene, const MeshStore& meshes, const G
     rays_ = rays;
     origin_ = origin;
     spacing_ = spacing;
-    auto atlas = [&](int interior, const char* name) {
+    auto atlas = [&](int interior, gpu::Format format, const char* name) {
         return device_.create_texture({.width = nx * ny * static_cast<std::uint32_t>(interior + 2),
                                        .height = nz * static_cast<std::uint32_t>(interior + 2),
-                                       .format = gpu::Format::RGBA16Float,
+                                       .format = format,
                                        .usage = gpu::TextureUsage::Sampled | gpu::TextureUsage::Storage,
                                        .debug_name = name});
     };
     for (int i = 0; i < 2; ++i) {
-        irradiance_[i] = atlas(8, "astral.ddgi.irradiance");
-        distance_[i] = atlas(16, "astral.ddgi.distance");
+        irradiance_[i] = atlas(8, gpu::Format::RGBA16Float, "astral.ddgi.irradiance");
+        // Distance moments are normalized to [0, 1] by ddgi_max_dist: RG16Float avoids FP16 overflow and halves bandwidth.
+        distance_[i] = atlas(16, gpu::Format::RG16Float, "astral.ddgi.distance");
     }
     ray_buffer_ =
         device_.create_buffer({.size = std::uint64_t{nx} * ny * nz * rays * 16, .debug_name = "astral.ddgi.rays"});
@@ -147,22 +148,22 @@ DdgiOutput DdgiPass::add(RenderGraph& graph, const FrameInputs& inputs, gpu::Pip
         });
 
     const gpu::PipelineHandle update_pipeline = update_pipeline_;
+    const std::uint32_t probes = nx_ * ny_ * nz_;
     for (std::uint32_t mode = 0; mode < 2; ++mode) {
         const RGTexture src = mode == 0 ? irr_prev : dist_prev;
         const RGTexture dst = mode == 0 ? irr : dist;
-        const gpu::TextureDesc desc = device_.texture_desc(mode == 0 ? irradiance_[0] : distance_[0]);
         graph.add_pass(
             mode == 0 ? "ddgi.update.irradiance" : "ddgi.update.distance",
             [src, dst](PassBuilder& b) {
                 b.read(src);
                 b.write_storage(dst);
             },
-            [update_pipeline, frame_address = addr.frame, rays_address, src, dst, mode, desc](PassContext& ctx) {
-                ctx.cmd.memory_barrier(); // probe ray buffer written by ddgi.trace
+            [update_pipeline, frame_address = addr.frame, rays_address, src, dst, mode, probes](PassContext& ctx) {
+                if (mode == 0) ctx.cmd.memory_barrier(); // probe ray buffer written by ddgi.trace
                 const DdgiUpdatePush push{frame_address, rays_address, ctx.bindless(src), ctx.bindless(dst), mode};
                 ctx.cmd.bind_pipeline(update_pipeline);
                 ctx.cmd.push_constants(&push, sizeof(push));
-                ctx.cmd.dispatch((desc.width + 7) / 8, (desc.height + 7) / 8);
+                ctx.cmd.dispatch(probes, 1, 1); // 1 shared-memory workgroup per probe
             });
     }
     return {irr, dist};

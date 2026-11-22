@@ -1,10 +1,8 @@
 #version 460
 #include <astral/primary.glsl>
-// Temporal accumulation of the noisy diffuse and specular signals (SVGF-style): reproject the
-// previous result with the pixel's world position, reject on geometry mismatch, blend with an
-// exponential moving average whose weight follows the per-pixel history length (alpha channel).
-// Also accumulates the first two luminance moments of each signal: their variance tells the
-// spatial filter how much of a neighbour's difference is noise and how much is a real edge.
+// Temporal accumulation of the noisy diffuse and specular signals (SVGF-style): reproject using
+// per-object motion vectors, validate normal and previous-camera distance (immune to camera translation),
+// and accumulate exponential moving averages plus the first two luminance moments of each signal.
 layout(push_constant, scalar) uniform Push {
     FrameRef frame; GBufferIds g;
     uint geometry; uint prev_geometry;
@@ -29,11 +27,12 @@ void main() {
         return;
     }
     vec3 world = f.camera_position.xyz + camera_ray(f, pixel) * geo.w;
-    vec2 uv;
+    // Compare prev_geometry.w (distance from previous camera) against expected distance from previous camera.
+    float expected_prev_dist = length(f.prev_camera_position.xyz - world);
+    vec2 uv = (vec2(pixel) + 0.5) * f.screen.zw - primary_velocity(f, pc.g, pixel); // per-object motion
+    bool on_screen = all(greaterThanEqual(uv, vec2(0))) && all(lessThanEqual(uv, vec2(1)));
     vec4 hist_d = vec4(0), hist_s = vec4(0), hist_m = vec4(0);
     float history = 0.0;
-    uv = (vec2(pixel) + 0.5) * f.screen.zw - primary_velocity(f, pc.g, pixel); // per-object motion
-    bool on_screen = all(greaterThanEqual(uv, vec2(0))) && all(lessThanEqual(uv, vec2(1)));
     if (f.rt_counts.z != 0u && on_screen) {
         // Bilinear footprint, each tap validated against the previous geometry.
         vec2 size = f.screen.xy;
@@ -47,7 +46,7 @@ void main() {
             vec4 pg = fetch_texel(pc.prev_geometry, tap);
             if (pg.w < 0.0) continue;
             float normal_ok = dot(pg.xyz, geo.xyz) > 0.9 ? 1.0 : 0.0;
-            float depth_ok = abs(pg.w - geo.w) < 0.05 * geo.w + 0.02 ? 1.0 : 0.0;
+            float depth_ok = abs(pg.w - expected_prev_dist) < 0.05 * expected_prev_dist + 0.02 ? 1.0 : 0.0;
             float bw = (i & 1) == 1 ? fr.x : 1.0 - fr.x;
             bw *= (i >> 1) == 1 ? fr.y : 1.0 - fr.y;
             float w = bw * normal_ok * depth_ok;
@@ -67,7 +66,7 @@ void main() {
     float alpha = 1.0 / history;
     vec3 out_d = mix(hist_d.rgb, d, alpha);
     vec3 out_s = mix(hist_s.rgb, sp, max(alpha, 0.08)); // specular reacts faster (view dependent)
-    float ld = dot(d, vec3(0.2126, 0.7152, 0.0722)), ls = dot(sp, vec3(0.2126, 0.7152, 0.0722));
+    float ld = astral_luminance(d), ls = astral_luminance(sp);
     vec4 moments = vec4(ld, ld * ld, ls, ls * ls);
     vec4 out_m = history <= 1.0 ? moments : mix(hist_m, moments, max(alpha, 0.2));
     imageStore(astral_storage_images[pc.out_moments], pixel, out_m);

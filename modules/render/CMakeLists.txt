@@ -59,6 +59,8 @@ astral_embed_file(astral_render ${imgui_SOURCE_DIR}/misc/fonts/Roboto-Medium.ttf
 # Engine shader headers, for .ashader pipelines compiled at run time (ADR-0022).
 astral_embed_file(astral_render ${CMAKE_SOURCE_DIR}/modules/gpu/shaders/include/astral/bindless.glsl astral_bindless_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/scene.glsl astral_scene_glsl)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/color.glsl astral_color_glsl)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/brdf.glsl astral_brdf_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/rt.glsl astral_rt_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/primary.glsl astral_primary_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/sdf.glsl astral_sdf_glsl)
@@ -82,6 +84,7 @@ astral_add_tests(MODULE render
     SOURCES
         tests/test_main.cpp
         tests/renderer_test.cpp
+        tests/render_audit_test.cpp
         tests/stores_test.cpp
         tests/passes_test.cpp
         tests/render_graph_test.cpp

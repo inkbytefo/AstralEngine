@@ -1,7 +1,7 @@
 #version 460
 #include <astral/primary.glsl>
 // Puts the frame back together in HDR:
-//   albedo × denoised diffuse light (direct + DDGI × RTAO) + pre-integrated BRDF × denoised specular + emission.
+//   albedo x denoised diffuse light + pre-integrated BRDF x denoised specular + emission.
 // Sky pixels show the sky; rect lights are visible as glowing panels wherever they are nearest.
 layout(push_constant, scalar) uniform Push {
     FrameRef frame; RectLights rects; GBufferIds g;
@@ -36,15 +36,16 @@ void main() {
     } else {
         color = sky_radiance(f, dir);
     }
-    for (uint i = 0u; i < f.rt_counts.x; ++i) {
-        RectLight r = pc.rects.data[i];
-        float t = intersect_rect(r, f.camera_position.xyz, dir);
-        if (t > 0.0 && t < surface_t) {
-            color = r.radiance.rgb;
-            surface_t = t;
+    if (pc.debug_view == 0u) {
+        for (uint i = 0u; i < f.rt_counts.x; ++i) {
+            RectLight r = pc.rects.data[i];
+            float t = intersect_rect(r, f.camera_position.xyz, dir);
+            if (t > 0.0 && t < surface_t) {
+                color = r.radiance.rgb;
+                surface_t = t;
+            }
         }
     }
-    if (any(isnan(color)) || any(isinf(color))) color = vec3(50, 0, 50); // DEBUG
     if (any(isnan(color)) || any(isinf(color))) color = vec3(0);
     imageStore(astral_storage_images[pc.out_hdr], pixel, vec4(color, 1));
 }

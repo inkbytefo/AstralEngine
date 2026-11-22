@@ -11,6 +11,15 @@ target_link_libraries(astral_bench PRIVATE
     Astral::App)
 astral_set_warnings(astral_bench)
 
+add_executable(astral_render_bench
+    render_bench.cpp)
+set_target_properties(astral_render_bench PROPERTIES OUTPUT_NAME astral-render-bench)
+target_link_libraries(astral_render_bench PRIVATE
+    Astral::Core
+    Astral::Gpu
+    Astral::Render)
+astral_set_warnings(astral_render_bench)
+
 if(ASTRAL_BUILD_TESTS)
     add_test(NAME astral_benchmarks_smoke COMMAND $<TARGET_FILE:astral_bench> --smoke)
 endif()

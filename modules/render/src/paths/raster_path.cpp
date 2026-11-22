@@ -35,7 +35,8 @@ GpuFrame build_raster_frame(const CameraData& camera, const RenderScene& scene, 
                    {},
                    {},
                    view_projection,
-                   {}};
+                   {},
+                   {camera.position.x, camera.position.y, camera.position.z, 1}};
     frame.custom[0] = static_cast<std::uint32_t>(params_address);
     frame.custom[1] = static_cast<std::uint32_t>(params_address >> 32);
     std::memcpy(&frame.custom[2], &scene.time, sizeof(float));

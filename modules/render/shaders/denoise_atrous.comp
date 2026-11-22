@@ -1,16 +1,14 @@
 #version 460
 #include <astral/primary.glsl>
-// One edge-avoiding à-trous wavelet iteration (Dammertz 2010, as in SVGF) over both signals.
-// Weights: B3 spline × normal similarity × relative depth × luminance difference measured in
-// standard deviations of the pixel's temporal luminance variance (young history: wider).
+// One edge-avoiding a-trous wavelet iteration (Dammertz 2010, as in SVGF) over both signals.
+// Weights: B3 spline x normal similarity x world-space plane distance (grazing-angle safe) x
+// luminance difference measured in standard deviations of the pixel's temporal luminance variance.
 // Specular is filtered less as surfaces get smoother: mirrors stay sharp.
 layout(push_constant, scalar) uniform Push {
     FrameRef frame; GBufferIds g;
     uint geometry; uint diffuse; uint specular; uint out_diffuse; uint out_specular; int step; uint moments;
 } pc;
 layout(local_size_x = 8, local_size_y = 8) in;
-
-float luminance(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 
 void main() {
     Frame f = pc.frame.f;
@@ -29,8 +27,9 @@ void main() {
     if (f.counts.y > 0u && fetch_texel(pc.g.sdf_depth, pixel).r < fetch_texel(pc.g.depth, pixel).r) {
         roughness = fetch_texel(pc.g.sdf_albedo, pixel).a;
     }
+    vec3 center_p = f.camera_position.xyz + camera_ray(f, pixel) * geo.w;
     float history = max(cd.a, 1.0);
-    float lum_d = luminance(cd.rgb), lum_s = luminance(cs.rgb);
+    float lum_d = astral_luminance(cd.rgb), lum_s = astral_luminance(cs.rgb);
     // Variance from the temporal moments, smoothed over 3x3 (SVGF); young pixels get a boost so
     // the first frames are blurred harder.
     vec2 variance = vec2(0);
@@ -48,9 +47,10 @@ void main() {
     float young = 4.0 / history;
     variance += young * young * vec2(lum_d * lum_d, lum_s * lum_s);
     float phi_d = 4.0 * sqrt(variance.x) + 1e-3, phi_s = 4.0 * sqrt(variance.y) + 1e-3;
-    // Smooth specular: shrink the kernel to nothing below roughness ~0.1.
+    // Smooth specular: shrink the kernel to nothing below roughness ~0.08.
     float spec_extent = clamp((roughness - 0.08) * 3.0, 0.0, 1.0);
     const float kernel[3] = float[](3.0 / 8.0, 1.0 / 4.0, 1.0 / 16.0);
+    float plane_sigma = 0.015 * geo.w * float(pc.step) + 0.005;
     vec3 sum_d = vec3(0), sum_s = vec3(0);
     float w_d = 0.0, w_s = 0.0;
     for (int y = -2; y <= 2; ++y) {
@@ -61,11 +61,13 @@ void main() {
             if (qg.w < 0.0) continue;
             float k = kernel[abs(x)] * kernel[abs(y)];
             float wn = pow(max(dot(qg.xyz, geo.xyz), 0.0), 64.0);
-            float wz = exp(-abs(qg.w - geo.w) / (0.01 * geo.w * float(pc.step) + 1e-3));
+            vec3 qp = f.camera_position.xyz + camera_ray(f, q) * qg.w;
+            float plane_dist = abs(dot(qp - center_p, geo.xyz));
+            float wz = exp(-plane_dist / plane_sigma);
             vec3 qd = fetch_texel(pc.diffuse, q).rgb;
             vec3 qs = fetch_texel(pc.specular, q).rgb;
-            float wl_d = exp(-abs(luminance(qd) - lum_d) / phi_d);
-            float wl_s = exp(-abs(luminance(qs) - lum_s) / phi_s);
+            float wl_d = exp(-abs(astral_luminance(qd) - lum_d) / phi_d);
+            float wl_s = exp(-abs(astral_luminance(qs) - lum_s) / phi_s);
             float wd = k * wn * wz * wl_d;
             float ws = (x == 0 && y == 0) ? k : k * wn * wz * wl_s * spec_extent;
             sum_d += qd * wd; w_d += wd;

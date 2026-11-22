@@ -9,6 +9,10 @@ extern const std::uint8_t astral_bindless_glsl[];
 extern const std::size_t astral_bindless_glsl_size;
 extern const std::uint8_t astral_scene_glsl[];
 extern const std::size_t astral_scene_glsl_size;
+extern const std::uint8_t astral_color_glsl[];
+extern const std::size_t astral_color_glsl_size;
+extern const std::uint8_t astral_brdf_glsl[];
+extern const std::size_t astral_brdf_glsl_size;
 extern const std::uint8_t astral_rt_glsl[];
 extern const std::size_t astral_rt_glsl_size;
 extern const std::uint8_t astral_primary_glsl[];
@@ -28,7 +32,9 @@ namespace {
 std::vector<GlslInclude> engine_includes() {
     auto text = [](const std::uint8_t* data, std::size_t size) { return std::string(reinterpret_cast<const char*>(data), size); };
     return {{"astral/bindless.glsl", text(embedded::astral_bindless_glsl, embedded::astral_bindless_glsl_size)},
-            {"astral/scene.glsl", text(embedded::astral_scene_glsl, embedded::astral_scene_glsl_size)}};
+            {"astral/scene.glsl", text(embedded::astral_scene_glsl, embedded::astral_scene_glsl_size)},
+            {"astral/color.glsl", text(embedded::astral_color_glsl, embedded::astral_color_glsl_size)},
+            {"astral/brdf.glsl", text(embedded::astral_brdf_glsl, embedded::astral_brdf_glsl_size)}};
 }
 
 /// `#define name value` for every uniform, reading the parameter block (astral_pf / astral_pu).
@@ -71,6 +77,8 @@ std::string prelude(const ShaderSource&, const UniformLayout&) {
     std::string s = R"(#version 460
 #extension GL_GOOGLE_include_directive : require
 #include <astral/scene.glsl>
+#include <astral/color.glsl>
+#include <astral/brdf.glsl>
 layout(push_constant, scalar) uniform Push {
     Vertices vertices; Instances instances; FrameRef frame; Materials materials; uint first_instance;
     uint64_t params; float time; PointLights lights;
@@ -126,7 +134,7 @@ vec3 VERTEX; vec3 NORMAL; vec2 UV; vec3 WORLD_POSITION; mat4 MODEL_MATRIX;
     s += mode == Mode::Shadow    ? "    gl_Position = f.light_view_projection * world;\n"
          : mode == Mode::Forward ? "    gl_Position = f.unjittered_view_projection * world;\n"
                                  : "    gl_Position = f.view_projection * world;\n";
-    s += R"(    astral_out_normal = transpose(inverse(mat3(inst.model))) * NORMAL;
+    s += R"(    astral_out_normal = normal_matrix_of(inst.model) * NORMAL;
     astral_out_instance = id;
     astral_out_clip_now = f.unjittered_view_projection * world;
     astral_out_clip_prev = f.prev_view_projection * (inst.prev_model * vec4(VERTEX, 1.0));
@@ -137,32 +145,30 @@ vec3 VERTEX; vec3 NORMAL; vec2 UV; vec3 WORLD_POSITION; mat4 MODEL_MATRIX;
     return s;
 }
 
-/// Forward lighting for blended surfaces: sun, point lights, sky/ground ambient; no shadows.
+/// Forward lighting for blended surfaces: unified GGX PBR (sun, point lights, sky/ground ambient).
 constexpr const char* forward_lighting = R"(vec3 astral_lit(vec3 N, vec3 V, vec3 P, vec3 albedo, float roughness, float metallic) {
     Frame f = pc.frame.f;
-    vec3 F0 = mix(vec3(0.04), albedo, metallic);
-    vec3 diffuse = albedo * (1.0 - metallic) / PI;
-    float power = mix(256.0, 8.0, clamp(roughness, 0.0, 1.0));
-    float norm = (power + 8.0) / (8.0 * PI);
+    float r = clamp(roughness, ASTRAL_MIN_ROUGHNESS, 1.0);
     vec3 L = -normalize(f.sun_direction.xyz);
-    vec3 H = normalize(L + V);
-    float nl = max(dot(N, L), 0.0);
-    vec3 c = (diffuse + F0 * norm * pow(max(dot(N, H), 0.0), power)) * f.sun_color.rgb * nl;
+    vec3 c = eval_direct_pbr(N, V, L, albedo, r, metallic) * f.sun_color.rgb;
     for (uint i = 0u; i < f.counts.x; ++i) {
         PointLight light = pc.lights.data[i];
         vec3 to = light.position_radius.xyz - P;
         float dist = max(length(to), 1e-4);
-        vec3 Lp = to / dist;
         float radius = max(light.position_radius.w, 1e-4);
+        if (dist >= radius) continue;
         float falloff = clamp(1.0 - pow(dist / radius, 4.0), 0.0, 1.0);
         falloff = falloff * falloff / (dist * dist + 1.0);
-        vec3 Hp = normalize(Lp + V);
-        c += (diffuse + F0 * norm * pow(max(dot(N, Hp), 0.0), power)) * light.color_intensity.rgb * light.color_intensity.a * falloff * max(dot(N, Lp), 0.0);
+        c += eval_direct_pbr(N, V, to / dist, albedo, r, metallic) * light.color_intensity.rgb * light.color_intensity.a * falloff;
     }
-    vec3 ambient = mix(f.ground_color.rgb, f.sky_color.rgb, N.y * 0.5 + 0.5) * f.sky_color.a;
-    return c + albedo * (1.0 - metallic) * ambient;
+    float nv = max(dot(N, V), 1e-4);
+    vec3 f0 = mix(vec3(0.04), albedo, metallic);
+    vec3 dfg = env_brdf(f0, r, nv);
+    vec3 diffuse_ambient = mix(f.ground_color.rgb, f.sky_color.rgb, N.y * 0.5 + 0.5) * albedo * (1.0 - metallic);
+    vec3 reflected = sky_radiance(f, reflect(-V, N));
+    vec3 specular_ambient = mix(reflected, mix(f.ground_color.rgb, f.sky_color.rgb, 0.5), r) * dfg;
+    return c + (diffuse_ambient * (1.0 - dfg) + specular_ambient) * f.sky_color.a;
 }
-vec3 astral_aces(vec3 x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
 )";
 
 std::string fragment_stage(const ShaderSource& source, const UniformLayout& layout, Mode mode) {
@@ -223,19 +229,17 @@ void main() {
         s += R"(    vec3 n = NORMAL;
     if (NORMAL_MAP != vec3(0.5, 0.5, 1.0)) n = astral_perturb(n, NORMAL_MAP * 2.0 - 1.0, NORMAL_MAP_DEPTH);
     vec3 lit = astral_lit(n, VIEW_DIR, WORLD_POSITION, ALBEDO * AO, ROUGHNESS, METALLIC) + EMISSION;
-    vec3 c = astral_aces(lit * f.ground_color.a);
-    if (f.custom.w != 0u) c = pow(c, vec3(1.0 / 2.2)); // UNORM targets: encode here
+    vec3 c = astral_aces_tonemap(lit * f.ground_color.a);
+    if (f.custom.w != 0u) c = astral_linear_to_srgb(c); // UNORM targets: exact sRGB encode here
     astral_out_color = vec4(c, clamp(ALPHA, 0.0, 1.0));
 )";
     } else if (mode == Mode::GBuffer) {
         s += R"(    vec3 n = NORMAL;
     if (NORMAL_MAP != vec3(0.5, 0.5, 1.0)) n = astral_perturb(n, NORMAL_MAP * 2.0 - 1.0, NORMAL_MAP_DEPTH);
-    astral_out_albedo = vec4(ALBEDO * AO, clamp(ROUGHNESS, 0.02, 1.0));
+    astral_out_albedo = vec4(ALBEDO * AO, clamp(ROUGHNESS, ASTRAL_MIN_ROUGHNESS, 1.0));
     astral_out_normal = vec4(n, clamp(METALLIC, 0.0, 1.0));
     astral_out_emissive = vec4(EMISSION, 1.0);
-    vec2 now = astral_in_clip_now.xy / astral_in_clip_now.w * 0.5 + 0.5;
-    vec2 prev = astral_in_clip_prev.xy / max(astral_in_clip_prev.w, 1e-6) * 0.5 + 0.5;
-    astral_out_velocity = now - prev;
+    astral_out_velocity = compute_velocity(astral_in_clip_now, astral_in_clip_prev);
 )";
     }
     s += "}\n";
@@ -258,11 +262,23 @@ std::string rt_chunk(const ShaderSource& source, const UniformLayout& layout) {
     NORMAL_MAP = vec3(0.5, 0.5, 1.0); NORMAL_MAP_DEPTH = 1.0; AO = 1.0;
     surface();
     s.albedo = ALBEDO * AO;
-    s.roughness = clamp(ROUGHNESS, 0.02, 1.0);
+    s.roughness = clamp(ROUGHNESS, ASTRAL_MIN_ROUGHNESS, 1.0);
     s.metallic = clamp(METALLIC, 0.0, 1.0);
     s.emissive = EMISSION;
 }
-#undef texture
+)";
+    if (source.has_render_mode("alpha_test")) {
+        s += R"(bool astral_alpha_@ID@(uint base, vec2 uv, vec3 p, vec3 n, vec3 view_dir, bool backface) {
+    astral_base = base;
+    UV = uv; NORMAL = n; WORLD_POSITION = p; VIEW_DIR = view_dir; FRONT_FACING = !backface; SCREEN_UV = vec2(0.0);
+    ALBEDO = vec3(1.0); ROUGHNESS = 0.6; METALLIC = 0.0; EMISSION = vec3(0.0); ALPHA = 1.0; ALPHA_SCISSOR = 0.5;
+    NORMAL_MAP = vec3(0.5, 0.5, 1.0); NORMAL_MAP_DEPTH = 1.0; AO = 1.0;
+    surface();
+    return ALPHA >= ALPHA_SCISSOR;
+}
+)";
+    }
+    s += R"(#undef texture
 #undef dFdx
 #undef dFdy
 )";
@@ -312,6 +328,7 @@ SurfaceShaderBuild compile_surface_shader(const ShaderSource& source, std::strin
     out.cull_disabled = source.has_render_mode("cull_disabled");
     out.cull_front = source.has_render_mode("cull_front");
     out.casts_shadows = !source.has_render_mode("shadows_disabled");
+    out.alpha_test = source.has_render_mode("alpha_test");
     const std::vector<GlslInclude> includes = engine_includes();
 
     if (source.has_render_mode("blend_mix") || source.has_render_mode("blend_add")) {
@@ -369,6 +386,12 @@ vec3 NORMAL_MAP; float NORMAL_MAP_DEPTH; float AO;
         s += "    case " + std::to_string(surface.slot) + "u: astral_run_" + std::to_string(surface.slot) + "(base, uv, view_dir, s); break;\n";
     }
     s += "    default: break;\n    }\n}\n";
+    s += "bool astral_custom_alpha_test(uint shader, uint base, vec2 uv, vec3 p, vec3 n, vec3 view_dir, bool backface) {\n    switch (shader) {\n";
+    for (const RtSurface& surface : surfaces) {
+        if (surface.chunk.empty() || !surface.alpha_test) continue;
+        s += "    case " + std::to_string(surface.slot) + "u: return astral_alpha_" + std::to_string(surface.slot) + "(base, uv, p, n, view_dir, backface);\n";
+    }
+    s += "    default: return true;\n    }\n}\n";
     return s;
 }
 
@@ -379,11 +402,15 @@ RtVariants compile_rt_variants(std::span<const RtSurface> surfaces) {
     includes.push_back({"astral/primary.glsl", embedded_text(embedded::astral_primary_glsl, embedded::astral_primary_glsl_size)});
     includes.push_back({"astral/sdf.glsl", embedded_text(embedded::astral_sdf_glsl, embedded::astral_sdf_glsl_size)});
     includes.push_back({"astral/rt_custom.glsl", compose_rt_surfaces(surfaces)});
+    bool any_alpha_test = false;
+    for (const RtSurface& surface : surfaces) any_alpha_test = any_alpha_test || (surface.alpha_test && !surface.chunk.empty());
 
     auto build = [&](const std::uint8_t* data, std::size_t size, std::vector<std::uint32_t>& spirv, const char* name) {
         std::string text = embedded_text(data, size);
         const std::string header = "#version 460\n";
-        if (text.starts_with(header)) text.insert(header.size(), "#extension GL_GOOGLE_include_directive : require\n#define ASTRAL_RT_CUSTOM\n");
+        std::string defs = "#extension GL_GOOGLE_include_directive : require\n#define ASTRAL_RT_CUSTOM\n";
+        if (any_alpha_test) defs += "#define ASTRAL_RT_ALPHA_TEST\n";
+        if (text.starts_with(header)) text.insert(header.size(), defs);
         GlslCompile c = compile_glsl(text, ShaderStage::Compute, includes, name);
         std::vector<ShaderError> errors;
         collect(c, errors, name);
@@ -423,6 +450,7 @@ std::string screen_fragment(const ShaderSource& source, const UniformLayout& lay
     std::string s = R"(#version 460
 #extension GL_GOOGLE_include_directive : require
 #include <astral/scene.glsl>
+#include <astral/color.glsl>
 layout(push_constant, scalar) uniform Push { FrameRef frame; Materials materials; uint material; uint scene; } pc;
 layout(location = 0) in vec2 astral_uv;
 layout(location = 0) out vec4 astral_out_color;
@@ -450,10 +478,10 @@ layout(location = 0) out vec4 astral_out_color;
     } else {
         s += R"(    SCREEN_UV = gl_FragCoord.xy * f.screen.zw;
     COLOR = texelFetch(sampler2D(astral_textures[pc.scene], astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]), ivec2(gl_FragCoord.xy), 0).rgb;
-    if (f.custom.w == 0u) COLOR = pow(COLOR, vec3(1.0 / 2.2)); // hardware-sRGB target: show the encoded colour
+    if (f.custom.w == 0u) COLOR = astral_linear_to_srgb(COLOR); // hardware-sRGB target: show the encoded colour
     post();
     COLOR = clamp(COLOR, vec3(0.0), vec3(1.0));
-    if (f.custom.w == 0u) COLOR = pow(COLOR, vec3(2.2));
+    if (f.custom.w == 0u) COLOR = astral_srgb_to_linear(COLOR);
     astral_out_color = vec4(COLOR, 1.0);
 }
 )";

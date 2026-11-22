@@ -1,4 +1,4 @@
-// Shared scene data layouts. Mirrors the GPU structs in src/renderer.cpp (scalar layout).
+// Shared scene data layouts. Mirrors the GPU structs in src/gpu_layouts.hpp (scalar layout).
 #ifndef ASTRAL_SCENE_GLSL
 #define ASTRAL_SCENE_GLSL
 #include <astral/bindless.glsl>
@@ -24,7 +24,7 @@ struct Frame {
     mat4 inv_view_projection;
     mat4 light_view_projection;
     vec4 camera_position;
-    vec4 sun_direction;   // xyz: direction of travel
+    vec4 sun_direction;   // xyz: direction of travel, w: raster shadow normal offset
     vec4 sun_color;       // rgb * intensity
     vec4 sky_color;       // rgb, a: ambient strength
     vec4 ground_color;    // rgb, a: exposure
@@ -38,7 +38,8 @@ struct Frame {
     uvec4 rt_counts;      // x rect lights, y frame index, z history valid, w ddgi history valid
     vec4 rt_params;       // x sun cone half-angle (rad), yz jitter (pixels), w max ray distance
     mat4 unjittered_view_projection; // this frame without TAA jitter (motion vectors)
-    uvec4 custom;         // xy: .ashader parameter block address, z: TIME (float bits)
+    uvec4 custom;         // xy: .ashader parameter block address, z: TIME (float bits), w: encode_srgb
+    vec4 prev_camera_position; // previous frame world camera position (reprojection depth validation)
 };
 struct PointLight { vec4 position_radius; vec4 color_intensity; vec4 source; /* x source radius */ };
 struct SdfShape {
@@ -63,6 +64,26 @@ uint64_t address_of(uvec2 a) { return uint64_t(a.x) | (uint64_t(a.y) << 32); }
 vec3 quat_rotate(vec4 q, vec3 v) {
     vec3 t = 2.0 * cross(q.xyz, v);
     return v + q.w * t + cross(q.xyz, t);
+}
+
+// Signed cofactor matrix of the upper 3x3: parallel to transpose(inverse(mat3(model))) for all
+// invertible matrices (including non-uniform and negative scales), with zero divisions and no NaN on singular transforms.
+mat3 normal_matrix_of(mat4 model) {
+    mat3 m = mat3(model);
+    vec3 c0 = cross(m[1], m[2]);
+    vec3 c1 = cross(m[2], m[0]);
+    vec3 c2 = cross(m[0], m[1]);
+    float s = dot(m[0], c0) < 0.0 ? -1.0 : 1.0;
+    return mat3(c0 * s, c1 * s, c2 * s);
+}
+
+// Screen-space motion vector (uv_now - uv_prev). If the previous clip position was behind the camera
+// (prev.w <= 0), return a finite off-screen sentinel instead of overflowing RG16Float to +/-Inf.
+vec2 compute_velocity(vec4 clip_now, vec4 clip_prev) {
+    if (clip_prev.w <= 1e-5 || clip_now.w <= 1e-5) return vec2(10.0);
+    vec2 now = clip_now.xy / clip_now.w * 0.5 + 0.5;
+    vec2 prev = clip_prev.xy / clip_prev.w * 0.5 + 0.5;
+    return clamp(now - prev, vec2(-10.0), vec2(10.0));
 }
 
 vec3 reconstruct_world(Frame f, vec2 uv, float depth) {

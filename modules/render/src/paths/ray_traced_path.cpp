@@ -67,6 +67,8 @@ GpuFrame build_rt_frame(const CameraData& camera, const RenderScene& scene, cons
     frame.custom[1] = static_cast<std::uint32_t>(params_address >> 32);
     std::memcpy(&frame.custom[2], &scene.time, sizeof(float));
     frame.custom[3] = is_srgb(target_format) ? 0u : 1u;
+    const Vec3 prev_cam = temporal.history_valid ? temporal.prev_camera_position : camera.position;
+    frame.prev_camera_position = {prev_cam.x, prev_cam.y, prev_cam.z, 1};
     return frame;
 }
 
@@ -155,6 +157,7 @@ void render_ray_traced_path(RayTracedPathContext& ctx, gpu::CommandList& cmd, gp
     ctx.graph.execute(cmd);
 
     ctx.temporal.prev_view_projection = unjittered;
+    ctx.temporal.prev_camera_position = camera.position;
     ctx.temporal.history_valid = true;
     ++ctx.temporal.frame_index;
     ctx.passes.ddgi.mark_valid();

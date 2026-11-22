@@ -56,7 +56,10 @@ void prepare_instances(gpu::Device& device, const RenderScene& scene, const Vec3
         const auto index = static_cast<std::uint32_t>(out.instances.size());
         out.instances.push_back(pack_instance(device, d, *mesh, material));
         if (with_tlas && mesh->blas.valid()) {
-            out.tlas_instances.push_back({.blas = mesh->blas, .transform = row_major_3x4(d.transform), .custom_index = index});
+            const GpuShader* gs = materials.shader_of(d.material);
+            const bool is_opaque = !(gs && gs->alpha_test);
+            out.tlas_instances.push_back(
+                {.blas = mesh->blas, .transform = row_major_3x4(d.transform), .custom_index = index, .opaque = is_opaque});
         }
     }
     // Blended surfaces: after the opaque instances, farthest first (their own draws, one instance each).

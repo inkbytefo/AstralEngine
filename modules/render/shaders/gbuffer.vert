@@ -14,7 +14,7 @@ void main() {
     vec4 world = inst.model * vec4(v.position, 1.0);
     Frame f = pc.frame.f;
     gl_Position = f.view_projection * world;
-    out_normal = transpose(inverse(mat3(inst.model))) * v.normal; // correct under non-uniform scale
+    out_normal = normal_matrix_of(inst.model) * v.normal; // exact under non-uniform & negative scale
     out_instance = id;
     out_clip_now = f.unjittered_view_projection * world;
     out_clip_prev = f.prev_view_projection * (inst.prev_model * vec4(v.position, 1.0));

@@ -1,59 +1,134 @@
 #version 460
 #include <astral/rt.glsl>
-// Blends this frame's probe rays into the octahedral atlases (one invocation per atlas texel,
-// borders included). mode 0: irradiance (cosine weights), 1: distance moments (sharp weights).
+// Blends this frame's probe rays into the octahedral atlases using 1 workgroup (8x8 = 64 threads)
+// per probe with shared memory caching of ray directions and radiance/distances.
+// mode 0: irradiance (8x8 interior + 1-texel border, cosine weights, backface-embedded probe guard)
+// mode 1: normalized distance moments in [0, 1] (16x16 interior + 1-texel border, RG16Float-safe)
 layout(push_constant, scalar) uniform Push {
     FrameRef frame; ProbeRays rays; uint prev; uint out_tex; uint mode;
 } pc;
 layout(local_size_x = 8, local_size_y = 8) in;
 
+const uint CHUNK = 64u;
+shared vec4 sh_rays[CHUNK];
+shared vec3 sh_dirs[CHUNK];
+shared uint sh_backfaces;
+shared vec4 sh_interior[16][16];
+
+vec4 blend_with_history(Frame f, ivec2 texel, ivec2 atlas_size, vec4 current, bool has_weight) {
+    if (f.rt_counts.w == 0u) return current;
+    vec2 uv = (vec2(texel) + 0.5) / vec2(atlas_size);
+    vec4 previous = astral_sample(pc.prev, ASTRAL_SAMPLER_NEAREST_CLAMP, uv);
+    if (!has_weight) return previous;
+    float h = f.ddgi_origin.w;
+    if (pc.mode == 0u) {
+        // Adaptive hysteresis (Majercik et al. 2019/2021): respond faster to large lighting changes.
+        vec3 delta = abs(current.rgb - previous.rgb);
+        float max_d = max(delta.r, max(delta.g, delta.b));
+        if (max_d > 0.25) h = max(h - 0.15, 0.0);
+        if (max_d > 0.80) h = max(h - 0.35, 0.0);
+    }
+    return vec4(mix(current.rgb, previous.rgb, h), 1.0);
+}
+
 void main() {
     Frame f = pc.frame.f;
+    uint probe = gl_WorkGroupID.x;
+    if (probe >= ddgi_probe_count(f)) return;
+
     int interior = pc.mode == 0u ? DDGI_IRR : DDGI_DIST;
-    int tile = interior + 2;
-    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 size = ddgi_atlas_size(f, interior);
-    if (texel.x >= size.x || texel.y >= size.y) return;
-    ivec2 tile_xy = texel / tile;
-    uint probe = uint(tile_xy.x) + uint(tile_xy.y) * f.ddgi_counts.x * f.ddgi_counts.y;
-    ivec2 local = texel - tile_xy * tile;
-
-    // Border texels repeat the interior texel across the octahedral seam.
-    int last = tile - 1;
-    ivec2 src = local;
-    bool bx = local.x == 0 || local.x == last, by = local.y == 0 || local.y == last;
-    if (bx && by) {
-        src = ivec2(local.x == 0 ? last - 1 : 1, local.y == 0 ? last - 1 : 1);
-    } else if (bx) {
-        src = ivec2(local.x == 0 ? 1 : last - 1, last - local.y);
-    } else if (by) {
-        src = ivec2(last - local.x, local.y == 0 ? 1 : last - 1);
-    }
-    vec2 oct = (vec2(src - 1) + 0.5) / float(interior) * 2.0 - 1.0;
-    vec3 texel_dir = oct_decode(oct);
-
+    ivec2 tile_origin = ddgi_tile_origin(f, probe, interior);
+    ivec2 atlas_size = ddgi_atlas_size(f, interior);
+    uint tid = gl_LocalInvocationIndex; // 0..63
     uint rays = f.ddgi_counts.w;
     mat3 rotation = ddgi_rotation(f.rt_counts.y);
-    vec4 sum = vec4(0);
-    float max_dist = 1.5 * length(f.ddgi_spacing.xyz);
-    for (uint r = 0u; r < rays; ++r) {
-        vec4 data = pc.rays.data[probe * rays + r];
-        vec3 dir = ddgi_ray_dir(r, rays, rotation);
-        float c = max(dot(texel_dir, dir), 0.0);
-        if (pc.mode == 0u) {
-            sum += vec4(data.rgb * c, c);
-        } else {
-            float w = pow(c, 50.0);
-            float d = min(data.a, max_dist);
-            sum += vec4(d * w, d * d * w, 0, w);
+    float inv_max_dist = 1.0 / ddgi_max_dist(f);
+
+    if (tid == 0u) sh_backfaces = 0u;
+    barrier();
+
+    // Pre-decode octahedral directions for the interior texels owned by this thread:
+    // mode 0 (8x8): 1 texel per thread; mode 1 (16x16): 2x2 texels per thread.
+    int count_axis = pc.mode == 0u ? 1 : 2;
+    vec3 dirs[4];
+    vec4 sums[4];
+    for (int k = 0; k < 4; ++k) sums[k] = vec4(0.0);
+    for (int dy = 0; dy < count_axis; ++dy) {
+        for (int dx = 0; dx < count_axis; ++dx) {
+            int ix = int(gl_LocalInvocationID.x) * count_axis + dx;
+            int iy = int(gl_LocalInvocationID.y) * count_axis + dy;
+            vec2 oct = (vec2(ix, iy) + 0.5) / float(interior) * 2.0 - 1.0;
+            dirs[dy * 2 + dx] = oct_decode(oct);
         }
     }
-    vec4 result = sum.w > 1e-5 ? vec4(sum.xyz / sum.w, 1) : vec4(0);
-    if (f.rt_counts.w != 0u) {
-        vec2 uv = (vec2(texel) + 0.5) / vec2(size);
-        vec4 previous = astral_sample(pc.prev, ASTRAL_SAMPLER_NEAREST_CLAMP, uv);
-        if (sum.w <= 1e-5) result = previous;
-        else result = vec4(mix(result.rgb, previous.rgb, f.ddgi_origin.w), 1);
+
+    // Stream rays through shared memory in chunks of 64: each ray direction is computed ONCE per probe.
+    for (uint base = 0u; base < rays; base += CHUNK) {
+        uint r = base + tid;
+        if (r < rays) {
+            vec4 data = pc.rays.data[probe * rays + r];
+            sh_rays[tid] = data;
+            sh_dirs[tid] = ddgi_ray_dir(r, rays, rotation);
+            if (data.a < 0.0) atomicAdd(sh_backfaces, 1u);
+        }
+        barrier();
+
+        uint n = min(CHUNK, rays - base);
+        for (uint i = 0u; i < n; ++i) {
+            vec4 data = sh_rays[i];
+            vec3 rdir = sh_dirs[i];
+            if (pc.mode == 0u) {
+                if (data.a < 0.0) continue; // ignore backface hits in irradiance
+                float c = max(dot(dirs[0], rdir), 0.0);
+                sums[0] += vec4(data.rgb * c, c);
+            } else {
+                float d_norm = clamp(abs(data.a) * inv_max_dist, 0.0, 1.0);
+                float d2 = d_norm * d_norm;
+                for (int k = 0; k < 4; ++k) {
+                    float c = max(dot(dirs[k], rdir), 0.0);
+                    if (c > 0.0) {
+                        float w = pow(c, 50.0);
+                        sums[k] += vec4(d_norm * w, d2 * w, 0.0, w);
+                    }
+                }
+            }
+        }
+        barrier();
     }
-    imageStore(astral_storage_images[pc.out_tex], texel, result);
+
+    bool embedded = (pc.mode == 0u) && (sh_backfaces * 4u > rays);
+
+    // Finalize interior texels, store in shared memory and write to the atlas.
+    for (int dy = 0; dy < count_axis; ++dy) {
+        for (int dx = 0; dx < count_axis; ++dx) {
+            int ix = int(gl_LocalInvocationID.x) * count_axis + dx;
+            int iy = int(gl_LocalInvocationID.y) * count_axis + dy;
+            vec4 s = sums[dy * 2 + dx];
+            bool has_w = s.w > 1e-5;
+            vec4 res = embedded ? vec4(0.0, 0.0, 0.0, 1.0)
+                                : (has_w ? vec4(s.xyz / s.w, 1.0) : vec4(0.0, 0.0, 0.0, 1.0));
+            ivec2 dst = tile_origin + ivec2(ix + 1, iy + 1);
+            res = blend_with_history(f, dst, atlas_size, res, embedded || has_w);
+            sh_interior[iy][ix] = res;
+            imageStore(astral_storage_images[pc.out_tex], dst, res);
+        }
+    }
+    barrier();
+
+    // Copy 1-texel octahedral border from shared interior results (zero ray-loop work!).
+    int last = interior + 1;
+    if (tid < uint(interior)) {
+        int i = int(tid);
+        int rev = interior - 1 - i;
+        imageStore(astral_storage_images[pc.out_tex], tile_origin + ivec2(i + 1, 0),    sh_interior[0][rev]);
+        imageStore(astral_storage_images[pc.out_tex], tile_origin + ivec2(i + 1, last), sh_interior[interior - 1][rev]);
+        imageStore(astral_storage_images[pc.out_tex], tile_origin + ivec2(0,    i + 1), sh_interior[rev][0]);
+        imageStore(astral_storage_images[pc.out_tex], tile_origin + ivec2(last, i + 1), sh_interior[rev][interior - 1]);
+    }
+    if (tid == 0u) {
+        imageStore(astral_storage_images[pc.out_tex], tile_origin + ivec2(0,    0),    sh_interior[interior - 1][interior - 1]);
+        imageStore(astral_storage_images[pc.out_tex], tile_origin + ivec2(last, 0),    sh_interior[interior - 1][0]);
+        imageStore(astral_storage_images[pc.out_tex], tile_origin + ivec2(0,    last), sh_interior[0][interior - 1]);
+        imageStore(astral_storage_images[pc.out_tex], tile_origin + ivec2(last, last), sh_interior[0][0]);
+    }
 }

@@ -1,7 +1,11 @@
 #version 460
 #include <astral/bindless.glsl>
-// Bloom upsample: 3x3 tent filter of the smaller level, added to this level's downsample.
-layout(push_constant, scalar) uniform Push { uint low; uint current; uint dst; vec2 low_texel; uvec2 dst_size; float radius; } pc;
+// Energy-conserving bloom upsample: 3x3 tent filter of the smaller level blended with this level's
+// downsample using weight pc.blend = k / (k + 1), giving equal 1/N weight to all N pyramid scales
+// and exact unit DC gain (so tonemap's mix(hdr, glow, strength) strictly conserves energy).
+layout(push_constant, scalar) uniform Push {
+    uint low; uint current; uint dst; vec2 low_texel; uvec2 dst_size; float radius; float blend;
+} pc;
 layout(local_size_x = 8, local_size_y = 8) in;
 
 vec3 tap(vec2 uv) { return astral_sample(pc.low, ASTRAL_SAMPLER_LINEAR_CLAMP, uv).rgb; }
@@ -16,5 +20,5 @@ void main() {
               tap(uv) * 4.0;
     up /= 16.0;
     vec3 here = astral_sample(pc.current, ASTRAL_SAMPLER_LINEAR_CLAMP, uv).rgb;
-    imageStore(astral_storage_images[pc.dst], ivec2(p), vec4(here + up, 1));
+    imageStore(astral_storage_images[pc.dst], ivec2(p), vec4(mix(here, up, pc.blend), 1));
 }

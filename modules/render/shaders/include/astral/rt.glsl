@@ -1,9 +1,12 @@
-// Ray-traced lighting helpers: random numbers, ray queries against the TLAS (+ SDF scene),
-// hit surface reconstruction, light sampling, GGX, octahedral maps and DDGI probe lookups.
+// Ray-traced lighting helpers: random numbers, robust ray offsets (Wachter & Binder 2019),
+// ray queries against the TLAS (+ SDF scene), hit surface reconstruction, light sampling (with
+// RectLight MIS and unbiased single-frame RIS for high light counts), octahedral maps and DDGI.
 #ifndef ASTRAL_RT_GLSL
 #define ASTRAL_RT_GLSL
 #extension GL_EXT_ray_query : require
 #include <astral/sdf.glsl>
+#include <astral/brdf.glsl>
+#include <astral/color.glsl>
 
 struct RectLight {
     vec4 position_two_sided; // xyz center, w 1 = emits on both sides
@@ -48,78 +51,62 @@ vec3 sample_cone(vec3 axis, float angle, vec2 u) {
     return to_world(vec3(cos(phi) * s, sin(phi) * s, c), axis);
 }
 
-// --- GGX ----------------------------------------------------------------------------------
-float ggx_d(float nh, float a) {
-    float a2 = a * a;
-    float d = nh * nh * (a2 - 1.0) + 1.0;
-    return a2 / (PI * d * d);
-}
-float smith_g1(float nx, float a) {
-    float a2 = a * a;
-    return 2.0 * nx / (nx + sqrt(a2 + (1.0 - a2) * nx * nx));
-}
-vec3 fresnel(vec3 f0, float c) { return f0 + (1.0 - f0) * pow(1.0 - c, 5.0); }
-// Pre-integrated specular reflectance (Karis' analytic fit of the split-sum DFG term).
-vec3 env_brdf(vec3 f0, float roughness, float nv) {
-    const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
-    const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
-    vec4 r = roughness * c0 + c1;
-    float a004 = min(r.x * r.x, exp2(-9.28 * nv)) * r.x + r.y;
-    vec2 ab = vec2(-1.04, 1.04) * a004 + r.zw;
-    return f0 * ab.x + ab.y;
-}
-// Visible-normal sampling (Heitz 2018). `v` in the local frame (z = normal).
-vec3 sample_vndf(vec3 v, float a, vec2 u) {
-    vec3 vh = normalize(vec3(a * v.x, a * v.y, v.z));
-    float len2 = vh.x * vh.x + vh.y * vh.y;
-    vec3 t1 = len2 > 0.0 ? vec3(-vh.y, vh.x, 0.0) * inversesqrt(len2) : vec3(1, 0, 0);
-    vec3 t2 = cross(vh, t1);
-    float r = sqrt(u.x);
-    float phi = 2.0 * PI * u.y;
-    float p1 = r * cos(phi);
-    float p2 = r * sin(phi);
-    float s = 0.5 * (1.0 + vh.z);
-    p2 = (1.0 - s) * sqrt(max(0.0, 1.0 - p1 * p1)) + s * p2;
-    vec3 nh = p1 * t1 + p2 * t2 + sqrt(max(0.0, 1.0 - p1 * p1 - p2 * p2)) * vh;
-    return normalize(vec3(a * nh.x, a * nh.y, max(0.0, nh.z)));
+// --- Robust ray origin offsets (Wachter & Binder 2019, Ray Tracing Gems Ch. 6) -----------
+vec3 offset_ray(vec3 p, vec3 ng) {
+    const float origin = 1.0 / 32.0;
+    const float float_scale = 1.0 / 65536.0;
+    const float int_scale = 256.0;
+    ivec3 of_i = ivec3(int_scale * ng.x, int_scale * ng.y, int_scale * ng.z);
+    vec3 p_i = vec3(
+        intBitsToFloat(floatBitsToInt(p.x) + (p.x < 0.0 ? -of_i.x : of_i.x)),
+        intBitsToFloat(floatBitsToInt(p.y) + (p.y < 0.0 ? -of_i.y : of_i.y)),
+        intBitsToFloat(floatBitsToInt(p.z) + (p.z < 0.0 ? -of_i.z : of_i.z)));
+    return vec3(
+        abs(p.x) < origin ? p.x + float_scale * ng.x : p_i.x,
+        abs(p.y) < origin ? p.y + float_scale * ng.y : p_i.y,
+        abs(p.z) < origin ? p.z + float_scale * ng.z : p_i.z);
 }
 
-// Specular part of the engine's GGX BRDF times n.l (lights are pre-multiplied by PI).
-vec3 specular_brdf(vec3 n, vec3 v, vec3 l, vec3 f0, float roughness) {
-    vec3 h = normalize(v + l);
-    float nl = max(dot(n, l), 0.0), nv = max(dot(n, v), 1e-4), nh = max(dot(n, h), 0.0), vh = max(dot(v, h), 0.0);
-    float a = max(roughness * roughness, 0.002);
-    float k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
-    float g = (nv / (nv * (1.0 - k) + k)) * (nl / (nl * (1.0 - k) + k));
-    return ggx_d(nh, a) * g * fresnel(f0, vh) / (4.0 * nv * nl + 1e-4) * nl * PI;
+// Primary G-buffer hits are reconstructed from D32Float depth whose quantization error grows with
+// camera distance; secondary hits use exact triangle/SDF positions and call offset_ray() directly.
+vec3 primary_ray_origin(Frame f, vec3 p, vec3 n) {
+    vec3 robust = offset_ray(p, n);
+    float depth_bias = 0.001 + 0.0004 * distance(p, f.camera_position.xyz);
+    return dot(robust - p, n) > depth_bias ? robust : p + n * depth_bias;
 }
 
 // --- Surfaces -----------------------------------------------------------------------------
 struct Surface {
     vec3 p;
     vec3 n;         // shading normal, facing the incoming ray
+    vec3 ng;        // geometric normal, facing the incoming ray (for self-intersection-free offsets)
     vec3 albedo;
     float roughness;
     float metallic;
     vec3 emissive;
-    bool backface;  // the ray hit the back of a mesh triangle
+    bool backface;  // the ray hit the back of a mesh triangle or inside of an SDF
 };
 
 // Custom (.ashader) surfaces, ADR-0022: the renderer compiles every shader's surface() into
 // <astral/rt_custom.glsl> (ASTRAL_RT_CUSTOM) and these compute shaders again; without custom shaders
-// the stub at the end of this file does nothing. astral_rt_begin() is the first call of main() (with the frame).
+// the stubs at the end of this file do nothing. astral_rt_begin() is the first call of main().
 ASTRAL_BUFFER(AstralParams, uint);
 AstralParams astral_params;
 uint astral_base;
 float astral_time;
+Instances astral_rt_instances;
+Materials astral_rt_materials;
 float astral_pf(uint o) { return uintBitsToFloat(astral_params.data[astral_base + o]); }
 uint astral_pu(uint o) { return astral_params.data[astral_base + o]; }
 #define TIME astral_time
-void astral_rt_begin(Frame f) {
+void astral_rt_begin(Frame f, Instances instances, Materials materials) {
     astral_params = AstralParams(uint64_t(f.custom.x) | (uint64_t(f.custom.y) << 32));
     astral_time = uintBitsToFloat(f.custom.z);
+    astral_rt_instances = instances;
+    astral_rt_materials = materials;
 }
 void astral_custom_surface(uint shader, uint base, vec2 uv, vec3 view_dir, inout Surface s);
+bool astral_custom_alpha_test(uint shader, uint base, vec2 uv, vec3 p, vec3 n, vec3 view_dir, bool backface);
 
 // Triangle hit -> interpolated surface. `dir` is the ray direction.
 Surface triangle_surface(Instances instances, Materials materials, uint instance, uint prim, vec2 bary,
@@ -132,22 +119,27 @@ Surface triangle_surface(Instances instances, Materials materials, uint instance
     Vertex v1 = verts.data[idx.data[prim * 3u + 1u]];
     Vertex v2 = verts.data[idx.data[prim * 3u + 2u]];
     float b0 = 1.0 - bary.x - bary.y;
-    mat3 normal_matrix = transpose(inverse(mat3(inst.model)));
-    vec3 n = normalize(normal_matrix * (v0.normal * b0 + v1.normal * bary.x + v2.normal * bary.y));
+    mat3 normal_matrix = normal_matrix_of(inst.model);
+    vec3 raw_n = normal_matrix * (v0.normal * b0 + v1.normal * bary.x + v2.normal * bary.y);
     vec3 p0 = (inst.model * vec4(v0.position, 1)).xyz;
     vec3 p1 = (inst.model * vec4(v1.position, 1)).xyz;
     vec3 p2 = (inst.model * vec4(v2.position, 1)).xyz;
-    vec3 ng = normalize(cross(p1 - p0, p2 - p0)); // counter-clockwise = front, like the rasterizer
+    vec3 cross_e = cross(p1 - p0, p2 - p0);
+    float cross_len2 = dot(cross_e, cross_e);
+    vec3 ng = cross_len2 > 1e-20 ? cross_e * inversesqrt(cross_len2) : -dir;
+    float n_len2 = dot(raw_n, raw_n);
+    vec3 n = n_len2 > 1e-20 ? raw_n * inversesqrt(n_len2) : ng;
     Surface s;
-    s.p = origin + dir * t;
+    // Exact barycentric interpolation avoids o + d * t floating-point drift off the triangle plane.
+    s.p = p0 * b0 + p1 * bary.x + p2 * bary.y;
     s.backface = dot(ng, dir) > 0.0;
+    s.ng = s.backface ? -ng : ng;
     s.n = dot(n, dir) > 0.0 ? -n : n;
     s.albedo = mat.base_color.rgb;
     float roughness = mat.emissive_roughness.a;
     s.metallic = mat.params.x;
     s.emissive = mat.emissive_roughness.rgb;
-    // Textures at a fixed coarse mip: secondary hits are lit blurrily anyway, and compute shaders
-    // have no derivatives (normal maps are skipped here for the same reason).
+    // Textures at a fixed coarse mip: compute shaders have no screen-space derivatives.
     vec2 uv = v0.uv * b0 + v1.uv * bary.x + v2.uv * bary.y;
     const float lod = 2.0;
     if (mat.textures.x != NO_TEXTURE) s.albedo *= textureLod(sampler2D(astral_textures[nonuniformEXT(mat.textures.x)], astral_samplers[ASTRAL_SAMPLER_LINEAR_REPEAT]), uv, lod).rgb;
@@ -157,10 +149,37 @@ Surface triangle_surface(Instances instances, Materials materials, uint instance
         s.metallic *= mr.b;
     }
     if (mat.textures.w != NO_TEXTURE) s.emissive *= textureLod(sampler2D(astral_textures[nonuniformEXT(mat.textures.w)], astral_samplers[ASTRAL_SAMPLER_LINEAR_REPEAT]), uv, lod).rgb;
-    s.roughness = clamp(roughness, 0.02, 1.0);
+    s.roughness = clamp(roughness, ASTRAL_MIN_ROUGHNESS, 1.0);
     if (mat.custom.y != 0u) astral_custom_surface(mat.custom.y - 1u, mat.custom.x, uv, -dir, s);
     return s;
 }
+
+#ifdef ASTRAL_RT_ALPHA_TEST
+bool confirm_candidate_hit(rayQueryEXT q, vec3 dir) {
+    uint instance = rayQueryGetIntersectionInstanceCustomIndexEXT(q, false);
+    uint prim = rayQueryGetIntersectionPrimitiveIndexEXT(q, false);
+    vec2 bary = rayQueryGetIntersectionBarycentricsEXT(q, false);
+    Instance inst = astral_rt_instances.data[instance];
+    Material mat = astral_rt_materials.data[inst.material];
+    if (mat.custom.y == 0u) return true;
+    Indices idx = Indices(address_of(inst.indices));
+    Vertices verts = Vertices(address_of(inst.vertices));
+    Vertex v0 = verts.data[idx.data[prim * 3u + 0u]];
+    Vertex v1 = verts.data[idx.data[prim * 3u + 1u]];
+    Vertex v2 = verts.data[idx.data[prim * 3u + 2u]];
+    float b0 = 1.0 - bary.x - bary.y;
+    vec2 uv = v0.uv * b0 + v1.uv * bary.x + v2.uv * bary.y;
+    vec3 p0 = (inst.model * vec4(v0.position, 1)).xyz;
+    vec3 p1 = (inst.model * vec4(v1.position, 1)).xyz;
+    vec3 p2 = (inst.model * vec4(v2.position, 1)).xyz;
+    vec3 p = p0 * b0 + p1 * bary.x + p2 * bary.y;
+    vec3 ce = cross(p1 - p0, p2 - p0);
+    vec3 ng = dot(ce, ce) > 1e-20 ? normalize(ce) : -dir;
+    bool backface = dot(ng, dir) > 0.0;
+    vec3 n = backface ? -ng : ng;
+    return astral_custom_alpha_test(mat.custom.y - 1u, mat.custom.x, uv, p, n, -dir, backface);
+}
+#endif
 
 struct TraceHit {
     bool hit;
@@ -174,9 +193,21 @@ struct TraceHit {
 // Closest hit among triangles (TLAS) and the SDF scene (raymarched up to the triangle hit).
 TraceHit trace(uint64_t tlas, SdfShapes shapes, uint sdf_count, vec3 o, vec3 d, float tmax) {
     TraceHit h = TraceHit(false, false, tmax, 0u, 0u, vec2(0));
+    if (tmax <= 0.0) return h;
     rayQueryEXT q;
-    rayQueryInitializeEXT(q, accelerationStructureEXT(tlas), gl_RayFlagsOpaqueEXT, 0xFF, o, 0.0, d, tmax);
-    while (rayQueryProceedEXT(q)) {}
+#ifdef ASTRAL_RT_ALPHA_TEST
+    const uint flags = gl_RayFlagsNoneEXT;
+#else
+    const uint flags = gl_RayFlagsOpaqueEXT;
+#endif
+    rayQueryInitializeEXT(q, accelerationStructureEXT(tlas), flags, 0xFF, o, 0.0, d, tmax);
+    while (rayQueryProceedEXT(q)) {
+#ifdef ASTRAL_RT_ALPHA_TEST
+        if (rayQueryGetIntersectionTypeEXT(q, false) == gl_RayQueryCandidateIntersectionTriangleEXT) {
+            if (confirm_candidate_hit(q, d)) rayQueryConfirmIntersectionEXT(q);
+        }
+#endif
+    }
     if (rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionTriangleEXT) {
         h.hit = true;
         h.t = rayQueryGetIntersectionTEXT(q, true);
@@ -192,17 +223,28 @@ TraceHit trace(uint64_t tlas, SdfShapes shapes, uint sdf_count, vec3 o, vec3 d, 
                 h = TraceHit(true, true, t, 0u, 0u, vec2(0));
                 break;
             }
-            t += abs(dist);
+            t += max(abs(dist), 0.0002 * max(t, 1.0));
         }
     }
     return h;
 }
 
 bool occluded(uint64_t tlas, SdfShapes shapes, uint sdf_count, vec3 o, vec3 d, float tmax) {
+    if (tmax <= 0.0) return false;
     rayQueryEXT q;
-    rayQueryInitializeEXT(q, accelerationStructureEXT(tlas),
-                          gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, o, 0.0, d, tmax);
-    while (rayQueryProceedEXT(q)) {}
+#ifdef ASTRAL_RT_ALPHA_TEST
+    const uint flags = gl_RayFlagsTerminateOnFirstHitEXT;
+#else
+    const uint flags = gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT;
+#endif
+    rayQueryInitializeEXT(q, accelerationStructureEXT(tlas), flags, 0xFF, o, 0.0, d, tmax);
+    while (rayQueryProceedEXT(q)) {
+#ifdef ASTRAL_RT_ALPHA_TEST
+        if (rayQueryGetIntersectionTypeEXT(q, false) == gl_RayQueryCandidateIntersectionTriangleEXT) {
+            if (confirm_candidate_hit(q, d)) rayQueryConfirmIntersectionEXT(q);
+        }
+#endif
+    }
     if (rayQueryGetIntersectionTypeEXT(q, true) != gl_RayQueryCommittedIntersectionNoneEXT) return true;
     if (sdf_count > 0u) {
         float t = 0.0;
@@ -220,37 +262,37 @@ Surface sdf_surface(SdfShapes shapes, uint count, vec3 o, vec3 d, float t) {
     s.p = o + d * t;
     SdfHit h = sdf_scene(shapes, count, s.p);
     vec3 n = sdf_normal(shapes, count, s.p, 0.001 * max(t, 1.0));
-    s.n = dot(n, d) > 0.0 ? -n : n;
+    s.backface = dot(n, d) > 0.0;
+    s.n = s.backface ? -n : n;
+    s.ng = s.n;
     s.albedo = h.albedo;
-    s.roughness = clamp(h.roughness, 0.02, 1.0);
+    s.roughness = clamp(h.roughness, ASTRAL_MIN_ROUGHNESS, 1.0);
     s.metallic = h.metallic;
     s.emissive = vec3(0);
-    s.backface = false;
     return s;
 }
 
-// Distance along the ray to a rect light (or -1), and its radiance.
+// Distance along the ray to a rect light (or -1).
 float intersect_rect(RectLight l, vec3 o, vec3 d) {
-    vec3 n = normalize(cross(l.right.xyz, l.up.xyz));
+    vec3 cross_ru = cross(l.right.xyz, l.up.xyz);
+    float len2 = dot(cross_ru, cross_ru);
+    if (len2 < 1e-12) return -1.0;
+    vec3 n = cross_ru * inversesqrt(len2);
     float dn = dot(d, n);
     if (abs(dn) < 1e-6) return -1.0;
     if (l.position_two_sided.w < 0.5 && dn > 0.0) return -1.0; // seen from behind
     float t = dot(l.position_two_sided.xyz - o, n) / dn;
     if (t <= 0.0) return -1.0;
     vec3 local = o + d * t - l.position_two_sided.xyz;
-    float u = dot(local, l.right.xyz) / dot(l.right.xyz, l.right.xyz);
-    float v = dot(local, l.up.xyz) / dot(l.up.xyz, l.up.xyz);
+    float u = dot(local, l.right.xyz) / max(dot(l.right.xyz, l.right.xyz), 1e-12);
+    float v = dot(local, l.up.xyz) / max(dot(l.up.xyz, l.up.xyz), 1e-12);
     return abs(u) <= 1.0 && abs(v) <= 1.0 ? t : -1.0;
-}
-
-vec3 sky_radiance(Frame f, vec3 dir) {
-    return mix(f.ground_color.rgb, f.sky_color.rgb, smoothstep(-0.2, 0.4, dir.y));
 }
 
 // --- Octahedral mapping --------------------------------------------------------------------
 vec2 sign_not_zero(vec2 v) { return vec2(v.x >= 0.0 ? 1.0 : -1.0, v.y >= 0.0 ? 1.0 : -1.0); }
 vec2 oct_encode(vec3 n) {
-    n /= abs(n.x) + abs(n.y) + abs(n.z);
+    n /= max(abs(n.x) + abs(n.y) + abs(n.z), 1e-8);
     return n.z >= 0.0 ? n.xy : (1.0 - abs(n.yx)) * sign_not_zero(n.xy);
 }
 vec3 oct_decode(vec2 e) {
@@ -272,6 +314,7 @@ uint ddgi_probe_index(Frame f, ivec3 c) {
     return uint(c.x) + uint(c.y) * f.ddgi_counts.x + uint(c.z) * f.ddgi_counts.x * f.ddgi_counts.y;
 }
 vec3 ddgi_probe_position(Frame f, ivec3 c) { return f.ddgi_origin.xyz + vec3(c) * f.ddgi_spacing.xyz; }
+float ddgi_max_dist(Frame f) { return max(1.5 * length(f.ddgi_spacing.xyz), 1e-3); }
 // Atlas: probes in rows of nx*ny tiles, nz rows; each tile has a 1-texel border.
 ivec2 ddgi_tile_origin(Frame f, uint index, int interior) {
     uint cols = f.ddgi_counts.x * f.ddgi_counts.y;
@@ -304,11 +347,13 @@ vec3 ddgi_ray_dir(uint ray, uint count, mat3 rotation) {
     return rotation * vec3(cos(phi) * r, sin(phi) * r, z);
 }
 
-// Irradiance (cosine-weighted average radiance) at `p` with normal `n`; `v` points to the viewer.
+// Irradiance (cosine-weighted average radiance, E/PI) at `p` with normal `n`; `v` points to the viewer.
+// Distance moments are stored normalized in [0, 1] by ddgi_max_dist(f) so RG16Float never overflows.
 vec3 ddgi_irradiance(Frame f, uint irr_tex, uint dist_tex, vec3 p, vec3 n, vec3 v) {
     if (f.ddgi_counts.w == 0u) return vec3(0);
     vec3 spacing = f.ddgi_spacing.xyz;
     float min_spacing = min(spacing.x, min(spacing.y, spacing.z));
+    float max_d = ddgi_max_dist(f);
     vec3 biased = p + (n * 0.2 + v * 0.8) * (0.3 * min_spacing);
     ivec3 maxc = ivec3(f.ddgi_counts.xyz) - 1;
     vec3 grid = (biased - f.ddgi_origin.xyz) / spacing;
@@ -327,14 +372,18 @@ vec3 ddgi_irradiance(Frame f, uint irr_tex, uint dist_tex, vec3 p, vec3 n, vec3 
         vec3 tri = mix(1.0 - alpha, alpha, vec3(offset));
         float trilinear = tri.x * tri.y * tri.z;
         // Smooth backface test: probes behind the surface barely count.
-        float w = (dot(normalize(probe - p), n) + 1.0) * 0.5;
+        vec3 p_to_probe = probe - p;
+        float p_len = length(p_to_probe);
+        vec3 p_dir = p_len > 1e-5 ? p_to_probe / p_len : n;
+        float w = (dot(p_dir, n) + 1.0) * 0.5;
         w = w * w + 0.2;
-        // Chebyshev visibility from the probe's distance moments.
+        // Chebyshev visibility from the probe's normalized distance moments.
         vec2 moments = astral_sample(dist_tex, ASTRAL_SAMPLER_LINEAR_CLAMP, ddgi_uv(f, index, -dir, DDGI_DIST)).rg;
-        if (r > moments.x) {
-            float variance = abs(moments.x * moments.x - moments.y);
-            float diff = r - moments.x;
-            float cheb = variance / (variance + diff * diff);
+        float r_norm = r / max_d;
+        if (r_norm > moments.x) {
+            float variance = max(moments.y - moments.x * moments.x, 0.0);
+            float diff = r_norm - moments.x;
+            float cheb = variance / max(variance + diff * diff, 1e-8);
             w *= max(cheb * cheb * cheb, 0.0);
         }
         w = max(w, 1e-6);
@@ -348,7 +397,7 @@ vec3 ddgi_irradiance(Frame f, uint irr_tex, uint dist_tex, vec3 p, vec3 n, vec3 
     return e * e;
 }
 
-// --- Direct lighting -------------------------------------------------------------------------
+// --- Direct lighting (with RectLight MIS & unbiased RIS for high light counts) ------------
 struct LightingInputs {
     uint64_t tlas;
     SdfShapes shapes;
@@ -357,91 +406,218 @@ struct LightingInputs {
     RectLights rects;
 };
 
-// Distance a ray starts away from the surface it leaves. The surface position is rebuilt from the depth
-// buffer, whose error grows with distance from the camera: a fixed offset let far ground flip between lit
-// and self-shadowed from one camera position to the next (open_world). Scale it with the distance.
-float ray_bias(Frame f, vec3 p) { return 0.002 + 0.0005 * distance(p, f.camera_position.xyz); }
+float mis_power2(float pdf_a, float pdf_b) {
+    float a2 = pdf_a * pdf_a;
+    return a2 / max(a2 + pdf_b * pdf_b, 1e-12);
+}
 
-// One stochastic sample per light, visibility by shadow ray. Returns the diffuse part divided by
-// albedo (`diffuse`, for denoising) and the full specular part of the sun and point lights
-// (rect light highlights come from reflection rays that hit the rect).
-void direct_light(Frame f, LightingInputs li, Surface s, vec3 v, inout uint seed, out vec3 diffuse, out vec3 specular) {
+// Cheap unshadowed importance proxy for a point light (strictly positive whenever contribution > 0).
+float point_light_ris_weight(PointLight light, vec3 p, vec3 n) {
+    vec3 to = light.position_radius.xyz - p;
+    float dist = max(length(to), 1e-4);
+    float radius = max(light.position_radius.w, 1e-4);
+    if (dist >= radius) return 0.0;
+    float nl = dot(n, to / dist);
+    if (nl <= 0.0) return 0.0;
+    float falloff = clamp(1.0 - pow(dist / radius, 4.0), 0.0, 1.0);
+    falloff = falloff * falloff / (dist * dist + 1.0);
+    return nl * falloff * max(astral_luminance(light.color_intensity.rgb * light.color_intensity.a), 1e-4);
+}
+
+// Cheap unshadowed importance proxy for a rect light (used by both RIS and MIS).
+float rect_light_ris_weight(RectLight r, vec3 p, vec3 n) {
+    vec3 to = r.position_two_sided.xyz - p;
+    float d2 = max(dot(to, to), 0.04);
+    vec3 cross_ru = cross(r.right.xyz, r.up.xyz);
+    float area = 4.0 * length(cross_ru);
+    if (area <= 1e-8) return 0.0;
+    // Allow partially above-horizon panels to retain positive weight.
+    float max_ext = length(r.right.xyz) + length(r.up.xyz);
+    float nl_bound = max(dot(n, to) + max_ext, 0.0) / sqrt(d2);
+    if (nl_bound <= 0.0) return 0.0;
+    return max(astral_luminance(r.radiance.rgb), 1e-4) * area * nl_bound / d2;
+}
+
+// Effective probability that rect light `target_idx` was selected for light sampling on a primary hit.
+float rect_light_select_prob(Frame f, RectLights rects, uint target_idx, vec3 p, vec3 n) {
+    if (f.rt_counts.x <= 2u) return 1.0;
+    float w_sum = 0.0;
+    float w_target = 0.0;
+    for (uint i = 0u; i < f.rt_counts.x; ++i) {
+        float w = rect_light_ris_weight(rects.data[i], p, n);
+        w_sum += w;
+        if (i == target_idx) w_target = w;
+    }
+    return w_sum > 0.0 ? w_target / w_sum : 0.0;
+}
+
+void eval_point_light(LightingInputs li, PointLight light, Surface s, vec3 v, vec3 origin, vec3 f0, float kd,
+                      float scale, inout uint seed, inout vec3 diffuse, inout vec3 specular) {
+    vec3 to = light.position_radius.xyz - s.p;
+    float dist = max(length(to), 1e-4);
+    float radius = max(light.position_radius.w, 1e-4);
+    if (dist >= radius) return;
+    vec3 l = to / dist;
+    float nl = dot(s.n, l);
+    if (nl <= 0.0) return;
+    float falloff = clamp(1.0 - pow(dist / radius, 4.0), 0.0, 1.0);
+    falloff = falloff * falloff / (dist * dist + 1.0);
+    vec3 radiance = light.color_intensity.rgb * light.color_intensity.a * falloff * scale;
+    vec2 u = vec2(rnd(seed), rnd(seed));
+    vec3 jitter = sample_cone(-l, PI * 0.5, u) * light.source.x * sqrt(rnd(seed));
+    vec3 target = light.position_radius.xyz + jitter;
+    vec3 sd = target - origin;
+    float sl = length(sd);
+    if (sl > 1e-4) {
+        vec3 sdir = sd / sl;
+        if (dot(s.ng, sdir) <= 0.0) {
+            sd = light.position_radius.xyz - origin;
+            sl = length(sd);
+            sdir = sl > 1e-4 ? sd / sl : l;
+        }
+        float tmax = sl - max(light.source.x * 0.25, 0.001);
+        if (tmax > 0.0 && occluded(li.tlas, li.shapes, li.sdf_count, origin, sdir, tmax)) return;
+    }
+    vec3 h = normalize(v + l);
+    vec3 F = fresnel_schlick(f0, max(dot(v, h), 0.0));
+    diffuse += (1.0 - F) * kd * nl * radiance;
+    specular += specular_brdf(s.n, v, l, f0, s.roughness) * radiance;
+}
+
+void eval_rect_light(LightingInputs li, RectLight r, Surface s, vec3 v, vec3 origin, vec3 f0, float kd,
+                     float scale, float select_prob, bool primary_hit, inout uint seed,
+                     inout vec3 diffuse, inout vec3 specular) {
+    vec2 u = vec2(rnd(seed), rnd(seed)) * 2.0 - 1.0;
+    vec3 lp = r.position_two_sided.xyz + r.right.xyz * u.x + r.up.xyz * u.y;
+    vec3 to = lp - origin;
+    float d2 = dot(to, to);
+    if (d2 < 1e-8) return;
+    float dist = sqrt(d2);
+    vec3 l = to / dist;
+    float nl = dot(s.n, l);
+    vec3 ln = cross(r.right.xyz, r.up.xyz);
+    float ln_len = length(ln);
+    if (ln_len < 1e-8) return;
+    float area = 4.0 * ln_len;
+    ln /= ln_len;
+    float cos_l = dot(ln, -l);
+    if (r.position_two_sided.w > 0.5) cos_l = abs(cos_l);
+    if (nl <= 0.0 || cos_l <= 0.0) return;
+    float tmax = dist - 0.001;
+    if (tmax > 0.0 && occluded(li.tlas, li.shapes, li.sdf_count, origin, l, tmax)) return;
+    vec3 h = normalize(v + l);
+    vec3 F = fresnel_schlick(f0, max(dot(v, h), 0.0));
+    float geom = cos_l * area / d2;
+    diffuse += (1.0 - F) * kd * nl * r.radiance.rgb * geom * (scale / PI);
+    // Specular: on primary hits, MIS with the VNDF reflection ray (disabled on mirrors where VNDF is delta).
+    // On secondary hits (no second reflection ray), evaluate directly with conservative clamp.
+    if (primary_hit) {
+        if (s.roughness >= ASTRAL_MIRROR_ROUGHNESS) {
+            float nv = max(dot(s.n, v), 1e-4);
+            float nh = max(dot(s.n, h), 0.0);
+            float a = max(s.roughness * s.roughness, 0.002);
+            float pdf_light = select_prob / max(geom, 1e-8);
+            float pdf_brdf = vndf_reflection_pdf(nv, nh, a);
+            float w_mis = mis_power2(pdf_light, pdf_brdf);
+            specular += specular_brdf_radiance(s.n, v, l, f0, s.roughness) * r.radiance.rgb * geom * scale * w_mis;
+        }
+    } else {
+        specular += min(specular_brdf_radiance(s.n, v, l, f0, s.roughness) * r.radiance.rgb * geom * scale, vec3(16.0));
+    }
+}
+
+// Direct illumination with ray-traced visibility. Returns albedo-free diffuse (for denoising) and
+// full specular radiance (for demodulation on primary hits or direct addition on secondary hits).
+void direct_light(Frame f, LightingInputs li, Surface s, vec3 v, bool primary_hit, inout uint seed,
+                  out vec3 diffuse, out vec3 specular) {
     diffuse = vec3(0);
     specular = vec3(0);
     vec3 f0 = mix(vec3(0.04), s.albedo, s.metallic);
     float kd = 1.0 - s.metallic;
-    vec3 origin = s.p + s.n * ray_bias(f, s.p);
+    vec3 origin = primary_hit ? primary_ray_origin(f, s.p, s.n) : offset_ray(s.p, s.ng);
     float max_t = f.rt_params.w;
 
-    // Sun: a cone of the sun's angular radius gives physically soft shadows.
+    // Sun: cone of angular half-angle rt_params.x gives physically soft shadows.
     vec3 to_sun = -normalize(f.sun_direction.xyz);
     if (dot(s.n, to_sun) > 0.0 && dot(f.sun_color.rgb, vec3(1)) > 0.0) {
         vec3 l = sample_cone(to_sun, f.rt_params.x, vec2(rnd(seed), rnd(seed)));
         float nl = max(dot(s.n, l), 0.0);
         if (nl > 0.0 && !occluded(li.tlas, li.shapes, li.sdf_count, origin, l, max_t)) {
-            vec3 h = normalize(v + to_sun);
-            vec3 F = fresnel(f0, max(dot(v, h), 0.0));
-            diffuse += (1.0 - F) * kd * nl * f.sun_color.rgb;
+            vec3 h_d = normalize(v + l);
+            vec3 F_d = fresnel_schlick(f0, max(dot(v, h_d), 0.0));
+            diffuse += (1.0 - F_d) * kd * nl * f.sun_color.rgb;
+            // Evaluate specular along to_sun (or broadened sun cone) to prevent 138x mirror fireflies.
             specular += specular_brdf(s.n, v, to_sun, f0, s.roughness) * f.sun_color.rgb;
         }
     }
-    // Point lights (same falloff as the raster path), shadow ray toward a point on the bulb.
-    for (uint i = 0u; i < f.counts.x; ++i) {
-        PointLight light = li.lights.data[i];
-        vec3 to = light.position_radius.xyz - s.p;
-        float dist = max(length(to), 1e-4);
-        float radius = max(light.position_radius.w, 1e-4);
-        if (dist >= radius) continue;
-        vec3 l = to / dist;
-        float nl = dot(s.n, l);
-        if (nl <= 0.0) continue;
-        float falloff = clamp(1.0 - pow(dist / radius, 4.0), 0.0, 1.0);
-        falloff = falloff * falloff / (dist * dist + 1.0);
-        vec3 radiance = light.color_intensity.rgb * light.color_intensity.a * falloff;
-        vec2 u = vec2(rnd(seed), rnd(seed));
-        vec3 jitter = sample_cone(-l, PI * 0.5, u) * light.source.x * sqrt(rnd(seed));
-        vec3 target = light.position_radius.xyz + jitter;
-        vec3 sd = target - origin;
-        float sl = length(sd);
-        if (occluded(li.tlas, li.shapes, li.sdf_count, origin, sd / sl, sl - light.source.x * 0.5)) continue;
-        vec3 h = normalize(v + l);
-        vec3 F = fresnel(f0, max(dot(v, h), 0.0));
-        diffuse += (1.0 - F) * kd * nl * radiance;
-        specular += specular_brdf(s.n, v, l, f0, s.roughness) * radiance;
+
+    // Point lights: exact loop for small counts, unbiased RIS for large counts / secondary hits.
+    uint pt_count = f.counts.x;
+    uint pt_direct_limit = primary_hit ? 4u : 2u;
+    if (pt_count <= pt_direct_limit) {
+        for (uint i = 0u; i < pt_count; ++i) {
+            eval_point_light(li, li.lights.data[i], s, v, origin, f0, kd, 1.0, seed, diffuse, specular);
+        }
+    } else {
+        uint samples = primary_hit ? 2u : 1u;
+        float inv_samples = 1.0 / float(samples);
+        for (uint k = 0u; k < samples; ++k) {
+            float w_sum = 0.0;
+            uint chosen = 0u;
+            float chosen_w = 0.0;
+            for (uint i = 0u; i < pt_count; ++i) {
+                float w = point_light_ris_weight(li.lights.data[i], s.p, s.n);
+                if (w <= 0.0) continue;
+                w_sum += w;
+                if (rnd(seed) * w_sum < w) { chosen = i; chosen_w = w; }
+            }
+            if (chosen_w > 0.0) {
+                eval_point_light(li, li.lights.data[chosen], s, v, origin, f0, kd,
+                                 (w_sum / chosen_w) * inv_samples, seed, diffuse, specular);
+            }
+        }
     }
-    // Rect area lights: one uniform area sample, converted to solid angle.
-    for (uint i = 0u; i < f.rt_counts.x; ++i) {
-        RectLight r = li.rects.data[i];
-        vec2 u = vec2(rnd(seed), rnd(seed)) * 2.0 - 1.0;
-        vec3 lp = r.position_two_sided.xyz + r.right.xyz * u.x + r.up.xyz * u.y;
-        vec3 to = lp - origin;
-        float d2 = dot(to, to);
-        float dist = sqrt(d2);
-        vec3 l = to / dist;
-        float nl = dot(s.n, l);
-        vec3 ln = cross(r.right.xyz, r.up.xyz);
-        float area = 4.0 * length(ln);
-        ln = normalize(ln);
-        float cos_l = dot(ln, -l);
-        if (r.position_two_sided.w > 0.5) cos_l = abs(cos_l);
-        if (nl <= 0.0 || cos_l <= 0.0) continue;
-        if (occluded(li.tlas, li.shapes, li.sdf_count, origin, l, dist - 0.001)) continue;
-        vec3 h = normalize(v + l);
-        vec3 F = fresnel(f0, max(dot(v, h), 0.0));
-        diffuse += (1.0 - F) * kd * nl * r.radiance.rgb * cos_l * area / (PI * d2);
+
+    // Rect area lights: exact loop for <= 2 (primary) / <= 1 (secondary), unbiased RIS otherwise.
+    uint rect_count = f.rt_counts.x;
+    uint rect_direct_limit = primary_hit ? 2u : 1u;
+    if (rect_count <= rect_direct_limit) {
+        for (uint i = 0u; i < rect_count; ++i) {
+            eval_rect_light(li, li.rects.data[i], s, v, origin, f0, kd, 1.0, 1.0, primary_hit, seed, diffuse, specular);
+        }
+    } else {
+        float w_sum = 0.0;
+        uint chosen = 0u;
+        float chosen_w = 0.0;
+        for (uint i = 0u; i < rect_count; ++i) {
+            float w = rect_light_ris_weight(li.rects.data[i], s.p, s.n);
+            if (w <= 0.0) continue;
+            w_sum += w;
+            if (rnd(seed) * w_sum < w) { chosen = i; chosen_w = w; }
+        }
+        if (chosen_w > 0.0) {
+            float prob = chosen_w / w_sum;
+            eval_rect_light(li, li.rects.data[chosen], s, v, origin, f0, kd,
+                            w_sum / chosen_w, prob, primary_hit, seed, diffuse, specular);
+        }
     }
 }
 
-// Full outgoing radiance at a secondary hit (reflection or probe ray): direct + DDGI + emission.
-vec3 shade_secondary(Frame f, LightingInputs li, Surface s, vec3 v, uint irr_tex, uint dist_tex, inout uint seed) {
+// Full outgoing radiance at a secondary hit (reflection, near-GI, or probe ray): direct + DDGI + emission.
+// `use_ddgi` MUST be false on frame 0 / post-reset inside ddgi_trace so uninitialized atlases are never read.
+vec3 shade_secondary(Frame f, LightingInputs li, Surface s, vec3 v, uint irr_tex, uint dist_tex,
+                     bool use_ddgi, inout uint seed) {
     vec3 d, sp;
-    direct_light(f, li, s, v, seed, d, sp);
-    vec3 indirect = ddgi_irradiance(f, irr_tex, dist_tex, s.p, s.n, v);
-    // Environment specular at secondary hits: probe light seen in the mirror direction is a
-    // blurry stand-in for a second reflection ray (keeps metals from going black in reflections).
+    direct_light(f, li, s, v, false, seed, d, sp);
     vec3 f0 = mix(vec3(0.04), s.albedo, s.metallic);
     vec3 dfg = env_brdf(f0, s.roughness, max(dot(s.n, v), 1e-4));
-    vec3 mirror = ddgi_irradiance(f, irr_tex, dist_tex, s.p, reflect(-v, s.n), v);
+    vec3 indirect = vec3(0);
+    vec3 mirror = vec3(0);
+    if (use_ddgi) {
+        indirect = ddgi_irradiance(f, irr_tex, dist_tex, s.p, s.n, v);
+        // Intentional blurry stand-in for 2nd-bounce environment specular (radiance-scaled E/PI).
+        mirror = ddgi_irradiance(f, irr_tex, dist_tex, s.p, reflect(-v, s.n), v);
+    }
     return s.albedo * (d + indirect * (1.0 - dfg) * (1.0 - s.metallic)) + sp + mirror * dfg + s.emissive;
 }
 
@@ -449,6 +625,7 @@ vec3 shade_secondary(Frame f, LightingInputs li, Surface s, vec3 v, uint irr_tex
 #include <astral/rt_custom.glsl>
 #else
 void astral_custom_surface(uint shader, uint base, vec2 uv, vec3 view_dir, inout Surface s) {}
+bool astral_custom_alpha_test(uint shader, uint base, vec2 uv, vec3 p, vec3 n, vec3 view_dir, bool backface) { return true; }
 #endif
 
 #endif

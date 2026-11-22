@@ -38,6 +38,7 @@ struct SurfaceShaderBuild {
     std::vector<std::uint32_t> forward_vertex, forward_fragment;
     bool blend = false;
     bool additive = false;
+    bool alpha_test = false;
     std::vector<ShaderError> errors; ///< Lines of the .ashader file.
     [[nodiscard]] bool ok() const noexcept { return errors.empty() && (!gbuffer_fragment.empty() || !forward_fragment.empty()); }
 };
@@ -62,6 +63,7 @@ struct ScreenShaderBuild {
 struct RtSurface {
     std::uint32_t slot = 0;
     std::string chunk; ///< SurfaceShaderBuild::rt_chunk
+    bool alpha_test = false;
 };
 /// The text of <astral/rt_custom.glsl>: every shader's surface() as a function of the ray-traced
 /// hit, and astral_custom_surface() choosing by slot. Differences from the raster stage: no

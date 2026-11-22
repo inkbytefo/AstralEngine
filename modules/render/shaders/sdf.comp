@@ -45,7 +45,7 @@ void main() {
         // SDF shapes are static between frames: only the camera moves them on screen.
         vec4 now = f.unjittered_view_projection * vec4(p, 1.0);
         vec4 prev = f.prev_view_projection * vec4(p, 1.0);
-        vec2 velocity = (now.xy / now.w - prev.xy / max(prev.w, 1e-6)) * 0.5;
+        vec2 velocity = compute_velocity(now, prev);
         imageStore(astral_storage_images[pc.out_velocity], pixel, vec4(velocity, 0, 0));
     }
     imageStore(astral_storage_images[pc.out_depth], pixel, vec4(depth));

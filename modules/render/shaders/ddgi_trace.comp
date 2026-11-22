@@ -1,8 +1,8 @@
 #version 460
 #include <astral/rt.glsl>
 // DDGI: every probe casts `rays per probe` rays. Hits are lit with direct light plus the previous
-// frame's probes (so bounces accumulate over frames); misses see the sky.
-// Output per ray: rgb radiance, a hit distance (shortened for backfaces: the probe is inside geometry).
+// frame's probes (only when ddgi history is valid, avoiding uninitialized VRAM reads on frame 0);
+// misses see the sky. Output per ray: rgb radiance, a hit distance (negative when hitting a backface).
 layout(push_constant, scalar) uniform Push {
     FrameRef frame; uint64_t tlas; Instances instances; Materials materials; PointLights lights; RectLights rects; SdfShapes shapes;
     ProbeRays rays; uint irr_prev; uint dist_prev;
@@ -11,7 +11,7 @@ layout(local_size_x = 64) in;
 
 void main() {
     Frame f = pc.frame.f;
-    astral_rt_begin(f);
+    astral_rt_begin(f, pc.instances, pc.materials);
     uint rays = f.ddgi_counts.w;
     uint id = gl_GlobalInvocationID.x;
     if (id >= ddgi_probe_count(f) * rays) return;
@@ -28,11 +28,16 @@ void main() {
         Surface s = h.sdf ? sdf_surface(pc.shapes, sdf_count, origin, dir, h.t)
                           : triangle_surface(pc.instances, pc.materials, h.instance, h.prim, h.bary, origin, dir, h.t);
         if (s.backface) {
-            result = vec4(0, 0, 0, h.t * 0.2);
+            // Negative distance flags a backface hit so ddgi_update can detect embedded probes
+            // and pull Chebyshev visibility inward without injecting bogus radiance.
+            result = vec4(0.0, 0.0, 0.0, -h.t * 0.2);
         } else {
             uint seed = make_seed(uvec2(probe, ray), f.rt_counts.y, 7u);
             LightingInputs li = LightingInputs(pc.tlas, pc.shapes, sdf_count, pc.lights, pc.rects);
-            vec3 radiance = shade_secondary(f, li, s, -dir, pc.irr_prev, pc.dist_prev, seed);
+            bool use_ddgi = f.rt_counts.w != 0u;
+            vec3 radiance = shade_secondary(f, li, s, -dir, pc.irr_prev, pc.dist_prev, use_ddgi, seed);
+            radiance = min(radiance, vec3(64.0));
+            if (any(isnan(radiance)) || any(isinf(radiance))) radiance = vec3(0.0);
             result = vec4(radiance, h.t);
         }
     }
