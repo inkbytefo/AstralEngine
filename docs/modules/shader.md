@@ -28,6 +28,7 @@ void surface() { ALBEDO = tint.rgb; ALPHA = 1.0; }
 | Söz dizimi | Anlam |
 |---|---|
 | `shader_type <tür>;` | Zorunlu. `surface` (mesh yüzeyi), `post` (ekran efekti), `sky` (arka plan) |
+| `shading_model <model>;` | Yalnız `surface` için isteğe bağlı (M13 / ADR-0033): `standard` (varsayılan), `clearcoat`, `sheen`, `anisotropic`, `transmission`, `subsurface` |
 | `render_mode a, b;` | Türe göre: surface → `alpha_test`, `cull_disabled`, `cull_front`, `unshaded`, `blend_mix`, `blend_add`, `shadows_disabled`, `rt_simple`; post → `after_tonemap` |
 | `uniform <tip> ad [: ipuçları] [= varsayılan];` | Materyalde değeri verilen parametre. Tipler: `float vec2 vec3 vec4 int bool sampler2D` |
 | `varying <tip> ad;` | `vertex()`'ten `surface()`'e geçen değer |
@@ -41,7 +42,7 @@ void surface() { ALBEDO = tint.rgb; ALPHA = 1.0; }
 | Tür | Okunur | Yazılır |
 |---|---|---|
 | `surface` `vertex()` | `UV`, `WORLD_POSITION`, `MODEL_MATRIX`, `TIME` | `VERTEX`, `NORMAL` (obje uzayı) |
-| `surface` `surface()` | `UV`, `NORMAL`, `WORLD_POSITION`, `VIEW_DIR`, `FRONT_FACING`, `SCREEN_UV`, `TIME` | `ALBEDO`, `ROUGHNESS`, `METALLIC`, `EMISSION`, `ALPHA`, `ALPHA_SCISSOR`, `NORMAL_MAP`, `NORMAL_MAP_DEPTH`, `AO` |
+| `surface` `surface()` | `UV`, `NORMAL`, `WORLD_POSITION`, `VIEW_DIR`, `FRONT_FACING`, `SCREEN_UV`, `TIME` | `ALBEDO`, `ROUGHNESS`, `METALLIC`, `EMISSION`, `ALPHA`, `ALPHA_SCISSOR`, `NORMAL_MAP`, `NORMAL_MAP_DEPTH`, `AO`, `CLEARCOAT`, `CLEARCOAT_ROUGHNESS`, `SHEEN_COLOR`, `SHEEN_ROUGHNESS`, `ANISOTROPY`, `ANISOTROPY_ROTATION`, `TRANSMISSION`, `IOR`, `THICKNESS`, `ATTENUATION_COLOR`, `ATTENUATION_DISTANCE`, `SUBSURFACE`, `SUBSURFACE_COLOR`, `SUBSURFACE_RADIUS`, `WETNESS` |
 | `post` `post()` | `SCREEN_UV`, `SCREEN_TEXTURE`, `TIME` | `COLOR` (ekranda görünen renk) |
 | `sky` `sky()` | `EYEDIR`, `SUN_DIR`, `SUN_COLOR`, `TIME` | `COLOR` (doğrusal HDR) |
 

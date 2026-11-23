@@ -59,15 +59,53 @@ static_assert(offsetof(GpuInstance, indices) == 140);
 struct GpuMaterial {
     Vec4 base_color;
     Vec4 emissive_roughness;
-    Vec4 params;                            // x metallic, y normal scale
+    Vec4 params;                            // x metallic, y normal scale, z wetness, w unused
     std::uint32_t textures[4];              // bindless: base colour, metallic-roughness, normal, emissive (~0 = none)
-    std::uint32_t custom[4] = {0, 0, 0, 0}; // x: .ashader parameter offset (words), y: shader index + 1 (0 = standard)
+    std::uint32_t custom[4] = {0, 0, 0, 0}; // x: param offset, y: shader key, z: shading_model (0..5), w: flags
+    Vec4 coat_aniso{};                      // x clearcoat, y clearcoat_roughness, z anisotropy, w aniso_rotation
+    Vec4 sheen{};                           // rgb sheen_color, a sheen_roughness
+    Vec4 transmission{};                    // x strength, y ior, z thickness, w attenuation_distance
+    Vec4 subsurface{};                      // rgb subsurface_color, a subsurface_strength
+    Vec4 attenuation{};                     // rgb attenuation_color, a subsurface_radius
+    std::uint32_t detail_textures[4] = {no_texture, no_texture, no_texture, no_texture}; // albedo, normal, height, unused
+    Vec4 detail_params{4.0f, 0.5f, 0.0f, 0.0f}; // x uv_scale, y normal_scale, z parallax_scale, w unused
 };
-static_assert(sizeof(GpuMaterial) == 80);
+static_assert(sizeof(GpuMaterial) == 192);
 static_assert(offsetof(GpuMaterial, emissive_roughness) == 16);
 static_assert(offsetof(GpuMaterial, params) == 32);
 static_assert(offsetof(GpuMaterial, textures) == 48);
 static_assert(offsetof(GpuMaterial, custom) == 64);
+static_assert(offsetof(GpuMaterial, coat_aniso) == 80);
+static_assert(offsetof(GpuMaterial, sheen) == 96);
+static_assert(offsetof(GpuMaterial, transmission) == 112);
+static_assert(offsetof(GpuMaterial, subsurface) == 128);
+static_assert(offsetof(GpuMaterial, attenuation) == 144);
+static_assert(offsetof(GpuMaterial, detail_textures) == 160);
+static_assert(offsetof(GpuMaterial, detail_params) == 176);
+
+struct GpuDecal {
+    Mat4 inv_transform;
+    Vec4 color;                // rgb tint, a opacity
+    Vec4 params;               // x roughness, y metallic, z wetness, w normal_strength
+    Vec4 axis_up;              // xyz world projection normal (+Y of decal box), w affect_roughness
+    std::uint32_t textures[4]; // x albedo, y normal, zw unused
+};
+static_assert(sizeof(GpuDecal) == 128);
+static_assert(offsetof(GpuDecal, color) == 64);
+static_assert(offsetof(GpuDecal, params) == 80);
+static_assert(offsetof(GpuDecal, axis_up) == 96);
+static_assert(offsetof(GpuDecal, textures) == 112);
+
+struct GpuSceneAddresses {
+    std::uint64_t tlas = 0;
+    std::uint64_t instances = 0;
+    std::uint64_t materials = 0;
+    std::uint64_t lights = 0;
+    std::uint64_t rects = 0;
+    std::uint64_t shapes = 0;
+    std::uint64_t decals = 0;
+};
+static_assert(sizeof(GpuSceneAddresses) == 56);
 
 struct GpuFrame {
     Mat4 view_projection;
@@ -90,8 +128,12 @@ struct GpuFrame {
     std::uint32_t custom[4]; // xy: .ashader parameter block address, z: TIME (float bits), w: encode_srgb
     Vec4 prev_camera_position;
     Mat4 inv_prev_view_projection;
+    GpuSceneAddresses scene;
+    std::uint32_t decal_count;
+    std::uint32_t pt_params; // bits 0..15: pt_sample_index, bits 16..23: max_bounces
 };
-static_assert(sizeof(GpuFrame) == 608);
+static_assert(sizeof(GpuFrame) == 672);
+static_assert(alignof(GpuFrame) == 8);
 static_assert(offsetof(GpuFrame, camera_position) == 192);
 static_assert(offsetof(GpuFrame, counts) == 272);
 static_assert(offsetof(GpuFrame, prev_view_projection) == 304);
@@ -100,6 +142,8 @@ static_assert(offsetof(GpuFrame, unjittered_view_projection) == 448);
 static_assert(offsetof(GpuFrame, custom) == 512);
 static_assert(offsetof(GpuFrame, prev_camera_position) == 528);
 static_assert(offsetof(GpuFrame, inv_prev_view_projection) == 544);
+static_assert(offsetof(GpuFrame, scene) == 608);
+static_assert(offsetof(GpuFrame, decal_count) == 664);
 
 struct GpuPointLight {
     Vec4 position_radius;
@@ -149,35 +193,51 @@ static_assert(offsetof(GpuReservoir, M) == 12);
 // --- Push-constant blocks (scalar; mirror shader push_constant blocks) -------------------
 
 struct GBufferIds {
-    std::uint32_t albedo, normal, emissive, depth, velocity, sdf_albedo, sdf_normal, sdf_depth, sdf_velocity;
+    std::uint32_t albedo, normal, emissive, depth, velocity, material_ext;
+    std::uint32_t sdf_albedo, sdf_normal, sdf_depth, sdf_velocity;
 };
-static_assert(sizeof(GBufferIds) == 36);
+static_assert(sizeof(GBufferIds) == 40);
 
 struct RtLightingPush {
-    std::uint64_t frame, tlas, instances, materials, lights, rects, shapes;
-    std::uint64_t reservoirs;
+    std::uint64_t frame, reservoirs;
     GBufferIds g;
     std::uint32_t irr, dist, out_diffuse, out_specular, out_geometry;
     float near_gi_radius;
 };
 static_assert(sizeof(RtLightingPush) <= gpu::max_push_constant_size);
-static_assert(offsetof(RtLightingPush, reservoirs) == 56);
-static_assert(offsetof(RtLightingPush, g) == 64);
-static_assert(offsetof(RtLightingPush, irr) == 100);
-static_assert(offsetof(RtLightingPush, near_gi_radius) == 120);
+static_assert(offsetof(RtLightingPush, reservoirs) == 8);
+static_assert(offsetof(RtLightingPush, g) == 16);
+static_assert(offsetof(RtLightingPush, irr) == 56);
+static_assert(offsetof(RtLightingPush, near_gi_radius) == 76);
 
 struct RestirPush {
-    std::uint64_t frame, tlas, instances, materials, lights, rects, shapes;
-    std::uint64_t prev_reservoirs, out_reservoirs;
+    std::uint64_t frame, prev_reservoirs, out_reservoirs;
     GBufferIds g;
     std::uint32_t prev_geometry;
     std::uint32_t pass_index;
 };
 static_assert(sizeof(RestirPush) <= gpu::max_push_constant_size);
-static_assert(offsetof(RestirPush, prev_reservoirs) == 56);
-static_assert(offsetof(RestirPush, g) == 72);
-static_assert(offsetof(RestirPush, prev_geometry) == 108);
-static_assert(offsetof(RestirPush, pass_index) == 112);
+static_assert(offsetof(RestirPush, prev_reservoirs) == 8);
+static_assert(offsetof(RestirPush, g) == 24);
+static_assert(offsetof(RestirPush, prev_geometry) == 64);
+static_assert(offsetof(RestirPush, pass_index) == 68);
+
+struct PathTracerPush {
+    std::uint64_t frame;
+    std::uint32_t accum_prev, accum_curr, out_hdr, sample_index, max_bounces;
+};
+static_assert(sizeof(PathTracerPush) <= gpu::max_push_constant_size);
+static_assert(offsetof(PathTracerPush, accum_prev) == 8);
+static_assert(offsetof(PathTracerPush, out_hdr) == 16);
+
+struct DecalPush {
+    std::uint64_t frame;
+    GBufferIds g;
+    std::uint32_t out_albedo, out_normal, out_emissive, out_material_ext;
+};
+static_assert(sizeof(DecalPush) <= gpu::max_push_constant_size);
+static_assert(offsetof(DecalPush, g) == 8);
+static_assert(offsetof(DecalPush, out_albedo) == 48);
 
 struct DdgiTracePush {
     std::uint64_t frame, tlas, instances, materials, lights, rects, shapes, rays;
@@ -203,8 +263,8 @@ struct TemporalPush {
 };
 static_assert(sizeof(TemporalPush) <= gpu::max_push_constant_size);
 static_assert(offsetof(TemporalPush, g) == 8);
-static_assert(offsetof(TemporalPush, geometry) == 44);
-static_assert(offsetof(TemporalPush, max_history) == 76);
+static_assert(offsetof(TemporalPush, geometry) == 48);
+static_assert(offsetof(TemporalPush, max_history) == 80);
 
 struct AtrousPush {
     std::uint64_t frame;
@@ -215,7 +275,7 @@ struct AtrousPush {
 };
 static_assert(sizeof(AtrousPush) <= gpu::max_push_constant_size);
 static_assert(offsetof(AtrousPush, g) == 8);
-static_assert(offsetof(AtrousPush, step) == 64);
+static_assert(offsetof(AtrousPush, step) == 68);
 
 struct CompositePush {
     std::uint64_t frame, rects;
@@ -224,7 +284,7 @@ struct CompositePush {
 };
 static_assert(sizeof(CompositePush) <= gpu::max_push_constant_size);
 static_assert(offsetof(CompositePush, g) == 16);
-static_assert(offsetof(CompositePush, diffuse) == 52);
+static_assert(offsetof(CompositePush, diffuse) == 56);
 
 struct TaaPush {
     std::uint64_t frame;
@@ -234,7 +294,7 @@ struct TaaPush {
 };
 static_assert(sizeof(TaaPush) <= gpu::max_push_constant_size);
 static_assert(offsetof(TaaPush, g) == 8);
-static_assert(offsetof(TaaPush, blend) == 56);
+static_assert(offsetof(TaaPush, blend) == 60);
 
 struct BloomDownPush {
     std::uint32_t src, dst;
@@ -286,11 +346,12 @@ static_assert(offsetof(SdfPush, mesh_depth) == 16);
 
 struct LightingPush {
     std::uint64_t frame, lights, shapes;
-    std::uint32_t albedo, normal, emissive, depth, sdf_albedo, sdf_normal, sdf_depth, out_hdr;
+    std::uint32_t albedo, normal, emissive, depth, material_ext, sdf_albedo, sdf_normal, sdf_depth, out_hdr;
 };
-static_assert(sizeof(LightingPush) == 56);
+static_assert(sizeof(LightingPush) == 64);
 static_assert(sizeof(LightingPush) <= gpu::max_push_constant_size);
 static_assert(offsetof(LightingPush, albedo) == 24);
+static_assert(offsetof(LightingPush, material_ext) == 40);
 
 struct TonemapPush {
     std::uint32_t hdr;

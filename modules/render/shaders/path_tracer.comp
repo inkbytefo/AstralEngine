@@ -1,0 +1,380 @@
+#version 460
+#include <astral/rt.glsl>
+// Unbiased progressive multi-bounce Path Tracer reference mode (M13 / ADR-0033).
+// Shares the exact TLAS, SDF scene, custom .ashader surfaces, decals, and M13 BSDF library
+// (multi-scattering GGX, clearcoat, sheen, anisotropy, Fresnel refraction + Beer-Lambert, SSS,
+// wetness) with the real-time hybrid renderer for ground-truth validation.
+layout(push_constant, scalar) uniform Push {
+    FrameRef frame; uint accum_prev; uint accum_curr; uint out_hdr; uint sample_index; uint max_bounces;
+} pc;
+layout(local_size_x = 8, local_size_y = 8) in;
+
+void apply_pt_decals(Frame f, Decals decals, inout Surface s) {
+    if (f.decal_count == 0u || s.unshaded) return;
+    for (uint i = 0u; i < f.decal_count; ++i) {
+        Decal dec = decals.data[i];
+        vec3 local = (dec.inv_transform * vec4(s.p, 1.0)).xyz;
+        if (any(greaterThan(abs(local), vec3(0.5)))) continue;
+        float angle = dot(s.n, dec.axis_up.xyz);
+        if (angle <= 0.25) continue;
+        vec2 duv = local.xz + 0.5;
+        vec4 col = dec.color;
+        if (dec.textures.x != NO_TEXTURE) {
+            col *= textureLod(sampler2D(astral_textures[nonuniformEXT(dec.textures.x)],
+                                        astral_samplers[ASTRAL_SAMPLER_LINEAR_CLAMP]), duv, 1.0);
+        }
+        float fade = smoothstep(0.25, 0.55, angle) * clamp(col.a, 0.0, 1.0);
+        if (fade <= 1e-4) continue;
+        s.albedo = mix(s.albedo, col.rgb, fade);
+        if (dec.axis_up.w > 0.5) {
+            s.roughness = mix(s.roughness, clamp(dec.params.x, ASTRAL_MIN_ROUGHNESS, 1.0), fade);
+            s.metallic = mix(s.metallic, clamp(dec.params.y, 0.0, 1.0), fade);
+        }
+        if (dec.params.z > 1e-4) {
+            float coat = s.shading_model == SHADING_CLEARCOAT ? s.mat_ext.x : 0.0;
+            float coat_r = s.shading_model == SHADING_CLEARCOAT ? s.mat_ext.y : 0.1;
+            astral_apply_wetness(s.albedo, s.roughness, coat, coat_r, s.metallic, dec.params.z * fade);
+            if (coat > 1e-4 && (s.shading_model == SHADING_STANDARD || s.shading_model == SHADING_CLEARCOAT)) {
+                s.shading_model = SHADING_CLEARCOAT;
+                s.mat_ext = vec4(coat, coat_r, 0.0, 0.0);
+            }
+        }
+    }
+}
+
+vec3 pt_direct_nee(Frame f, LightingInputs li, Surface s, vec3 v, inout uint seed) {
+    vec3 sum = vec3(0.0);
+    vec3 origin = offset_ray(s.p, s.ng);
+    float max_t = f.rt_params.w;
+
+    // 1. Sun
+    vec3 to_sun = -normalize(f.sun_direction.xyz);
+    if (dot(f.sun_color.rgb, vec3(1.0)) > 0.0 && (dot(s.n, to_sun) > 0.0 || s.shading_model == SHADING_SUBSURFACE)) {
+        vec3 l = sample_cone(to_sun, f.rt_params.x, vec2(rnd(seed), rnd(seed)));
+        bool lit = dot(s.n, l) > 0.0 ? !occluded(li.tlas, li.shapes, li.sdf_count, origin, l, max_t)
+                                     : (s.shading_model == SHADING_SUBSURFACE);
+        if (lit) {
+            vec3 d_rad, sp_rad;
+            eval_surface_direct_radiance(s, v, to_sun, d_rad, sp_rad);
+            sum += (s.albedo * d_rad + sp_rad) * (PI * f.sun_color.rgb);
+        }
+    }
+
+    // 2. Point lights (uniform 1-light unbiased sample when > 4, exact loop otherwise)
+    uint pt_count = f.counts.x;
+    if (pt_count > 0u) {
+        uint start_i = 0u, end_i = pt_count;
+        float scale = 1.0;
+        if (pt_count > 4u) {
+            start_i = min(uint(rnd(seed) * float(pt_count)), pt_count - 1u);
+            end_i = start_i + 1u;
+            scale = float(pt_count);
+        }
+        for (uint i = start_i; i < end_i; ++i) {
+            PointLight light = li.lights.data[i];
+            vec3 to = light.position_radius.xyz - s.p;
+            float dist = max(length(to), 1e-4);
+            float radius = max(light.position_radius.w, 1e-4);
+            if (dist >= radius) continue;
+            vec3 l = to / dist;
+            float nl = dot(s.n, l);
+            if (nl <= 0.0 && s.shading_model != SHADING_SUBSURFACE) continue;
+            float falloff = clamp(1.0 - pow(dist / radius, 4.0), 0.0, 1.0);
+            falloff = falloff * falloff / (dist * dist + 1.0);
+            vec2 u = vec2(rnd(seed), rnd(seed));
+            vec3 target = light.position_radius.xyz + sample_cone(-l, PI * 0.5, u) * light.source.x * sqrt(rnd(seed));
+            vec3 sd = target - origin;
+            float sl = length(sd);
+            if (nl > 0.0 && sl > 1e-4) {
+                float tmax = sl - max(light.source.x * 0.25, 0.001);
+                if (tmax > 0.0 && occluded(li.tlas, li.shapes, li.sdf_count, origin, sd / sl, tmax)) continue;
+            }
+            vec3 d_rad, sp_rad;
+            eval_surface_direct_radiance(s, v, l, d_rad, sp_rad);
+            sum += (s.albedo * d_rad + sp_rad) * (PI * light.color_intensity.rgb * light.color_intensity.a * falloff * scale);
+        }
+    }
+
+    // 3. Rect lights (with exact power-heuristic MIS against BSDF sampling)
+    uint rect_count = f.rt_counts.x;
+    if (rect_count > 0u) {
+        uint idx = rect_count == 1u ? 0u : min(uint(rnd(seed) * float(rect_count)), rect_count - 1u);
+        float p_sel = 1.0 / float(rect_count);
+        RectLight r = li.rects.data[idx];
+        vec2 u = vec2(rnd(seed), rnd(seed)) * 2.0 - 1.0;
+        vec3 lp = r.position_two_sided.xyz + r.right.xyz * u.x + r.up.xyz * u.y;
+        vec3 to = lp - origin;
+        float d2 = dot(to, to);
+        if (d2 > 1e-8) {
+            float dist = sqrt(d2);
+            vec3 l = to / dist;
+            float nl = dot(s.n, l);
+            vec3 ln = cross(r.right.xyz, r.up.xyz);
+            float ln_len = length(ln);
+            float area = 4.0 * ln_len;
+            float cos_l = ln_len > 1e-8 ? dot(ln / ln_len, -l) : 0.0;
+            if (r.position_two_sided.w > 0.5) cos_l = abs(cos_l);
+            if ((nl > 0.0 || s.shading_model == SHADING_SUBSURFACE) && cos_l > 0.0) {
+                float tmax = dist - 0.001;
+                if (!(nl > 0.0 && tmax > 0.0 && occluded(li.tlas, li.shapes, li.sdf_count, origin, l, tmax))) {
+                    float geom = cos_l * area / d2;
+                    vec3 d_rad, sp_rad;
+                    eval_surface_direct_radiance(s, v, l, d_rad, sp_rad);
+                    float pdf_light = p_sel / max(geom, 1e-8);
+                    float nv = max(dot(s.n, v), 1e-4);
+                    float a = max(s.roughness * s.roughness, 0.002);
+                    if (s.roughness < ASTRAL_MIRROR_ROUGHNESS) {
+                        sp_rad = vec3(0.0); // Delta specular hits the rect light directly on the next bounce.
+                    }
+                    float pdf_brdf =
+                        nl > 0.0
+                            ? (s.roughness < ASTRAL_MIRROR_ROUGHNESS
+                                   ? (nl / PI)
+                                   : (0.5 * nl / PI + 0.5 * vndf_reflection_pdf(nv, max(dot(s.n, normalize(v + l)), 0.0), a)))
+                            : 0.0;
+                    float w_mis = mis_power2(pdf_light, pdf_brdf);
+                    vec3 contrib = s.albedo * d_rad + sp_rad;
+                    sum += contrib * r.radiance.rgb * (geom / p_sel) * w_mis;
+                }
+            }
+        }
+    }
+    return sum;
+}
+
+void main() {
+    Frame f = pc.frame.f;
+    Instances scene_instances = Instances(f.scene_instances);
+    Materials scene_materials = Materials(f.scene_materials);
+    PointLights scene_lights = PointLights(f.scene_lights);
+    RectLights scene_rects = RectLights(f.scene_rects);
+    SdfShapes scene_shapes = SdfShapes(f.scene_shapes);
+    Decals scene_decals = Decals(f.scene_decals);
+    astral_rt_begin(f, scene_instances, scene_materials);
+
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= int(f.screen.x) || pixel.y >= int(f.screen.y)) return;
+
+    uint seed = make_seed(uvec2(pixel), pc.sample_index, 97u);
+    vec2 sub = vec2(rnd(seed), rnd(seed));
+    vec2 uv = (vec2(pixel) + sub) * f.screen.zw;
+    vec3 ray_o = f.camera_position.xyz;
+    vec3 ray_d = normalize(reconstruct_world(f, uv, 1.0) - ray_o);
+
+    LightingInputs li = LightingInputs(f.scene_tlas, scene_shapes, f.counts.y, scene_lights, scene_rects);
+    vec3 radiance = vec3(0.0);
+    vec3 throughput = vec3(1.0);
+    bool last_delta = true;
+    float last_pdf = 1.0;
+    bool inside_medium = false;
+    vec3 medium_att_color = vec3(1.0);
+    float medium_att_dist = 1.0;
+
+    uint max_b = max(pc.max_bounces, 1u);
+    for (uint bounce = 0u; bounce <= max_b; ++bounce) {
+        TraceHit h = trace(li.tlas, li.shapes, li.sdf_count, ray_o, ray_d, f.rt_params.w);
+        float hit_t = h.hit ? h.t : 1e30;
+
+        float rect_t = 1e30;
+        uint rect_idx = 0u;
+        vec3 rect_rad = vec3(0.0);
+        for (uint i = 0u; i < f.rt_counts.x; ++i) {
+            RectLight rl = scene_rects.data[i];
+            float t = intersect_rect(rl, ray_o, ray_d);
+            if (t > 0.0 && t < rect_t) { rect_t = t; rect_idx = i; rect_rad = rl.radiance.rgb; }
+        }
+        if (rect_t < hit_t) {
+            if (inside_medium) throughput *= beer_lambert(medium_att_color, medium_att_dist, rect_t);
+            float w_mis = 1.0;
+            if (!last_delta && bounce > 0u) {
+                RectLight rl = scene_rects.data[rect_idx];
+                vec3 ln = cross(rl.right.xyz, rl.up.xyz);
+                float area = 4.0 * length(ln);
+                float cos_l = abs(dot(normalize(ln), -ray_d));
+                float pdf_light = (1.0 / float(max(f.rt_counts.x, 1u))) * (rect_t * rect_t) / max(area * cos_l, 1e-8);
+                w_mis = mis_power2(last_pdf, pdf_light);
+            }
+            radiance += throughput * rect_rad * w_mis;
+            break;
+        }
+        if (!h.hit) {
+            radiance += throughput * sky_radiance(f, ray_d);
+            break;
+        }
+
+        if (inside_medium) {
+            throughput *= beer_lambert(medium_att_color, medium_att_dist, h.t);
+        }
+
+        Surface s = h.sdf ? sdf_surface(li.shapes, li.sdf_count, ray_o, ray_d, h.t)
+                          : triangle_surface(scene_instances, scene_materials, h.instance, h.prim, h.bary, ray_o, ray_d, h.t);
+        if (bounce == 0u) apply_pt_decals(f, scene_decals, s);
+
+        if (s.unshaded) {
+            radiance += throughput * (s.albedo + s.emissive);
+            break;
+        }
+        if (s.backface && s.shading_model != SHADING_TRANSMISSION) {
+            break;
+        }
+        radiance += throughput * s.emissive;
+
+        vec3 v = -ray_d;
+        float nv = max(dot(s.n, v), 1e-4);
+
+        // Transmission (full dielectric reflection/refraction + Beer-Lambert volume tracking)
+        if (s.shading_model == SHADING_TRANSMISSION && s.mat_ext.x > 1e-4) {
+            float tr = clamp(s.mat_ext.x, 0.0, 1.0);
+            float ior = max(s.mat_ext.y, 1.01);
+            float eta = s.backface ? ior : (1.0 / ior);
+            float a = max(s.roughness * s.roughness, 0.002);
+            vec3 h_vec = s.n;
+            if (s.roughness >= ASTRAL_MIRROR_ROUGHNESS) {
+                vec3 t = tangent_of(s.n), b = cross(s.n, t);
+                vec3 vl = vec3(dot(v, t), dot(v, b), nv);
+                vec3 hl = sample_vndf(vl, a, vec2(rnd(seed), rnd(seed)));
+                h_vec = normalize(t * hl.x + b * hl.y + s.n * hl.z);
+            }
+            float F_tr = fresnel_dielectric(max(dot(v, h_vec), 1e-4), eta);
+            vec3 refr = refract(-v, h_vec, eta);
+            bool do_refract = (length(refr) > 1e-4) && (rnd(seed) < (1.0 - F_tr) * tr);
+            if (do_refract) {
+                ray_d = normalize(refr);
+                ray_o = offset_ray(s.p, -s.ng);
+                inside_medium = !s.backface;
+                if (inside_medium) {
+                    medium_att_color = s.attenuation_color;
+                    medium_att_dist = max(s.mat_ext.w, 1e-4);
+                }
+                last_delta = true;
+                last_pdf = 1.0;
+                continue;
+            }
+            if (!s.backface) radiance += throughput * pt_direct_nee(f, li, s, v, seed) * (1.0 - (1.0 - F_tr) * tr);
+            ray_d = reflect(-v, h_vec);
+            if (dot(s.n, ray_d) <= 0.0) break;
+            ray_o = offset_ray(s.p, s.ng);
+            last_delta = s.roughness < ASTRAL_MIRROR_ROUGHNESS;
+            last_pdf = last_delta ? 1.0 : vndf_reflection_pdf(nv, max(dot(s.n, h_vec), 0.0), a);
+            continue;
+        }
+
+        // Direct lighting via NEE with MIS
+        radiance += throughput * pt_direct_nee(f, li, s, v, seed);
+        if (bounce == max_b) break;
+
+        // Russian roulette after bounce 2
+        if (bounce >= 2u) {
+            float p_survive = clamp(max(throughput.r, max(throughput.g, throughput.b)), 0.05, 0.95);
+            if (rnd(seed) > p_survive) break;
+            throughput /= p_survive;
+        }
+
+        // BSDF importance sampling (Clearcoat / Anisotropic / Standard / Sheen / Subsurface)
+        vec3 f0 = mix(vec3(0.04), s.albedo, s.metallic);
+        vec3 dfg = env_brdf(f0, s.roughness, nv);
+        float coat = s.shading_model == SHADING_CLEARCOAT ? clamp(s.mat_ext.x, 0.0, 1.0) : 0.0;
+        float cf = coat * fresnel_schlick(vec3(0.04), nv).x;
+        float w_coat = cf;
+        float w_spec = astral_luminance(dfg) * (1.0 - cf);
+        float w_diff = astral_luminance(s.albedo) * (1.0 - s.metallic) * (1.0 - cf);
+        float w_tot = max(w_coat + w_spec + w_diff, 1e-4);
+        float u_lobe = rnd(seed) * w_tot;
+
+        if (u_lobe < w_coat && coat > 1e-4) {
+            float rc = clamp(s.mat_ext.y, ASTRAL_MIN_ROUGHNESS, 1.0);
+            float ac = max(rc * rc, 0.002);
+            vec3 t = tangent_of(s.n), b = cross(s.n, t);
+            vec3 vl = vec3(dot(v, t), dot(v, b), nv);
+            vec3 hl = rc < ASTRAL_MIRROR_ROUGHNESS ? vec3(0, 0, 1) : sample_vndf(vl, ac, vec2(rnd(seed), rnd(seed)));
+            vec3 h_vec = normalize(t * hl.x + b * hl.y + s.n * hl.z);
+            vec3 l = reflect(-v, h_vec);
+            float nl = dot(s.n, l);
+            if (nl <= 0.0) break;
+            float vh = max(dot(v, h_vec), 0.0);
+            float p = w_coat / w_tot;
+            float g_w = rc < ASTRAL_MIRROR_ROUGHNESS ? 1.0 : smith_vndf_weight(nv, nl, ac);
+            throughput *= (coat * fresnel_schlick(vec3(0.04), vh).x * g_w) / p;
+            ray_o = offset_ray(s.p, s.ng);
+            ray_d = l;
+            last_delta = rc < ASTRAL_MIRROR_ROUGHNESS;
+            last_pdf = last_delta ? 1.0 : p * vndf_reflection_pdf(nv, max(dot(s.n, h_vec), 0.0), ac);
+        } else if (u_lobe < w_coat + w_spec) {
+            float p = max(w_spec / w_tot, 1e-4);
+            float a = max(s.roughness * s.roughness, 0.002);
+            vec3 ms = ggx_ms_factor(f0, s.roughness, nv);
+            vec3 t = (s.shading_model == SHADING_ANISOTROPIC && length(s.mat_ext.xyz) > 1e-4)
+                         ? normalize(s.mat_ext.xyz - s.n * dot(s.mat_ext.xyz, s.n))
+                         : tangent_of(s.n);
+            vec3 b = cross(s.n, t);
+            vec3 vl = vec3(dot(v, t), dot(v, b), nv);
+            vec3 h_vec = s.n;
+            float g_w = 1.0;
+            float pdf_s = 1.0;
+            if (s.roughness >= ASTRAL_MIRROR_ROUGHNESS) {
+                if (s.shading_model == SHADING_ANISOTROPIC) {
+                    float ax, ay;
+                    aniso_alpha(s.roughness, s.mat_ext.w, ax, ay);
+                    vec3 hl = sample_vndf_aniso(vl, ax, ay, vec2(rnd(seed), rnd(seed)));
+                    h_vec = normalize(t * hl.x + b * hl.y + s.n * hl.z);
+                    vec3 l_tmp = reflect(-v, h_vec);
+                    float nl = dot(s.n, l_tmp);
+                    if (nl <= 0.0) break;
+                    g_w = smith_vndf_weight_aniso(vl, vec3(dot(l_tmp, t), dot(l_tmp, b), nl), ax, ay);
+                    pdf_s = vndf_aniso_pdf(vl, hl, ax, ay);
+                } else {
+                    vec3 hl = sample_vndf(vl, a, vec2(rnd(seed), rnd(seed)));
+                    h_vec = normalize(t * hl.x + b * hl.y + s.n * hl.z);
+                    vec3 l_tmp = reflect(-v, h_vec);
+                    float nl = dot(s.n, l_tmp);
+                    if (nl <= 0.0) break;
+                    g_w = smith_vndf_weight(nv, nl, a);
+                    pdf_s = vndf_reflection_pdf(nv, max(dot(s.n, h_vec), 0.0), a);
+                }
+            }
+            vec3 l = reflect(-v, h_vec);
+            if (dot(s.n, l) <= 0.0) break;
+            float vh = max(dot(v, h_vec), 0.0);
+            throughput *= (fresnel_schlick(f0, vh) * g_w * ms * (1.0 - cf)) / p;
+            ray_o = offset_ray(s.p, s.ng);
+            ray_d = l;
+            last_delta = s.roughness < ASTRAL_MIRROR_ROUGHNESS;
+            last_pdf = last_delta ? 1.0 : p * pdf_s;
+        } else {
+            float p = max(w_diff / w_tot, 1e-4);
+            float u1 = rnd(seed), u2 = rnd(seed);
+            float r_d = sqrt(u1), phi = 2.0 * PI * u2;
+            vec3 local_d = vec3(r_d * cos(phi), r_d * sin(phi), sqrt(max(0.0, 1.0 - u1)));
+            // Subsurface scattering: probabilistically transmit diffusely into the interior / back hemisphere.
+            if (s.shading_model == SHADING_SUBSURFACE && rnd(seed) < s.mat_ext.a * 0.4) {
+                vec3 l = to_world(local_d, -s.n);
+                throughput *= (s.mat_ext.rgb * (1.0 - dfg) * (1.0 - s.metallic)) / p;
+                ray_o = offset_ray(s.p, -s.ng);
+                ray_d = l;
+                last_delta = false;
+                last_pdf = p * local_d.z / PI;
+            } else {
+                vec3 l = to_world(local_d, s.n);
+                vec3 diff_col = s.albedo;
+                if (s.shading_model == SHADING_SHEEN) {
+                    diff_col += s.mat_ext.rgb * pow(1.0 - nv, 3.0) * (1.0 - 0.4 * s.mat_ext.a);
+                }
+                throughput *= (diff_col * (1.0 - dfg) * (1.0 - s.metallic) * (1.0 - cf)) / p;
+                ray_o = offset_ray(s.p, s.ng);
+                ray_d = l;
+                last_delta = false;
+                last_pdf = p * local_d.z / PI;
+            }
+        }
+    }
+
+    radiance = min(radiance, vec3(64.0));
+    if (any(isnan(radiance)) || any(isinf(radiance))) radiance = vec3(0.0);
+    vec3 prev = pc.sample_index == 0u ? vec3(0.0)
+                                      : texelFetch(sampler2D(astral_textures[pc.accum_prev],
+                                                             astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]), pixel, 0).rgb;
+    float w = 1.0 / float(pc.sample_index + 1u);
+    vec3 accum_c = mix(prev, radiance, w);
+    imageStore(astral_storage_images[pc.accum_curr], pixel, vec4(accum_c, 1.0));
+    imageStore(astral_storage_images[pc.out_hdr], pixel, vec4(accum_c, 1.0));
+}

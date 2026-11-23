@@ -3,7 +3,10 @@
 // engine's templates and compiles them to SPIR-V. Built-ins:
 //   vertex():  VERTEX, NORMAL (object space, writable), UV, WORLD_POSITION, MODEL_MATRIX, TIME, uniforms, varyings
 //   surface(): UV, NORMAL (world), WORLD_POSITION, VIEW_DIR, FRONT_FACING, TIME, SCREEN_UV; write ALBEDO,
-//              ROUGHNESS, METALLIC, EMISSION, ALPHA, ALPHA_SCISSOR, NORMAL_MAP, NORMAL_MAP_DEPTH, AO
+//              ROUGHNESS, METALLIC, EMISSION, ALPHA, ALPHA_SCISSOR, NORMAL_MAP, NORMAL_MAP_DEPTH, AO,
+//              CLEARCOAT, CLEARCOAT_ROUGHNESS, SHEEN_COLOR, SHEEN_ROUGHNESS, ANISOTROPY, ANISOTROPY_ROTATION,
+//              TRANSMISSION, IOR, THICKNESS, ATTENUATION_COLOR, ATTENUATION_DISTANCE, SUBSURFACE, SUBSURFACE_COLOR,
+//              SUBSURFACE_RADIUS, WETNESS
 // Uniforms live in the material's parameter block (layout_uniforms); textures are bindless indices.
 
 #include <astral/shader/ashader.hpp>
@@ -73,12 +76,12 @@ struct RtSurface {
 
 /// The ray-traced compute shaders with the custom surfaces compiled in (empty spirv + errors on failure).
 struct RtVariants {
-    std::vector<std::uint32_t> lighting, ddgi_trace, restir_temporal, restir_spatial;
+    std::vector<std::uint32_t> lighting, ddgi_trace, restir_temporal, restir_spatial, path_tracer;
     std::vector<ShaderError> errors;
     std::string log;
     [[nodiscard]] bool ok() const noexcept {
         return errors.empty() && !lighting.empty() && !ddgi_trace.empty() && !restir_temporal.empty() &&
-               !restir_spatial.empty();
+               !restir_spatial.empty() && !path_tracer.empty();
     }
 };
 [[nodiscard]] RtVariants compile_rt_variants(std::span<const RtSurface> surfaces);

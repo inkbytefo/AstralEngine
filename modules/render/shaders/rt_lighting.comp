@@ -1,20 +1,77 @@
 #version 460
 #include <astral/primary.glsl>
 #include <astral/restir.glsl>
-// Per pixel: direct light with ray-traced visibility (sun cone; local point + rect lights via
-// spatiotemporal ReSTIR DI or direct/RIS), near-field GI falling back to DDGI, and one Heitz VNDF
-// reflection ray (unbiased demodulated) outputting hit distance in specular.a for virtual reprojection.
+// Per pixel: direct light (sun cone; local point + rect lights via spatiotemporal ReSTIR DI or
+// direct/RIS), near-field GI / DDGI (+ SSS back-translucency), and M13 multi-lobe reflection &
+// transmission (multi-scatter GGX, clearcoat, sheen, anisotropy, Fresnel refraction + Beer-Lambert).
+// Outputs reflection hit distance in specular.a for virtual reflection-hit temporal reprojection.
 layout(push_constant, scalar) uniform Push {
-    FrameRef frame; uint64_t tlas; Instances instances; Materials materials; PointLights lights; RectLights rects; SdfShapes shapes;
-    Reservoirs reservoirs;
+    FrameRef frame; Reservoirs reservoirs;
     GBufferIds g; uint irr; uint dist;
     uint out_diffuse; uint out_specular; uint out_geometry; float near_gi_radius;
 } pc;
 layout(local_size_x = 8, local_size_y = 8) in;
 
+vec3 primary_spec_demod(Surface s, vec3 f0, float nv) {
+    vec3 dfg = env_brdf(f0, s.roughness, nv);
+    if (s.shading_model == SHADING_CLEARCOAT) {
+        float cf = fresnel_schlick(vec3(0.04), nv).x * s.mat_ext.x;
+        dfg = dfg * (1.0 - cf) + vec3(cf);
+    } else if (s.shading_model == SHADING_TRANSMISSION) {
+        dfg = mix(dfg, vec3(1.0), clamp(s.mat_ext.x, 0.0, 1.0));
+    }
+    return max(dfg, vec3(1e-3));
+}
+
+vec3 trace_env_or_surface(Frame f, LightingInputs li, Instances insts, Materials mats,
+                          vec3 origin, vec3 dir, bool is_mirror, bool check_rects, Surface prim,
+                          float nv, vec3 h_vec, float a, inout uint seed, out float out_t) {
+    TraceHit h = trace(li.tlas, li.shapes, li.sdf_count, origin, dir, f.rt_params.w);
+    float hit_t = h.hit ? h.t : 1e30;
+    float rect_t = 1e30;
+    uint rect_idx = 0u;
+    vec3 rect_radiance = vec3(0);
+    if (check_rects) {
+        for (uint i = 0u; i < f.rt_counts.x; ++i) {
+            RectLight r = li.rects.data[i];
+            float t = intersect_rect(r, origin, dir);
+            if (t > 0.0 && t < rect_t) { rect_t = t; rect_idx = i; rect_radiance = r.radiance.rgb; }
+        }
+    }
+    if (rect_t < hit_t) {
+        out_t = min(rect_t, 60000.0);
+        float w_mis = 1.0;
+        if (!is_mirror) {
+            RectLight rl = li.rects.data[rect_idx];
+            vec3 ln = cross(rl.right.xyz, rl.up.xyz);
+            float area = 4.0 * length(ln);
+            float cos_l = abs(dot(normalize(ln), -dir));
+            float prob = rect_light_select_prob(f, li.rects, rect_idx, prim.p, prim.n);
+            float pdf_light = prob * (rect_t * rect_t) / max(area * cos_l, 1e-8);
+            float pdf_brdf = vndf_reflection_pdf(nv, max(dot(prim.n, h_vec), 0.0), a);
+            w_mis = mis_power2(pdf_brdf, pdf_light);
+        }
+        return rect_radiance * w_mis;
+    }
+    if (h.hit) {
+        out_t = min(h.t, 60000.0);
+        Surface hs = h.sdf ? sdf_surface(li.shapes, li.sdf_count, origin, dir, h.t)
+                           : triangle_surface(insts, mats, h.instance, h.prim, h.bary, origin, dir, h.t);
+        return hs.backface ? vec3(0) : shade_secondary(f, li, hs, -dir, pc.irr, pc.dist, true, seed);
+    }
+    out_t = -1.0;
+    return sky_radiance(f, dir);
+}
+
 void main() {
     Frame f = pc.frame.f;
-    astral_rt_begin(f, pc.instances, pc.materials);
+    Instances scene_instances = Instances(f.scene_instances);
+    Materials scene_materials = Materials(f.scene_materials);
+    PointLights scene_lights = PointLights(f.scene_lights);
+    RectLights scene_rects = RectLights(f.scene_rects);
+    SdfShapes scene_shapes = SdfShapes(f.scene_shapes);
+    astral_rt_begin(f, scene_instances, scene_materials);
+
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     if (pixel.x >= int(f.screen.x) || pixel.y >= int(f.screen.y)) return;
     Surface s;
@@ -26,9 +83,9 @@ void main() {
         return;
     }
     uint sdf_count = f.counts.y;
-    LightingInputs li = LightingInputs(pc.tlas, pc.shapes, sdf_count, pc.lights, pc.rects);
+    LightingInputs li = LightingInputs(f.scene_tlas, scene_shapes, sdf_count, scene_lights, scene_rects);
     vec3 v = normalize(f.camera_position.xyz - s.p);
-    if (dot(s.n, v) < 0.0) s.n = normalize(s.n - v * (dot(s.n, v) * 1.01)); // normals facing away from the camera
+    if (dot(s.n, v) < 0.0) s.n = normalize(s.n - v * (dot(s.n, v) * 1.01));
     s.ng = s.n;
     uint seed = make_seed(uvec2(pixel), f.rt_counts.y, 1u);
 
@@ -38,33 +95,34 @@ void main() {
         Reservoir r = pc.reservoirs.data[uint(pixel.y) * uint(f.screen.x) + uint(pixel.x)];
         if (r.W > 0.0 && r.light_id != RESTIR_EMPTY_LIGHT) {
             vec3 rd, rsp;
-            if (restir_eval_sample(f, pc.lights, pc.rects, s, v, r.light_id, r.uv_packed, rd, rsp)) {
+            if (restir_eval_sample(f, scene_lights, scene_rects, s, v, r.light_id, r.uv_packed, rd, rsp)) {
                 diffuse += rd * r.W;
                 specular_direct += rsp * r.W;
             }
         }
     }
 
-    // Pre-integrated specular reflectance: computed once and reused for diffuse kd and specular demodulation.
     vec3 f0 = mix(vec3(0.04), s.albedo, s.metallic);
     float nv = max(dot(s.n, v), 1e-4);
     vec3 dfg_raw = env_brdf(f0, s.roughness, nv);
-    vec3 dfg = max(dfg_raw, vec3(1e-3));
+    vec3 spec_demod = primary_spec_demod(s, f0, nv);
     vec3 kd = (1.0 - dfg_raw) * (1.0 - s.metallic);
+    if (s.shading_model == SHADING_TRANSMISSION) kd *= (1.0 - clamp(s.mat_ext.x, 0.0, 1.0));
+    if (s.shading_model == SHADING_CLEARCOAT) kd *= (1.0 - fresnel_schlick(vec3(0.04), nv).x * s.mat_ext.x);
 
-    // Indirect diffuse. Near field: one cosine-weighted ray; only query DDGI when the ray escapes.
+    // Indirect diffuse (+ near-field GI; SSS adds back-hemisphere DDGI translucency).
     vec3 origin = primary_ray_origin(f, s.p, s.n);
-    vec3 indirect;
+    vec3 indirect = vec3(0.0);
     bool near_hit = false;
-    if (pc.near_gi_radius > 0.0) {
+    if (pc.near_gi_radius > 0.0 && (s.shading_model != SHADING_TRANSMISSION || s.mat_ext.x < 0.95)) {
         vec2 u = r2(f.rt_counts.y + 17u, seed);
         float r = sqrt(u.x), phi = 2.0 * PI * u.y;
         vec3 dir = to_world(vec3(r * cos(phi), r * sin(phi), sqrt(max(0.0, 1.0 - u.x))), s.n);
-        TraceHit nh = trace(pc.tlas, pc.shapes, sdf_count, origin, dir, pc.near_gi_radius);
+        TraceHit nh = trace(li.tlas, li.shapes, sdf_count, origin, dir, pc.near_gi_radius);
         if (nh.hit) {
             near_hit = true;
-            Surface hs = nh.sdf ? sdf_surface(pc.shapes, sdf_count, origin, dir, nh.t)
-                                : triangle_surface(pc.instances, pc.materials, nh.instance, nh.prim, nh.bary, origin, dir, nh.t);
+            Surface hs = nh.sdf ? sdf_surface(li.shapes, sdf_count, origin, dir, nh.t)
+                                : triangle_surface(scene_instances, scene_materials, nh.instance, nh.prim, nh.bary, origin, dir, nh.t);
             indirect = hs.backface ? vec3(0) : shade_secondary(f, li, hs, -dir, pc.irr, pc.dist, true, seed);
         }
     }
@@ -73,73 +131,159 @@ void main() {
     }
     diffuse += indirect * kd;
 
-    // Reflection: Heitz VNDF sample (exact mirror for roughness < 0.04), unbiasedly demodulated by dfg.
+    vec3 extra_spec = vec3(0.0);
+    if (s.shading_model == SHADING_SUBSURFACE && s.mat_ext.a > 1e-4) {
+        vec3 back_irr = ddgi_irradiance(f, pc.irr, pc.dist, s.p, -s.n, v);
+        extra_spec += s.mat_ext.rgb * s.mat_ext.a * (indirect * 0.25 + back_irr * 0.45);
+    } else if (s.shading_model == SHADING_SHEEN) {
+        float rim = pow(1.0 - nv, 3.0) * (1.0 - 0.4 * s.mat_ext.a);
+        extra_spec += s.mat_ext.rgb * rim * indirect;
+    }
+
+    // Reflection & Transmission sampling (Heitz VNDF isotropic/anisotropic + clearcoat + glass refraction).
     float a = max(s.roughness * s.roughness, 0.002);
-    vec3 l;
+    vec3 l = reflect(-v, s.n);
     vec3 h_vec = s.n;
     vec3 spec_weight = vec3(0.0);
     bool is_mirror = s.roughness < ASTRAL_MIRROR_ROUGHNESS;
-    if (is_mirror) {
-        l = reflect(-v, s.n);
-        spec_weight = fresnel_schlick(f0, nv) / dfg;
-    } else {
-        vec3 t = tangent_of(s.n), b = cross(s.n, t);
-        vec3 v_local = vec3(dot(v, t), dot(v, b), dot(v, s.n));
-        vec2 u = r2(f.rt_counts.y, seed);
-        vec3 h_local = sample_vndf(v_local, a, u);
-        h_vec = normalize(t * h_local.x + b * h_local.y + s.n * h_local.z);
-        l = reflect(-v, h_vec);
-        float nl = dot(s.n, l);
-        float vh = max(dot(v, h_vec), 0.0);
-        if (nl > 0.0) {
-            spec_weight = fresnel_schlick(f0, vh) * smith_vndf_weight(nv, nl, a) / dfg;
-        }
-    }
-    vec3 reflected = vec3(0);
-    float spec_hit_t = 0.0; // >0: hit distance, -1: sky/infinite miss, 0: no reflection ray traced
-    if (dot(s.n, l) > 0.0 && any(greaterThan(spec_weight, vec3(0.0)))) {
-        TraceHit h = trace(pc.tlas, pc.shapes, sdf_count, origin, l, f.rt_params.w);
-        float hit_t = h.hit ? h.t : 1e30;
-        float rect_t = 1e30;
-        uint rect_idx = 0u;
-        vec3 rect_radiance = vec3(0);
-        for (uint i = 0u; i < f.rt_counts.x; ++i) {
-            RectLight r = pc.rects.data[i];
-            float t = intersect_rect(r, origin, l);
-            if (t > 0.0 && t < rect_t) { rect_t = t; rect_idx = i; rect_radiance = r.radiance.rgb; }
-        }
-        if (rect_t < hit_t) {
-            spec_hit_t = min(rect_t, 60000.0);
-            float w_mis = 1.0;
-            if (!is_mirror) {
-                RectLight rl = pc.rects.data[rect_idx];
-                vec3 ln = cross(rl.right.xyz, rl.up.xyz);
-                float area = 4.0 * length(ln);
-                float cos_l = abs(dot(normalize(ln), -l));
-                float prob = rect_light_select_prob(f, pc.rects, rect_idx, s.p, s.n);
-                float pdf_light = prob * (rect_t * rect_t) / max(area * cos_l, 1e-8);
-                float pdf_brdf = vndf_reflection_pdf(nv, max(dot(s.n, h_vec), 0.0), a);
-                w_mis = mis_power2(pdf_brdf, pdf_light);
-            }
-            reflected = rect_radiance * w_mis;
-        } else if (h.hit) {
-            spec_hit_t = min(h.t, 60000.0);
-            Surface hs = h.sdf ? sdf_surface(pc.shapes, sdf_count, origin, l, h.t)
-                               : triangle_surface(pc.instances, pc.materials, h.instance, h.prim, h.bary, origin, l, h.t);
-            reflected = hs.backface ? vec3(0) : shade_secondary(f, li, hs, -l, pc.irr, pc.dist, true, seed);
-        } else {
-            spec_hit_t = -1.0;
-            reflected = sky_radiance(f, l);
-        }
-        reflected *= spec_weight;
-    }
-    // Demodulate: composite multiplies by env_brdf(f0, roughness, nv) again.
-    vec3 specular = reflected + specular_direct / dfg;
+    vec3 ms = ggx_ms_factor(f0, s.roughness, nv);
+    float spec_hit_t = 0.0;
+    vec3 reflected = vec3(0.0);
 
-    // Clamp fireflies (rare high-energy samples) before they enter the temporal history.
-    specular = min(specular, vec3(64.0));
+    if (s.shading_model == SHADING_TRANSMISSION && s.mat_ext.x > 1e-4) {
+        float tr = clamp(s.mat_ext.x, 0.0, 1.0);
+        float ior = max(s.mat_ext.y, 1.01);
+        float eta = 1.0 / ior;
+        vec3 h_tr = s.n;
+        if (!is_mirror) {
+            vec3 t = tangent_of(s.n), b = cross(s.n, t);
+            vec3 v_local = vec3(dot(v, t), dot(v, b), nv);
+            vec3 hl = sample_vndf(v_local, a, r2(f.rt_counts.y, seed));
+            h_tr = normalize(t * hl.x + b * hl.y + s.n * hl.z);
+        }
+        float vh = max(dot(v, h_tr), 1e-4);
+        float F_tr = fresnel_dielectric(vh, eta);
+        vec3 r_dir = reflect(-v, h_tr);
+        float r_t = 0.0;
+        vec3 r_col = vec3(0.0);
+        if (dot(s.n, r_dir) > 0.0) {
+            r_col = trace_env_or_surface(f, li, scene_instances, scene_materials, origin, r_dir, is_mirror,
+                                         true, s, nv, h_tr, a, seed, r_t);
+        }
+        vec3 t_dir = refract(-v, h_tr, eta);
+        vec3 t_col = r_col;
+        float t_hit_t = r_t;
+        if (length(t_dir) > 1e-4) {
+            t_dir = normalize(t_dir);
+            vec3 in_origin = primary_ray_origin(f, s.p, -s.n);
+            TraceHit th = trace(li.tlas, li.shapes, sdf_count, in_origin, t_dir, f.rt_params.w);
+            if (th.hit) {
+                Surface hs = th.sdf ? sdf_surface(li.shapes, sdf_count, in_origin, t_dir, th.t)
+                                    : triangle_surface(scene_instances, scene_materials, th.instance, th.prim, th.bary, in_origin, t_dir, th.t);
+                if (hs.backface) {
+                    // Exit interface of solid glass: apply Beer-Lambert volume absorption and trace exit ray.
+                    vec3 absorb = beer_lambert(s.attenuation_color, s.mat_ext.w, th.t);
+                    vec3 exit_dir = refract(t_dir, hs.n, ior);
+                    if (length(exit_dir) < 1e-4) exit_dir = reflect(t_dir, hs.n);
+                    exit_dir = normalize(exit_dir);
+                    vec3 exit_o = offset_ray(hs.p, -hs.ng);
+                    float dummy_t;
+                    t_col = trace_env_or_surface(f, li, scene_instances, scene_materials, exit_o, exit_dir, true,
+                                                 true, s, nv, s.n, a, seed, dummy_t) * absorb;
+                    t_hit_t = min(th.t + max(dummy_t, 0.0), 60000.0);
+                } else {
+                    vec3 absorb = beer_lambert(s.attenuation_color, s.mat_ext.w, s.mat_ext.z);
+                    t_col = shade_secondary(f, li, hs, -t_dir, pc.irr, pc.dist, true, seed) * absorb;
+                    t_hit_t = min(th.t, 60000.0);
+                }
+            } else {
+                vec3 absorb = beer_lambert(s.attenuation_color, s.mat_ext.w, s.mat_ext.z);
+                t_col = sky_radiance(f, t_dir) * absorb;
+                t_hit_t = -1.0;
+            }
+        }
+        reflected = (r_col * F_tr + t_col * (1.0 - F_tr) * tr) / spec_demod;
+        spec_hit_t = F_tr > 0.5 ? r_t : t_hit_t;
+    } else {
+        // Optional stochastic clearcoat lobe selection (energy-conserving top coat).
+        bool sample_coat = false;
+        float lobe_pdf = 1.0;
+        float coat_atten = 1.0;
+        if (s.shading_model == SHADING_CLEARCOAT && s.mat_ext.x > 1e-4) {
+            float cf = fresnel_schlick(vec3(0.04), nv).x * s.mat_ext.x;
+            coat_atten = 1.0 - cf;
+            float p_coat = clamp(cf / max(cf + astral_luminance(dfg_raw) * coat_atten, 1e-4), 0.15, 0.85);
+            if (rnd(seed) < p_coat) {
+                sample_coat = true;
+                lobe_pdf = p_coat;
+            } else {
+                lobe_pdf = 1.0 - p_coat;
+            }
+        }
+        if (sample_coat) {
+            float rc = clamp(s.mat_ext.y, ASTRAL_MIN_ROUGHNESS, 1.0);
+            float ac = max(rc * rc, 0.002);
+            bool coat_mirror = rc < ASTRAL_MIRROR_ROUGHNESS;
+            if (coat_mirror) {
+                l = reflect(-v, s.n);
+                spec_weight = vec3(s.mat_ext.x * fresnel_schlick(vec3(0.04), nv).x) / (lobe_pdf * spec_demod);
+            } else {
+                vec3 t = tangent_of(s.n), b = cross(s.n, t);
+                vec3 v_local = vec3(dot(v, t), dot(v, b), nv);
+                vec3 hl = sample_vndf(v_local, ac, r2(f.rt_counts.y, seed));
+                h_vec = normalize(t * hl.x + b * hl.y + s.n * hl.z);
+                l = reflect(-v, h_vec);
+                float nl = dot(s.n, l);
+                float vh = max(dot(v, h_vec), 0.0);
+                if (nl > 0.0) {
+                    spec_weight = vec3(s.mat_ext.x * fresnel_schlick(vec3(0.04), vh).x *
+                                       smith_vndf_weight(nv, nl, ac)) / (lobe_pdf * spec_demod);
+                }
+            }
+            is_mirror = coat_mirror;
+            a = ac;
+        } else if (s.shading_model == SHADING_ANISOTROPIC && !is_mirror) {
+            vec3 t = length(s.mat_ext.xyz) > 1e-4 ? normalize(s.mat_ext.xyz - s.n * dot(s.mat_ext.xyz, s.n))
+                                                  : bsdf_default_tangent(s.n, 0.0);
+            vec3 b = cross(s.n, t);
+            vec3 v_local = vec3(dot(v, t), dot(v, b), nv);
+            float ax, ay;
+            aniso_alpha(s.roughness, s.mat_ext.w, ax, ay);
+            vec3 hl = sample_vndf_aniso(v_local, ax, ay, r2(f.rt_counts.y, seed));
+            h_vec = normalize(t * hl.x + b * hl.y + s.n * hl.z);
+            l = reflect(-v, h_vec);
+            float nl = dot(s.n, l);
+            float vh = max(dot(v, h_vec), 0.0);
+            if (nl > 0.0) {
+                vec3 l_local = vec3(dot(l, t), dot(l, b), nl);
+                spec_weight = fresnel_schlick(f0, vh) * smith_vndf_weight_aniso(v_local, l_local, ax, ay) * ms /
+                              (lobe_pdf * spec_demod);
+            }
+        } else if (is_mirror) {
+            l = reflect(-v, s.n);
+            spec_weight = fresnel_schlick(f0, nv) * coat_atten / (lobe_pdf * spec_demod);
+        } else {
+            vec3 t = tangent_of(s.n), b = cross(s.n, t);
+            vec3 v_local = vec3(dot(v, t), dot(v, b), nv);
+            vec3 hl = sample_vndf(v_local, a, r2(f.rt_counts.y, seed));
+            h_vec = normalize(t * hl.x + b * hl.y + s.n * hl.z);
+            l = reflect(-v, h_vec);
+            float nl = dot(s.n, l);
+            float vh = max(dot(v, h_vec), 0.0);
+            if (nl > 0.0) {
+                spec_weight = fresnel_schlick(f0, vh) * smith_vndf_weight(nv, nl, a) * ms * coat_atten /
+                              (lobe_pdf * spec_demod);
+            }
+        }
+        if (dot(s.n, l) > 0.0 && any(greaterThan(spec_weight, vec3(0.0)))) {
+            reflected = trace_env_or_surface(f, li, scene_instances, scene_materials, origin, l, is_mirror,
+                                             true, s, nv, h_vec, a, seed, spec_hit_t) * spec_weight;
+        }
+    }
+
+    vec3 specular = reflected + (specular_direct + extra_spec) / spec_demod;
+    specular = min(specular, vec3(256.0));
     diffuse = min(diffuse, vec3(64.0));
-    // A single bad sample must never poison the temporal history.
     if (any(isnan(diffuse)) || any(isinf(diffuse))) diffuse = vec3(0);
     if (any(isnan(specular)) || any(isinf(specular))) specular = vec3(0);
     imageStore(astral_storage_images[pc.out_diffuse], pixel, vec4(diffuse, 1));

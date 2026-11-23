@@ -14,6 +14,7 @@
 namespace astral {
 
 enum class ShaderType : std::uint8_t { Surface, Particle, Volume, Post, Sky, Ui };
+enum class ShadingModel : std::uint8_t { Standard = 0, Clearcoat = 1, Sheen = 2, Anisotropic = 3, Transmission = 4, Subsurface = 5 };
 enum class UniformType : std::uint8_t { Float, Vec2, Vec3, Vec4, Int, Bool, Sampler2D };
 enum class TextureFilter : std::uint8_t { Linear, LinearMipmap, Nearest, NearestMipmap };
 
@@ -46,6 +47,7 @@ struct ShaderVarying {
 
 struct ShaderSource {
     ShaderType type = ShaderType::Surface;
+    ShadingModel shading_model = ShadingModel::Standard;
     std::vector<std::string> render_modes;
     std::vector<ShaderUniform> uniforms;
     std::vector<ShaderVarying> varyings;
@@ -77,7 +79,9 @@ struct ShaderParse {
 
 /// The render modes a shader_type accepts (for validation and tools).
 [[nodiscard]] std::vector<std::string_view> known_render_modes(ShaderType type);
+[[nodiscard]] std::vector<std::string_view> known_shading_models();
 [[nodiscard]] std::string_view to_string(ShaderType type) noexcept;
+[[nodiscard]] std::string_view to_string(ShadingModel model) noexcept;
 [[nodiscard]] std::string_view to_string(UniformType type) noexcept;
 
 /// Where each uniform lives in the material's parameter block (std430, 4-byte words). Textures take

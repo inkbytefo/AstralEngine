@@ -30,6 +30,7 @@ struct FrameInstances {
     std::vector<GpuPointLight> lights;
     std::vector<GpuSdfShape> shapes;
     std::vector<GpuRectLight> rects;
+    std::vector<GpuDecal> decals;
     std::vector<gpu::TlasInstance> tlas_instances;
     gpu::AccelerationStructureHandle tlas;
     std::uint32_t tlas_capacity = 0;
@@ -47,9 +48,9 @@ void prepare_instances(gpu::Device& device, const RenderScene& scene, const Vec3
                        const MeshStore& meshes, MaterialStore& materials, FrameSlot& slot, FrameInstances& out,
                        bool with_tlas);
 
-/// Packs point lights, SDF shapes (and rect lights when `with_rects`) into `slot`.
-void upload_scene_buffers(gpu::Device& device, const RenderScene& scene, FrameSlot& slot, FrameInstances& out,
-                          bool with_rects);
+/// Packs point lights, SDF shapes, decals (and rect lights when `with_rects`) into `slot`.
+void upload_scene_buffers(gpu::Device& device, const RenderScene& scene, const TextureStore& textures, FrameSlot& slot,
+                          FrameInstances& out, bool with_rects);
 
 /// Grows the scene TLAS if needed and records its build into `cmd`. Returns false if TLAS creation failed.
 bool build_tlas(gpu::Device& device, gpu::CommandList& cmd, FrameInstances& frame_instances);

@@ -38,7 +38,46 @@ using ShaderHandle = Handle<ShaderTag>;
 /// Box-filtered RGBA8 mip chain of an image (level 0 = `rgba`); colour images average in linear space.
 std::vector<std::vector<std::uint8_t>> build_mips(const ImageData& image);
 
-/// Metallic-roughness PBR, the glTF model. Texture values multiply the factors; invalid = none.
+/// Optional clearcoat dielectric top layer (M13, IOR 1.5).
+struct ClearcoatDesc {
+    float strength = 0.0f;
+    float roughness = 0.1f;
+};
+/// Optional grazing microfiber sheen layer for cloth/velvet (Charlie NDF).
+struct SheenDesc {
+    Vec3 color{};
+    float roughness = 0.5f;
+};
+/// Optional anisotropic GGX microfacet directionality (brushed metal/hair).
+struct AnisotropyDesc {
+    float strength = 0.0f; ///< [-1, 1]: stretches highlight along tangent (+) or bitangent (-).
+    float rotation = 0.0f; ///< Radians around surface normal.
+};
+/// Optional dielectric transmission + Beer-Lambert volume absorption (glass/liquid).
+struct TransmissionDesc {
+    float strength = 0.0f;
+    float ior = 1.5f;
+    float thickness = 0.1f;
+    Vec3 attenuation_color{1, 1, 1};
+    float attenuation_distance = 1.0f;
+};
+/// Optional subsurface scattering parameters (wax/skin/foliage).
+struct SubsurfaceDesc {
+    float strength = 0.0f;
+    Vec3 color{1.0f, 0.25f, 0.15f};
+    float radius = 0.5f;
+};
+/// Optional high-frequency detail maps and Parallax Occlusion Mapping (POM).
+struct DetailDesc {
+    TextureHandle albedo_texture{};
+    TextureHandle normal_texture{};
+    TextureHandle height_texture{};
+    float uv_scale = 4.0f;
+    float normal_scale = 0.5f;
+    float parallax_scale = 0.0f; ///< >0 enables POM displacement along view ray.
+};
+
+/// Metallic-roughness PBR + M13 advanced shading layers. Texture values multiply the factors; invalid = none.
 struct MaterialDesc {
     Vec4 base_color{1, 1, 1, 1};
     float roughness = 0.6f;
@@ -49,6 +88,14 @@ struct MaterialDesc {
     TextureHandle normal_texture{};             ///< Tangent space; no vertex tangents needed.
     TextureHandle emissive_texture{};
     float normal_scale = 1.0f;
+    ShadingModel shading_model = ShadingModel::Standard;
+    ClearcoatDesc clearcoat{};
+    SheenDesc sheen{};
+    AnisotropyDesc anisotropy{};
+    TransmissionDesc transmission{};
+    SubsurfaceDesc subsurface{};
+    DetailDesc detail{};
+    float wetness = 0.0f; ///< [0, 1]: darkens porous surfaces, smooths roughness, adds water clearcoat.
     /// A custom surface shader (ADR-0022). Invalid = the standard PBR shader with the values above.
     ShaderHandle shader{};
     /// The shader's uniform block (layout_uniforms words; numbers as float). Textures go in `textures`.
@@ -59,6 +106,19 @@ struct MaterialDesc {
         bool normal = false;
     };
     std::vector<ParamTexture> textures{};
+};
+
+/// A box-projected deferred decal (paint, impact marks, wet puddles) applied onto meshes and SDFs.
+struct Decal {
+    Mat4 transform = Mat4::identity(); ///< Oriented unit box [-0.5, 0.5]^3; projects along local -Y.
+    Vec4 color{1, 1, 1, 1};            ///< RGB tint, A opacity.
+    TextureHandle albedo_texture{};
+    TextureHandle normal_texture{};
+    float roughness = 0.5f;
+    float metallic = 0.0f;
+    float wetness = 0.0f;              ///< Adds wetness clearcoat/darkening onto underlying surfaces.
+    float normal_strength = 0.0f;
+    bool affect_roughness = false;
 };
 
 /// One mesh to draw this frame. An invalid material means Renderer::default_material().
@@ -137,6 +197,7 @@ struct RenderScene {
     std::span<const SdfShape> sdf = {};
     std::span<const PointLight> lights = {};
     std::span<const RectLight> rect_lights = {};
+    std::span<const Decal> decals = {};
     DirectionalLight sun = {};
     Environment environment = {};
     /// Drawn over the final image (see DebugDraw): hidden behind meshes unless `on_top`.
@@ -179,6 +240,9 @@ struct RenderSettings {
     float near_gi_radius = 0.75f;
     /// Spatiotemporal ReSTIR DI for multi-light scenes (> 2 local point/rect lights). False = single-frame RIS.
     bool restir_di = true;
+    /// Unbiased progressive multi-bounce path tracer reference mode (M13, requires RT hardware).
+    bool path_tracer = false;
+    std::uint32_t path_tracer_max_bounces = 6;
     DebugView debug_view = DebugView::None;
 };
 
@@ -192,6 +256,8 @@ struct RenderStats {
     bool ray_traced = false;             ///< This frame used the ray-traced path.
     std::uint32_t gi_probes = 0;
     std::uint32_t rect_lights = 0;
+    std::uint32_t decals = 0;
+    std::uint32_t path_tracer_samples = 0;
 };
 
 /// Hybrid deferred renderer built on RenderGraph.
@@ -274,8 +340,18 @@ ASTRAL_REFLECT(astral::PointLight, position, color, intensity, radius, source_ra
 ASTRAL_REFLECT(astral::RectLight, position, right, up, color, intensity, two_sided)
 ASTRAL_REFLECT(astral::DirectionalLight, direction, color, intensity, shadows, angular_radius)
 ASTRAL_REFLECT(astral::Environment, sky, ground, ambient, exposure)
-ASTRAL_REFLECT(astral::MaterialDesc, base_color, roughness, metallic, emissive, normal_scale)
+ASTRAL_REFLECT_ENUM(astral::ShadingModel, Standard, Clearcoat, Sheen, Anisotropic, Transmission, Subsurface)
+ASTRAL_REFLECT(astral::ClearcoatDesc, strength, roughness)
+ASTRAL_REFLECT(astral::SheenDesc, color, roughness)
+ASTRAL_REFLECT(astral::AnisotropyDesc, strength, rotation)
+ASTRAL_REFLECT(astral::TransmissionDesc, strength, ior, thickness, attenuation_color, attenuation_distance)
+ASTRAL_REFLECT(astral::SubsurfaceDesc, strength, color, radius)
+ASTRAL_REFLECT(astral::DetailDesc, uv_scale, normal_scale, parallax_scale)
+ASTRAL_REFLECT(astral::MaterialDesc, base_color, roughness, metallic, emissive, normal_scale, shading_model, clearcoat,
+               sheen, anisotropy, transmission, subsurface, detail, wetness)
+ASTRAL_REFLECT(astral::Decal, transform, color, roughness, metallic, wetness, normal_strength, affect_roughness)
 ASTRAL_REFLECT_ENUM(astral::DebugView, None, Albedo, Normals, DiffuseLight, Specular, Motion)
 ASTRAL_REFLECT(astral::GiSettings, probes_x, probes_y, probes_z, rays_per_probe, hysteresis, volume_min, volume_max)
 ASTRAL_REFLECT(astral::RenderSettings, shadow_map_size, ray_tracing, gi, denoise_iterations, max_history, taa_blend,
-               bloom_strength, max_ray_distance, near_gi_radius, restir_di, debug_view)
+               bloom_strength, max_ray_distance, near_gi_radius, restir_di, path_tracer, path_tracer_max_bounces,
+               debug_view)

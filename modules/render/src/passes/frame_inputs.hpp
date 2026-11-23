@@ -29,6 +29,7 @@ struct FrameAddresses {
     std::uint64_t lights = 0;
     std::uint64_t shapes = 0;
     std::uint64_t rects = 0;
+    std::uint64_t decals = 0;
     std::uint64_t params = 0;
     std::uint64_t tlas = 0;
 };
@@ -58,6 +59,7 @@ struct GBufferTextures {
     RGTexture emissive{};
     RGTexture depth{};
     RGTexture velocity{};
+    RGTexture material_ext{};
     RGTexture sdf_albedo{};
     RGTexture sdf_normal{};
     RGTexture sdf_depth{};
@@ -66,7 +68,8 @@ struct GBufferTextures {
 };
 
 inline void read_gbuffer(PassBuilder& builder, const GBufferTextures& gbuffer) {
-    for (RGTexture t : {gbuffer.albedo, gbuffer.normal, gbuffer.emissive, gbuffer.depth, gbuffer.velocity}) {
+    for (RGTexture t : {gbuffer.albedo, gbuffer.normal, gbuffer.emissive, gbuffer.depth, gbuffer.velocity,
+                        gbuffer.material_ext}) {
         builder.read(t);
     }
     if (gbuffer.has_sdf) {
@@ -83,6 +86,7 @@ inline void read_gbuffer(PassBuilder& builder, const GBufferTextures& gbuffer) {
         ctx.bindless(gbuffer.emissive),
         ctx.bindless(gbuffer.depth),
         ctx.bindless(gbuffer.velocity),
+        ctx.bindless(gbuffer.material_ext),
         ctx.bindless(gbuffer.has_sdf ? gbuffer.sdf_albedo : gbuffer.albedo),
         ctx.bindless(gbuffer.has_sdf ? gbuffer.sdf_normal : gbuffer.normal),
         ctx.bindless(gbuffer.has_sdf ? gbuffer.sdf_depth : gbuffer.depth),

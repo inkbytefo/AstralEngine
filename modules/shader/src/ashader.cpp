@@ -134,6 +134,16 @@ std::optional<ShaderType> shader_type(std::string_view t) {
     return std::nullopt;
 }
 
+std::optional<ShadingModel> parse_shading_model(std::string_view m) {
+    if (m == "standard") return ShadingModel::Standard;
+    if (m == "clearcoat") return ShadingModel::Clearcoat;
+    if (m == "sheen") return ShadingModel::Sheen;
+    if (m == "anisotropic") return ShadingModel::Anisotropic;
+    if (m == "transmission") return ShadingModel::Transmission;
+    if (m == "subsurface") return ShadingModel::Subsurface;
+    return std::nullopt;
+}
+
 struct Parser {
     std::string clean;
     ShaderParse result;
@@ -222,6 +232,16 @@ struct Parser {
             } else {
                 error(pos, "unknown shader_type '" + std::string(t) + "' (surface, particle, volume, post, sky, ui)");
                 has_type = true; // reported once
+            }
+        } else if (word == "shading_model") {
+            const std::string_view m = trim(stmt.substr(word_end));
+            if (result.source.type != ShaderType::Surface) {
+                error(pos, "shading_model is only supported for shader_type surface");
+            } else if (auto model = parse_shading_model(m)) {
+                result.source.shading_model = *model;
+            } else {
+                error(pos, "unknown shading_model '" + std::string(m) +
+                               "' (standard, clearcoat, sheen, anisotropic, transmission, subsurface)");
             }
         } else if (word == "render_mode") {
             for (std::string_view m : split_top(stmt.substr(word_end), ',')) {
@@ -343,6 +363,10 @@ std::vector<std::string_view> known_render_modes(ShaderType type) {
     return {};
 }
 
+std::vector<std::string_view> known_shading_models() {
+    return {"standard", "clearcoat", "sheen", "anisotropic", "transmission", "subsurface"};
+}
+
 std::string_view to_string(ShaderType type) noexcept {
     switch (type) {
     case ShaderType::Surface: return "surface";
@@ -351,6 +375,18 @@ std::string_view to_string(ShaderType type) noexcept {
     case ShaderType::Post: return "post";
     case ShaderType::Sky: return "sky";
     case ShaderType::Ui: return "ui";
+    }
+    return "?";
+}
+
+std::string_view to_string(ShadingModel model) noexcept {
+    switch (model) {
+    case ShadingModel::Standard: return "standard";
+    case ShadingModel::Clearcoat: return "clearcoat";
+    case ShadingModel::Sheen: return "sheen";
+    case ShadingModel::Anisotropic: return "anisotropic";
+    case ShadingModel::Transmission: return "transmission";
+    case ShadingModel::Subsurface: return "subsurface";
     }
     return "?";
 }

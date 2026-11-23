@@ -19,6 +19,12 @@ struct RtPipelines {
     gpu::PipelineHandle ddgi_trace;
     gpu::PipelineHandle restir_temporal;
     gpu::PipelineHandle restir_spatial;
+    gpu::PipelineHandle path_tracer;
+
+    [[nodiscard]] bool valid() const noexcept {
+        return rt_lighting.valid() && ddgi_trace.valid() && restir_temporal.valid() && restir_spatial.valid() &&
+               path_tracer.valid();
+    }
 };
 
 class ShaderStore {

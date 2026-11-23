@@ -144,3 +144,17 @@ TEST_CASE("body_without blanks one function and keeps the lines") {
     CHECK(std::count(vertex_only.begin(), vertex_only.end(), '\n') == 22);
     CHECK(p.source.body_without("nope") == p.source.body);
 }
+
+TEST_CASE("parse_ashader parses shading_model for surface shaders and rejects invalid ones") {
+    for (std::string_view m : known_shading_models()) {
+        const std::string src = "shader_type surface;\nshading_model " + std::string(m) + ";\nvoid surface() { ALBEDO = vec3(1.0); }\n";
+        const ShaderParse p = parse_ashader(src);
+        REQUIRE_MESSAGE(p.errors.empty(), (p.errors.empty() ? "" : p.errors[0].message));
+        CHECK(to_string(p.source.shading_model) == m);
+        CHECK(p.source.body.find("shading_model") == std::string::npos);
+    }
+    const ShaderParse bad_model = parse_ashader("shader_type surface;\nshading_model toon;\nvoid surface() {}\n");
+    CHECK_FALSE(bad_model.errors.empty());
+    const ShaderParse bad_type = parse_ashader("shader_type sky;\nshading_model clearcoat;\nvoid sky() {}\n");
+    CHECK_FALSE(bad_type.errors.empty());
+}

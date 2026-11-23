@@ -32,14 +32,20 @@ void main() {
             vec3 v = -dir;
             float nv = max(dot(s.n, v), 1e-4);
             vec3 f0 = mix(vec3(0.04), s.albedo, s.metallic);
-            vec3 dfg = env_brdf(f0, s.roughness, nv);
+            vec3 spec_demod = env_brdf(f0, s.roughness, nv);
+            if (s.shading_model == SHADING_CLEARCOAT) {
+                float cf = fresnel_schlick(vec3(0.04), nv).x * s.mat_ext.x;
+                spec_demod = spec_demod * (1.0 - cf) + vec3(cf);
+            } else if (s.shading_model == SHADING_TRANSMISSION) {
+                spec_demod = mix(spec_demod, vec3(1.0), clamp(s.mat_ext.x, 0.0, 1.0));
+            }
             vec3 diffuse = fetch_texel(pc.diffuse, pixel).rgb;
             vec3 specular = fetch_texel(pc.specular, pixel).rgb;
-            color = s.albedo * diffuse + dfg * specular + s.emissive;
+            color = s.albedo * diffuse + spec_demod * specular + s.emissive;
             if (pc.debug_view == 1u) color = s.albedo;
             if (pc.debug_view == 2u) color = s.n * 0.5 + 0.5;
             if (pc.debug_view == 3u) color = diffuse;
-            if (pc.debug_view == 4u) color = dfg * specular;
+            if (pc.debug_view == 4u) color = spec_demod * specular;
             if (pc.debug_view == 5u) color = vec3(abs(primary_velocity(f, pc.g, pixel)) * 20.0, 0.0);
         }
     } else {

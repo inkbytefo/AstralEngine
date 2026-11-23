@@ -23,7 +23,9 @@ RGTexture LightingPass::add(RenderGraph& graph, const FrameInputs& inputs, const
     graph.add_pass(
         "lighting",
         [gbuffer, shadow_map, hdr](PassBuilder& b) {
-            for (RGTexture t : {gbuffer.albedo, gbuffer.normal, gbuffer.emissive, gbuffer.depth}) b.read(t);
+            for (RGTexture t : {gbuffer.albedo, gbuffer.normal, gbuffer.emissive, gbuffer.depth, gbuffer.material_ext}) {
+                b.read(t);
+            }
             if (gbuffer.has_sdf) {
                 for (RGTexture t : {gbuffer.sdf_albedo, gbuffer.sdf_normal, gbuffer.sdf_depth}) b.read(t);
             }
@@ -39,6 +41,7 @@ RGTexture LightingPass::add(RenderGraph& graph, const FrameInputs& inputs, const
                                     ctx.bindless(gbuffer.normal),
                                     ctx.bindless(gbuffer.emissive),
                                     ctx.bindless(gbuffer.depth),
+                                    ctx.bindless(gbuffer.material_ext),
                                     gbuffer.has_sdf ? ctx.bindless(gbuffer.sdf_albedo) : none,
                                     gbuffer.has_sdf ? ctx.bindless(gbuffer.sdf_normal) : none,
                                     gbuffer.has_sdf ? ctx.bindless(gbuffer.sdf_depth) : none,

@@ -3,7 +3,10 @@
 #define ASTRAL_PRIMARY_GLSL
 #include <astral/rt.glsl>
 
-struct GBufferIds { uint albedo, normal, emissive, depth, velocity, sdf_albedo, sdf_normal, sdf_depth, sdf_velocity; };
+struct GBufferIds {
+    uint albedo, normal, emissive, depth, velocity, material_ext;
+    uint sdf_albedo, sdf_normal, sdf_depth, sdf_velocity;
+};
 
 vec4 fetch_texel(uint index, ivec2 p) {
     return texelFetch(sampler2D(astral_textures[index], astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]), p, 0);
@@ -15,6 +18,7 @@ bool load_primary(Frame f, GBufferIds g, ivec2 pixel, out Surface s, out float d
     vec4 albedo_r = fetch_texel(g.albedo, pixel);
     vec4 normal_m = fetch_texel(g.normal, pixel);
     vec4 emissive_u = fetch_texel(g.emissive, pixel);
+    vec4 mat_ext = fetch_texel(g.material_ext, pixel);
     if (f.counts.y > 0u) {
         float sd = fetch_texel(g.sdf_depth, pixel).r;
         if (sd < depth) {
@@ -22,6 +26,7 @@ bool load_primary(Frame f, GBufferIds g, ivec2 pixel, out Surface s, out float d
             albedo_r = fetch_texel(g.sdf_albedo, pixel);
             normal_m = fetch_texel(g.sdf_normal, pixel);
             emissive_u = vec4(0.0, 0.0, 0.0, 1.0);
+            mat_ext = vec4(0.0);
         }
     }
     if (depth >= 1.0) return false;
@@ -35,7 +40,11 @@ bool load_primary(Frame f, GBufferIds g, ivec2 pixel, out Surface s, out float d
     s.metallic = normal_m.w;
     s.emissive = emissive_u.rgb;
     s.backface = false;
-    s.unshaded = emissive_u.a > 1.5;
+    s.shading_model = decode_shading_model(emissive_u.a);
+    s.unshaded = (s.shading_model == SHADING_UNSHADED);
+    s.mat_ext = mat_ext;
+    s.attenuation_color = s.albedo;
+    s.sss_radius = 0.5;
     return true;
 }
 

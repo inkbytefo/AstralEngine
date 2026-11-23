@@ -94,3 +94,17 @@ Running `ctest --preset debug -L "^golden-hw$"` against the pre-refactor Linux M
 ```bash
 ASTRAL_UPDATE_GOLDEN=1 ctest --preset debug -L "^golden$"
 ```
+
+---
+
+## 5. M13 Advanced PBR & Path Tracer Reference Validation (RTX 3060, 1280×720)
+
+Validated across all 24 shaders (`spirv-val --target-env vulkan1.3 --scalar-block-layout`: **24/24 PASS**), 11 new M13 math + GPU regression test cases (`modules/render/tests/m13_pbr_test.cpp`: **101/101 assertions PASS**, zero Vulkan validation errors), and RTX 3060 GPU benchmarks (`bench/render_bench.cpp` + `examples/material_showcase`):
+
+| Scene / Metric | Mode | Resolution | GPU Time | Mean Luma (RT / PT) | RMSE (RT vs PT) | Notes |
+|---|---|---|---:|---:|---:|---|
+| `m13_pbr_rt` | Hybrid RT (6 M13 spheres + wet decal) | 1280×720 | **2.981 ms** (335.4 FPS) | `208.2` | — | `decals`: `0.060 ms`, `gbuffer`: `0.095 ms`, `rt.lighting`: `1.179 ms`, `denoise.atrous`: `1.048 ms` |
+| `m13_pbr_pt` | Path Tracer Reference (64 SPP, 6 bounces) | 1280×720 | **0.831 ms / spp** | `207.6` | **2.74** (1.07%) | 0.29% mean luminance difference vs real-time Hybrid RT |
+| `material_showcase` | Hybrid RT (48f) vs Path Tracer (96 SPP) | 1280×720 | — | `177.96` / `178.44` | **14.27** | 0.27% mean luminance parity across all 7 M13 materials + 2 decals + checkerboard glass refraction |
+| `material_grid` | Hybrid RT (regression check) | 1280×720 | **2.714 ms** (368.4 FPS) | — | — | Zero performance regression on standard PBR scenes |
+| `open_world_scale` | Hybrid RT (regression check) | 1280×720 | **2.538 ms** (394.0 FPS) | — | — | Zero performance regression on large worlds |

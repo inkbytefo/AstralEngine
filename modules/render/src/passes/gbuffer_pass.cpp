@@ -10,7 +10,7 @@ GBufferPass::GBufferPass(gpu::Device& device) : device_(device) {
         .vertex = {shaders::gbuffer_vert},
         .fragment = {shaders::gbuffer_frag},
         .color_formats = {gpu::Format::RGBA8Unorm, gpu::Format::RGBA16Float, gpu::Format::RGBA16Float,
-                          gpu::Format::RG16Float},
+                          gpu::Format::RG16Float, gpu::Format::RGBA16Float},
         .depth = {.format = gpu::Format::D32Float},
         .cull = gpu::CullMode::Back,
         .debug_name = "astral.gbuffer",
@@ -28,6 +28,7 @@ GBufferTextures GBufferPass::add(RenderGraph& graph, const FrameInputs& inputs, 
     out.emissive = graph.create("gbuffer.emissive", {w, h, gpu::Format::RGBA16Float});
     out.depth = graph.create("gbuffer.depth", {w, h, gpu::Format::D32Float});
     out.velocity = graph.create("gbuffer.velocity", {w, h, gpu::Format::RG16Float});
+    out.material_ext = graph.create("gbuffer.material_ext", {w, h, gpu::Format::RGBA16Float});
 
     graph.add_pass(
         "gbuffer",
@@ -36,6 +37,7 @@ GBufferTextures GBufferPass::add(RenderGraph& graph, const FrameInputs& inputs, 
             b.color(out.normal, gpu::LoadOp::Clear, {0, 1, 0, 0});
             b.color(out.emissive, gpu::LoadOp::Clear, {0, 0, 0, 0});
             b.color(out.velocity, gpu::LoadOp::Clear, {0, 0, 0, 0});
+            b.color(out.material_ext, gpu::LoadOp::Clear, {0, 0, 0, 0});
             b.depth(out.depth, gpu::LoadOp::Clear, 1.0f);
         },
         [this, &inputs, &stats](PassContext& ctx) {

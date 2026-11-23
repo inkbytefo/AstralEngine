@@ -1,10 +1,11 @@
 #version 460
 #include <astral/sdf.glsl>
-#include <astral/brdf.glsl>
-// Deferred PBR lighting (raster path). Picks the nearer of the mesh and SDF surfaces per pixel.
+#include <astral/bsdf.glsl>
+// Deferred PBR lighting (raster path) supporting all M13 shading models (multi-scatter GGX,
+// clearcoat, sheen, anisotropic, transmission, subsurface, wetness). Picks nearer of mesh and SDF.
 layout(push_constant, scalar) uniform Push {
     FrameRef frame; PointLights lights; SdfShapes shapes;
-    uint albedo; uint normal; uint emissive; uint depth;
+    uint albedo; uint normal; uint emissive; uint depth; uint material_ext;
     uint sdf_albedo; uint sdf_normal; uint sdf_depth; uint out_hdr;
 } pc;
 layout(local_size_x = 8, local_size_y = 8) in;
@@ -15,8 +16,6 @@ vec4 fetch(uint index, ivec2 p) {
 
 float shadow_map(Frame f, vec3 world, vec3 n, vec3 to_light) {
     if (f.counts.z == 0xFFFFFFFFu) return 1.0;
-    // Normal offset of ~1.5 shadow texels in world space (sun_direction.w) keeps acne away
-    // without detaching shadows, whatever the scene size.
     float normal_offset = f.sun_direction.w;
     float slope = 1.0 - clamp(dot(n, to_light), 0.0, 1.0);
     vec3 biased = world + n * normal_offset * (1.0 + 2.0 * slope);
@@ -35,6 +34,47 @@ float shadow_map(Frame f, vec3 world, vec3 n, vec3 to_light) {
     return lit / 9.0;
 }
 
+vec3 eval_raster_direct(uint model, vec4 mat_ext, vec3 n, vec3 v, vec3 l, vec3 albedo, float roughness, float metallic) {
+    float nl = max(dot(n, l), 0.0);
+    vec3 f0 = mix(vec3(0.04), albedo, metallic);
+    float kd = 1.0 - metallic;
+    if (model == SHADING_SUBSURFACE) {
+        vec3 sss = sss_direct_radiance(n, v, l, mat_ext.rgb, mat_ext.a) * PI;
+        if (nl <= 0.0) return sss;
+        vec3 h = normalize(v + l);
+        vec3 F = fresnel_schlick(f0, max(dot(v, h), 0.0));
+        vec3 d = (1.0 - F) * kd * (1.0 - mat_ext.a * 0.65) * albedo * nl;
+        return d + specular_brdf(n, v, l, f0, roughness) + sss;
+    }
+    if (nl <= 0.0) return vec3(0.0);
+    vec3 h = normalize(v + l);
+    vec3 F = fresnel_schlick(f0, max(dot(v, h), 0.0));
+    vec3 base_d = (1.0 - F) * kd * albedo * nl;
+    if (model == SHADING_CLEARCOAT) {
+        float atten;
+        float coat = clearcoat_brdf_radiance(n, v, l, mat_ext.x, mat_ext.y, atten) * PI;
+        return (base_d + specular_brdf(n, v, l, f0, roughness)) * atten + vec3(coat);
+    }
+    if (model == SHADING_SHEEN) {
+        float atten;
+        vec3 sheen = sheen_brdf_radiance(n, v, l, mat_ext.rgb, mat_ext.a, atten) * PI;
+        return (base_d + specular_brdf(n, v, l, f0, roughness)) * atten + sheen;
+    }
+    if (model == SHADING_ANISOTROPIC) {
+        vec3 t = length(mat_ext.xyz) > 1e-4 ? normalize(mat_ext.xyz - n * dot(mat_ext.xyz, n))
+                                            : bsdf_default_tangent(n, 0.0);
+        vec3 b = cross(n, t);
+        return base_d + aniso_specular_brdf_radiance(n, t, b, v, l, f0, roughness, mat_ext.w) * PI;
+    }
+    if (model == SHADING_TRANSMISSION) {
+        float tr = clamp(mat_ext.x, 0.0, 1.0);
+        float ior = max(mat_ext.y, 1.01);
+        float f0_d = (ior - 1.0) / (ior + 1.0);
+        return base_d * (1.0 - tr) + specular_brdf(n, v, l, mix(f0, vec3(f0_d * f0_d), tr), roughness);
+    }
+    return base_d + specular_brdf(n, v, l, f0, roughness);
+}
+
 void main() {
     Frame f = pc.frame.f;
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
@@ -45,6 +85,7 @@ void main() {
     vec4 albedo_r = fetch(pc.albedo, pixel);
     vec4 normal_m = fetch(pc.normal, pixel);
     vec4 emissive_u = fetch(pc.emissive, pixel);
+    vec4 mat_ext = fetch(pc.material_ext, pixel);
     uint sdf_count = f.counts.y;
     if (sdf_count > 0u) {
         float sd = fetch(pc.sdf_depth, pixel).r;
@@ -53,14 +94,16 @@ void main() {
             albedo_r = fetch(pc.sdf_albedo, pixel);
             normal_m = fetch(pc.sdf_normal, pixel);
             emissive_u = vec4(0.0, 0.0, 0.0, 1.0);
+            mat_ext = vec4(0.0);
         }
     }
 
+    uint model = decode_shading_model(emissive_u.a);
     vec3 color;
     if (depth >= 1.0) {
         vec3 dir = normalize(reconstruct_world(f, uv, 1.0) - f.camera_position.xyz);
         color = sky_radiance(f, dir);
-    } else if (emissive_u.a > 1.5) {
+    } else if (model == SHADING_UNSHADED) {
         color = emissive_u.rgb;
     } else {
         vec3 p = reconstruct_world(f, uv, depth);
@@ -74,7 +117,8 @@ void main() {
         if (sdf_count > 0u && shade > 0.0 && dot(n, l) > 0.0) {
             shade *= sdf_soft_shadow(pc.shapes, sdf_count, p + n * 0.01, l, 50.0);
         }
-        color = eval_direct_pbr(n, v, l, albedo, roughness, metallic) * f.sun_color.rgb * shade;
+        float sun_vis = model == SHADING_SUBSURFACE ? max(shade, 0.25 * mat_ext.a) : shade;
+        color = eval_raster_direct(model, mat_ext, n, v, l, albedo, roughness, metallic) * f.sun_color.rgb * sun_vis;
 
         for (uint i = 0u; i < f.counts.x; ++i) {
             PointLight light = pc.lights.data[i];
@@ -84,18 +128,37 @@ void main() {
             if (dist >= radius) continue;
             float falloff = clamp(1.0 - pow(dist / radius, 4.0), 0.0, 1.0);
             falloff = falloff * falloff / (dist * dist + 1.0);
-            color += eval_direct_pbr(n, v, to / dist, albedo, roughness, metallic) * light.color_intensity.rgb *
-                     light.color_intensity.a * falloff;
+            color += eval_raster_direct(model, mat_ext, n, v, to / dist, albedo, roughness, metallic) *
+                     light.color_intensity.rgb * light.color_intensity.a * falloff;
         }
-        // Ambient: diffuse from the sky/ground hemisphere, specular from the sky in the reflected
-        // direction weighted by split-sum DFG (consistent with the ray-traced path's env_brdf).
+
         float nv = max(dot(n, v), 1e-4);
         vec3 f0 = mix(vec3(0.04), albedo, metallic);
         vec3 dfg = env_brdf(f0, roughness, nv);
         vec3 diffuse_ambient = mix(f.ground_color.rgb, f.sky_color.rgb, n.y * 0.5 + 0.5) * albedo * (1.0 - metallic);
         vec3 reflected = sky_radiance(f, reflect(-v, n));
         vec3 specular_ambient = mix(reflected, mix(f.ground_color.rgb, f.sky_color.rgb, 0.5), roughness) * dfg;
-        color += (diffuse_ambient * (1.0 - dfg) + specular_ambient) * f.sky_color.a + emissive_u.rgb;
+        vec3 ambient = (diffuse_ambient * (1.0 - dfg) + specular_ambient) * f.sky_color.a;
+        if (model == SHADING_CLEARCOAT) {
+            float coat_f = fresnel_schlick(vec3(0.04), nv).x * mat_ext.x;
+            vec3 coat_env = mix(reflected, mix(f.ground_color.rgb, f.sky_color.rgb, 0.5), mat_ext.y);
+            ambient = ambient * (1.0 - coat_f) + coat_env * coat_f * f.sky_color.a;
+        } else if (model == SHADING_SHEEN) {
+            float rim = pow(1.0 - nv, 3.0) * (1.0 - 0.4 * mat_ext.a);
+            ambient += mat_ext.rgb * rim * mix(f.ground_color.rgb, f.sky_color.rgb, 0.5) * f.sky_color.a;
+        } else if (model == SHADING_TRANSMISSION) {
+            float tr = clamp(mat_ext.x, 0.0, 1.0);
+            float ior = max(mat_ext.y, 1.01);
+            float F_tr = fresnel_dielectric(nv, 1.0 / ior);
+            vec3 refr_dir = refract(-v, n, 1.0 / ior);
+            vec3 refr_env = length(refr_dir) > 1e-4 ? sky_radiance(f, normalize(refr_dir)) : reflected;
+            vec3 absorb = beer_lambert(albedo, mat_ext.w, mat_ext.z);
+            ambient = mix(ambient, (reflected * F_tr + refr_env * absorb * (1.0 - F_tr)) * max(f.sky_color.a, 0.6), tr);
+        } else if (model == SHADING_SUBSURFACE) {
+            vec3 back_amb = mix(f.ground_color.rgb, f.sky_color.rgb, -n.y * 0.5 + 0.5);
+            ambient += mat_ext.rgb * mat_ext.a * back_amb * 0.35 * f.sky_color.a;
+        }
+        color += ambient + emissive_u.rgb;
     }
     imageStore(astral_storage_images[pc.out_hdr], pixel, vec4(color, 1.0));
 }

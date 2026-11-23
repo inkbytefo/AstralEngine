@@ -14,9 +14,23 @@ struct Instance {
 struct Material {
     vec4 base_color;
     vec4 emissive_roughness; // rgb emitted radiance, a roughness
-    vec4 params;             // x metallic, y normal scale
+    vec4 params;             // x metallic, y normal scale, z wetness, w unused
     uvec4 textures;          // bindless: base colour, metallic-roughness (G rough, B metal), normal, emissive; ~0u none
-    uvec4 custom;            // x: .ashader parameter offset (words), y: custom shader index + 1 (0 = standard), zw: unused
+    uvec4 custom;            // x: .ashader parameter offset (words), y: custom shader key (0=standard), z: shading_model, w: flags
+    vec4 coat_aniso;         // x clearcoat, y clearcoat_roughness, z anisotropy, w anisotropy_rotation
+    vec4 sheen;              // rgb sheen_color, a sheen_roughness
+    vec4 transmission;       // x strength, y ior, z thickness, w attenuation_distance
+    vec4 subsurface;         // rgb subsurface_color, a subsurface_strength
+    vec4 attenuation;        // rgb attenuation_color, a subsurface_radius
+    uvec4 detail_textures;   // bindless: x detail_albedo, y detail_normal, z height_map, w unused
+    vec4 detail_params;      // x uv_scale, y normal_scale, z parallax_scale, w unused
+};
+struct Decal {
+    mat4 inv_transform;      // world -> decal local [-0.5, 0.5]^3
+    vec4 color;              // rgb tint, a opacity
+    vec4 params;             // x roughness, y metallic, z wetness, w normal_strength
+    vec4 axis_up;            // xyz world projection normal (+Y), w affect_roughness
+    uvec4 textures;          // x albedo, y normal, zw unused
 };
 const uint NO_TEXTURE = 0xFFFFFFFFu;
 struct Frame {
@@ -41,6 +55,15 @@ struct Frame {
     uvec4 custom;         // xy: .ashader parameter block address, z: TIME (float bits), w: encode_srgb
     vec4 prev_camera_position; // previous frame world camera position (reprojection depth validation)
     mat4 inv_prev_view_projection; // inverse of prev_view_projection (exact prev-frame world reconstruction)
+    uint64_t scene_tlas;
+    uint64_t scene_instances;
+    uint64_t scene_materials;
+    uint64_t scene_lights;
+    uint64_t scene_rects;
+    uint64_t scene_shapes;
+    uint64_t scene_decals;
+    uint decal_count;
+    uint pt_params;       // bits 0..15: pt_sample_index, bits 16..23: max_bounces
 };
 struct PointLight { vec4 position_radius; vec4 color_intensity; vec4 source; /* x source radius */ };
 struct SdfShape {
@@ -56,7 +79,8 @@ ASTRAL_BUFFER(Instances, Instance);
 ASTRAL_BUFFER(Materials, Material);
 ASTRAL_BUFFER(PointLights, PointLight);
 ASTRAL_BUFFER(SdfShapes, SdfShape);
-layout(buffer_reference, scalar, buffer_reference_align = 4) buffer FrameRef { Frame f; };
+ASTRAL_BUFFER(Decals, Decal);
+layout(buffer_reference, scalar, buffer_reference_align = 8) buffer FrameRef { Frame f; };
 
 const float PI = 3.14159265359;
 

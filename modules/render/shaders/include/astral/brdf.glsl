@@ -59,14 +59,28 @@ vec3 fresnel_schlick(vec3 f0, float cos_theta) {
     return f0 + (1.0 - f0) * (x2 * x2 * x);
 }
 
-// Pre-integrated specular reflectance (Karis 2014 analytic fit of the split-sum DFG term).
-vec3 env_brdf(vec3 f0, float roughness, float nv) {
+// Pre-integrated single-scatter split-sum coefficients (Karis 2014 analytic fit).
+vec2 env_brdf_ab(float roughness, float nv) {
     const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
     const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
     vec4 r = roughness * c0 + c1;
     float a004 = min(r.x * r.x, exp2(-9.28 * nv)) * r.x + r.y;
-    vec2 ab = max(vec2(-1.04, 1.04) * a004 + r.zw, vec2(0.0));
-    return f0 * ab.x + ab.y;
+    return max(vec2(-1.04, 1.04) * a004 + r.zw, vec2(0.0));
+}
+
+// Energy-conserving multi-scattering GGX compensation factor (Turquin 2019, Eq. 16):
+// restores missing rough-surface multiple-scatter reflectance so white metals satisfy the white-furnace test.
+vec3 ggx_ms_factor(vec3 f0, float roughness, float nv) {
+    vec2 ab = env_brdf_ab(roughness, nv);
+    float ess = clamp(ab.x + ab.y, 0.15, 1.0);
+    return 1.0 + f0 * (1.0 / ess - 1.0);
+}
+
+// Pre-integrated multi-scattering specular reflectance DFG.
+vec3 env_brdf(vec3 f0, float roughness, float nv) {
+    vec2 ab = env_brdf_ab(roughness, nv);
+    float ess = clamp(ab.x + ab.y, 0.15, 1.0);
+    return (f0 * ab.x + ab.y) * (1.0 + f0 * (1.0 / ess - 1.0));
 }
 
 // Visible-normal sampling (Heitz 2018, JCGT). `v` in the local frame (z = normal).
@@ -85,7 +99,7 @@ vec3 sample_vndf(vec3 v, float a, vec2 u) {
     return normalize(vec3(a * nh.x, a * nh.y, max(0.0, nh.z)));
 }
 
-// Specular BRDF * (n.l) in true radiance units (NOT multiplied by PI).
+// Specular BRDF * (n.l) in true radiance units (NOT multiplied by PI), with multi-scattering energy conservation.
 vec3 specular_brdf_radiance(vec3 n, vec3 v, vec3 l, vec3 f0, float roughness) {
     float nl = max(dot(n, l), 0.0);
     if (nl <= 0.0) return vec3(0.0);
@@ -94,7 +108,7 @@ vec3 specular_brdf_radiance(vec3 n, vec3 v, vec3 l, vec3 f0, float roughness) {
     float nh = max(dot(n, h), 0.0);
     float vh = max(dot(v, h), 0.0);
     float a = max(roughness * roughness, 0.002);
-    return ggx_d(nh, a) * smith_v_correlated(nv, nl, a) * fresnel_schlick(f0, vh) * nl;
+    return ggx_d(nh, a) * smith_v_correlated(nv, nl, a) * fresnel_schlick(f0, vh) * ggx_ms_factor(f0, roughness, nv) * nl;
 }
 
 // Specular BRDF * (n.l) * PI for PI-premultiplied lights (sun and point lights).
@@ -113,7 +127,8 @@ vec3 eval_direct_pbr(vec3 n, vec3 v, vec3 l, vec3 albedo, float roughness, float
     float a = max(roughness * roughness, 0.002);
     vec3 f0 = mix(vec3(0.04), albedo, metallic);
     vec3 F = fresnel_schlick(f0, vh);
-    vec3 specular = ggx_d(nh, a) * smith_v_correlated(nv, nl, a) * F;
+    vec3 ms = ggx_ms_factor(f0, roughness, nv);
+    vec3 specular = ggx_d(nh, a) * smith_v_correlated(nv, nl, a) * F * ms;
     vec3 diffuse = (1.0 - F) * (1.0 - metallic) * albedo / PI;
     return (diffuse + specular) * nl * PI;
 }

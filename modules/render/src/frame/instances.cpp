@@ -81,8 +81,8 @@ void prepare_instances(gpu::Device& device, const RenderScene& scene, const Vec3
     slot.instances.write(device, out.instances.data(), out.instances.size() * sizeof(GpuInstance));
 }
 
-void upload_scene_buffers(gpu::Device& device, const RenderScene& scene, FrameSlot& slot, FrameInstances& out,
-                          bool with_rects) {
+void upload_scene_buffers(gpu::Device& device, const RenderScene& scene, const TextureStore& textures, FrameSlot& slot,
+                          FrameInstances& out, bool with_rects) {
     out.lights.clear();
     for (const PointLight& l : scene.lights) {
         out.lights.push_back({{l.position.x, l.position.y, l.position.z, l.radius},
@@ -97,8 +97,19 @@ void upload_scene_buffers(gpu::Device& device, const RenderScene& scene, FrameSl
                               {s.color.x, s.color.y, s.color.z, s.roughness},
                               {s.metallic, static_cast<float>(s.operation), static_cast<float>(s.primitive), 0}});
     }
+    out.decals.clear();
+    for (const Decal& d : scene.decals) {
+        const Vec3 up = normalize(Vec3{d.transform[1].x, d.transform[1].y, d.transform[1].z});
+        out.decals.push_back({inverse(d.transform),
+                              d.color,
+                              {d.roughness, d.metallic, d.wetness, d.normal_strength},
+                              {up.x, up.y, up.z, d.affect_roughness ? 1.0f : 0.0f},
+                              {textures.bindless_or(d.albedo_texture, no_texture),
+                               textures.bindless_or(d.normal_texture, no_texture), no_texture, no_texture}});
+    }
     slot.lights.write(device, out.lights.data(), out.lights.size() * sizeof(GpuPointLight));
     slot.shapes.write(device, out.shapes.data(), out.shapes.size() * sizeof(GpuSdfShape));
+    slot.decals.write(device, out.decals.data(), out.decals.size() * sizeof(GpuDecal));
     if (with_rects) {
         out.rects.clear();
         for (const RectLight& r : scene.rect_lights) {

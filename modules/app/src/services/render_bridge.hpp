@@ -83,6 +83,7 @@ private:
         std::vector<SdfShape> sdf_shapes;
         std::vector<PointLight> point_lights;
         std::vector<RectLight> rect_lights;
+        std::vector<Decal> decals;
     };
 
     void spawn_model(Entity owner, const Model& model);

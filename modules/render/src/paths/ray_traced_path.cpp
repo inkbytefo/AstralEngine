@@ -4,6 +4,7 @@
 #include "passes/frame_inputs.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace astral {
@@ -21,16 +22,30 @@ float halton(std::uint32_t index, std::uint32_t base) {
     return r;
 }
 
+bool camera_changed(const Mat4& a, const Mat4& b, const Vec3& pos_a, const Vec3& pos_b) {
+    if (length(pos_a - pos_b) > 1e-5f) return true;
+    for (int i = 0; i < 4; ++i) {
+        const Vec4& ca = a.cols[i];
+        const Vec4& cb = b.cols[i];
+        if (std::fabs(ca.x - cb.x) + std::fabs(ca.y - cb.y) + std::fabs(ca.z - cb.z) + std::fabs(ca.w - cb.w) > 1e-5f) {
+            return true;
+        }
+    }
+    return false;
+}
+
 GpuFrame build_rt_frame(const CameraData& camera, const RenderScene& scene, const RenderSettings& settings,
                         const DdgiFrameInfo& ddgi, const TemporalState& temporal, const FrameInstances& instances,
-                        gpu::Extent2D extent, gpu::Format target_format, std::uint64_t params_address,
-                        const Mat4& unjittered) {
+                        const FrameAddresses& addr, std::uint32_t pt_samples, gpu::Extent2D extent,
+                        gpu::Format target_format, const Mat4& unjittered) {
     const std::uint32_t jitter_index = (temporal.frame_index % 16) + 1;
-    const float jx = halton(jitter_index, 2) - 0.5f;
-    const float jy = halton(jitter_index, 3) - 0.5f;
+    const float jx = settings.path_tracer ? 0.0f : (halton(jitter_index, 2) - 0.5f);
+    const float jy = settings.path_tracer ? 0.0f : (halton(jitter_index, 3) - 0.5f);
     const Mat4 jittered =
-        translate({2.0f * jx / static_cast<float>(extent.width), 2.0f * jy / static_cast<float>(extent.height), 0}) *
-        unjittered;
+        settings.path_tracer
+            ? unjittered
+            : (translate({2.0f * jx / static_cast<float>(extent.width), 2.0f * jy / static_cast<float>(extent.height), 0}) *
+               unjittered);
     const Vec3 sun = normalize(scene.sun.direction);
     const float sun_on = scene.sun.intensity;
 
@@ -69,13 +84,17 @@ GpuFrame build_rt_frame(const CameraData& camera, const RenderScene& scene, cons
     frame.rt_counts[3] = ddgi.valid ? 1u : 0u;
     frame.rt_params = {std::max(scene.sun.angular_radius, 0.0f), jx, jy, settings.max_ray_distance};
     frame.unjittered_view_projection = unjittered;
-    frame.custom[0] = static_cast<std::uint32_t>(params_address);
-    frame.custom[1] = static_cast<std::uint32_t>(params_address >> 32);
+    frame.custom[0] = static_cast<std::uint32_t>(addr.params);
+    frame.custom[1] = static_cast<std::uint32_t>(addr.params >> 32);
     std::memcpy(&frame.custom[2], &scene.time, sizeof(float));
     frame.custom[3] = is_srgb(target_format) ? 0u : 1u;
     const Vec3 prev_cam = temporal.history_valid ? temporal.prev_camera_position : camera.position;
     frame.prev_camera_position = {prev_cam.x, prev_cam.y, prev_cam.z, 1};
     frame.inv_prev_view_projection = inverse(frame.prev_view_projection);
+    frame.scene = {addr.tlas, addr.instances, addr.materials, addr.lights, addr.rects, addr.shapes, addr.decals};
+    frame.decal_count = static_cast<std::uint32_t>(instances.decals.size());
+    const std::uint32_t bounces = std::clamp(settings.path_tracer_max_bounces, 1u, 16u);
+    frame.pt_params = (pt_samples & 0xFFFFu) | ((bounces & 0xFFu) << 16u);
     return frame;
 }
 
@@ -87,6 +106,7 @@ FrameAddresses collect_rt_addresses(gpu::Device& device, const FrameSlot& slot, 
         .lights = device.buffer_address(slot.lights.buffer),
         .shapes = device.buffer_address(slot.shapes.buffer),
         .rects = device.buffer_address(slot.rects.buffer),
+        .decals = device.buffer_address(slot.decals.buffer),
         .params = device.buffer_address(slot.params.buffer),
         .tlas = device.acceleration_structure_address(instances.tlas),
     };
@@ -99,6 +119,7 @@ void record_rt_graph(RayTracedPathContext& ctx, const FrameInputs& inputs, gpu::
     const RGTexture output = g.import(target, "output");
     GBufferTextures gbuffer = ctx.passes.gbuffer.add(g, inputs, ctx.stats);
     ctx.passes.sdf.add(g, inputs, gbuffer);
+    ctx.passes.decals.add(g, inputs, gbuffer);
     const DdgiOutput ddgi = ctx.passes.ddgi.add(g, inputs, rt_pipes.ddgi_trace);
     const RtLightingOutput rt = ctx.passes.rt_lighting.add(g, inputs, gbuffer, ddgi, rt_pipes);
     const DenoiseOutput denoised = ctx.passes.denoise.add(g, inputs, gbuffer, rt);
@@ -118,6 +139,32 @@ void record_rt_graph(RayTracedPathContext& ctx, const FrameInputs& inputs, gpu::
     ctx.passes.ui.add(g, inputs, output);
 }
 
+void record_path_tracer_graph(RayTracedPathContext& ctx, const FrameInputs& inputs, gpu::TextureHandle target,
+                              const RtPipelines& rt_pipes) {
+    RenderGraph& g = ctx.graph;
+    g.begin_frame();
+    const RGTexture output = g.import(target, "output");
+    const bool need_depth =
+        inputs.scene.sky.valid() || !inputs.instances.transparent_draws.empty() || !inputs.scene.debug_lines.empty();
+    GBufferTextures gbuffer{};
+    if (need_depth) {
+        gbuffer = ctx.passes.gbuffer.add(g, inputs, ctx.stats);
+        ctx.passes.sdf.add(g, inputs, gbuffer);
+    }
+    const RGTexture hdr = ctx.passes.path_tracer.add(g, inputs, rt_pipes.path_tracer);
+    if (need_depth) ctx.passes.sky.add(g, inputs, hdr, gbuffer);
+    const RGTexture bloom = ctx.passes.bloom.add(g, inputs, hdr);
+    const std::span<const MaterialHandle> post_chain = ctx.passes.post.collect(inputs.scene, ctx.materials);
+    const RGTexture scene_color =
+        post_chain.empty() ? output
+                           : g.create("scene.ldr", {inputs.extent.width, inputs.extent.height, ctx.target_format});
+    ctx.passes.tonemap.add(g, inputs, hdr, bloom, scene_color);
+    if (need_depth) ctx.passes.transparent.add(g, inputs, scene_color, gbuffer.depth, ctx.stats);
+    ctx.passes.post.add(g, inputs, scene_color, output, post_chain);
+    if (need_depth) ctx.passes.debug_lines.add(g, inputs, output, gbuffer.depth);
+    ctx.passes.ui.add(g, inputs, output);
+}
+
 } // namespace
 
 void render_ray_traced_path(RayTracedPathContext& ctx, gpu::CommandList& cmd, gpu::TextureHandle target,
@@ -130,18 +177,31 @@ void render_ray_traced_path(RayTracedPathContext& ctx, gpu::CommandList& cmd, gp
     resized |= ctx.passes.rt_lighting.resize(extent.width, extent.height);
     resized |= ctx.passes.denoise.resize(extent.width, extent.height);
     resized |= ctx.passes.taa.resize(extent.width, extent.height);
-    if (resized) ctx.temporal.history_valid = false;
+    resized |= ctx.passes.path_tracer.resize(extent.width, extent.height);
+    if (resized) {
+        ctx.temporal.history_valid = false;
+        ctx.passes.path_tracer.reset();
+    }
     ctx.passes.ddgi.ensure(scene, ctx.meshes, ctx.settings.gi);
 
     prepare_instances(ctx.device, scene, camera.position, ctx.meshes, ctx.materials, slot, ctx.frame_instances, true);
-    upload_scene_buffers(ctx.device, scene, slot, ctx.frame_instances, true);
+    upload_scene_buffers(ctx.device, scene, ctx.textures, slot, ctx.frame_instances, true);
     if (!build_tlas(ctx.device, cmd, ctx.frame_instances)) return;
 
     const Mat4 unjittered = camera.projection * camera.view;
-    const std::uint64_t params_address = ctx.device.buffer_address(slot.params.buffer);
-    const GpuFrame frame = build_rt_frame(camera, scene, ctx.settings, ctx.passes.ddgi.info(), ctx.temporal,
-                                          ctx.frame_instances, extent, ctx.target_format, params_address, unjittered);
+    if (!ctx.temporal.history_valid ||
+        camera_changed(unjittered, ctx.temporal.prev_view_projection, camera.position, ctx.temporal.prev_camera_position) ||
+        ctx.temporal.prev_point_lights != static_cast<std::uint32_t>(ctx.frame_instances.lights.size()) ||
+        ctx.temporal.prev_rect_lights != static_cast<std::uint32_t>(ctx.frame_instances.rects.size())) {
+        ctx.passes.path_tracer.reset();
+    }
+
+    FrameAddresses addresses = collect_rt_addresses(ctx.device, slot, ctx.frame_instances);
+    const GpuFrame frame =
+        build_rt_frame(camera, scene, ctx.settings, ctx.passes.ddgi.info(), ctx.temporal, ctx.frame_instances,
+                       addresses, ctx.passes.path_tracer.sample_count(), extent, ctx.target_format, unjittered);
     slot.frame.write(ctx.device, &frame, sizeof(frame));
+    addresses.frame = ctx.device.buffer_address(slot.frame.buffer);
 
     const FrameInputs inputs{
         .camera = camera,
@@ -153,14 +213,19 @@ void render_ray_traced_path(RayTracedPathContext& ctx, gpu::CommandList& cmd, gp
         .textures = ctx.textures,
         .instances = ctx.frame_instances,
         .slot = slot,
-        .addresses = collect_rt_addresses(ctx.device, slot, ctx.frame_instances),
+        .addresses = addresses,
         .extent = extent,
         .target_format = ctx.target_format,
         .frame_index = ctx.temporal.frame_index,
         .view_projection = unjittered,
     };
 
-    record_rt_graph(ctx, inputs, target, rt_pipes);
+    if (ctx.settings.path_tracer) {
+        record_path_tracer_graph(ctx, inputs, target, rt_pipes);
+    } else {
+        record_rt_graph(ctx, inputs, target, rt_pipes);
+        ctx.passes.ddgi.mark_valid();
+    }
     ctx.graph.execute(cmd);
 
     ctx.temporal.prev_view_projection = unjittered;
@@ -171,11 +236,13 @@ void render_ray_traced_path(RayTracedPathContext& ctx, gpu::CommandList& cmd, gp
         ctx.settings.restir_di && (ctx.frame_instances.lights.size() + ctx.frame_instances.rects.size()) > 2;
     ctx.temporal.history_valid = true;
     ++ctx.temporal.frame_index;
-    ctx.passes.ddgi.mark_valid();
+
     ctx.stats.ray_traced = true;
     ctx.stats.sdf_shapes = static_cast<std::uint32_t>(ctx.frame_instances.shapes.size());
     ctx.stats.point_lights = static_cast<std::uint32_t>(ctx.frame_instances.lights.size());
     ctx.stats.rect_lights = static_cast<std::uint32_t>(ctx.frame_instances.rects.size());
+    ctx.stats.decals = static_cast<std::uint32_t>(ctx.frame_instances.decals.size());
+    ctx.stats.path_tracer_samples = ctx.settings.path_tracer ? ctx.passes.path_tracer.sample_count() : 0u;
     ctx.stats.gi_probes = ctx.passes.ddgi.probe_count();
     ctx.stats.passes = ctx.graph.stats().passes_executed;
 }

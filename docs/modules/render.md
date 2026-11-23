@@ -32,15 +32,18 @@ renderer.set_settings(s);   // çalışma anında; teknik/GI değişirse geçmi�
 ## Ray-traced yol
 
 ```
-TLAS build ─► gbuffer ─► sdf ─► ddgi.trace ─► ddgi.update (×2) ─► restir.temporal ─► restir.spatial (çoklu ışık)
-          ─► rt.lighting ─► denoise.temporal ─► denoise.atrous (×N) ─► composite ─► sky ─► taa
-          ─► bloom.down (×6) ─► bloom.up (×5) ─► tonemap
+TLAS build ─► gbuffer (+material_ext) ─► sdf ─► decals (varsa) ─► ddgi.trace ─► ddgi.update (×2)
+          ─► restir.temporal ─► restir.spatial (3+ ışık) ─► rt.lighting ─► denoise.temporal
+          ─► denoise.atrous (×N) ─► composite ─► sky ─► taa ─► bloom ─► tonemap
 ```
+`RenderSettings::path_tracer = true` iken hibrit geçişler yerine `path_tracer` (`RGBA32Float` ping-pong birikimli çok sekmeli NEE+MIS yansız yol izleyici) → `tonemap` → `post` → `ui` çalışır.
 
 | Pass | Ne yapar |
 |---|---|
 | TLAS | Her kare instance'lardan yeniden kurulur; BLAS mesh oluşturulurken bir kez |
-| `gbuffer` / `sdf` | Raster ile aynı; projeksiyon TAA için her kare Halton(2,3) ile alt-piksel kaydırılır |
+| `gbuffer` / `sdf` | 5 renk hedefi (`albedo`, `normal`, `emissive` [a=kodlanmış `ShadingModel`], `velocity`, `material_ext`); POM, RNM detay normal ve ıslaklık burada işlenir |
+| `decals` | `RenderScene::decals` boş değilse G-buffer (`albedo`, `normal`, `emissive`, `material_ext`) üzerine kutu-izdüşümlü boya/pürüzlülük/ıslaklık uygular (boşsa sıfır maliyet) |
+| `path_tracer` | `RenderSettings::path_tracer` açıldığında tüm M13 BSDF'lerini, decal'ları, SDF'leri ve özel `.ashader`'ları yansız çoklu sekme + Russian roulette ile biriktirir (kamera hareketinde sıfırlanır) |
 | `ddgi.trace` | Her prob kare başına `rays_per_probe` ışın atar (Fibonacci küresi, her kare rastgele döner); vuruşlar doğrudan ışık + **önceki karenin probları** ile ışıklanır → sekmeler zamanla birikir |
 | `ddgi.update` | Işınlar oktahedral atlaslara (irradiance 8×8, mesafe momentleri 16×16, kenarlıklı) histerezisle karışır |
 | `restir.temporal` / `restir.spatial` | 3+ yerel ışıkta (`RenderSettings::restir_di`) uzay-zamansal ReSTIR DI (Bitterli 2020): 24 aday + başlangıç görünürlük ışını, zamansal yeniden kullanım ($M \le 20$) ve yansız görünürlük-farkındalı MIS uzamsal yeniden kullanım |
@@ -178,6 +181,7 @@ yok; deforme mesh'ler için BLAS güncellemesi yok (RT'de deformasyon görünmez
 - `frame/frame_slot.hpp`: kare halka tamponları (`GrowBuffer`, `FrameSlot`, `FrameRing`).
 - `frame/instances.{hpp,cpp}`: kare başına örnek hazırlama (`prepare_instances`), şeffaf sıralama ve TLAS kurulumu.
 - `passes/frame_inputs.hpp`, `passes/render_passes.hpp`: kare girdi yapısı (`FrameInputs`, `GBufferTextures`) ve tüm pass'lerin sahibi (`RenderPasses`).
-- `passes/*.{hpp,cpp}`: kendi pipeline'ına ve geçmiş/ping-pong dokularına sahip bağımsız pass türleri (`shadow`, `gbuffer`, `sdf`, `lighting`, `ddgi`, `rt_lighting`, `denoise`, `composite`, `sky`, `taa`, `bloom`, `tonemap`, `transparent`, `post`, `debug_lines`, `ui`).
+- `passes/*.{hpp,cpp}`: kendi pipeline'ına ve geçmiş/ping-pong dokularına sahip bağımsız pass türleri (`shadow`, `gbuffer`, `sdf`, `decal`, `lighting`, `ddgi`, `rt_lighting`, `path_tracer`, `denoise`, `composite`, `sky`, `taa`, `bloom`, `tonemap`, `transparent`, `post`, `debug_lines`, `ui`).
+- `surface_shader.cpp`, `surface_shader_rt.cpp`: `.ashader` G-buffer/gölge/forward derlemesi ve RT/Path Tracer/ekran varyantı birleştirmesi (M13 `shading_model` + built-in destekli).
 - `paths/raster_path.{hpp,cpp}`, `paths/ray_traced_path.{hpp,cpp}`: raster ve ışın izlemeli kare bileşimleri (yalnız kare verisini hazırlayıp pass'leri sırayla grafa ekler).
 - `renderer.cpp`: ince `Renderer` cephesi (store'lar, pass'ler, ayarlar ve yol seçimi).

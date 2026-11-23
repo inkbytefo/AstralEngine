@@ -36,11 +36,11 @@ struct GrowBuffer {
 };
 
 struct FrameSlot {
-    GrowBuffer instances, lights, shapes, frame, rects, materials, params, debug_lines, ui_vertices, ui_indices;
+    GrowBuffer instances, lights, shapes, frame, rects, decals, materials, params, debug_lines, ui_vertices, ui_indices;
     std::shared_ptr<std::uint64_t> last_use = std::make_shared<std::uint64_t>(0);
 
     void destroy(gpu::Device& device) {
-        for (GrowBuffer* b : {&instances, &lights, &shapes, &frame, &rects, &materials, &params, &debug_lines,
+        for (GrowBuffer* b : {&instances, &lights, &shapes, &frame, &rects, &decals, &materials, &params, &debug_lines,
                               &ui_vertices, &ui_indices}) {
             b->destroy(device);
         }

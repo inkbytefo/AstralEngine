@@ -485,6 +485,74 @@ void scene_open_world_scale(BenchContext& b, int warmup, int measure) {
     b.run_scene("open_world_scale", s, b.make_camera({120, 45, 180}, {0, 15, 0}, 50.0f, 0.2f, 3000.0f), sc, warmup, measure);
 }
 
+void scene_m13_pbr_gallery(BenchContext& b, int warmup, int measure) {
+    MaterialHandle floor_m = b.renderer->create_material({.base_color = {0.65f, 0.65f, 0.63f, 1}, .roughness = 0.7f});
+    MaterialHandle metal_m = b.renderer->create_material({.base_color = {0.92f, 0.85f, 0.72f, 1}, .roughness = 0.85f, .metallic = 1.0f});
+    MaterialHandle coat_m = b.renderer->create_material(
+        {.base_color = {0.65f, 0.04f, 0.06f, 1}, .roughness = 0.5f, .shading_model = ShadingModel::Clearcoat,
+         .clearcoat = {.strength = 1.0f, .roughness = 0.05f}});
+    MaterialHandle sheen_m = b.renderer->create_material(
+        {.base_color = {0.06f, 0.08f, 0.22f, 1}, .roughness = 0.9f, .shading_model = ShadingModel::Sheen,
+         .sheen = {.color = {0.55f, 0.72f, 1.0f}, .roughness = 0.35f}});
+    MaterialHandle aniso_m = b.renderer->create_material(
+        {.base_color = {0.95f, 0.76f, 0.36f, 1}, .roughness = 0.38f, .metallic = 1.0f,
+         .shading_model = ShadingModel::Anisotropic, .anisotropy = {.strength = 0.85f, .rotation = 0.0f}});
+    MaterialHandle glass_m = b.renderer->create_material(
+        {.base_color = {0.96f, 0.96f, 0.96f, 1}, .roughness = 0.04f, .shading_model = ShadingModel::Transmission,
+         .transmission = {.strength = 1.0f, .ior = 1.5f, .thickness = 1.2f,
+                          .attenuation_color = {0.25f, 0.92f, 0.55f}, .attenuation_distance = 1.4f}});
+    MaterialHandle sss_m = b.renderer->create_material(
+        {.base_color = {0.25f, 0.65f, 0.45f, 1}, .roughness = 0.4f, .shading_model = ShadingModel::Subsurface,
+         .subsurface = {.strength = 0.9f, .color = {0.95f, 0.35f, 0.15f}, .radius = 0.7f}});
+    std::vector<MeshInstance> meshes = {
+        {b.plane, floor_m, scale({20, 1, 20})},
+        {b.sphere, metal_m, translate({-4.5f, 0.85f, 0}) * scale({0.85f, 0.85f, 0.85f})},
+        {b.sphere, coat_m, translate({-2.7f, 0.85f, 0}) * scale({0.85f, 0.85f, 0.85f})},
+        {b.sphere, sheen_m, translate({-0.9f, 0.85f, 0}) * scale({0.85f, 0.85f, 0.85f})},
+        {b.sphere, aniso_m, translate({0.9f, 0.85f, 0}) * scale({0.85f, 0.85f, 0.85f})},
+        {b.sphere, glass_m, translate({2.7f, 0.85f, 0}) * scale({0.85f, 0.85f, 0.85f})},
+        {b.sphere, sss_m, translate({4.5f, 0.85f, 0}) * scale({0.85f, 0.85f, 0.85f})},
+    };
+    Decal puddle{.transform = translate({0, 0.0f, 1.5f}) * scale({8.0f, 0.5f, 1.6f}),
+                 .color = {0.15f, 0.25f, 0.4f, 0.45f}, .roughness = 0.1f, .wetness = 0.85f};
+    RectLight key{.position = {0, 4.5f, 2.5f}, .right = {2.5f, 0, 0}, .up = {0, 0, 1.2f}, .intensity = 9.0f};
+    RenderScene sc{.meshes = meshes, .rect_lights = std::span(&key, 1), .decals = std::span(&puddle, 1),
+                   .sun = {.direction = {-0.35f, -0.65f, -0.65f}, .color = {1.0f, 0.96f, 0.88f}, .intensity = 2.8f},
+                   .environment = {.sky = {0.35f, 0.52f, 0.78f}, .ground = {0.14f, 0.12f, 0.10f}}};
+    CameraData cam = b.make_camera({0, 2.2f, 8.2f}, {0, 0.75f, 0}, 42.0f);
+    RenderSettings s;
+    s.gi = {.probes_x = 8, .probes_y = 4, .probes_z = 6, .rays_per_probe = 64};
+    b.run_scene("m13_pbr_rt", s, cam, sc, warmup, measure);
+    const auto rt_img = b.capture_target();
+
+    s.path_tracer = true;
+    s.path_tracer_max_bounces = 6;
+    b.renderer->set_settings(s);
+    b.renderer->reset_history();
+    double pt_ms = 0.0;
+    constexpr int kSpp = 64;
+    for (int f = 0; f < kSpp; ++f) {
+        auto cmd = b.device->begin_commands();
+        b.renderer->render(cmd, b.target, cam, sc);
+        b.device->wait(b.device->submit(cmd));
+        if (f >= 4) pt_ms += b.renderer->gpu_frame_ms();
+    }
+    const auto pt_img = b.capture_target();
+    if (!b.out_dir.empty()) write_ppm(b.out_dir + "/m13_pbr_pt.ppm", pt_img, b.width, b.height);
+    double sq = 0.0, l_rt = 0.0, l_pt = 0.0;
+    const std::size_t n_px = std::size_t{b.width} * b.height;
+    for (std::size_t i = 0; i < n_px; ++i) {
+        for (int c = 0; c < 3; ++c) {
+            const double dr = rt_img[i * 4 + c], dp = pt_img[i * 4 + c];
+            sq += (dr - dp) * (dr - dp);
+            l_rt += dr;
+            l_pt += dp;
+        }
+    }
+    std::printf("\n[scene: m13_pbr_pt (%d spp)] gpu_ms_per_spp=%.3f ms | rt_vs_pt_rmse=%.2f | mean_luma rt=%.1f pt=%.1f\n",
+                kSpp, pt_ms / (kSpp - 4), std::sqrt(sq / (3.0 * n_px)), l_rt / (3.0 * n_px), l_pt / (3.0 * n_px));
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -518,5 +586,6 @@ int main(int argc, char** argv) {
     scene_moving_camera_stability(b);
     scene_moving_mirror(b);
     scene_open_world_scale(b, warmup, measure);
+    scene_m13_pbr_gallery(b, warmup, measure);
     return 0;
 }

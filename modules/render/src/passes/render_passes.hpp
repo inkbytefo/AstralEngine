@@ -4,9 +4,11 @@
 #include "passes/composite_pass.hpp"
 #include "passes/ddgi_pass.hpp"
 #include "passes/debug_lines_pass.hpp"
+#include "passes/decal_pass.hpp"
 #include "passes/denoise_pass.hpp"
 #include "passes/gbuffer_pass.hpp"
 #include "passes/lighting_pass.hpp"
+#include "passes/path_tracer_pass.hpp"
 #include "passes/post_pass.hpp"
 #include "passes/rt_lighting_pass.hpp"
 #include "passes/sdf_pass.hpp"
@@ -27,9 +29,11 @@ struct RenderPasses {
     ShadowPass shadow;
     GBufferPass gbuffer;
     SdfPass sdf;
+    DecalPass decals;
     LightingPass lighting;
     DdgiPass ddgi;
     RtLightingPass rt_lighting;
+    PathTracerPass path_tracer;
     DenoisePass denoise;
     CompositePass composite;
     SkyPass sky;
@@ -45,9 +49,11 @@ struct RenderPasses {
         : shadow(device, settings.shadow_map_size),
           gbuffer(device),
           sdf(device),
+          decals(device),
           lighting(device),
           ddgi(device),
           rt_lighting(device),
+          path_tracer(device),
           denoise(device),
           composite(device),
           taa(device),

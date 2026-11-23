@@ -5,7 +5,7 @@
 #define ASTRAL_RT_GLSL
 #extension GL_EXT_ray_query : require
 #include <astral/sdf.glsl>
-#include <astral/brdf.glsl>
+#include <astral/bsdf.glsl>
 #include <astral/color.glsl>
 
 struct RectLight {
@@ -86,7 +86,68 @@ struct Surface {
     vec3 emissive;
     bool backface;  // the ray hit the back of a mesh triangle or inside of an SDF
     bool unshaded;  // render_mode unshaded: bypass lighting and output albedo + emissive directly
+    uint shading_model;     // SHADING_* code from bsdf.glsl
+    vec4 mat_ext;           // model-specific extended parameters (mirrors G-buffer material_ext)
+    vec3 attenuation_color; // Beer-Lambert tint for Transmission
+    float sss_radius;       // subsurface radius
 };
+
+// Unified multi-lobe direct BSDF evaluation in true radiance units (albedo-free diffuse + full specular).
+void eval_surface_direct_radiance(Surface s, vec3 v, vec3 l, out vec3 diffuse, out vec3 specular) {
+    diffuse = vec3(0.0);
+    specular = vec3(0.0);
+    float nl = max(dot(s.n, l), 0.0);
+    vec3 f0 = mix(vec3(0.04), s.albedo, s.metallic);
+    float kd = 1.0 - s.metallic;
+
+    if (s.shading_model == SHADING_SUBSURFACE) {
+        vec3 sss = sss_direct_radiance(s.n, v, l, s.mat_ext.rgb, s.mat_ext.a);
+        if (nl > 0.0) {
+            vec3 h = normalize(v + l);
+            vec3 F = fresnel_schlick(f0, max(dot(v, h), 0.0));
+            diffuse = (1.0 - F) * kd * (1.0 - s.mat_ext.a * 0.65) * nl * (1.0 / PI);
+            specular = specular_brdf_radiance(s.n, v, l, f0, s.roughness);
+        }
+        // SSS color is carried directly in specular (already albedo/tint-multiplied) so diffuse demodulation stays clean.
+        specular += sss;
+        return;
+    }
+
+    if (nl <= 0.0) return;
+    vec3 h = normalize(v + l);
+    vec3 F = fresnel_schlick(f0, max(dot(v, h), 0.0));
+    vec3 base_d = (1.0 - F) * kd * nl * (1.0 / PI);
+    vec3 base_sp;
+
+    if (s.shading_model == SHADING_ANISOTROPIC) {
+        vec3 t = length(s.mat_ext.xyz) > 1e-4 ? normalize(s.mat_ext.xyz - s.n * dot(s.mat_ext.xyz, s.n))
+                                              : bsdf_default_tangent(s.n, 0.0);
+        vec3 b = cross(s.n, t);
+        base_sp = aniso_specular_brdf_radiance(s.n, t, b, v, l, f0, s.roughness, s.mat_ext.w);
+        diffuse = base_d;
+        specular = base_sp;
+    } else if (s.shading_model == SHADING_CLEARCOAT) {
+        float coat_atten;
+        float coat_sp = clearcoat_brdf_radiance(s.n, v, l, s.mat_ext.x, s.mat_ext.y, coat_atten);
+        diffuse = base_d * coat_atten;
+        specular = specular_brdf_radiance(s.n, v, l, f0, s.roughness) * coat_atten + vec3(coat_sp);
+    } else if (s.shading_model == SHADING_SHEEN) {
+        float sheen_atten;
+        vec3 sheen_sp = sheen_brdf_radiance(s.n, v, l, s.mat_ext.rgb, s.mat_ext.a, sheen_atten);
+        diffuse = base_d * sheen_atten;
+        specular = specular_brdf_radiance(s.n, v, l, f0, s.roughness) * sheen_atten + sheen_sp;
+    } else if (s.shading_model == SHADING_TRANSMISSION) {
+        float tr = clamp(s.mat_ext.x, 0.0, 1.0);
+        float ior = max(s.mat_ext.y, 1.01);
+        float f0_d = (ior - 1.0) / (ior + 1.0);
+        f0_d = f0_d * f0_d;
+        diffuse = base_d * (1.0 - tr);
+        specular = specular_brdf_radiance(s.n, v, l, mix(f0, vec3(f0_d), tr), s.roughness);
+    } else {
+        diffuse = base_d;
+        specular = specular_brdf_radiance(s.n, v, l, f0, s.roughness);
+    }
+}
 
 // Custom (.ashader) surfaces, ADR-0022: the renderer compiles every shader's surface() into
 // <astral/rt_custom.glsl> (ASTRAL_RT_CUSTOM) and these compute shaders again; without custom shaders
@@ -150,8 +211,28 @@ Surface triangle_surface(Instances instances, Materials materials, uint instance
         s.metallic *= mr.b;
     }
     if (mat.textures.w != NO_TEXTURE) s.emissive *= textureLod(sampler2D(astral_textures[nonuniformEXT(mat.textures.w)], astral_samplers[ASTRAL_SAMPLER_LINEAR_REPEAT]), uv, lod).rgb;
+    float coat = mat.coat_aniso.x;
+    float coat_r = mat.coat_aniso.y;
+    astral_apply_wetness(s.albedo, roughness, coat, coat_r, s.metallic, mat.params.z);
     s.roughness = clamp(roughness, ASTRAL_MIN_ROUGHNESS, 1.0);
     s.unshaded = false;
+    s.shading_model = mat.custom.z == 0u ? SHADING_STANDARD : (mat.custom.z + 1u);
+    if (s.shading_model == SHADING_STANDARD && coat > 1e-4) s.shading_model = SHADING_CLEARCOAT;
+    s.mat_ext = vec4(0.0);
+    if (s.shading_model == SHADING_CLEARCOAT) {
+        s.mat_ext = vec4(clamp(coat, 0.0, 1.0), clamp(coat_r, ASTRAL_MIN_ROUGHNESS, 1.0), 0.0, 0.0);
+    } else if (s.shading_model == SHADING_SHEEN) {
+        s.mat_ext = vec4(max(mat.sheen.rgb, vec3(0.0)), clamp(mat.sheen.a, 0.05, 1.0));
+    } else if (s.shading_model == SHADING_ANISOTROPIC) {
+        s.mat_ext = vec4(bsdf_default_tangent(s.n, mat.coat_aniso.w), clamp(mat.coat_aniso.z, -0.95, 0.95));
+    } else if (s.shading_model == SHADING_TRANSMISSION) {
+        s.mat_ext = vec4(clamp(mat.transmission.x, 0.0, 1.0), max(mat.transmission.y, 1.01),
+                         max(mat.transmission.z, 0.001), max(mat.transmission.w, 0.001));
+    } else if (s.shading_model == SHADING_SUBSURFACE) {
+        s.mat_ext = vec4(max(mat.subsurface.rgb, vec3(0.0)), clamp(mat.subsurface.a, 0.0, 1.0));
+    }
+    s.attenuation_color = mat.attenuation.rgb;
+    s.sss_radius = mat.attenuation.a;
     if (mat.custom.y != 0u) astral_custom_surface(mat.custom.y - 1u, mat.custom.x, uv, -dir, s);
     return s;
 }
@@ -272,6 +353,10 @@ Surface sdf_surface(SdfShapes shapes, uint count, vec3 o, vec3 d, float t) {
     s.metallic = h.metallic;
     s.emissive = vec3(0);
     s.unshaded = false;
+    s.shading_model = SHADING_STANDARD;
+    s.mat_ext = vec4(0.0);
+    s.attenuation_color = s.albedo;
+    s.sss_radius = 0.5;
     return s;
 }
 
@@ -463,7 +548,7 @@ void eval_point_light(LightingInputs li, PointLight light, Surface s, vec3 v, ve
     if (dist >= radius) return;
     vec3 l = to / dist;
     float nl = dot(s.n, l);
-    if (nl <= 0.0) return;
+    if (nl <= 0.0 && s.shading_model != SHADING_SUBSURFACE) return;
     float falloff = clamp(1.0 - pow(dist / radius, 4.0), 0.0, 1.0);
     falloff = falloff * falloff / (dist * dist + 1.0);
     vec3 radiance = light.color_intensity.rgb * light.color_intensity.a * falloff * scale;
@@ -472,7 +557,7 @@ void eval_point_light(LightingInputs li, PointLight light, Surface s, vec3 v, ve
     vec3 target = light.position_radius.xyz + jitter;
     vec3 sd = target - origin;
     float sl = length(sd);
-    if (sl > 1e-4) {
+    if (sl > 1e-4 && nl > 0.0) {
         vec3 sdir = sd / sl;
         if (dot(s.ng, sdir) <= 0.0) {
             sd = light.position_radius.xyz - origin;
@@ -482,10 +567,10 @@ void eval_point_light(LightingInputs li, PointLight light, Surface s, vec3 v, ve
         float tmax = sl - max(light.source.x * 0.25, 0.001);
         if (tmax > 0.0 && occluded(li.tlas, li.shapes, li.sdf_count, origin, sdir, tmax)) return;
     }
-    vec3 h = normalize(v + l);
-    vec3 F = fresnel_schlick(f0, max(dot(v, h), 0.0));
-    diffuse += (1.0 - F) * kd * nl * radiance;
-    specular += specular_brdf(s.n, v, l, f0, s.roughness) * radiance;
+    vec3 d_rad, sp_rad;
+    eval_surface_direct_radiance(s, v, l, d_rad, sp_rad);
+    diffuse += d_rad * (PI * radiance);
+    specular += sp_rad * (PI * radiance);
 }
 
 void eval_rect_light(LightingInputs li, RectLight r, Surface s, vec3 v, vec3 origin, vec3 f0, float kd,
@@ -506,27 +591,27 @@ void eval_rect_light(LightingInputs li, RectLight r, Surface s, vec3 v, vec3 ori
     ln /= ln_len;
     float cos_l = dot(ln, -l);
     if (r.position_two_sided.w > 0.5) cos_l = abs(cos_l);
-    if (nl <= 0.0 || cos_l <= 0.0) return;
+    if ((nl <= 0.0 && s.shading_model != SHADING_SUBSURFACE) || cos_l <= 0.0) return;
     float tmax = dist - 0.001;
-    if (tmax > 0.0 && occluded(li.tlas, li.shapes, li.sdf_count, origin, l, tmax)) return;
-    vec3 h = normalize(v + l);
-    vec3 F = fresnel_schlick(f0, max(dot(v, h), 0.0));
+    if (nl > 0.0 && tmax > 0.0 && occluded(li.tlas, li.shapes, li.sdf_count, origin, l, tmax)) return;
     float geom = cos_l * area / d2;
-    diffuse += (1.0 - F) * kd * nl * r.radiance.rgb * geom * (scale / PI);
+    vec3 d_rad, sp_rad;
+    eval_surface_direct_radiance(s, v, l, d_rad, sp_rad);
+    diffuse += d_rad * r.radiance.rgb * geom * scale;
     // Specular: on primary hits, MIS with the VNDF reflection ray (disabled on mirrors where VNDF is delta).
-    // On secondary hits (no second reflection ray), evaluate directly with conservative clamp.
     if (primary_hit) {
-        if (s.roughness >= ASTRAL_MIRROR_ROUGHNESS) {
+        if (s.roughness >= ASTRAL_MIRROR_ROUGHNESS && nl > 0.0) {
+            vec3 h = normalize(v + l);
             float nv = max(dot(s.n, v), 1e-4);
             float nh = max(dot(s.n, h), 0.0);
             float a = max(s.roughness * s.roughness, 0.002);
             float pdf_light = select_prob / max(geom, 1e-8);
             float pdf_brdf = vndf_reflection_pdf(nv, nh, a);
             float w_mis = mis_power2(pdf_light, pdf_brdf);
-            specular += specular_brdf_radiance(s.n, v, l, f0, s.roughness) * r.radiance.rgb * geom * scale * w_mis;
+            specular += sp_rad * r.radiance.rgb * geom * scale * w_mis;
         }
     } else {
-        specular += min(specular_brdf_radiance(s.n, v, l, f0, s.roughness) * r.radiance.rgb * geom * scale, vec3(16.0));
+        specular += min(sp_rad * r.radiance.rgb * geom * scale, vec3(16.0));
     }
 }
 
@@ -543,15 +628,18 @@ void direct_light(Frame f, LightingInputs li, Surface s, vec3 v, bool primary_hi
 
     // Sun: cone of angular half-angle rt_params.x gives physically soft shadows.
     vec3 to_sun = -normalize(f.sun_direction.xyz);
-    if (dot(s.n, to_sun) > 0.0 && dot(f.sun_color.rgb, vec3(1)) > 0.0) {
+    bool sun_active = dot(f.sun_color.rgb, vec3(1)) > 0.0 &&
+                      (dot(s.n, to_sun) > 0.0 || s.shading_model == SHADING_SUBSURFACE);
+    if (sun_active) {
         vec3 l = sample_cone(to_sun, f.rt_params.x, vec2(rnd(seed), rnd(seed)));
-        float nl = max(dot(s.n, l), 0.0);
-        if (nl > 0.0 && !occluded(li.tlas, li.shapes, li.sdf_count, origin, l, max_t)) {
-            vec3 h_d = normalize(v + l);
-            vec3 F_d = fresnel_schlick(f0, max(dot(v, h_d), 0.0));
-            diffuse += (1.0 - F_d) * kd * nl * f.sun_color.rgb;
-            // Evaluate specular along to_sun (or broadened sun cone) to prevent 138x mirror fireflies.
-            specular += specular_brdf(s.n, v, to_sun, f0, s.roughness) * f.sun_color.rgb;
+        float nl = dot(s.n, l);
+        bool lit = (nl > 0.0) ? !occluded(li.tlas, li.shapes, li.sdf_count, origin, l, max_t)
+                              : (s.shading_model == SHADING_SUBSURFACE);
+        if (lit) {
+            vec3 d_rad, sp_rad;
+            eval_surface_direct_radiance(s, v, to_sun, d_rad, sp_rad);
+            diffuse += d_rad * (PI * f.sun_color.rgb);
+            specular += sp_rad * (PI * f.sun_color.rgb);
         }
     }
 

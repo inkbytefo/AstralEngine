@@ -6,16 +6,19 @@
 // ray on the selected candidate before temporal reuse, and validates any accepted temporal winner in
 // the current frame so every reservoir entering spatial reuse is strictly visible at its owning pixel.
 layout(push_constant, scalar) uniform Push {
-    FrameRef frame; uint64_t tlas; Instances instances; Materials materials;
-    PointLights lights; RectLights rects; SdfShapes shapes;
-    Reservoirs prev_reservoirs; Reservoirs out_reservoirs;
+    FrameRef frame; Reservoirs prev_reservoirs; Reservoirs out_reservoirs;
     GBufferIds g; uint prev_geometry; uint pass_index;
 } pc;
 layout(local_size_x = 8, local_size_y = 8) in;
 
 void main() {
     Frame f = pc.frame.f;
-    astral_rt_begin(f, pc.instances, pc.materials);
+    Instances scene_instances = Instances(f.scene_instances);
+    Materials scene_materials = Materials(f.scene_materials);
+    PointLights scene_lights = PointLights(f.scene_lights);
+    RectLights scene_rects = RectLights(f.scene_rects);
+    SdfShapes scene_shapes = SdfShapes(f.scene_shapes);
+    astral_rt_begin(f, scene_instances, scene_materials);
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     ivec2 size_i = ivec2(f.screen.xy);
     if (pixel.x >= size_i.x || pixel.y >= size_i.y) return;
@@ -39,7 +42,7 @@ void main() {
     }
 
     uint seed = make_seed(uvec2(pixel), f.rt_counts.y, 23u);
-    LightingInputs li = LightingInputs(pc.tlas, pc.shapes, f.counts.y, pc.lights, pc.rects);
+    LightingInputs li = LightingInputs(f.scene_tlas, scene_shapes, f.counts.y, scene_lights, scene_rects);
 
     // 1. Initial candidate generation via RIS over stratified point + rect lights.
     float p_rect = restir_rect_prob(pt_count, rect_count);
@@ -60,7 +63,7 @@ void main() {
             p_src = (1.0 - p_rect) / float(pt_count);
         }
         uint cuv = packUnorm2x16(vec2(rnd(seed), rnd(seed)));
-        float phat = restir_target_pdf(f, pc.lights, pc.rects, s, v, cid, cuv);
+        float phat = restir_target_pdf(f, scene_lights, scene_rects, s, v, cid, cuv);
         float w = phat / max(p_src, 1e-8);
         init_wsum += w;
         if (w > 0.0 && rnd(seed) * init_wsum < w) {
@@ -95,7 +98,7 @@ void main() {
                 uint m_prev = min(rp.M, RESTIR_MAX_TEMPORAL_M);
                 if (m_prev > 0u) {
                     float phat_prev = rp.W > 0.0
-                        ? restir_target_pdf(f, pc.lights, pc.rects, s, v, rp.light_id, rp.uv_packed)
+                        ? restir_target_pdf(f, scene_lights, scene_rects, s, v, rp.light_id, rp.uv_packed)
                         : 0.0;
                     float w0 = init_phat * init_W; // M_init == 1
                     float w1 = float(m_prev) * phat_prev * rp.W;

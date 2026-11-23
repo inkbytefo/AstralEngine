@@ -35,7 +35,7 @@ Sonraki fazların numarası birer kaydı.
 | M10 | **Shader dili ve materyaller:** `.ashader` (gdshader benzeri), `.material` + örnekler, çalışma anında derleme + hot-reload, raster/RT/gölge/forward varyantları, alfa testi, şeffaf geçiş ([ADR-0022](decisions/0022-shader-and-material-language.md)) | M8 | ✅ |
 | M11 | **Oyun kodu ve scripting:** özellik paketleri + SOLID kuralları + sınır denetimi ([ADR-0023](decisions/0023-modular-game-code.md)), Luau ([ADR-0017](decisions/0017-gameplay-scripting.md), [ADR-0026](decisions/0026-script-host-and-features.md)), input eylemleri, `AGENTS.md`, üretilen API belgesi | M9 | ✅ |
 | M12 | Fizik altyapısı: katmanlar, mesh/heightfield, eklemler, sorgular; **alan sistemi** (rüzgâr, su hacmi) ve kuvvetler ([ADR-0029](decisions/0029-physics-fields-and-joints.md)) | M8 | ✅ |
-| M13 | Gelişmiş PBR: clearcoat, sheen, anizotropi, transmission, subsurface, decal, path tracer referansı | M10 | 🔜 |
+| M13 | Gelişmiş PBR: clearcoat, sheen, anizotropi, transmission, subsurface, ıslaklık, detay/POM, decal, path tracer referansı ([ADR-0033](decisions/0033-advanced-pbr-and-path-tracer.md)) | M10 | ✅ |
 | M13.5 | **Kod sağlığı ve modülerlik:** güvenlik ağı (Windows Debug CI, `.gitattributes`, doctest, donanımdan bağımsız görüntü testleri, boyut bütçesi), god class'ların bölünmesi (renderer, app/Context, debug UI, cook, glTF, asset yöneticisi, fizik, script bağlamaları, sahne, GPU cihazı), header ve derleme süresi hijyeni; davranış değişmez ([ADR-0030](decisions/0030-refactor-rules-and-size-budget.md), [ADR-0031](decisions/0031-hardware-independent-golden-tests.md)) | M13 | ✅ |
 | M13.6 | **Ölçeklenebilir çalışma zamanı:** erişim bildiren sistemler + deterministik paralel zamanlayıcı, paralel transform yayılımı, ana thread'den çıkan hücre G/Ç, toplu script sorguları (`astral.each`), modül başına script profiler kapsamı, ölçek benchmark'ları ([ADR-0032](decisions/0032-scalable-runtime-and-parallel-scheduler.md)) | M13.5 | ✅ |
 | M14 | **Atmosfer ve VFX:** fiziksel gökyüzü, froxel sis, **hacimsel efektler (CS2 dumanı)**, GPU partikülleri, decal/iz, `.vfx` ([ADR-0024](decisions/0024-volumetric-vfx.md)) | M10, M12 | ⬜ |
@@ -112,9 +112,12 @@ Sonraki fazların numarası birer kaydı.
   yoğunluk); CPU'da ve GPU'da aynı fonksiyon. Kuvvetler: kaldırma, su içi ve hava sürüklemesi.
 - *Çıkış:* yüzen kutular, rüzgârla sürüklenen nesneler, eklemli köprü, heightfield zemin.
 
-**M13 — Gelişmiş PBR.** Clearcoat, sheen, anizotropi, transmission, subsurface, ıslaklık; enerji koruyan
-çoklu saçılma; detay haritaları, parallax, decal'lar; path tracer referans modu. Hepsi `.ashader`'da
-`shading_model` seçenekleri olarak. *Çıkış:* materyal test sahnesi, gerçek zamanlı ve referans yan yana.
+**M13 — Gelişmiş PBR ve Path Tracer Referansı ✅** Karar: [ADR-0033](decisions/0033-advanced-pbr-and-path-tracer.md).
+- Turquin (2019) enerji koruyan çoklu saçılmalı GGX (`brdf.glsl`) ve ortak `bsdf.glsl` katman kütüphanesi: clearcoat (IOR 1.5), Charlie NDF sheen, Heitz anizotropik GGX, dielektrik Fresnel + Snell kırılma + Beer-Lambert hacimsel soğurma (`Transmission`), subsurface scattering (`Subsurface`), ıslaklık (`WETNESS`), RNM detay normal + Parallax Occlusion Mapping (POM).
+- `.ashader` `shading_model <standard|clearcoat|sheen|anisotropic|transmission|subsurface>;` başlığı ve ilgili tüm built-in değişkenler (`CLEARCOAT`, `SHEEN_COLOR`, `ANISOTROPY`, `TRANSMISSION`, `IOR`, `SUBSURFACE`, `WETNESS` vb.) raster, hibrit RT ve path tracer varyantlarında tekdüze derlenir.
+- Gecikmeli kutu-izdüşümlü decal sistemi (`Decal` component + `DecalPass` + `decal.comp`, path tracer birincil vuruşlarında da uygulanır).
+- Birikimli çok sekmeli yansız Path Tracer referans modu (`RenderSettings::path_tracer`, `PathTracerPass` + `path_tracer.comp`, RGBA32Float ping-pong biriktirme, kamera/ayar değişiminde otomatik sıfırlama).
+- *Çıkış:* `examples/material_showcase` (7 M13 PBR materyali + 2 decal, `P` tuşuyla canlı Hibrit RT / Path Tracer geçişi) + 1280×720 RTX 3060 kıyaslaması (`m13_pbr_rt` 2.98 ms / 335 FPS, 64-SPP Path Tracer 0.83 ms/spp, RMSE 2.74, ortalama parlaklık farkı %0.29).
 
 **M13.5 — Kod sağlığı ve modülerlik (refaktör).** Kararlar faz başında: ADR-0030 (refaktör kuralları, boyut
 bütçesi, "god class" tanımı), ADR-0031 (donanımdan bağımsız görüntü testleri).

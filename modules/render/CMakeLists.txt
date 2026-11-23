@@ -30,9 +30,11 @@ astral_add_module(NAME render
         src/passes/shadow_pass.cpp
         src/passes/gbuffer_pass.cpp
         src/passes/sdf_pass.cpp
+        src/passes/decal_pass.cpp
         src/passes/lighting_pass.cpp
         src/passes/ddgi_pass.cpp
         src/passes/rt_lighting_pass.cpp
+        src/passes/path_tracer_pass.cpp
         src/passes/denoise_pass.cpp
         src/passes/composite_pass.cpp
         src/passes/sky_pass.cpp
@@ -50,6 +52,7 @@ astral_add_module(NAME render
         src/fonts.cpp
         src/text.cpp
         src/surface_shader.cpp
+        src/surface_shader_rt.cpp
         src/material_file.cpp
     DEPS
         Astral::Core
@@ -61,6 +64,7 @@ astral_embed_file(astral_render ${CMAKE_SOURCE_DIR}/modules/gpu/shaders/include/
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/scene.glsl astral_scene_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/color.glsl astral_color_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/brdf.glsl astral_brdf_glsl)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/bsdf.glsl astral_bsdf_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/rt.glsl astral_rt_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/restir.glsl astral_restir_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/primary.glsl astral_primary_glsl)
@@ -69,15 +73,17 @@ astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rt_lighting.
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/ddgi_trace.comp astral_ddgi_trace_comp)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/restir_di_temporal.comp astral_restir_di_temporal_comp)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/restir_di_spatial.comp astral_restir_di_spatial_comp)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/path_tracer.comp astral_path_tracer_comp)
 target_include_directories(astral_render SYSTEM PRIVATE $<BUILD_INTERFACE:${stb_SOURCE_DIR}>)
 
 astral_add_shaders(astral_render
     SOURCES
         shaders/gbuffer.vert shaders/gbuffer.frag shaders/shadow.vert
-        shaders/sdf.comp shaders/lighting.comp
+        shaders/sdf.comp shaders/decal.comp shaders/lighting.comp
         shaders/tonemap.vert shaders/tonemap.frag
         shaders/rt_lighting.comp shaders/ddgi_trace.comp shaders/ddgi_update.comp
         shaders/restir_di_temporal.comp shaders/restir_di_spatial.comp
+        shaders/path_tracer.comp
         shaders/denoise_temporal.comp shaders/denoise_atrous.comp shaders/composite.comp
         shaders/taa.comp shaders/bloom_down.comp shaders/bloom_up.comp
         shaders/debug_line.vert shaders/debug_line.frag shaders/ui.vert shaders/ui.frag
@@ -89,6 +95,7 @@ astral_add_tests(MODULE render
         tests/test_main.cpp
         tests/renderer_test.cpp
         tests/render_audit_test.cpp
+        tests/m13_pbr_test.cpp
         tests/stores_test.cpp
         tests/passes_test.cpp
         tests/render_graph_test.cpp

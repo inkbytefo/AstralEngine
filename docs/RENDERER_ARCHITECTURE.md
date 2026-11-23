@@ -87,6 +87,14 @@ All duplicated math, color, and BSDF formulas have been consolidated into five l
 - **Bloom:** 6-level downsample pyramid (13-tap Jimenez filter + Karis average on mip 0) + 5-level tent upsample using equal-weight `mix(here, up, step / (step + 1))` for exact unit DC gain. `tonemap.frag` blends `mix(hdr, glow, bloom_strength)`.
 - **Tonemap & sRGB:** Exposure multiply → Narkowicz ACES → exact IEC 61966-2-1 `astral_linear_to_srgb` when rendering to a linear/UNORM target (`apply_srgb != 0`), or raw linear output when the swapchain/target is hardware sRGB (`*Srgb`). UI and transparent passes share the exact same IEC transfer functions.
 
+### 3.8 M13 Advanced PBR, Deferred Decals & Progressive Path Tracer Reference (ADR-0033)
+- **Energy-Conserving Multi-Scattering GGX (`astral/brdf.glsl`):** Turquin (2019) analytical compensation `ggx_ms_factor(f0, roughness, nv)` derived from `env_brdf_ab` restores full white-furnace reflectance across all roughnesses in direct lighting, VNDF reflections, and path tracing.
+- **Unified BSDF Library (`astral/bsdf.glsl`):** Shared across `gbuffer.frag`, `lighting.comp`, `rt_lighting.comp`, `restir_di_*.comp`, `ddgi_trace.comp`, `path_tracer.comp`, and custom `.ashader` (`shading_model <standard|clearcoat|sheen|anisotropic|transmission|subsurface>;`):
+  - **G-Buffer Encoding:** Adds a single `material_ext` (`RGBA16Float`) attachment (5th G-buffer color target) and encodes `SHADING_*` code (`0=Standard, 1=Unshaded, 2=Clearcoat, 3=Sheen, 4=Anisotropic, 5=Transmission, 6=Subsurface`) in `emissive.a = float(code + 1u)` (`0.0` = sky). For `SHADING_TRANSMISSION`, `albedo.rgb` carries `mix(albedo, attenuation_color, transmission)` so Hybrid RT Beer-Lambert refraction matches the Path Tracer without extra G-buffer textures. SVGF temporal and a-trous denoisers use `min(roughness, clearcoat_roughness)` on clearcoat pixels to preserve crisp top-coat highlights.
+  - **Detail Maps, POM & Wetness:** `gbuffer.frag` performs 12-step steep Parallax Occlusion Mapping (`astral_parallax_uv`), Reoriented Normal Mapping (`astral_detail_normal`), and porous wetness darkening + water-film clearcoat (`astral_apply_wetness`).
+- **Deferred Decal Pass (`DecalPass` / `decal.comp`):** Runs after `SdfPass` and before lighting/RT only when `scene.decals` is non-empty (zero cost otherwise); box-projects albedo, roughness, metallic, normal, and wetness onto both mesh and SDF surfaces. `path_tracer.comp` applies the identical decal loop on primary hits (`bounce == 0`).
+- **Progressive Unbiased Path Tracer (`PathTracerPass` / `path_tracer.comp`):** Enabled via `RenderSettings::path_tracer` (`path_tracer_max_bounces`, default `6`). Uses `RGBA32Float` ping-pong accumulation, exact NEE + power-heuristic MIS, Russian roulette, Beer-Lambert volume tracking, and shares the exact TLAS, SDFs, decals, and custom `.ashader` RT variants. Automatically resets on camera motion, resize, light-count change, or `reset_history()`.
+
 ---
 
 ## 4. C++ ↔ GLSL Layout Synchronization
@@ -95,10 +103,12 @@ All BDA structs use `scalar` layout (`GL_EXT_scalar_block_layout` / Vulkan 1.2 `
 
 | Struct (C++ / GLSL) | Size (bytes) | Notable Fields Added/Updated |
 |---|---|---|
-| `GpuFrame` / `Frame` | `608` | `prev_camera_position` (`Vec4`, offset `528`), `inv_prev_view_projection` (`Mat4`, offset `544`), `counts[3]` ReSTIR flags (`bit 0 = active`, `bit 1 = history valid`). |
+| `GpuMaterial` / `Material` | `192` | Extended with M13 `coat_aniso`, `sheen`, `transmission`, `subsurface`, `attenuation`, `detail_textures[4]`, `detail_params`, and `custom.z = shading_model`. |
+| `GpuDecal` / `Decal` | `128` | Box-projected decal (`inv_transform`, `color`, `params`, `axis_up`, `textures[4]`). |
+| `GpuFrame` / `Frame` | `672` | 8-byte aligned (`buffer_reference_align = 8`); embeds `GpuSceneAddresses scene` (`tlas..decals`, offset `608`), `decal_count` (`664`), `pt_params` (`668`). |
+| `GBufferIds` | `40` | Added `material_ext` bindless index (`10 × uint32`). |
 | `GpuReservoir` / `Reservoir` | `16` | Compact 128-bit ReSTIR DI reservoir (`light_id`, `uv_packed`, `W`, `M`). |
-| `RtLightingPush` | `128` | Added `reservoirs` BDA (`uint64_t`, offset `56`). |
-| `RestirPush` | `120` | Shared push-constant block for `restir_di_temporal.comp` and `restir_di_spatial.comp`. |
-| `GpuShader` / `GpuShader` | `32` | `alpha_test` flag (`uint32_t`). |
+| `RtLightingPush` / `RestirPush` | `80` / `72` | Slimmed by reading scene BDAs from `Frame.scene` instead of duplicating in push constants. |
+| `PathTracerPush` / `DecalPush` | `24` / `60` | Push constants for progressive Path Tracer and Deferred Decal compute passes. |
 | `BloomUpPush` | `36` | `blend` (`float`, offset `32`) for normalized equal-weight upsample. |
 | `TlasInstance` (`modules/gpu`) | CPU-side | `bool opaque = true` controlling `VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR` vs `FORCE_NO_OPAQUE_BIT_KHR`. |

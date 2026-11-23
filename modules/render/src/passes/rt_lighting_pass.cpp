@@ -45,18 +45,8 @@ void RtLightingPass::add_restir(RenderGraph& graph, const FrameInputs& inputs, c
             b.side_effect(); // writes reservoir_temp_ BDA buffer
         },
         [pipe = pipelines.restir_temporal, addr, gbuffer, geometry_prev, prev_res, temp_res, w, h](PassContext& ctx) {
-            const RestirPush push{addr.frame,
-                                  addr.tlas,
-                                  addr.instances,
-                                  addr.materials,
-                                  addr.lights,
-                                  addr.rects,
-                                  addr.shapes,
-                                  prev_res,
-                                  temp_res,
-                                  bindless_gbuffer(ctx, gbuffer),
-                                  ctx.bindless(geometry_prev),
-                                  0u};
+            const RestirPush push{addr.frame, prev_res, temp_res, bindless_gbuffer(ctx, gbuffer),
+                                  ctx.bindless(geometry_prev), 0u};
             ctx.cmd.bind_pipeline(pipe);
             ctx.cmd.push_constants(&push, sizeof(push));
             ctx.cmd.dispatch((w + 7) / 8, (h + 7) / 8);
@@ -70,18 +60,7 @@ void RtLightingPass::add_restir(RenderGraph& graph, const FrameInputs& inputs, c
         },
         [pipe = pipelines.restir_spatial, addr, gbuffer, temp_res, out_res, w, h](PassContext& ctx) {
             ctx.cmd.memory_barrier(); // reservoir_temp_ written by restir.temporal
-            const RestirPush push{addr.frame,
-                                  addr.tlas,
-                                  addr.instances,
-                                  addr.materials,
-                                  addr.lights,
-                                  addr.rects,
-                                  addr.shapes,
-                                  temp_res,
-                                  out_res,
-                                  bindless_gbuffer(ctx, gbuffer),
-                                  0u,
-                                  0u};
+            const RestirPush push{addr.frame, temp_res, out_res, bindless_gbuffer(ctx, gbuffer), 0u, 0u};
             ctx.cmd.bind_pipeline(pipe);
             ctx.cmd.push_constants(&push, sizeof(push));
             ctx.cmd.dispatch((w + 7) / 8, (h + 7) / 8);
@@ -127,12 +106,6 @@ RtLightingOutput RtLightingPass::add(RenderGraph& graph, const FrameInputs& inpu
          near_gi_radius, w, h](PassContext& ctx) {
             if (restir_active) ctx.cmd.memory_barrier(); // reservoir_temp_ written by restir.spatial
             const RtLightingPush push{addr.frame,
-                                      addr.tlas,
-                                      addr.instances,
-                                      addr.materials,
-                                      addr.lights,
-                                      addr.rects,
-                                      addr.shapes,
                                       spatial_out,
                                       bindless_gbuffer(ctx, gbuffer),
                                       ctx.bindless(ddgi.irradiance),

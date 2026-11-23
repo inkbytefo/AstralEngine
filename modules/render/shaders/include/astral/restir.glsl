@@ -57,14 +57,14 @@ bool restir_eval_sample(Frame f, PointLights lights, RectLights rects, Surface s
         if (dist >= radius) return false;
         vec3 l = to / dist;
         float nl = dot(s.n, l);
-        if (nl <= 0.0) return false;
+        if (nl <= 0.0 && s.shading_model != SHADING_SUBSURFACE) return false;
         float falloff = clamp(1.0 - pow(dist / radius, 4.0), 0.0, 1.0);
         falloff = falloff * falloff / (dist * dist + 1.0);
         vec3 radiance = light.color_intensity.rgb * light.color_intensity.a * falloff;
-        vec3 h = normalize(v + l);
-        vec3 F = fresnel_schlick(f0, max(dot(v, h), 0.0));
-        diffuse = (1.0 - F) * kd * nl * radiance;
-        specular = specular_brdf(s.n, v, l, f0, s.roughness) * radiance;
+        vec3 d_rad, sp_rad;
+        eval_surface_direct_radiance(s, v, l, d_rad, sp_rad);
+        diffuse = d_rad * (PI * radiance);
+        specular = sp_rad * (PI * radiance);
         return true;
     }
 
@@ -85,13 +85,14 @@ bool restir_eval_sample(Frame f, PointLights lights, RectLights rects, Surface s
     ln /= ln_len;
     float cos_l = dot(ln, -l);
     if (r.position_two_sided.w > 0.5) cos_l = abs(cos_l);
-    if (nl <= 0.0 || cos_l <= 0.0) return false;
-    vec3 h = normalize(v + l);
-    vec3 F = fresnel_schlick(f0, max(dot(v, h), 0.0));
+    if ((nl <= 0.0 && s.shading_model != SHADING_SUBSURFACE) || cos_l <= 0.0) return false;
     float geom = cos_l * area / d2;
-    diffuse = (1.0 - F) * kd * nl * r.radiance.rgb * geom * (1.0 / PI);
+    vec3 d_rad, sp_rad;
+    eval_surface_direct_radiance(s, v, l, d_rad, sp_rad);
+    diffuse = d_rad * r.radiance.rgb * geom;
     // Deterministic MIS weight matching rt_lighting.comp's VNDF reflection hit on RectLight (w_light + w_brdf == 1).
-    if (s.roughness >= ASTRAL_MIRROR_ROUGHNESS) {
+    if (s.roughness >= ASTRAL_MIRROR_ROUGHNESS && nl > 0.0) {
+        vec3 h = normalize(v + l);
         float nv = max(dot(s.n, v), 1e-4);
         float nh = max(dot(s.n, h), 0.0);
         float a = max(s.roughness * s.roughness, 0.002);
@@ -99,7 +100,7 @@ bool restir_eval_sample(Frame f, PointLights lights, RectLights rects, Surface s
         float pdf_light = prob / max(geom, 1e-8);
         float pdf_brdf = vndf_reflection_pdf(nv, nh, a);
         float w_mis = mis_power2(pdf_light, pdf_brdf);
-        specular = specular_brdf_radiance(s.n, v, l, f0, s.roughness) * r.radiance.rgb * geom * w_mis;
+        specular = sp_rad * r.radiance.rgb * geom * w_mis;
     }
     return true;
 }

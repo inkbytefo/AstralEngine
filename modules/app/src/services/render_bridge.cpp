@@ -153,7 +153,9 @@ void RenderBridge::sync_primitives() {
         } else if (renderer_) {
             const MaterialDesc& d = p.material;
             std::string key = to_json(d, {}).dump();
-            for (TextureHandle t : {d.base_color_texture, d.metallic_roughness_texture, d.normal_texture, d.emissive_texture}) {
+            for (TextureHandle t : {d.base_color_texture, d.metallic_roughness_texture, d.normal_texture,
+                                    d.emissive_texture, d.detail.albedo_texture, d.detail.normal_texture,
+                                    d.detail.height_texture}) {
                 key += "/" + std::to_string(t.index) + "." + std::to_string(t.generation);
             }
             auto [it, inserted] = primitive_materials_.try_emplace(key);
@@ -283,6 +285,12 @@ void RenderBridge::extract_lights() {
         }
         scratch_.rect_lights.push_back(light);
     });
+    scratch_.decals.clear();
+    world_.each<const Decal>([&](Entity e, const Decal& d) {
+        Decal decal = d;
+        if (const WorldTransform* w = world_.get<WorldTransform>(e)) decal.transform = w->matrix;
+        scratch_.decals.push_back(decal);
+    });
 }
 
 void RenderBridge::render_frame(const RenderFrameInput& input) {
@@ -304,6 +312,7 @@ void RenderBridge::render_frame(const RenderFrameInput& input) {
                        .sdf = scratch_.sdf_shapes,
                        .lights = scratch_.point_lights,
                        .rect_lights = scratch_.rect_lights,
+                       .decals = scratch_.decals,
                        .sun = input.sun,
                        .environment = input.environment,
                        .debug_lines = input.debug_lines,

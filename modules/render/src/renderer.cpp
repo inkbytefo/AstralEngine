@@ -115,7 +115,8 @@ void Renderer::set_settings(const RenderSettings& settings) {
     const GiSettings &a = old.gi, &b = settings.gi;
     if (a.probes_x != b.probes_x || a.probes_y != b.probes_y || a.probes_z != b.probes_z ||
         a.rays_per_probe != b.rays_per_probe || old.denoise_iterations != settings.denoise_iterations ||
-        old.restir_di != settings.restir_di) {
+        old.restir_di != settings.restir_di || old.path_tracer != settings.path_tracer ||
+        old.path_tracer_max_bounces != settings.path_tracer_max_bounces) {
         reset_history();
     }
     if (old.shadow_map_size != settings.shadow_map_size && settings.shadow_map_size > 0) {
@@ -128,6 +129,7 @@ bool Renderer::ray_tracing() const noexcept { return impl_->rt; }
 void Renderer::reset_history() {
     impl_->temporal.history_valid = false;
     impl_->passes.ddgi.reset();
+    impl_->passes.path_tracer.reset();
 }
 
 void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const CameraData& camera,

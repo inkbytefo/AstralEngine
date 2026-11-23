@@ -34,6 +34,9 @@ void main() {
     float roughness = fetch_texel(pc.g.albedo, pixel).a;
     if (f.counts.y > 0u && fetch_texel(pc.g.sdf_depth, pixel).r < fetch_texel(pc.g.depth, pixel).r) {
         roughness = fetch_texel(pc.g.sdf_albedo, pixel).a;
+    } else if (decode_shading_model(fetch_texel(pc.g.emissive, pixel).a) == SHADING_CLEARCOAT) {
+        vec4 ext = fetch_texel(pc.g.material_ext, pixel);
+        if (ext.x > 0.05) roughness = min(roughness, ext.y);
     }
     roughness = clamp(roughness, ASTRAL_MIN_ROUGHNESS, 1.0);
 

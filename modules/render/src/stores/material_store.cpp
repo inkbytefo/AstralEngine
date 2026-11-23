@@ -51,13 +51,28 @@ bool MaterialStore::is_post(MaterialHandle handle) const noexcept {
 }
 
 GpuMaterial MaterialStore::to_gpu(const MaterialDesc& d) const {
-    return {d.base_color,
-            {d.emissive.x, d.emissive.y, d.emissive.z, d.roughness},
-            {d.metallic, d.normal_scale, 0, 0},
-            {textures_.bindless_or(d.base_color_texture, no_texture),
-             textures_.bindless_or(d.metallic_roughness_texture, no_texture),
-             textures_.bindless_or(d.normal_texture, no_texture),
-             textures_.bindless_or(d.emissive_texture, no_texture)}};
+    GpuMaterial gm{};
+    gm.base_color = d.base_color;
+    gm.emissive_roughness = {d.emissive.x, d.emissive.y, d.emissive.z, d.roughness};
+    gm.params = {d.metallic, d.normal_scale, d.wetness, 0.0f};
+    gm.textures[0] = textures_.bindless_or(d.base_color_texture, no_texture);
+    gm.textures[1] = textures_.bindless_or(d.metallic_roughness_texture, no_texture);
+    gm.textures[2] = textures_.bindless_or(d.normal_texture, no_texture);
+    gm.textures[3] = textures_.bindless_or(d.emissive_texture, no_texture);
+    gm.custom[2] = static_cast<std::uint32_t>(d.shading_model);
+    gm.coat_aniso = {d.clearcoat.strength, d.clearcoat.roughness, d.anisotropy.strength, d.anisotropy.rotation};
+    gm.sheen = {d.sheen.color.x, d.sheen.color.y, d.sheen.color.z, d.sheen.roughness};
+    gm.transmission = {d.transmission.strength, d.transmission.ior, d.transmission.thickness,
+                       d.transmission.attenuation_distance};
+    gm.subsurface = {d.subsurface.color.x, d.subsurface.color.y, d.subsurface.color.z, d.subsurface.strength};
+    gm.attenuation = {d.transmission.attenuation_color.x, d.transmission.attenuation_color.y,
+                      d.transmission.attenuation_color.z, d.subsurface.radius};
+    gm.detail_textures[0] = textures_.bindless_or(d.detail.albedo_texture, no_texture);
+    gm.detail_textures[1] = textures_.bindless_or(d.detail.normal_texture, no_texture);
+    gm.detail_textures[2] = textures_.bindless_or(d.detail.height_texture, no_texture);
+    gm.detail_textures[3] = no_texture;
+    gm.detail_params = {d.detail.uv_scale, d.detail.normal_scale, d.detail.parallax_scale, 0.0f};
+    return gm;
 }
 
 void MaterialStore::upload(GrowBuffer& material_buffer, GrowBuffer& param_buffer) {
