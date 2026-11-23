@@ -66,6 +66,8 @@ struct Loader {
     ModelData model;
     std::string error;
     std::vector<int> image_srgb; // -1 unused, 0 linear, 1 srgb
+    std::vector<int> alternate_image;
+    std::size_t image_count = 0;
 
     bool fail(std::string message) {
         if (error.empty()) error = std::move(message);
@@ -169,12 +171,19 @@ struct Loader {
         if (texture_info["texCoord"].as_number(0) != 0) model.warnings.push_back("only TEXCOORD_0 is supported");
         const int image = static_cast<int>(tex["source"].as_number(-1));
         if (image < 0 || static_cast<std::size_t>(image) >= image_srgb.size()) return -1;
-        if (image_srgb[static_cast<std::size_t>(image)] < 0) image_srgb[static_cast<std::size_t>(image)] = srgb ? 1 : 0;
-        return image;
+        auto& color = image_srgb[static_cast<std::size_t>(image)];
+        const int requested = srgb ? 1 : 0;
+        if (color < 0) color = requested;
+        if (color == requested) return image;
+        auto& alternate = alternate_image[static_cast<std::size_t>(image)];
+        if (alternate < 0) alternate = static_cast<int>(image_count++);
+        return alternate;
     }
 
     void load_materials() {
-        image_srgb.assign(doc["images"].size(), -1);
+        image_count = doc["images"].size();
+        image_srgb.assign(image_count, -1);
+        alternate_image.assign(image_count, -1);
         for (const Json& m : doc["materials"].as_array()) {
             ModelMaterial mat;
             mat.name = m["name"].as_string();
@@ -204,6 +213,7 @@ struct Loader {
 
     bool load_images() {
         const Json& list = doc["images"];
+        model.images.resize(image_count);
         for (std::size_t i = 0; i < list.size(); ++i) {
             const Json& img = list[i];
             const bool srgb = image_srgb[i] != 0;
@@ -224,7 +234,12 @@ struct Loader {
             auto decoded = image_srgb[i] < 0 ? std::optional<ImageData>(ImageData{}) // unused: skip decoding
                                              : decode_image(*bytes, srgb, &err);
             if (!decoded) return fail("image " + source + ": " + err);
-            model.images.push_back({std::move(*decoded), source});
+            if (alternate_image[i] >= 0) {
+                ImageData alternate = *decoded;
+                alternate.srgb = !srgb;
+                model.images[static_cast<std::size_t>(alternate_image[i])] = {std::move(alternate), source};
+            }
+            model.images[i] = {std::move(*decoded), source};
         }
         return true;
     }

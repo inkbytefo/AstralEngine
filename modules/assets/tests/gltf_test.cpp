@@ -2,6 +2,7 @@
 #include "gltf_writer.hpp"
 
 #include <astral/assets/model.hpp>
+#include <astral/assets/cook.hpp>
 #include <doctest/doctest.h>
 
 using namespace astral;
@@ -55,6 +56,30 @@ TEST_CASE("a .glb with embedded images loads the same model") {
     REQUIRE_MESSAGE(m.has_value(), error);
     check_model(*m);
     CHECK(m->files.size() == 1);
+}
+
+TEST_CASE("one glTF image can be both color and linear data") {
+    const auto dir = test::temp_dir("gltf_image_roles");
+    const auto path = test::write_gltf(dir, "quad");
+    std::ifstream stream(path);
+    auto doc = Json::parse(std::string(std::istreambuf_iterator<char>(stream), {}));
+    REQUIRE(doc);
+    Json material = (*doc)["materials"][0];
+    material["normalTexture"]["index"] = 0;
+    (*doc)["materials"] = Json::array({material});
+    const auto text = doc->dump();
+    test::write_bytes(path, std::vector<std::uint8_t>(text.begin(), text.end()));
+    const auto model = load_gltf(path);
+    REQUIRE(model);
+    const auto& mat = model->materials[0];
+    REQUIRE(mat.base_color_image != mat.normal_image);
+    CHECK(model->images[mat.base_color_image].image.srgb);
+    CHECK_FALSE(model->images[mat.normal_image].image.srgb);
+    CHECK(model->images[mat.base_color_image].image.rgba == model->images[mat.normal_image].image.rgba);
+    const auto cooked = read_cooked_model(write_cooked_model(*model));
+    REQUIRE(cooked);
+    CHECK(cooked->images[mat.base_color_image].image.srgb);
+    CHECK_FALSE(cooked->images[mat.normal_image].image.srgb);
 }
 
 TEST_CASE("missing normals are generated") {

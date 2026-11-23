@@ -15,6 +15,7 @@ MaterialLibrary::MaterialLibrary(Renderer& renderer, AssetManager& assets, std::
 MaterialLibrary::~MaterialLibrary() {
     for (auto& m : materials_) renderer_.destroy(m->handle);
     for (auto& s : shaders_) renderer_.destroy(s->handle);
+    for (auto& [key, tex] : textures_) renderer_.destroy(tex.handle);
 }
 
 void MaterialLibrary::log_error(const std::string& what, const std::string& message) {
@@ -34,17 +35,52 @@ std::optional<Json> MaterialLibrary::read_document(std::string_view path, std::s
     return Json::parse(std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()), error);
 }
 
+bool MaterialLibrary::reload_texture(Texture& tex) {
+    std::string error;
+    if (auto bytes = assets_.read(tex.path, &error)) {
+        if (auto image = decode_image(*bytes, tex.srgb, &error)) {
+            if (tex.handle.valid()) {
+                if (renderer_.update_texture(tex.handle, *image)) return true;
+            } else {
+                tex.handle = renderer_.create_texture(*image);
+                if (tex.handle.valid()) return true;
+            }
+        }
+    }
+    log_error("texture " + tex.path, error.empty() ? "cannot upload texture" : error);
+    return false;
+}
+
 TextureHandle MaterialLibrary::texture(const std::string& path, bool srgb) {
     const std::string key = path + (srgb ? "#srgb" : "#linear");
-    if (auto it = textures_.find(key); it != textures_.end()) return it->second;
-    TextureHandle handle;
-    std::string error;
-    if (auto bytes = assets_.read(path, &error)) {
-        if (auto image = decode_image(*bytes, srgb, &error)) handle = renderer_.create_texture(*image);
+    auto [entry, inserted] = textures_.try_emplace(key, Texture{path, srgb, {}, time_of(path)});
+    if (inserted) reload_texture(entry->second);
+    return entry->second.handle;
+}
+
+void MaterialLibrary::update_textures() {
+    bool recovered = false;
+    for (auto& [key, tex] : textures_) {
+        const auto time = time_of(tex.path);
+        if (tex.time == time) continue;
+        tex.time = time;
+        const bool missing = !tex.handle.valid();
+        if (reload_texture(tex) && missing) recovered = true;
     }
-    if (!handle.valid()) log_error("texture " + path, error.empty() ? "cannot create texture" : error);
-    textures_.emplace(key, handle); // failures are remembered: logged once
-    return handle;
+    if (!recovered) return;
+
+    for (auto& material : materials_) {
+        bool changed = false;
+        for (std::size_t i = 0; i < material->texture_sources.size(); ++i) {
+            const auto& source = material->texture_sources[i];
+            auto& bound = material->desc.textures[i].texture;
+            const TextureHandle handle = texture(source.path, source.srgb);
+            if (bound == handle) continue;
+            bound = handle;
+            changed = true;
+        }
+        if (changed) renderer_.update_material(material->handle, material->desc);
+    }
 }
 
 /// Compiles a .ashader. With `reload`, an existing entry gets its new pipelines only if the compile
@@ -138,6 +174,7 @@ bool MaterialLibrary::build(Material& material, bool create) {
     material.shader = shader;
     material.desc = std::move(desc);
     material.values = material.desc.params;
+    material.texture_sources = values.textures;
     material.watched.clear();
     for (const std::string& dep : material.file.dependencies) material.watched.emplace_back(dep, time_of(dep));
     return true;
@@ -157,6 +194,7 @@ MaterialHandle MaterialLibrary::get(std::string_view path) {
 void MaterialLibrary::update(double now) {
     if (!watch_ || now < next_check_) return;
     next_check_ = now + 0.25;
+    update_textures();
     // Shaders first: a new pipeline set is made, then every material using it is pointed at it.
     for (auto& s : shaders_) {
         if (time_of(s->path) == s->time) continue;

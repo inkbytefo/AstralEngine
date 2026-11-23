@@ -124,3 +124,53 @@ TEST_CASE("load_material without a renderer or with a missing file gives an inva
     headless.run_frames(game, 1);
     CHECK_FALSE(game.m.valid());
 }
+
+TEST_CASE("a material recovers a missing texture and preserves it across broken edits") {
+    const auto dir = test::temp_dir("app_material_texture_reload");
+    const auto texture = dir / "color.png";
+    write_text(dir / "textured.ashader", R"(shader_type surface;
+uniform sampler2D albedo : source_color;
+void surface() { ALBEDO = vec3(0.0); EMISSION = texture(albedo, UV).rgb; }
+)");
+    write_text(dir / "wall.material", R"({"format":"astral.material","version":1,
+        "shader":"textured.ashader","values":{"albedo":"color.png"}})");
+    App app({.width = 80, .height = 60, .fixed_timestep = 1.0f / 60.0f, .render = {.ray_tracing = false},
+             .asset_root = dir.string(), .offscreen = true});
+    if (!app.context().renderer) return;
+
+    struct G final : Game {
+        std::filesystem::path path;
+        MaterialHandle material;
+        TextureHandle missing, loaded, after_bad, after_edit;
+        TextureHandle bound(Context& ctx) const { return ctx.renderer->material(material)->textures[0].texture; }
+        void on_start(Context& ctx) override {
+            material = ctx.materials().load_material("wall.material");
+            REQUIRE(material.valid());
+            missing = bound(ctx);
+            ctx.world.create(Transform{}, PrimitiveMesh{.material_file = "wall.material"});
+            ctx.world.create(Transform{.position = {0, 0, 3}}, Camera{});
+        }
+        void on_update(Context& ctx) override {
+            if (ctx.time.frame == 2) test::write_bytes(path, test::png(255, 0, 0));
+            if (ctx.time.frame == 20) {
+                loaded = bound(ctx);
+                write_text(path, "invalid image");
+            }
+            if (ctx.time.frame == 37) {
+                after_bad = bound(ctx);
+                test::write_bytes(path, test::png(0, 255, 0));
+            }
+            if (ctx.time.frame == 54) after_edit = bound(ctx);
+        }
+    } game;
+    game.path = texture;
+    app.run_frames(game, 57);
+    CHECK_FALSE(game.missing.valid());
+    CHECK(game.loaded.valid());
+    CHECK(game.after_bad == game.loaded);
+    CHECK(game.after_edit == game.loaded);
+    std::vector<std::uint8_t> frame;
+    REQUIRE(app.read_frame(frame));
+    CHECK(center(frame, 80, 60).g > 150);
+    CHECK(center(frame, 80, 60).r < 30);
+}

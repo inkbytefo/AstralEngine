@@ -54,6 +54,12 @@ private:
         UniformLayout layout;
         std::filesystem::file_time_type time{};
     };
+    struct Texture {
+        std::string path;
+        bool srgb = false;
+        TextureHandle handle;
+        std::filesystem::file_time_type time{};
+    };
     struct Material {
         std::string path;
         MaterialHandle handle;
@@ -61,11 +67,14 @@ private:
         const Shader* shader = nullptr;
         MaterialDesc desc;
         std::vector<float> values;
+        std::vector<UniformValues::Texture> texture_sources;
         std::vector<std::pair<std::string, std::filesystem::file_time_type>> watched;
     };
 
     Shader* load_shader(const std::string& path, bool reload);
     bool build(Material& material, bool create);
+    bool reload_texture(Texture& texture);
+    void update_textures();
     TextureHandle texture(const std::string& path, bool srgb);
     std::optional<Json> read_document(std::string_view path, std::string* error);
     std::filesystem::file_time_type time_of(const std::string& path) const;
@@ -79,7 +88,7 @@ private:
     double next_check_ = 0.0;
     std::vector<std::unique_ptr<Shader>> shaders_;
     std::vector<std::unique_ptr<Material>> materials_;
-    std::unordered_map<std::string, TextureHandle> textures_;
+    std::unordered_map<std::string, Texture> textures_;
 };
 
 } // namespace astral
