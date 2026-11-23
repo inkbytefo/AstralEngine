@@ -37,6 +37,10 @@ TLAS build ─► gbuffer (+material_ext) ─► sdf ─► decals (varsa) ─�
           ─► denoise.atrous (×N) ─► composite ─► sky ─► taa ─► şeffaf ─► bloom ─► tonemap
 ```
 `RenderSettings::path_tracer = true` iken hibrit geçişler yerine `path_tracer` (`RGBA32Float` ping-pong birikimli çok sekmeli NEE+MIS yansız yol izleyici) → şeffaf → bloom → `tonemap` → `post` → `ui` çalışır.
+PT, sahnedeki ışın izlenen bir yüzey `TIME` kullanıyorsa zaman değiştiğinde birikimi sıfırlar.
+Hibrit RT, SDF verisi değiştiği karede TAA, denoise ve ReSTIR temporal geçmişini devre dışı bırakır.
+SDF motion vector’ları kamera hareketini taşır. SDF verisi sabit kaldığında temporal birikim devam eder.
+
 
 | Pass | Ne yapar |
 |---|---|

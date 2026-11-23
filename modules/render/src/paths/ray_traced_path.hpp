@@ -27,6 +27,8 @@ struct TemporalState {
     std::uint32_t prev_rect_lights = 0;
     bool prev_restir_active = false;
     std::uint64_t path_tracer_scene_signature = 0;
+    std::uint64_t sdf_signature = 0;
+    float prev_scene_time = 0.0f;
 };
 
 struct RayTracedPathContext {

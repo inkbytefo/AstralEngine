@@ -70,6 +70,7 @@ ShaderHandle ShaderStore::create(const SurfaceShaderBuild& build, std::string_vi
     shader.casts_shadows = build.casts_shadows;
     shader.alpha_test = build.alpha_test;
     shader.rt_chunk = build.rt_chunk;
+    shader.rt_uses_time = shader.rt_chunk.find("TIME") != std::string::npos;
     shader.samplers = build.samplers;
     shader.gbuffer = device_.create_graphics_pipeline({
         .vertex = {build.gbuffer_vertex},

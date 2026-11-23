@@ -322,6 +322,22 @@ bool rt_available(Fixture& f) {
 
 } // namespace
 
+TEST_CASE("moving SDF invalidates hybrid temporal history until the next stable frame") {
+    Fixture f(rt_settings());
+    if (!rt_available(f)) return;
+    SdfShape shape{.size = {0.6f, 0, 0, 0}};
+    const RenderScene scene{.sdf = std::span(&shape, 1)};
+    (void)f.draw(scene);
+    CHECK_FALSE(f.renderer->stats().temporal_history_used);
+    (void)f.draw(scene);
+    CHECK(f.renderer->stats().temporal_history_used);
+    shape.position.x = 0.75f;
+    (void)f.draw(scene);
+    CHECK_FALSE(f.renderer->stats().temporal_history_used);
+    (void)f.draw(scene);
+    CHECK(f.renderer->stats().temporal_history_used);
+}
+
 TEST_CASE("ray-traced path renders a lit mesh with the full pass chain") {
     Fixture f(rt_settings());
     if (!rt_available(f)) return;

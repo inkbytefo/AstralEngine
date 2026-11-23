@@ -33,6 +33,7 @@ struct GpuShader {
     bool blend = false;
     bool alpha_test = false;
     bool casts_shadows = true;
+    bool rt_uses_time = false;
     std::string rt_chunk;                              ///< Ray-traced surface() (see compose_rt_surfaces)
     std::vector<SurfaceShaderBuild::Sampler> samplers; ///< Texture slots of the parameter block
 };

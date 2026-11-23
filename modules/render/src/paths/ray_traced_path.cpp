@@ -37,13 +37,23 @@ bool camera_changed(const Mat4& a, const Mat4& b, const Vec3& pos_a, const Vec3&
     return false;
 }
 
+void hash_bytes(std::uint64_t& signature, std::span<const std::byte> bytes) {
+    for (const std::byte byte : bytes) {
+        signature = (signature ^ std::to_integer<std::uint8_t>(byte)) * 1099511628211ull;
+    }
+}
+
+bool has_time_dependent_surface(const RayTracedPathContext& ctx, const RenderScene& scene) {
+    return std::any_of(ctx.frame_instances.order.begin(), ctx.frame_instances.order.end(),
+                       [&ctx, &scene](std::uint32_t index) {
+                           const GpuShader* shader = ctx.materials.shader_of(scene.meshes[index].material);
+                           return shader && shader->rt_uses_time;
+                       });
+}
+
 std::uint64_t path_tracer_scene_signature(const RenderScene& scene, const FrameInstances& instances) {
     std::uint64_t signature = 14695981039346656037ull;
-    const auto hash = [&signature](std::span<const std::byte> bytes) {
-        for (const std::byte byte : bytes) {
-            signature = (signature ^ std::to_integer<std::uint8_t>(byte)) * 1099511628211ull;
-        }
-    };
+    const auto hash = [&signature](std::span<const std::byte> bytes) { hash_bytes(signature, bytes); };
     const std::array<std::size_t, 5> counts{
         instances.order.size(), instances.lights.size(), instances.rects.size(), instances.shapes.size(),
         instances.decals.size()};
@@ -70,12 +80,23 @@ std::uint64_t path_tracer_scene_signature(const RenderScene& scene, const FrameI
 void update_path_tracer_history(RayTracedPathContext& ctx, const CameraData& camera,
                                 const RenderScene& scene, const Mat4& view_projection) {
     const std::uint64_t signature = path_tracer_scene_signature(scene, ctx.frame_instances);
-    if (!ctx.temporal.history_valid || signature != ctx.temporal.path_tracer_scene_signature ||
+    const bool time_changed = scene.time != ctx.temporal.prev_scene_time && has_time_dependent_surface(ctx, scene);
+    if (!ctx.temporal.history_valid || signature != ctx.temporal.path_tracer_scene_signature || time_changed ||
         camera_changed(view_projection, ctx.temporal.prev_view_projection, camera.position,
                        ctx.temporal.prev_camera_position)) {
         ctx.passes.path_tracer.reset();
     }
     ctx.temporal.path_tracer_scene_signature = signature;
+    ctx.temporal.prev_scene_time = scene.time;
+}
+
+void update_sdf_history(TemporalState& temporal, std::span<const GpuSdfShape> shapes) {
+    std::uint64_t signature = 14695981039346656037ull;
+    hash_bytes(signature, std::as_bytes(shapes));
+    // SDF velocity currently reprojects camera motion only. Reject stale
+    // history when shape motion or a CSG edit makes that velocity unreliable.
+    if (signature != temporal.sdf_signature) temporal.history_valid = false;
+    temporal.sdf_signature = signature;
 }
 
 DdgiFrameInfo prepare_mode_resources(RayTracedPathContext& ctx, const RenderScene& scene, gpu::Extent2D extent) {
@@ -241,6 +262,7 @@ void render_ray_traced_path(RayTracedPathContext& ctx, gpu::CommandList& cmd, gp
 
     const Mat4 unjittered = camera.projection * camera.view;
     if (ctx.settings.path_tracer) update_path_tracer_history(ctx, camera, scene, unjittered);
+    else update_sdf_history(ctx.temporal, ctx.frame_instances.shapes);
 
     FrameAddresses addresses = collect_rt_addresses(ctx.device, slot, ctx.frame_instances);
     const GpuFrame frame =
@@ -280,6 +302,7 @@ void render_ray_traced_path(RayTracedPathContext& ctx, gpu::CommandList& cmd, gp
     ctx.temporal.prev_rect_lights = static_cast<std::uint32_t>(ctx.frame_instances.rects.size());
     ctx.temporal.prev_restir_active =
         ctx.settings.restir_di && (ctx.frame_instances.lights.size() + ctx.frame_instances.rects.size()) > 2;
+    ctx.stats.temporal_history_used = !ctx.settings.path_tracer && ctx.temporal.history_valid;
     ctx.temporal.history_valid = true;
     ++ctx.temporal.frame_index;
 

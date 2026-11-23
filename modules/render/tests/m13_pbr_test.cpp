@@ -497,6 +497,30 @@ void surface() {
     rig.renderer->destroy(sh);
 }
 
+TEST_CASE("path tracing only resets when time changes for a time-dependent surface") {
+    PbrRig rig(rt_settings(true));
+    if (!rig.device || !rig.renderer->ray_tracing()) return;
+    const auto parsed = parse_ashader(
+        "shader_type surface;\nrender_mode unshaded;\nvoid surface() { ALBEDO = vec3(TIME, 0.0, 0.0); }");
+    REQUIRE(parsed.errors.empty());
+    const ShaderHandle shader = rig.renderer->create_shader(compile_surface_shader(parsed.source, "animated"), "animated");
+    REQUIRE(shader.valid());
+    const MeshHandle cube = rig.renderer->create_mesh(make_cube());
+    MeshInstance item{.mesh = cube, .material = rig.renderer->default_material()};
+    RenderScene scene{.meshes = std::span(&item, 1)};
+    (void)rig.draw(scene, 1);
+    scene.time = 0.25f;
+    (void)rig.draw(scene, 1);
+    CHECK(rig.renderer->stats().path_tracer_samples == 2u);
+
+    item.material = rig.renderer->create_material({.shader = shader});
+    (void)rig.draw(scene, 2);
+    CHECK(rig.renderer->stats().path_tracer_samples == 2u);
+    scene.time = 0.75f;
+    (void)rig.draw(scene, 1);
+    CHECK(rig.renderer->stats().path_tracer_samples == 1u);
+}
+
 TEST_CASE("M13 PBR: path tracer renders custom sky and forward blended glass/hologram") {
     PbrRig rig(rt_settings(true));
     if (!rig.device || !rig.renderer->ray_tracing()) return;
