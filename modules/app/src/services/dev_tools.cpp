@@ -100,6 +100,38 @@ void draw_physics_overlay(World& world, DebugDraw& debug) {
     });
 }
 
+void draw_joints_overlay(World& world, DebugDraw& debug) {
+    auto entity_pos = [&](Entity e) -> std::optional<Vec3> {
+        if (!e.valid() || !world.alive(e)) return std::nullopt;
+        if (const WorldTransform* w = world.get<const WorldTransform>(e)) return Vec3{w->matrix[3].x, w->matrix[3].y, w->matrix[3].z};
+        if (const Transform* t = world.get<const Transform>(e)) return t->position;
+        return std::nullopt;
+    };
+    world.each<const Joint>([&](Entity e, const Joint& j) {
+        const JointMotor* m = world.get<const JointMotor>(e);
+        const bool powered = m && m->mode != JointMotorMode::Off && !j.broken;
+        const Vec4 color = j.broken ? Vec4{1.0f, 0.2f, 0.2f, 1.0f}
+                           : powered ? Vec4{0.2f, 0.9f, 1.0f, 1.0f}
+                                     : Vec4{1.0f, 0.8f, 0.2f, 1.0f};
+        debug.cross(j.anchor, j.broken ? 0.25f : 0.15f, color, {.on_top = true});
+        if (const auto pa = entity_pos(j.a)) debug.line(j.anchor, *pa, color, {.on_top = true});
+        if (const auto pb = entity_pos(j.b)) {
+            const Vec3 target = j.type == JointType::Distance ? j.anchor_b : j.anchor;
+            debug.line(target, *pb, color, {.on_top = true});
+            if (j.type == JointType::Distance) debug.line(j.anchor, j.anchor_b, color, {.on_top = true});
+        }
+        if (length(j.axis) > 1e-4f) {
+            const Vec3 ax = normalize(j.axis);
+            debug.arrow(j.anchor, j.anchor + ax * 0.55f, color, {.on_top = true});
+            if (j.type == JointType::SwingTwist && j.swing_limits.x > 0.01f) {
+                const float r = std::sin(std::min(j.swing_limits.x, 1.5f)) * 0.5f;
+                const float d = std::cos(std::min(j.swing_limits.x, 1.5f)) * 0.5f;
+                debug.circle(j.anchor + ax * d, ax, r, {color.x, color.y, color.z, 0.7f});
+            }
+        }
+    });
+}
+
 void draw_fields_overlay(World& world, DebugDraw& debug) {
     world.each<const WindZone, const WorldTransform>([&](const WindZone& z, const WorldTransform& w) {
         const Vec3 p{w.matrix[3].x, w.matrix[3].y, w.matrix[3].z};
@@ -177,6 +209,7 @@ InputCapture DevTools::route_debug_input(const Input& raw_input, bool& show_debu
 void DevTools::draw_overlays(const Context::DebugShow& show, DebugDraw& debug, const WorldCellsOverlay* world_cells) const {
     if (show.world_cells && world_cells) draw_world_cells_overlay(debug, *world_cells);
     if (show.physics) draw_physics_overlay(world_, debug);
+    if (show.physics || show.physics_joints) draw_joints_overlay(world_, debug);
     if (show.fields) draw_fields_overlay(world_, debug);
     if (show.lights) draw_lights_overlay(world_, debug);
 }

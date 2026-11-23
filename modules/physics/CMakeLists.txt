@@ -21,7 +21,7 @@ set(CPP_EXCEPTIONS_ENABLED ON CACHE BOOL "" FORCE)
 set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE) # MSVC: same dynamic CRT (/MD) as the engine
 FetchContent_Declare(JoltPhysics
     GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
-    GIT_TAG v5.3.0
+    GIT_TAG v5.7.0
     GIT_SHALLOW TRUE
     SOURCE_SUBDIR Build
     SYSTEM)
@@ -30,6 +30,8 @@ FetchContent_MakeAvailable(JoltPhysics)
 astral_add_module(NAME physics
     SOURCES
         src/physics.cpp
+        src/physics_shapes.cpp
+        src/physics_joints.cpp
         src/physics_queries_joints.cpp
         src/fields.cpp
     DEPS
@@ -49,4 +51,5 @@ astral_add_tests(MODULE physics
         tests/layers_test.cpp
         tests/shapes_test.cpp
         tests/joints_test.cpp
+        tests/physics_v2_test.cpp
         tests/fields_test.cpp)

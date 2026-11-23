@@ -1,0 +1,12 @@
+{
+  "format": "astral.feature",
+  "version": 1,
+  "name": "lab",
+  "description": "P0 Physics API v2 laboratory: motorized joints, breakable bridge events, batched raycasts.",
+  "depends_on": [],
+  "components": ["lab::MotorOscillator", "lab::LabStats"],
+  "events": [],
+  "exports": { "headers": ["lab.hpp"] },
+  "scripts": ["features/lab/lab.luau"],
+  "actions": []
+}

@@ -108,8 +108,24 @@ inline Quat from_jph(JPH::Quat q) { return {q.GetX(), q.GetY(), q.GetZ(), q.GetW
 inline bool positive_scalar(float v) { return std::isfinite(v) && v > 0.0f; }
 inline bool finite_vec(Vec3 v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); }
 
+inline float combine_material_values(float a, float b, PhysicsCombineMode mode) noexcept {
+    switch (mode) {
+    case PhysicsCombineMode::Average: return 0.5f * (a + b);
+    case PhysicsCombineMode::Min: return std::min(a, b);
+    case PhysicsCombineMode::Multiply: return a * b;
+    case PhysicsCombineMode::Max: return std::max(a, b);
+    }
+    return 0.5f * (a + b);
+}
+
+void acquire_jolt_registry();
+void release_jolt_registry();
+std::uint32_t jolt_backend_abi_hash() noexcept;
+
 bool shape_needs_static(const ShapeDesc& d);
 JPH::Ref<JPH::Shape> make_jolt_shape(const ShapeDesc& d);
+void check_breakable_joints(PhysicsWorld::Impl& m, float dt);
+void shift_world_anchored_joints(PhysicsWorld::Impl& m, Vec3 offset);
 
 struct PhysicsWorld::Impl {
     struct BodyRecord {
@@ -118,6 +134,10 @@ struct PhysicsWorld::Impl {
         std::uint16_t surface = 0;
         bool sensor = false;
     };
+    struct ShapeRecord {
+        JPH::Ref<JPH::Shape> shape;
+        bool static_only = false;
+    };
     struct CharacterRecord {
         JPH::Ref<JPH::CharacterVirtual> character;
     };
@@ -125,6 +145,9 @@ struct PhysicsWorld::Impl {
         JPH::Ref<JPH::TwoBodyConstraint> constraint;
         BodyHandle a, b;
         std::uint64_t pair_key = 0; ///< Non-zero: this joint disables collisions between its bodies.
+        JointDesc desc{};
+        bool broken = false;
+        JointReaction last_reaction{};
     };
     /// Which pairs of bodies must not collide (the bodies of a joint). Read by Jolt's workers during a step,
     /// changed only between steps.
@@ -149,25 +172,37 @@ struct PhysicsWorld::Impl {
         JPH::BodyID id;
     };
 
-    /// Collects contacts from Jolt's worker threads.
+    /// Collects contacts and applies registered PhysicsMaterial combine rules from Jolt's workers.
     class Contacts final : public JPH::ContactListener {
     public:
         explicit Contacts(Impl& owner) : owner_(owner) {}
         void OnContactAdded(const JPH::Body& a, const JPH::Body& b, const JPH::ContactManifold& manifold,
-                            JPH::ContactSettings&) override {
+                            JPH::ContactSettings& settings) override {
+            const BodyHandle ha = owner_.handle_of(a.GetID());
+            const BodyHandle hb = owner_.handle_of(b.GetID());
+            const std::uint16_t sa = owner_.surface_of(ha);
+            const std::uint16_t sb = owner_.surface_of(hb);
+            apply_materials(a, b, sa, sb, settings);
             ContactEvent e;
             e.type = ContactEvent::Type::Begin;
-            e.a = owner_.handle_of(a.GetID());
-            e.b = owner_.handle_of(b.GetID());
+            e.a = ha;
+            e.b = hb;
             e.point = from_jph(JPH::Vec3(manifold.GetWorldSpaceContactPointOn1(0)));
             e.normal = from_jph(manifold.mWorldSpaceNormal);
             e.user_data_a = a.GetUserData();
             e.user_data_b = b.GetUserData();
-            e.surface_a = owner_.surface_of(e.a);
-            e.surface_b = owner_.surface_of(e.b);
+            e.surface_a = sa;
+            e.surface_b = sb;
             e.sensor = a.IsSensor() || b.IsSensor();
             std::scoped_lock lock(mutex_);
             owner_.contacts.push_back(e);
+        }
+        void OnContactPersisted(const JPH::Body& a, const JPH::Body& b, const JPH::ContactManifold&,
+                                JPH::ContactSettings& settings) override {
+            if (owner_.materials.empty()) return;
+            const std::uint16_t sa = owner_.surface_of(owner_.handle_of(a.GetID()));
+            const std::uint16_t sb = owner_.surface_of(owner_.handle_of(b.GetID()));
+            apply_materials(a, b, sa, sb, settings);
         }
         void OnContactRemoved(const JPH::SubShapeIDPair& pair) override {
             ContactEvent e;
@@ -184,6 +219,24 @@ struct PhysicsWorld::Impl {
         }
 
     private:
+        void apply_materials(const JPH::Body& a, const JPH::Body& b, std::uint16_t sa, std::uint16_t sb,
+                             JPH::ContactSettings& settings) const {
+            if (owner_.materials.empty()) return;
+            const PhysicsMaterialDesc* ma = owner_.material_of(sa);
+            const PhysicsMaterialDesc* mb = owner_.material_of(sb);
+            if (!ma && !mb) return;
+            const float fa = ma ? ma->friction : a.GetFriction();
+            const float fb = mb ? mb->friction : b.GetFriction();
+            const float ra = ma ? ma->restitution : a.GetRestitution();
+            const float rb = mb ? mb->restitution : b.GetRestitution();
+            const PhysicsCombineMode fmode = (ma && mb) ? std::max(ma->friction_combine, mb->friction_combine)
+                                                        : (ma ? ma->friction_combine : mb->friction_combine);
+            const PhysicsCombineMode rmode = (ma && mb) ? std::max(ma->restitution_combine, mb->restitution_combine)
+                                                        : (ma ? ma->restitution_combine : mb->restitution_combine);
+            settings.mCombinedFriction = combine_material_values(fa, fb, fmode);
+            settings.mCombinedRestitution = combine_material_values(ra, rb, rmode);
+        }
+
         Impl& owner_;
         std::mutex mutex_;
     };
@@ -198,11 +251,14 @@ struct PhysicsWorld::Impl {
     std::unique_ptr<Contacts> listener;
 
     HandlePool<BodyRecord, BodyTag> bodies;
+    HandlePool<ShapeRecord, ShapeTag> shapes;
     std::vector<IndexEntry> handle_by_index; // read during steps, written only between them
     HandlePool<CharacterRecord, CharacterTag> characters;
     HandlePool<JointRecord, JointTag> joints;
     JPH::CharacterVsCharacterCollisionSimple character_collision;
+    std::unordered_map<std::uint16_t, PhysicsMaterialDesc> materials;
     std::vector<ContactEvent> contacts;
+    std::vector<JointBrokenEvent> broken_joints;
     Logger* logger = nullptr;
 
     BodyHandle handle_of(JPH::BodyID id) const {
@@ -225,6 +281,10 @@ struct PhysicsWorld::Impl {
     bool sensor_of(BodyHandle h) const {
         const BodyRecord* r = bodies.get(h);
         return r && r->sensor;
+    }
+    const PhysicsMaterialDesc* material_of(std::uint16_t surface) const {
+        const auto it = materials.find(surface);
+        return it != materials.end() ? &it->second : nullptr;
     }
     JPH::BodyInterface& bi() { return system->GetBodyInterface(); }
     const JPH::BodyInterface& bi() const { return system->GetBodyInterface(); }

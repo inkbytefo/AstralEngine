@@ -235,6 +235,72 @@ int physics_velocity(lua_State* L) {
     return 1;
 }
 
+int physics_raycast_batch(lua_State* L) {
+    ScriptPhysics& p = require_physics(L, Impl::of(L));
+    luaL_checktype(L, 1, LUA_TTABLE);
+    const int n = lua_objlen(L, 1);
+    std::vector<ScriptRayQuery> queries;
+    queries.reserve(static_cast<std::size_t>(std::max(n, 0)));
+    for (int i = 1; i <= n; ++i) {
+        lua_rawgeti(L, 1, i);
+        luaL_checktype(L, -1, LUA_TTABLE);
+        ScriptRayQuery q{};
+        lua_getfield(L, -1, "origin");
+        q.origin = check_vec3(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, -1, "direction");
+        q.direction = check_vec3(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, -1, "max_distance");
+        if (!lua_isnil(L, -1)) q.max_distance = static_cast<float>(luaL_checknumber(L, -1));
+        lua_pop(L, 1);
+        lua_getfield(L, -1, "options");
+        if (!lua_isnil(L, -1)) read_query_options(L, -1, q.layers, q.ignore);
+        lua_pop(L, 1);
+        lua_pop(L, 1);
+        queries.push_back(q);
+    }
+    const auto hits = p.raycast_batch(queries);
+    lua_createtable(L, static_cast<int>(hits.size()), 0);
+    for (std::size_t i = 0; i < hits.size(); ++i) {
+        if (hits[i]) push_hit(L, *hits[i]);
+        else lua_pushboolean(L, false); // keep dense array indexing in Luau tables (false = miss)
+        lua_rawseti(L, -2, static_cast<int>(i + 1));
+    }
+    return 1;
+}
+
+int physics_teleport(lua_State* L) {
+    Quat rot{};
+    if (!lua_isnoneornil(L, 3)) rot = check_quat(L, 3);
+    require_physics(L, Impl::of(L)).teleport(check_entity(L, 1), check_vec3(L, 2), rot);
+    return 0;
+}
+int physics_wake(lua_State* L) {
+    require_physics(L, Impl::of(L)).wake(check_entity(L, 1));
+    return 0;
+}
+int physics_sleep(lua_State* L) {
+    require_physics(L, Impl::of(L)).sleep(check_entity(L, 1));
+    return 0;
+}
+int physics_set_joint_motor_mode(lua_State* L) {
+    require_physics(L, Impl::of(L)).set_joint_motor_mode(check_entity(L, 1), luaL_checkstring(L, 2));
+    return 0;
+}
+int physics_set_joint_motor_velocity(lua_State* L) {
+    require_physics(L, Impl::of(L)).set_joint_motor_velocity(check_entity(L, 1), static_cast<float>(luaL_checknumber(L, 2)));
+    return 0;
+}
+int physics_set_joint_motor_position(lua_State* L) {
+    require_physics(L, Impl::of(L)).set_joint_motor_position(check_entity(L, 1), static_cast<float>(luaL_checknumber(L, 2)));
+    return 0;
+}
+int physics_break_joint(lua_State* L) {
+    require_physics(L, Impl::of(L)).break_joint(check_entity(L, 1));
+    return 0;
+}
+
 int fields_wind(lua_State* L) {
     push_vec3(L, require_physics(L, Impl::of(L)).wind(check_vec3(L, 1)));
     return 1;
@@ -294,6 +360,7 @@ void register_service_bindings(lua_State* L) {
 
     lua_newtable(L); // astral.physics
     set_function(L, "raycast", physics_raycast);
+    set_function(L, "raycast_batch", physics_raycast_batch);
     set_function(L, "spherecast", physics_spherecast);
     set_function(L, "overlap_sphere", physics_overlap_sphere);
     set_function(L, "overlap_box", physics_overlap_box);
@@ -301,6 +368,13 @@ void register_service_bindings(lua_State* L) {
     set_function(L, "force", physics_force);
     set_function(L, "set_velocity", physics_set_velocity);
     set_function(L, "velocity", physics_velocity);
+    set_function(L, "teleport", physics_teleport);
+    set_function(L, "wake", physics_wake);
+    set_function(L, "sleep", physics_sleep);
+    set_function(L, "set_joint_motor_mode", physics_set_joint_motor_mode);
+    set_function(L, "set_joint_motor_velocity", physics_set_joint_motor_velocity);
+    set_function(L, "set_joint_motor_position", physics_set_joint_motor_position);
+    set_function(L, "break_joint", physics_break_joint);
     lua_setfield(L, -2, "physics");
 
     lua_newtable(L); // astral.fields

@@ -138,22 +138,59 @@ struct Airfoil {
 };
 
 /// Connects the RigidBodies of two entities (or one and the world: leave `a` empty). Created once both bodies exist, with the anchor
-/// and axis in world space as the bodies stand then; removed with the entity. Destroying either entity removes the joint.
+/// and axis in world space as the bodies stand then; removed with the entity. If a connected body unloads (streaming), the joint
+/// detaches (emitting JointDetached) and re-attaches when both bodies exist again; if broken by load, `broken` becomes true (JointBroken).
 struct Joint {
     JointType type = JointType::Point;
     Entity a{};                    ///< Empty: the world.
     Entity b{};
     Vec3 anchor{};                 ///< World space (on A for Distance).
     Vec3 anchor_b{};               ///< Distance only: the point on B.
-    Vec3 axis{0, 1, 0};            ///< Hinge and Slider.
+    Vec3 axis{0, 1, 0};            ///< Primary axis: Hinge, Slider, SwingTwist twist, SixDOF X.
+    Vec3 secondary_axis{1, 0, 0};  ///< Plane/Y axis for SwingTwist and SixDOF.
     bool limited = false;
-    float min_limit = 0.0f;        ///< Hinge radians, Slider metres, Distance metres apart (both 0: as it stands).
-    float max_limit = 0.0f;
+    float min_limit = 0.0f;        ///< Hinge rad, Slider m, Distance m, SwingTwist twist_min.
+    float max_limit = 0.0f;        ///< Hinge rad, Slider m, Distance m, SwingTwist twist_max.
+    Vec2 swing_limits{};           ///< SwingTwist / SixDOF swing half-cone angles (normal, plane) in radians.
+    Vec3 linear_limit_min{1, 1, 1};   ///< SixDOF linear min (min > max locks axis; default locked).
+    Vec3 linear_limit_max{-1, -1, -1};///< SixDOF linear max.
     float spring_frequency = 0.0f;
     float spring_damping = 0.0f;
     float max_friction = 0.0f;
     bool collide_connected = false;
+    float break_force = 0.0f;      ///< N; > 0 breaks the joint under excessive linear reaction force.
+    float break_torque = 0.0f;     ///< N·m; > 0 breaks the joint under excessive angular reaction torque.
+    bool broken = false;           ///< Written by the App when the joint breaks; reset to false to repair/re-attach.
     JointHandle handle{};          ///< Filled in by the App.
+};
+
+/// Optional motor/drive attached to the same entity as a Joint (Hinge, Slider, SixDOF, SwingTwist).
+struct JointMotor {
+    JointMotorMode mode = JointMotorMode::Off;
+    float frequency = 2.0f;
+    float damping = 1.0f;
+    float max_force = 0.0f;
+    float max_torque = 0.0f;
+    float target_velocity = 0.0f;
+    float target_position = 0.0f;
+    Vec3 target_angular_velocity{};
+    Quat target_rotation{};
+};
+
+/// Sent when a breakable Joint exceeds its break_force or break_torque threshold (or break_joint is called).
+struct JointBroken {
+    Entity joint{};
+    Entity a{};
+    Entity b{};
+    float force = 0.0f;
+    float torque = 0.0f;
+};
+
+/// Sent when a live Joint detaches because a connected body was destroyed or streamed out (distinct from JointBroken).
+struct JointDetached {
+    Entity joint{};
+    Entity a{};
+    Entity b{};
 };
 
 /// Two bodies touched or separated (physics events: astral.on("astral::Contact") in scripts).
@@ -228,5 +265,9 @@ ASTRAL_REFLECT_ENUM(astral::ContactKind, Begin, End)
 ASTRAL_REFLECT(astral::Contact, kind, a, b, point, normal, surface_a, surface_b)
 ASTRAL_REFLECT(astral::TriggerEntered, trigger, other)
 ASTRAL_REFLECT(astral::TriggerExited, trigger, other)
-ASTRAL_REFLECT_ENUM(astral::JointType, Fixed, Point, Hinge, Slider, Distance)
-ASTRAL_REFLECT(astral::Joint, type, a, b, anchor, anchor_b, axis, limited, min_limit, max_limit, spring_frequency, spring_damping, max_friction, collide_connected)
+ASTRAL_REFLECT_ENUM(astral::JointType, Fixed, Point, Hinge, Slider, Distance, SixDOF, SwingTwist)
+ASTRAL_REFLECT_ENUM(astral::JointMotorMode, Off, Velocity, Position)
+ASTRAL_REFLECT(astral::Joint, type, a, b, anchor, anchor_b, axis, secondary_axis, limited, min_limit, max_limit, swing_limits, linear_limit_min, linear_limit_max, spring_frequency, spring_damping, max_friction, collide_connected, break_force, break_torque, broken)
+ASTRAL_REFLECT(astral::JointMotor, mode, frequency, damping, max_force, max_torque, target_velocity, target_position, target_angular_velocity, target_rotation)
+ASTRAL_REFLECT(astral::JointBroken, joint, a, b, force, torque)
+ASTRAL_REFLECT(astral::JointDetached, joint, a, b)

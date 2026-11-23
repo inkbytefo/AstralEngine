@@ -67,19 +67,29 @@ constexpr ScriptSymbolDesc kScriptSymbols[] = {
 
     // astral.physics
     {"physics", "raycast", "(origin: vector, direction: vector, max_distance: number, options: QueryOptions?) -> Hit?",
-     "`astral.physics.raycast(origin, direction, max, {layers, ignore})`, `.spherecast(...)`",
-     "reads the last completed physics step: `{entity, position, normal, distance, surface}` or nil"},
+     "`astral.physics.raycast(origin, direction, max, {layers, ignore})`, `.raycast_batch(queries)`, `.spherecast(...)`",
+     "reads the last completed physics step: `{entity, position, normal, distance, surface}` or nil (`false` on batch miss)"},
+    {"physics", "raycast_batch", "(queries: {RayQuery}) -> {Hit | boolean}", "", ""},
     {"physics", "spherecast", "(origin: vector, radius: number, displacement: vector, options: QueryOptions?) -> Hit?", "", ""},
     {"physics", "overlap_sphere", "(center: vector, radius: number, options: QueryOptions?) -> {Entity}",
      "`astral.physics.overlap_sphere(center, radius, opts)`, `.overlap_box(center, half, rotation?, opts)`",
      "list of entities overlapping the shape in the last completed physics step"},
     {"physics", "overlap_box", "(center: vector, half_extents: vector, rotation: Quat?, options: QueryOptions?) -> {Entity}", "", ""},
     {"physics", "impulse", "(entity: Entity, impulse: vector) -> ()",
-     "`astral.physics.impulse / force / set_velocity(entity, v)`, `.velocity(entity)`",
+     "`astral.physics.impulse / force / set_velocity / teleport / wake / sleep`, `.velocity(entity)`",
      "queued commands applied deterministically at the fixed-step boundary after body sync; `velocity` reads completed step"},
     {"physics", "force", "(entity: Entity, force: vector) -> ()", "", ""},
     {"physics", "set_velocity", "(entity: Entity, velocity: vector) -> ()", "", ""},
     {"physics", "velocity", "(entity: Entity) -> vector", "", ""},
+    {"physics", "teleport", "(entity: Entity, position: vector, rotation: Quat?) -> ()", "", ""},
+    {"physics", "wake", "(entity: Entity) -> ()", "", ""},
+    {"physics", "sleep", "(entity: Entity) -> ()", "", ""},
+    {"physics", "set_joint_motor_mode", "(joint: Entity, mode: \"Off\" | \"Velocity\" | \"Position\") -> ()",
+     "`astral.physics.set_joint_motor_mode / _velocity / _position(joint, v)`, `.break_joint(joint)`",
+     "queued joint motor and break commands applied deterministically before the next physics step"},
+    {"physics", "set_joint_motor_velocity", "(joint: Entity, velocity: number) -> ()", "", ""},
+    {"physics", "set_joint_motor_position", "(joint: Entity, position: number) -> ()", "", ""},
+    {"physics", "break_joint", "(joint: Entity) -> ()", "", ""},
 
     // astral.fields
     {"fields", "wind", "(position: vector) -> vector",
@@ -204,6 +214,7 @@ void write_luau_definitions(std::string& d, const ApiDiscoverySummary& api) {
          "    on_start: ((self: Entity, ctx: Ctx) -> ())?,\n    on_update: ((self: Entity, ctx: Ctx) -> ())?,\n"
          "    on_fixed_update: ((self: Entity, ctx: Ctx) -> ())?,\n}\n\n"
          "export type QueryOptions = {layers: (number | {number})?, ignore: Entity?}\n"
+         "export type RayQuery = {origin: vector, direction: vector, max_distance: number?, options: QueryOptions?}\n"
          "export type Hit = {entity: Entity, position: vector, normal: vector, distance: number, surface: number}\n"
          "export type Water = {inside: boolean, surface: number, depth: number, flow: vector, density: number}\n"
          "export type StateDef = {\n    enter: ((from: string?) -> ())?,\n    update: ((dt: number) -> ())?,\n"

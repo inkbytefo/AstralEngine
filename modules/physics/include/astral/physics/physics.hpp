@@ -2,7 +2,9 @@
 
 #include <astral/core/handle.hpp>
 #include <astral/core/math.hpp>
+#include <astral/physics/types.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -12,12 +14,7 @@
 
 namespace astral {
 
-struct BodyTag;
-struct CharacterTag;
-using BodyHandle = Handle<BodyTag>;
-using CharacterHandle = Handle<CharacterTag>;
-struct JointTag;
-using JointHandle = Handle<JointTag>;
+class JobSystem;
 
 /// Collision layers: 16 of them (0 = default). Every body is in one; which layers collide is a symmetric matrix
 /// (PhysicsWorld::set_layer_collision), everything collides by default. Queries take a mask of the layers they see.
@@ -29,14 +26,6 @@ enum class MotionType : std::uint8_t {
     Static,    ///< Never moves (ground, walls).
     Kinematic, ///< Moved by code (move_kinematic), pushes dynamic bodies, ignores forces.
     Dynamic,   ///< Simulated: gravity, collisions, impulses.
-};
-
-enum class ShapeType : std::uint8_t {
-    Box, Sphere, Capsule, Cylinder,
-    ConvexHull,  ///< The hull of `points` (dynamic bodies too).
-    Mesh,        ///< Triangles: static or kinematic bodies only.
-    HeightField, ///< A grid of heights: static or kinematic bodies only.
-    Compound,    ///< Several shapes in one body.
 };
 
 struct ShapeChild;
@@ -107,17 +96,18 @@ struct BodyDesc {
     Vec3 position{};
     Quat rotation{};
     Vec3 linear_velocity{};
-    float mass = 0.0f;          ///< kg; 0 = from the shape's volume (density 1000 kg/m³).
+    float mass = 0.0f;          ///< kg; 0 = from the shape's volume (density from material or 1000 kg/m³).
     float friction = 0.5f;
     float restitution = 0.0f;   ///< Bounciness 0..1.
     float linear_damping = 0.05f;
     float angular_damping = 0.05f;
     float gravity_factor = 1.0f;
     std::uint8_t layer = 0;      ///< Collision layer, < max_physics_layers.
-    std::uint16_t surface = 0;   ///< What it is made of (your table: 0 = default): reported by queries and contacts for sounds and effects.
+    std::uint16_t surface = 0;   ///< Surface/material id (0 = default): looked up in material table & reported by contacts/queries.
     bool sensor = false;        ///< Reports contacts but does not collide (triggers).
     bool continuous = false;    ///< Swept collision for fast objects (bullets).
     std::uint64_t user_data = 0; ///< Yours (e.g. an entity id), returned by queries.
+    ShapeHandle cooked_shape{};  ///< Optional shared/cooked shape handle (overrides `shape` when valid).
 };
 
 struct RayHit {
@@ -151,6 +141,33 @@ struct OverlapHit {
     std::uint64_t user_data = 0;
 };
 
+/// Batched raycast input item.
+struct RayQuery {
+    Vec3 origin{};
+    Vec3 direction{0, -1, 0};
+    float max_distance = 100.0f;
+    QueryFilter filter{};
+};
+
+/// Batched shape sweep input item (uses `cooked_shape` if valid, otherwise `shape`).
+struct ShapeCastQuery {
+    ShapeDesc shape{};
+    ShapeHandle cooked_shape{};
+    Vec3 position{};
+    Quat rotation{};
+    Vec3 displacement{};
+    QueryFilter filter{};
+};
+
+/// Batched overlap input item (uses `cooked_shape` if valid, otherwise `shape`).
+struct OverlapQuery {
+    ShapeDesc shape{};
+    ShapeHandle cooked_shape{};
+    Vec3 position{};
+    Quat rotation{};
+    QueryFilter filter{};
+};
+
 struct ContactEvent {
     enum class Type : std::uint8_t { Begin, End };
     Type type = Type::Begin;
@@ -166,11 +183,13 @@ struct ContactEvent {
 };
 
 enum class JointType : std::uint8_t {
-    Fixed,    ///< Welds the two bodies together as they are.
-    Point,    ///< A ball joint: the anchor point is shared, rotation is free.
-    Hinge,    ///< Rotates about `axis` through the anchor.
-    Slider,   ///< Slides along `axis`.
-    Distance, ///< Keeps anchor on A and anchor_b on B within [min_limit, max_limit] metres of each other (rope, rod, spring).
+    Fixed,      ///< Welds the two bodies together as they are.
+    Point,      ///< A ball joint: the anchor point is shared, rotation is free.
+    Hinge,      ///< Rotates about `axis` through the anchor.
+    Slider,     ///< Slides along `axis`.
+    Distance,   ///< Keeps anchor on A and anchor_b on B within [min_limit, max_limit] metres of each other (rope, rod, spring).
+    SixDOF,     ///< General 6-DOF constraint with per-axis linear/angular limits and motors.
+    SwingTwist, ///< Ragdoll/limb cone+twist angular constraint with swing and twist motors.
 };
 
 /// Connects two bodies (or one body and the world). Positions and axes are in world space, as the bodies stand
@@ -181,15 +200,19 @@ struct JointDesc {
     BodyHandle body_b{};
     Vec3 anchor{};                ///< Where the joint is (on body A for Distance).
     Vec3 anchor_b{};              ///< Distance only: the point on body B.
-    Vec3 axis{0, 1, 0};           ///< Hinge and Slider.
-    bool limited = false;         ///< Hinge: [min_limit, max_limit] radians from the start pose; Slider: metres; Distance: metres apart
-                                  ///< (both 0 = the distance they have now).
+    Vec3 axis{0, 1, 0};           ///< Primary axis: Hinge, Slider, SwingTwist twist axis, SixDOF X axis.
+    Vec3 secondary_axis{1, 0, 0}; ///< Plane/Y axis for SwingTwist and SixDOF (auto-perpendicularized if collinear).
+    bool limited = false;         ///< Hinge: [min_limit, max_limit] rad; Slider/Distance: metres.
     float min_limit = 0.0f;
     float max_limit = 0.0f;
     float spring_frequency = 0.0f; ///< Hz; > 0 makes the limits soft (Distance springs, soft stops). 0 = rigid.
     float spring_damping = 0.0f;   ///< 0 = undamped, 1 = critical.
-    float max_friction = 0.0f;     ///< Hinge (N·m) and Slider (N): resistance to moving.
+    float max_friction = 0.0f;     ///< Resistance force (N) or torque (N·m) when motor is off.
     bool collide_connected = false; ///< Whether the two bodies still collide with each other.
+    JointLimitsDesc limits{};       ///< Per-axis limits for SixDOF and SwingTwist.
+    JointMotorDesc motor{};         ///< Optional motor/drive settings for Hinge, Slider, SixDOF, SwingTwist.
+    float break_force = 0.0f;       ///< N; > 0 breaks the joint when reaction force reaches this threshold.
+    float break_torque = 0.0f;      ///< N·m; > 0 breaks the joint when reaction torque reaches this threshold.
 };
 
 struct CharacterDesc {
@@ -218,6 +241,11 @@ struct PhysicsDesc {
     unsigned threads = 0; ///< Physics worker threads; 0 = hardware threads - 1.
 };
 
+/// Cooks a ShapeDesc into a versioned `ASSH` v1 binary blob without requiring a PhysicsWorld instance.
+[[nodiscard]] std::vector<std::byte> cook_physics_shape(const ShapeDesc& desc);
+/// Inspects the header of a cooked shape binary and checks compatibility with the current backend.
+[[nodiscard]] std::optional<CookedShapeInfo> inspect_cooked_shape(std::span<const std::byte> data);
+
 /// A physics simulation (Jolt underneath, never exposed). Not thread-safe: use from one thread.
 /// Jolt's type registry is process-wide; it is set up by the first PhysicsWorld and torn down
 /// with the last one.
@@ -228,7 +256,22 @@ public:
     PhysicsWorld(const PhysicsWorld&) = delete;
     PhysicsWorld& operator=(const PhysicsWorld&) = delete;
 
-    // Bodies ---------------------------------------------------------------------------
+    // Backend capabilities -----------------------------------------------------------------
+    [[nodiscard]] PhysicsCapabilities capabilities() const noexcept;
+    [[nodiscard]] bool supports(PhysicsCapability cap) const noexcept { return capabilities().supports(cap); }
+
+    // Shapes & materials (P0) --------------------------------------------------------------
+    ShapeHandle create_shape(const ShapeDesc& desc);
+    [[nodiscard]] std::vector<std::byte> cook_shape(const ShapeDesc& desc) const;
+    ShapeHandle create_shape_from_cooked(std::span<const std::byte> data);
+    void destroy(ShapeHandle shape);
+    [[nodiscard]] bool valid(ShapeHandle shape) const noexcept;
+
+    void register_material(std::uint16_t surface, const PhysicsMaterialDesc& desc);
+    [[nodiscard]] std::optional<PhysicsMaterialDesc> material(std::uint16_t surface) const;
+    void clear_material(std::uint16_t surface);
+
+    // Bodies -------------------------------------------------------------------------------
     /// Returns an invalid handle for a bad shape (non-positive or non-finite sizes) or when
     /// max_bodies is reached.
     BodyHandle create_body(const BodyDesc& desc);
@@ -255,23 +298,35 @@ public:
     void add_force_at(BodyHandle body, Vec3 force, Vec3 point);
     void set_angular_velocity(BodyHandle body, Vec3 velocity);
     void add_torque(BodyHandle body, Vec3 torque);
+    void wake(BodyHandle body);
+    void sleep(BodyHandle body);
     void set_gravity(Vec3 gravity);
     [[nodiscard]] Vec3 gravity() const;
     /// Whether bodies of layers `a` and `b` collide (symmetric). Two static bodies never do.
     void set_layer_collision(unsigned a, unsigned b, bool collide);
     [[nodiscard]] bool layers_collide(unsigned a, unsigned b) const noexcept;
-    /// Floating origin: moves every body and character by -offset (velocities, sleep states and
-    /// contacts are kept). Call between steps.
+    /// Floating origin: moves every body, character, and world-anchored joint by -offset. Call between steps.
     void shift_origin(Vec3 offset);
 
-    // Joints ---------------------------------------------------------------------------
+    // Joints -------------------------------------------------------------------------------
     /// Returns an invalid handle (and logs) for a bad description: no bodies, the same body twice, a dead body, a zero axis.
     /// Destroying a body destroys its joints.
     JointHandle create_joint(const JointDesc& desc);
     void destroy(JointHandle joint);
     [[nodiscard]] bool valid(JointHandle joint) const noexcept;
+    void set_joint_motor_mode(JointHandle joint, JointMotorMode mode);
+    void set_joint_motor_velocity(JointHandle joint, float velocity);
+    void set_joint_motor_position(JointHandle joint, float position);
+    void set_joint_motor_angular_velocity(JointHandle joint, Vec3 angular_velocity);
+    void set_joint_motor_rotation(JointHandle joint, Quat target_rotation);
+    void set_joint_limits(JointHandle joint, float min_limit, float max_limit);
+    void set_joint_limits(JointHandle joint, const JointLimitsDesc& limits);
+    void break_joint(JointHandle joint);
+    [[nodiscard]] bool joint_broken(JointHandle joint) const noexcept;
+    [[nodiscard]] JointReaction joint_reaction(JointHandle joint) const noexcept;
+    [[nodiscard]] std::span<const JointBrokenEvent> broken_joints() const noexcept;
 
-    // Simulation -------------------------------------------------------------------------
+    // Simulation ---------------------------------------------------------------------------
     /// Advances the world by `dt` seconds (use a fixed dt; split large steps).
     void step(float dt, int collision_steps = 1);
     /// Contacts that began or ended during the last step().
@@ -287,26 +342,26 @@ public:
     /// Bodies that touch `shape` placed at position/rotation.
     [[nodiscard]] std::vector<OverlapHit> overlap(const ShapeDesc& shape, Vec3 position, Quat rotation = {},
                                                   const QueryFilter& filter = {}) const;
+    /// Batched queries (output span must have at least `queries.size()` elements; runs in parallel when `jobs != nullptr`).
+    void raycast_batch(std::span<const RayQuery> queries, std::span<std::optional<RayHit>> out, JobSystem* jobs = nullptr) const;
+    void shape_cast_batch(std::span<const ShapeCastQuery> queries, std::span<std::optional<ShapeHit>> out,
+                          JobSystem* jobs = nullptr) const;
+    void overlap_batch(std::span<const OverlapQuery> queries, std::span<std::vector<OverlapHit>> out,
+                       JobSystem* jobs = nullptr) const;
 
     // Characters ---------------------------------------------------------------------------
-    /// A capsule that walks: stands on ground, slides along walls, climbs gentle slopes and
-    /// steps, is not pushed around by physics (it pushes dynamic bodies instead).
-    /// The character also owns an inner kinematic body, so raycasts and sensors see it (its
-    /// user_data is the character's), and characters block each other.
-    /// Returns an invalid handle for non-positive or non-finite dimensions.
     CharacterHandle create_character(const CharacterDesc& desc);
     void destroy(CharacterHandle character);
     [[nodiscard]] bool valid(CharacterHandle character) const noexcept;
     [[nodiscard]] std::uint64_t user_data(CharacterHandle character) const;
-    /// Moves the character with a horizontal `velocity` (y ignored) for `dt`; `jump` launches it
-    /// upward with `jump_speed` when on the ground. Gravity is applied in the air.
     void update_character(CharacterHandle character, Vec3 velocity, bool jump, float dt,
                           float jump_speed = 5.0f);
     [[nodiscard]] CharacterState character_state(CharacterHandle character) const;
     void set_character_position(CharacterHandle character, Vec3 position);
 
-private:
     struct Impl;
+
+private:
     std::unique_ptr<Impl> impl_;
 };
 

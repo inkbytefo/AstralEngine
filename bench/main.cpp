@@ -436,6 +436,67 @@ void bench_shader_compile(bool smoke) {
                 count, p.p50, p.p95, p.p99, process_rss_mb());
 }
 
+void bench_physics_p0(bool smoke) {
+    PhysicsWorld phys;
+    const std::size_t bodies = smoke ? 120 : 400;
+    const std::size_t rays = smoke ? 256 : 4096;
+    const int steps = smoke ? 6 : 30;
+    phys.create_body({.shape = ShapeDesc::box({100, 0.5f, 100}), .motion = MotionType::Static, .position = {0, -0.5f, 0}});
+    const ShapeDesc hull = ShapeDesc::convex_hull(
+        {{-0.4f, -0.4f, -0.4f}, {0.4f, -0.4f, -0.4f}, {0.4f, -0.4f, 0.4f}, {-0.4f, -0.4f, 0.4f}, {0, 0.6f, 0}});
+    const std::vector<std::byte> cooked = cook_physics_shape(hull);
+    const auto t_uncook = Clock::now();
+    for (std::size_t i = 0; i < bodies / 2; ++i) {
+        phys.create_body({.shape = hull, .position = {static_cast<float>(i % 20) * 1.5f - 14.0f, 3.0f + static_cast<float>(i / 20) * 1.5f, 0}});
+    }
+    const double uncook_ms = elapsed_ms(t_uncook);
+    const ShapeHandle shared = phys.create_shape_from_cooked(cooked);
+    const auto t_cook = Clock::now();
+    for (std::size_t i = bodies / 2; i < bodies; ++i) {
+        phys.create_body({.position = {static_cast<float>(i % 20) * 1.5f - 14.0f, 3.0f + static_cast<float>(i / 20) * 1.5f, 4.0f},
+                          .cooked_shape = shared});
+    }
+    const double cook_ms = elapsed_ms(t_cook);
+
+    std::vector<double> solo_samples, contended_samples;
+    for (int i = 0; i < steps; ++i) {
+        const auto t0 = Clock::now();
+        phys.step(1.0f / 60.0f);
+        solo_samples.push_back(elapsed_ms(t0));
+    }
+    JobSystem jobs(4);
+    for (int i = 0; i < steps; ++i) {
+        JobCounter c;
+        jobs.parallel_for(c, 64, 4, [](std::size_t b, std::size_t e) {
+            volatile float acc = 0.0f;
+            for (std::size_t k = b; k < e; ++k) for (int r = 0; r < 1000; ++r) acc = acc + std::sin(static_cast<float>(k + r));
+        });
+        const auto t0 = Clock::now();
+        phys.step(1.0f / 60.0f);
+        contended_samples.push_back(elapsed_ms(t0));
+        jobs.wait(c);
+    }
+    std::vector<RayQuery> rq(rays);
+    for (std::size_t i = 0; i < rays; ++i) {
+        rq[i] = {.origin = {static_cast<float>(i % 40) - 20.0f, 20.0f, static_cast<float>((i / 40) % 10)}, .direction = {0, -1, 0}, .max_distance = 40.0f};
+    }
+    std::vector<std::optional<RayHit>> hits(rays);
+    const auto t_rs = Clock::now();
+    phys.raycast_batch(rq, hits, nullptr);
+    const double ray_serial_ms = elapsed_ms(t_rs);
+    const auto t_rp = Clock::now();
+    phys.raycast_batch(rq, hits, &jobs);
+    const double ray_parallel_ms = elapsed_ms(t_rp);
+
+    const Percentiles solo_p = compute_percentiles(std::move(solo_samples));
+    const Percentiles cont_p = compute_percentiles(std::move(contended_samples));
+    std::printf("[bench_physics_p0] bodies=%zu spawn(uncook=%.2f ms cooked=%.2f ms) "
+                "step_solo(p50/p95)=%.3f/%.3f ms step_contended(p50/p95)=%.3f/%.3f ms "
+                "rays=%zu(serial=%.2f ms parallel=%.2f ms) rss=%.1f MB\n",
+                bodies, uncook_ms, cook_ms, solo_p.p50, solo_p.p95, cont_p.p50, cont_p.p95,
+                rays, ray_serial_ms, ray_parallel_ms, process_rss_mb());
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -448,5 +509,6 @@ int main(int argc, char** argv) {
     bench_script(smoke);
     bench_streaming(smoke);
     bench_shader_compile(smoke);
+    bench_physics_p0(smoke);
     return 0;
 }

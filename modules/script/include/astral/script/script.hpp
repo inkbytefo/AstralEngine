@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -61,6 +62,13 @@ struct ScriptHit {
     float distance = 0.0f;
     int surface = 0;
 };
+struct ScriptRayQuery {
+    Vec3 origin{};
+    Vec3 direction{0, -1, 0};
+    float max_distance = 100.0f;
+    std::uint32_t layers = 0xFFFFFFFFu;
+    Entity ignore{};
+};
 struct ScriptWater {
     bool inside = false;
     float surface = 0.0f;
@@ -72,6 +80,12 @@ class ScriptPhysics {
 public:
     virtual ~ScriptPhysics() = default;
     [[nodiscard]] virtual std::optional<ScriptHit> raycast(Vec3 origin, Vec3 direction, float max_distance, std::uint32_t layers, Entity ignore) const = 0;
+    [[nodiscard]] virtual std::vector<std::optional<ScriptHit>> raycast_batch(std::span<const ScriptRayQuery> queries) const {
+        std::vector<std::optional<ScriptHit>> out;
+        out.reserve(queries.size());
+        for (const ScriptRayQuery& q : queries) out.push_back(raycast(q.origin, q.direction, q.max_distance, q.layers, q.ignore));
+        return out;
+    }
     [[nodiscard]] virtual std::optional<ScriptHit> spherecast(Vec3 origin, float radius, Vec3 displacement, std::uint32_t layers, Entity ignore) const = 0;
     [[nodiscard]] virtual std::vector<Entity> overlap_sphere(Vec3 center, float radius, std::uint32_t layers) const = 0;
     [[nodiscard]] virtual std::vector<Entity> overlap_box(Vec3 center, Vec3 half_extents, Quat rotation, std::uint32_t layers) const = 0;
@@ -79,6 +93,13 @@ public:
     virtual void force(Entity body, Vec3 force) = 0;
     virtual void set_velocity(Entity body, Vec3 velocity) = 0;
     [[nodiscard]] virtual Vec3 velocity(Entity body) const = 0;
+    virtual void teleport(Entity, Vec3, Quat) {}
+    virtual void wake(Entity) {}
+    virtual void sleep(Entity) {}
+    virtual void set_joint_motor_mode(Entity, std::string_view) {}
+    virtual void set_joint_motor_velocity(Entity, float) {}
+    virtual void set_joint_motor_position(Entity, float) {}
+    virtual void break_joint(Entity) {}
     [[nodiscard]] virtual Vec3 wind(Vec3 position) const = 0;
     [[nodiscard]] virtual ScriptWater water(Vec3 position) const = 0;
 };

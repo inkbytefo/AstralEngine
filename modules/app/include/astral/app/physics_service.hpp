@@ -35,10 +35,13 @@ public:
     [[nodiscard]] virtual std::span<const ContactEvent> contacts() const noexcept = 0;
     /// Metadata describing which completed simulation step queries currently observe.
     [[nodiscard]] virtual PhysicsQueryState query_state() const noexcept = 0;
+    /// Backend capability flags (ADR-0038).
+    [[nodiscard]] virtual PhysicsCapabilities capabilities() const noexcept = 0;
 
     // Queries against the last completed step -----------------------------------------------------
     [[nodiscard]] virtual std::optional<RayHit> raycast(Vec3 origin, Vec3 direction, float max_distance,
                                                         QueryFilter filter = {}) const = 0;
+    virtual void raycast_batch(std::span<const RayQuery> queries, std::span<std::optional<RayHit>> out) const = 0;
     [[nodiscard]] virtual std::optional<ShapeHit> spherecast(Vec3 origin, float radius, Vec3 displacement,
                                                              QueryFilter filter = {}) const = 0;
     [[nodiscard]] virtual std::vector<OverlapHit> overlap_sphere(Vec3 center, float radius,
@@ -53,6 +56,15 @@ public:
     virtual void add_force(Entity body, Vec3 force, std::uint64_t order_key = 0) = 0;
     virtual void set_linear_velocity(Entity body, Vec3 velocity, std::uint64_t order_key = 0) = 0;
     virtual void set_angular_velocity(Entity body, Vec3 velocity, std::uint64_t order_key = 0) = 0;
+    virtual void set_body_transform(Entity body, Vec3 position, Quat rotation, std::uint64_t order_key = 0) = 0;
+    virtual void wake_body(Entity body, std::uint64_t order_key = 0) = 0;
+    virtual void sleep_body(Entity body, std::uint64_t order_key = 0) = 0;
+    virtual void set_joint_motor_mode(Entity joint, JointMotorMode mode, std::uint64_t order_key = 0) = 0;
+    virtual void set_joint_motor_velocity(Entity joint, float velocity, std::uint64_t order_key = 0) = 0;
+    virtual void set_joint_motor_position(Entity joint, float position, std::uint64_t order_key = 0) = 0;
+    virtual void set_joint_motor_angular_velocity(Entity joint, Vec3 velocity, std::uint64_t order_key = 0) = 0;
+    virtual void set_joint_motor_rotation(Entity joint, Quat rotation, std::uint64_t order_key = 0) = 0;
+    virtual void break_joint(Entity joint, std::uint64_t order_key = 0) = 0;
     /// Number of queued commands waiting for the next fixed physics step.
     [[nodiscard]] virtual std::size_t pending_command_count() const noexcept = 0;
 

@@ -1,5 +1,6 @@
 #include "physics_bridge.hpp"
 
+#include <astral/core/jobs.hpp>
 #include <astral/core/log.hpp>
 #include <astral/core/profiler.hpp>
 #include <astral/script/script.hpp>
@@ -15,61 +16,6 @@ namespace astral {
 
 namespace {
 
-/// What scripts may do with physics: routes queries and queued commands through PhysicsService.
-class AppScriptPhysics final : public ScriptPhysics {
-public:
-    AppScriptPhysics(World& world, PhysicsService& service, const FieldWorld& fields, const Time& time)
-        : world_(world), service_(service), fields_(fields), time_(time) {}
-
-    std::optional<ScriptHit> raycast(Vec3 origin, Vec3 direction, float max_distance, std::uint32_t layers,
-                                     Entity ignore) const override {
-        const auto hit = service_.raycast(origin, direction, max_distance, {.layers = layers, .ignore = body_of(ignore)});
-        return hit ? std::optional<ScriptHit>(to_script(hit->user_data, hit->position, hit->normal, hit->distance, hit->surface))
-                   : std::nullopt;
-    }
-    std::optional<ScriptHit> spherecast(Vec3 origin, float radius, Vec3 displacement, std::uint32_t layers,
-                                        Entity ignore) const override {
-        const auto hit = service_.spherecast(origin, radius, displacement, {.layers = layers, .ignore = body_of(ignore)});
-        return hit ? std::optional<ScriptHit>(to_script(hit->user_data, hit->position, hit->normal, hit->distance, hit->surface))
-                   : std::nullopt;
-    }
-    std::vector<Entity> overlap_sphere(Vec3 center, float radius, std::uint32_t layers) const override {
-        return entities(service_.overlap_sphere(center, radius, {.layers = layers}));
-    }
-    std::vector<Entity> overlap_box(Vec3 center, Vec3 half_extents, Quat rotation, std::uint32_t layers) const override {
-        return entities(service_.overlap_box(center, half_extents, rotation, {.layers = layers}));
-    }
-    void impulse(Entity body, Vec3 v) override { service_.add_impulse(body, v); }
-    void force(Entity body, Vec3 v) override { service_.add_force(body, v); }
-    void set_velocity(Entity body, Vec3 v) override { service_.set_linear_velocity(body, v); }
-    Vec3 velocity(Entity body) const override { return service_.linear_velocity(body); }
-    Vec3 wind(Vec3 position) const override { return fields_.wind_at(position, time_.elapsed); }
-    ScriptWater water(Vec3 position) const override {
-        const WaterSample s = fields_.water_at(position, time_.elapsed);
-        return {s.inside, s.surface_height, s.depth, s.flow, s.density};
-    }
-
-private:
-    BodyHandle body_of(Entity e) const {
-        const RigidBody* rb = (e.valid() && world_.alive(e)) ? world_.get<const RigidBody>(e) : nullptr;
-        return rb ? rb->handle : BodyHandle{};
-    }
-    static ScriptHit to_script(std::uint64_t user_data, Vec3 position, Vec3 normal, float distance, int surface) {
-        return {entity_from_user_data(user_data), position, normal, distance, surface};
-    }
-    static std::vector<Entity> entities(const std::vector<OverlapHit>& hits) {
-        std::vector<Entity> out;
-        out.reserve(hits.size());
-        for (const OverlapHit& h : hits) out.push_back(entity_from_user_data(h.user_data));
-        return out;
-    }
-
-    World& world_;
-    PhysicsService& service_;
-    const FieldWorld& fields_;
-    const Time& time_;
-};
-
 Quat nlerp_shortest(Quat from, Quat to, float alpha) {
     const float sign = (from.x * to.x + from.y * to.y + from.z * to.z + from.w * to.w) < 0 ? -1.0f : 1.0f;
     return normalize(Quat{from.x + (to.x * sign - from.x) * alpha, from.y + (to.y * sign - from.y) * alpha,
@@ -80,6 +26,48 @@ std::uint64_t default_order_key(Entity e) noexcept {
     return (static_cast<std::uint64_t>(e.index) << 32) | static_cast<std::uint64_t>(e.generation);
 }
 
+JointDesc build_joint_desc(const Joint& j, const JointMotor* m, BodyHandle a, BodyHandle b) {
+    JointDesc d{};
+    d.type = j.type;
+    d.body_a = a;
+    d.body_b = b;
+    d.anchor = j.anchor;
+    d.anchor_b = j.anchor_b;
+    d.axis = j.axis;
+    d.secondary_axis = j.secondary_axis;
+    d.limited = j.limited;
+    d.min_limit = j.min_limit;
+    d.max_limit = j.max_limit;
+    d.spring_frequency = j.spring_frequency;
+    d.spring_damping = j.spring_damping;
+    d.max_friction = j.max_friction;
+    d.collide_connected = j.collide_connected;
+    d.break_force = j.break_force;
+    d.break_torque = j.break_torque;
+    d.limits.linear_min = j.linear_limit_min;
+    d.limits.linear_max = j.linear_limit_max;
+    d.limits.swing_normal_cone = j.swing_limits.x;
+    d.limits.swing_plane_cone = j.swing_limits.y;
+    d.limits.twist_min = j.min_limit;
+    d.limits.twist_max = j.max_limit;
+    if (j.type == JointType::SixDOF && j.limited) {
+        d.limits.angular_min = {j.min_limit, -j.swing_limits.x, -j.swing_limits.y};
+        d.limits.angular_max = {j.max_limit, j.swing_limits.x, j.swing_limits.y};
+    }
+    if (m) {
+        d.motor.mode = m->mode;
+        d.motor.frequency_hz = m->frequency;
+        d.motor.damping = m->damping;
+        d.motor.max_force = m->max_force;
+        d.motor.max_torque = m->max_torque;
+        d.motor.target_velocity = m->target_velocity;
+        d.motor.target_position = m->target_position;
+        d.motor.target_angular_velocity = m->target_angular_velocity;
+        d.motor.target_rotation = m->target_rotation;
+    }
+    return d;
+}
+
 } // namespace
 
 PhysicsBridge::PhysicsBridge(World& world, FieldWorld& fields, const Time& time, Profiler* profiler, Logger& log,
@@ -88,9 +76,10 @@ PhysicsBridge::PhysicsBridge(World& world, FieldWorld& fields, const Time& time,
       fields_(fields),
       time_(time),
       profiler_(profiler),
+      jobs_(config.jobs),
       config_(config),
       physics_(std::make_unique<PhysicsWorld>(PhysicsDesc{.logger = &log})),
-      script_physics_(std::make_unique<AppScriptPhysics>(world_, *this, fields_, time_)) {}
+      script_physics_(make_app_script_physics(world_, *this, fields_, time_)) {}
 
 PhysicsBridge::~PhysicsBridge() {
     script_physics_.reset();
@@ -98,13 +87,14 @@ PhysicsBridge::~PhysicsBridge() {
 }
 
 std::span<const ContactEvent> PhysicsBridge::contacts() const noexcept {
-    // Inside FixedUpdate: the previous completed physics step; elsewhere: every step of this frame.
     return in_fixed_update_ ? physics_->contacts() : std::span<const ContactEvent>(frame_contacts_);
 }
 
 PhysicsQueryState PhysicsBridge::query_state() const noexcept {
     return {step_index_, sim_time_, in_fixed_update_};
 }
+
+PhysicsCapabilities PhysicsBridge::capabilities() const noexcept { return physics_->capabilities(); }
 
 BodyHandle PhysicsBridge::body_of(Entity e) const noexcept {
     if (!e.valid() || !world_.alive(e)) return {};
@@ -113,8 +103,19 @@ BodyHandle PhysicsBridge::body_of(Entity e) const noexcept {
     return rb->handle;
 }
 
+JointHandle PhysicsBridge::joint_of(Entity e) const noexcept {
+    if (!e.valid() || !world_.alive(e)) return {};
+    const Joint* j = world_.get<const Joint>(e);
+    if (!j || j->broken || !physics_->valid(j->handle)) return {};
+    return j->handle;
+}
+
 std::optional<RayHit> PhysicsBridge::raycast(Vec3 origin, Vec3 direction, float max_distance, QueryFilter filter) const {
     return physics_->raycast(origin, direction, max_distance, filter);
+}
+
+void PhysicsBridge::raycast_batch(std::span<const RayQuery> queries, std::span<std::optional<RayHit>> out) const {
+    physics_->raycast_batch(queries, out, jobs_);
 }
 
 std::optional<ShapeHit> PhysicsBridge::spherecast(Vec3 origin, float radius, Vec3 displacement, QueryFilter filter) const {
@@ -134,32 +135,128 @@ Vec3 PhysicsBridge::linear_velocity(Entity body) const {
     return handle.valid() ? physics_->linear_velocity(handle) : Vec3{};
 }
 
-void PhysicsBridge::enqueue(Entity body, CommandKind kind, Vec3 value, std::uint64_t order_key) {
-    if (!body.valid()) return;
-    const std::uint64_t key = order_key != 0 ? order_key : default_order_key(body);
+void PhysicsBridge::enqueue(QueuedCommand cmd) {
+    if (!cmd.entity.valid()) return;
+    if (cmd.order_key == 0) cmd.order_key = default_order_key(cmd.entity);
     std::scoped_lock lock(command_mutex_);
-    pending_commands_.push_back({key, next_command_seq_++, body, kind, value});
+    cmd.sequence = next_command_seq_++;
+    pending_commands_.push_back(cmd);
 }
 
 void PhysicsBridge::add_impulse(Entity body, Vec3 impulse, std::uint64_t order_key) {
-    enqueue(body, CommandKind::Impulse, impulse, order_key);
+    enqueue({.order_key = order_key, .entity = body, .kind = CommandKind::Impulse, .value = impulse});
 }
-
 void PhysicsBridge::add_force(Entity body, Vec3 force, std::uint64_t order_key) {
-    enqueue(body, CommandKind::Force, force, order_key);
+    enqueue({.order_key = order_key, .entity = body, .kind = CommandKind::Force, .value = force});
 }
-
 void PhysicsBridge::set_linear_velocity(Entity body, Vec3 velocity, std::uint64_t order_key) {
-    enqueue(body, CommandKind::SetLinearVelocity, velocity, order_key);
+    enqueue({.order_key = order_key, .entity = body, .kind = CommandKind::SetLinearVelocity, .value = velocity});
 }
-
 void PhysicsBridge::set_angular_velocity(Entity body, Vec3 velocity, std::uint64_t order_key) {
-    enqueue(body, CommandKind::SetAngularVelocity, velocity, order_key);
+    enqueue({.order_key = order_key, .entity = body, .kind = CommandKind::SetAngularVelocity, .value = velocity});
+}
+void PhysicsBridge::set_body_transform(Entity body, Vec3 position, Quat rotation, std::uint64_t order_key) {
+    enqueue({.order_key = order_key, .entity = body, .kind = CommandKind::SetBodyTransform, .value = position, .quat = rotation});
+}
+void PhysicsBridge::wake_body(Entity body, std::uint64_t order_key) {
+    enqueue({.order_key = order_key, .entity = body, .kind = CommandKind::WakeBody});
+}
+void PhysicsBridge::sleep_body(Entity body, std::uint64_t order_key) {
+    enqueue({.order_key = order_key, .entity = body, .kind = CommandKind::SleepBody});
+}
+void PhysicsBridge::set_joint_motor_mode(Entity joint, JointMotorMode mode, std::uint64_t order_key) {
+    enqueue({.order_key = order_key, .entity = joint, .kind = CommandKind::SetJointMotorMode, .motor_mode = mode});
+}
+void PhysicsBridge::set_joint_motor_velocity(Entity joint, float velocity, std::uint64_t order_key) {
+    enqueue({.order_key = order_key, .entity = joint, .kind = CommandKind::SetJointMotorVelocity, .scalar = velocity});
+}
+void PhysicsBridge::set_joint_motor_position(Entity joint, float position, std::uint64_t order_key) {
+    enqueue({.order_key = order_key, .entity = joint, .kind = CommandKind::SetJointMotorPosition, .scalar = position});
+}
+void PhysicsBridge::set_joint_motor_angular_velocity(Entity joint, Vec3 velocity, std::uint64_t order_key) {
+    enqueue({.order_key = order_key, .entity = joint, .kind = CommandKind::SetJointMotorAngularVelocity, .value = velocity});
+}
+void PhysicsBridge::set_joint_motor_rotation(Entity joint, Quat rotation, std::uint64_t order_key) {
+    enqueue({.order_key = order_key, .entity = joint, .kind = CommandKind::SetJointMotorRotation, .quat = rotation});
+}
+void PhysicsBridge::break_joint(Entity joint, std::uint64_t order_key) {
+    enqueue({.order_key = order_key, .entity = joint, .kind = CommandKind::BreakJoint});
 }
 
 std::size_t PhysicsBridge::pending_command_count() const noexcept {
     std::scoped_lock lock(command_mutex_);
     return pending_commands_.size();
+}
+
+void PhysicsBridge::apply_command(const QueuedCommand& cmd) {
+    switch (cmd.kind) {
+    case CommandKind::Impulse:
+        if (const BodyHandle h = body_of(cmd.entity); h.valid()) physics_->add_impulse(h, cmd.value);
+        break;
+    case CommandKind::Force:
+        if (const BodyHandle h = body_of(cmd.entity); h.valid()) physics_->add_force(h, cmd.value);
+        break;
+    case CommandKind::SetLinearVelocity:
+        if (const BodyHandle h = body_of(cmd.entity); h.valid()) physics_->set_linear_velocity(h, cmd.value);
+        break;
+    case CommandKind::SetAngularVelocity:
+        if (const BodyHandle h = body_of(cmd.entity); h.valid()) physics_->set_angular_velocity(h, cmd.value);
+        break;
+    case CommandKind::SetBodyTransform:
+        if (const BodyHandle h = body_of(cmd.entity); h.valid()) {
+            physics_->set_transform(h, cmd.value, cmd.quat);
+            if (Transform* t = world_.get<Transform>(cmd.entity)) {
+                t->position = cmd.value;
+                t->rotation = cmd.quat;
+            }
+        }
+        break;
+    case CommandKind::WakeBody:
+        if (const BodyHandle h = body_of(cmd.entity); h.valid()) physics_->wake(h);
+        break;
+    case CommandKind::SleepBody:
+        if (const BodyHandle h = body_of(cmd.entity); h.valid()) physics_->sleep(h);
+        break;
+    case CommandKind::SetJointMotorMode:
+        if (const JointHandle jh = joint_of(cmd.entity); jh.valid()) {
+            physics_->set_joint_motor_mode(jh, cmd.motor_mode);
+            if (JointMotor* m = world_.get<JointMotor>(cmd.entity)) m->mode = cmd.motor_mode;
+        }
+        break;
+    case CommandKind::SetJointMotorVelocity:
+        if (const JointHandle jh = joint_of(cmd.entity); jh.valid()) {
+            physics_->set_joint_motor_velocity(jh, cmd.scalar);
+            if (JointMotor* m = world_.get<JointMotor>(cmd.entity)) m->target_velocity = cmd.scalar;
+        }
+        break;
+    case CommandKind::SetJointMotorPosition:
+        if (const JointHandle jh = joint_of(cmd.entity); jh.valid()) {
+            physics_->set_joint_motor_position(jh, cmd.scalar);
+            if (JointMotor* m = world_.get<JointMotor>(cmd.entity)) m->target_position = cmd.scalar;
+        }
+        break;
+    case CommandKind::SetJointMotorAngularVelocity:
+        if (const JointHandle jh = joint_of(cmd.entity); jh.valid()) {
+            physics_->set_joint_motor_angular_velocity(jh, cmd.value);
+            if (JointMotor* m = world_.get<JointMotor>(cmd.entity)) m->target_angular_velocity = cmd.value;
+        }
+        break;
+    case CommandKind::SetJointMotorRotation:
+        if (const JointHandle jh = joint_of(cmd.entity); jh.valid()) {
+            physics_->set_joint_motor_rotation(jh, cmd.quat);
+            if (JointMotor* m = world_.get<JointMotor>(cmd.entity)) m->target_rotation = cmd.quat;
+        }
+        break;
+    case CommandKind::BreakJoint:
+        if (const JointHandle jh = joint_of(cmd.entity); jh.valid()) {
+            physics_->break_joint(jh);
+            if (Joint* j = world_.get<Joint>(cmd.entity)) {
+                j->broken = true;
+                frame_broken_joints_.push_back({cmd.entity, j->a, j->b, 0.0f, 0.0f});
+            }
+        }
+        break;
+    }
 }
 
 void PhysicsBridge::flush_commands() {
@@ -172,24 +269,81 @@ void PhysicsBridge::flush_commands() {
     std::sort(batch.begin(), batch.end(), [](const QueuedCommand& a, const QueuedCommand& b) {
         return a.order_key != b.order_key ? a.order_key < b.order_key : a.sequence < b.sequence;
     });
-    for (const QueuedCommand& cmd : batch) {
-        const BodyHandle handle = body_of(cmd.entity);
-        if (!handle.valid()) continue; // dead entity or entity without a synced RigidBody
-        switch (cmd.kind) {
-        case CommandKind::Impulse: physics_->add_impulse(handle, cmd.value); break;
-        case CommandKind::Force: physics_->add_force(handle, cmd.value); break;
-        case CommandKind::SetLinearVelocity: physics_->set_linear_velocity(handle, cmd.value); break;
-        case CommandKind::SetAngularVelocity: physics_->set_angular_velocity(handle, cmd.value); break;
-        }
-    }
+    for (const QueuedCommand& cmd : batch) apply_command(cmd);
 }
 
 void PhysicsBridge::shift_origin(Vec3 offset) {
     physics_->shift_origin(offset);
-    for (BodyLink& link : body_links_) link.previous_position = link.previous_position - offset;
+    for (BodyLink& link : body_links_) {
+        link.previous_position = link.previous_position - offset;
+        link.step_position = link.step_position - offset;
+    }
+    world_.each<Joint>([&](Joint& j) {
+        j.anchor = j.anchor - offset;
+        j.anchor_b = j.anchor_b - offset;
+    });
 }
 
-/// Creates bodies/characters for new components, destroys those whose entity or component is gone.
+void PhysicsBridge::sync_joints() {
+    std::erase_if(joint_links_, [&](const JointLink& link) {
+        Joint* j = world_.get<Joint>(link.entity);
+        if (!j || j->handle != link.joint) {
+            physics_->destroy(link.joint);
+            return true;
+        }
+        if (j->broken) {
+            physics_->destroy(link.joint);
+            j->handle = {};
+            return true;
+        }
+        if (!physics_->valid(link.joint)) {
+            // A connected body was destroyed or streamed out while the Joint entity stayed alive -> streaming detach.
+            j->handle = {};
+            world_.send(JointDetached{link.entity, link.a, link.b});
+            return true;
+        }
+        return false;
+    });
+    world_.each<Joint>([&](Entity e, Joint& j) {
+        if (j.broken) return;
+        const bool ours = std::any_of(joint_links_.begin(), joint_links_.end(),
+                                      [&](const JointLink& l) { return l.entity == e && l.joint == j.handle; });
+        if (ours) return;
+        const BodyHandle ha = j.a.valid() ? body_of(j.a) : BodyHandle{};
+        const BodyHandle hb = body_of(j.b);
+        if (!hb.valid() || (j.a.valid() && !ha.valid())) return;
+        const JointMotor* motor = world_.get<const JointMotor>(e);
+        j.handle = physics_->create_joint(build_joint_desc(j, motor, ha, hb));
+        if (j.handle.valid()) joint_links_.push_back({e, j.handle, j.a, j.b});
+    });
+}
+
+void PhysicsBridge::sync_joint_motors() {
+    world_.each<const Joint, const JointMotor>([&](const Joint& j, const JointMotor& m) {
+        if (j.broken || !physics_->valid(j.handle)) return;
+        physics_->set_joint_motor_mode(j.handle, m.mode);
+        if (m.mode == JointMotorMode::Velocity) {
+            physics_->set_joint_motor_velocity(j.handle, m.target_velocity);
+            physics_->set_joint_motor_angular_velocity(j.handle, m.target_angular_velocity);
+        } else if (m.mode == JointMotorMode::Position) {
+            physics_->set_joint_motor_position(j.handle, m.target_position);
+            physics_->set_joint_motor_rotation(j.handle, m.target_rotation);
+        }
+    });
+}
+
+void PhysicsBridge::collect_broken_joints() {
+    for (const JointBrokenEvent& ev : physics_->broken_joints()) {
+        for (const JointLink& link : joint_links_) {
+            if (link.joint != ev.joint) continue;
+            if (Joint* j = world_.get<Joint>(link.entity)) j->broken = true;
+            frame_broken_joints_.push_back({link.entity, link.a, link.b, ev.force, ev.torque});
+            break;
+        }
+    }
+}
+
+/// Creates bodies/characters/joints for new components, destroys those whose entity or component is gone.
 void PhysicsBridge::sync_bodies() {
     std::erase_if(body_links_, [&](const BodyLink& link) {
         const RigidBody* rb = world_.get<RigidBody>(link.entity);
@@ -212,26 +366,7 @@ void PhysicsBridge::sync_bodies() {
         rb.handle = physics_->create_body(body_desc);
         if (rb.handle.valid()) body_links_.push_back({e, rb.handle, t.position, t.rotation, t.position, t.rotation});
     });
-    std::erase_if(joint_links_, [&](const JointLink& link) {
-        const Joint* j = world_.get<const Joint>(link.entity);
-        if (j && j->handle == link.joint && physics_->valid(link.joint)) return false;
-        physics_->destroy(link.joint);
-        return true;
-    });
-    world_.each<Joint>([&](Entity e, Joint& j) {
-        const bool ours = std::any_of(joint_links_.begin(), joint_links_.end(),
-                                      [&](const JointLink& l) { return l.entity == e && l.joint == j.handle; });
-        if (ours) return;
-        const RigidBody* ra = j.a.valid() ? world_.get<const RigidBody>(j.a) : nullptr;
-        const RigidBody* rb = j.b.valid() ? world_.get<const RigidBody>(j.b) : nullptr;
-        if (!rb || !physics_->valid(rb->handle) || (j.a.valid() && (!ra || !physics_->valid(ra->handle)))) return;
-        j.handle = physics_->create_joint({.type = j.type, .body_a = ra ? ra->handle : BodyHandle{}, .body_b = rb->handle,
-                                           .anchor = j.anchor, .anchor_b = j.anchor_b, .axis = j.axis, .limited = j.limited,
-                                           .min_limit = j.min_limit, .max_limit = j.max_limit,
-                                           .spring_frequency = j.spring_frequency, .spring_damping = j.spring_damping,
-                                           .max_friction = j.max_friction, .collide_connected = j.collide_connected});
-        if (j.handle.valid()) joint_links_.push_back({e, j.handle});
-    });
+    sync_joints();
     world_.each<CharacterController, const Transform>([&](Entity e, CharacterController& cc, const Transform& t) {
         if (physics_->valid(cc.handle) && physics_->user_data(cc.handle) == to_user_data(e)) return;
         CharacterDesc character_desc = cc.desc;
@@ -358,6 +493,7 @@ void PhysicsBridge::emit_contact_events() {
         }
         world_.send(Contact{begin ? ContactKind::Begin : ContactKind::End, a, b, c.point, c.normal, c.surface_a, c.surface_b});
     }
+    for (const JointBroken& jb : frame_broken_joints_) world_.send(jb);
 }
 
 void PhysicsBridge::write_simulated_transforms(float blend) {
@@ -386,6 +522,7 @@ void PhysicsBridge::write_simulated_transforms(float blend) {
 
 void PhysicsBridge::step(float delta, FixedStepCallback on_fixed_update, void* user) {
     frame_contacts_.clear();
+    frame_broken_joints_.clear();
     sync_bodies();
     const float fixed = time_.fixed_delta;
     const std::uint32_t max_steps = std::max(config_.max_steps, 1u);
@@ -398,8 +535,9 @@ void PhysicsBridge::step(float delta, FixedStepCallback on_fixed_update, void* u
         if (on_fixed_update) on_fixed_update(user);
         in_fixed_update_ = false;
         world_.apply_commands();
-        sync_bodies();   // FixedUpdate systems may have spawned or removed bodies
-        flush_commands(); // Apply queued C++/Luau commands deterministically after body sync
+        sync_bodies();
+        sync_joint_motors();
+        flush_commands();
         const float alpha = planned > 0 ? std::min(1.0f, static_cast<float>(steps + 1) / static_cast<float>(planned)) : 1.0f;
         move_kinematics(alpha, fixed);
         update_characters(fixed);
@@ -409,6 +547,7 @@ void PhysicsBridge::step(float delta, FixedStepCallback on_fixed_update, void* u
             ASTRAL_PROFILE_SCOPE(profiler_, "physics.step");
             physics_->step(fixed);
         }
+        collect_broken_joints();
         ++step_index_;
         sim_time_ += static_cast<double>(fixed);
         frame_contacts_.insert(frame_contacts_.end(), physics_->contacts().begin(), physics_->contacts().end());

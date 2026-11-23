@@ -3,14 +3,6 @@
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyLock.h>
-#include <Jolt/Physics/Collision/Shape/BoxShape.h>
-#include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
-#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
-#include <Jolt/Physics/Collision/Shape/CylinderShape.h>
-#include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
-#include <Jolt/Physics/Collision/Shape/MeshShape.h>
-#include <Jolt/Physics/Collision/Shape/SphereShape.h>
-#include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/RegisterTypes.h>
 
 #include <cstdarg>
@@ -40,7 +32,12 @@ bool jolt_assert(const char* expression, const char* message, const char* file, 
 }
 #endif
 
-void acquire_jolt() {
+constexpr int max_physics_jobs = 2048;
+constexpr int max_physics_barriers = 8;
+
+} // namespace
+
+void acquire_jolt_registry() {
     std::scoped_lock lock(registry_mutex);
     if (registry_users++ == 0) {
         JPH::Trace = jolt_trace;
@@ -51,7 +48,7 @@ void acquire_jolt() {
     }
 }
 
-void release_jolt() {
+void release_jolt_registry() {
     std::scoped_lock lock(registry_mutex);
     if (--registry_users == 0) {
         JPH::UnregisterTypes();
@@ -60,115 +57,8 @@ void release_jolt() {
     }
 }
 
-/// A hull needs volume: some point must sit off the plane through the first three non-collinear points.
-bool hull_has_volume(const std::vector<Vec3>& pts) {
-    const Vec3 a = pts[0];
-    Vec3 normal{};
-    std::size_t used = 0;
-    for (std::size_t i = 1; i + 1 < pts.size() && length(normal) < 1e-8f; ++i) {
-        normal = cross(pts[i] - a, pts[i + 1] - a);
-        used = i + 1;
-    }
-    if (length(normal) < 1e-8f) return false; // all on one line
-    normal = normalize(normal);
-    float extent = 0.0f;
-    for (const Vec3& p : pts) extent = std::max(extent, length(p - a));
-    for (std::size_t i = used + 1; i < pts.size(); ++i) {
-        if (std::abs(dot(pts[i] - a, normal)) > 1e-4f * std::max(extent, 1.0f)) return true;
-    }
-    return false;
-}
-
-bool valid_shape(const ShapeDesc& d) {
-    switch (d.type) {
-    case ShapeType::Box: return positive_scalar(d.half_extents.x) && positive_scalar(d.half_extents.y) && positive_scalar(d.half_extents.z);
-    case ShapeType::Sphere: return positive_scalar(d.radius);
-    case ShapeType::Capsule:
-    case ShapeType::Cylinder: return positive_scalar(d.radius) && positive_scalar(d.half_height);
-    case ShapeType::ConvexHull:
-        return d.points.size() >= 4 && std::all_of(d.points.begin(), d.points.end(), finite_vec) && hull_has_volume(d.points);
-    case ShapeType::Mesh:
-        return d.vertices.size() >= 3 && !d.indices.empty() && d.indices.size() % 3 == 0 &&
-               std::all_of(d.vertices.begin(), d.vertices.end(), finite_vec) &&
-               std::all_of(d.indices.begin(), d.indices.end(), [&](std::uint32_t i) { return i < d.vertices.size(); });
-    case ShapeType::HeightField:
-        return d.samples >= 4 && positive_scalar(d.cell_size) && d.heights.size() == std::size_t{d.samples} * d.samples &&
-               std::all_of(d.heights.begin(), d.heights.end(), [](float h) { return std::isfinite(h); });
-    case ShapeType::Compound:
-        return !d.children.empty() && std::all_of(d.children.begin(), d.children.end(), [](const ShapeChild& c) {
-            return finite_vec(c.position) && valid_shape(c.shape);
-        });
-    }
-    return false;
-}
-
-constexpr int max_physics_jobs = 2048;
-constexpr int max_physics_barriers = 8;
-
-} // namespace
-
-/// Meshes and height fields are static geometry: they cannot be a moving body or be swept in a query.
-bool shape_needs_static(const ShapeDesc& d) {
-    if (d.type == ShapeType::Mesh || d.type == ShapeType::HeightField) return true;
-    for (const ShapeChild& c : d.children) {
-        if (shape_needs_static(c.shape)) return true;
-    }
-    return false;
-}
-
-JPH::Ref<JPH::Shape> make_jolt_shape(const ShapeDesc& d) {
-    if (!valid_shape(d)) return nullptr;
-    JPH::ShapeSettings::ShapeResult result;
-    switch (d.type) {
-    case ShapeType::Box: {
-        const float convex = std::min({0.05f, d.half_extents.x * 0.5f, d.half_extents.y * 0.5f, d.half_extents.z * 0.5f});
-        result = JPH::BoxShapeSettings(to_jph(d.half_extents), convex).Create();
-        break;
-    }
-    case ShapeType::Sphere: result = JPH::SphereShapeSettings(d.radius).Create(); break;
-    case ShapeType::Capsule: result = JPH::CapsuleShapeSettings(d.half_height, d.radius).Create(); break;
-    case ShapeType::Cylinder: {
-        const float convex = std::min({0.05f, d.radius * 0.5f, d.half_height * 0.5f});
-        result = JPH::CylinderShapeSettings(d.half_height, d.radius, convex).Create();
-        break;
-    }
-    case ShapeType::ConvexHull: {
-        JPH::Array<JPH::Vec3> points;
-        points.reserve(d.points.size());
-        for (const Vec3& p : d.points) points.push_back(to_jph(p));
-        result = JPH::ConvexHullShapeSettings(points).Create();
-        break;
-    }
-    case ShapeType::Mesh: {
-        JPH::VertexList vertices;
-        vertices.reserve(d.vertices.size());
-        for (const Vec3& v : d.vertices) vertices.push_back(JPH::Float3(v.x, v.y, v.z));
-        JPH::IndexedTriangleList triangles;
-        for (std::size_t i = 0; i + 2 < d.indices.size(); i += 3) triangles.push_back(JPH::IndexedTriangle(d.indices[i], d.indices[i + 1], d.indices[i + 2]));
-        result = JPH::MeshShapeSettings(vertices, triangles).Create();
-        break;
-    }
-    case ShapeType::HeightField: {
-        const float half = 0.5f * static_cast<float>(d.samples - 1) * d.cell_size; // centred on the body
-        result = JPH::HeightFieldShapeSettings(d.heights.data(), JPH::Vec3(-half, 0, -half), JPH::Vec3(d.cell_size, 1, d.cell_size), d.samples).Create();
-        break;
-    }
-    case ShapeType::Compound: {
-        JPH::StaticCompoundShapeSettings compound;
-        for (const ShapeChild& c : d.children) {
-            JPH::Ref<JPH::Shape> child = make_jolt_shape(c.shape);
-            if (!child) return nullptr;
-            compound.AddShape(to_jph(c.position), to_jph(c.rotation), child);
-        }
-        result = compound.Create();
-        break;
-    }
-    }
-    return result.IsValid() ? result.Get() : nullptr;
-}
-
 PhysicsWorld::PhysicsWorld(const PhysicsDesc& desc) : impl_(std::make_unique<Impl>()) {
-    acquire_jolt();
+    acquire_jolt_registry();
     auto& m = *impl_;
     m.collide.fill(0xFFFFFFFFu);
     m.pair_filter = new Impl::PairFilter();
@@ -191,7 +81,9 @@ PhysicsWorld::PhysicsWorld(const PhysicsDesc& desc) : impl_(std::make_unique<Imp
 
 PhysicsWorld::~PhysicsWorld() {
     auto& m = *impl_;
-    m.joints.for_each([&](JointHandle, Impl::JointRecord& j) { m.system->RemoveConstraint(j.constraint); });
+    m.joints.for_each([&](JointHandle, Impl::JointRecord& j) {
+        if (j.constraint) m.system->RemoveConstraint(j.constraint);
+    });
     m.characters.for_each([&](CharacterHandle, Impl::CharacterRecord& c) {
         m.character_collision.Remove(c.character);
         c.character = nullptr; // also removes its inner body
@@ -200,20 +92,57 @@ PhysicsWorld::~PhysicsWorld() {
         m.bi().RemoveBody(r.id);
         m.bi().DestroyBody(r.id);
     });
+    m.shapes.for_each([](ShapeHandle, Impl::ShapeRecord& s) { s.shape = nullptr; });
     m.system.reset();
     m.jobs.reset();
     m.temp.reset();
-    release_jolt();
+    release_jolt_registry();
 }
+
+PhysicsCapabilities PhysicsWorld::capabilities() const noexcept {
+    constexpr std::uint32_t all = static_cast<std::uint32_t>(PhysicsCapability::SixDOFJoints) |
+                                  static_cast<std::uint32_t>(PhysicsCapability::SwingTwistJoints) |
+                                  static_cast<std::uint32_t>(PhysicsCapability::JointMotors) |
+                                  static_cast<std::uint32_t>(PhysicsCapability::BreakableJoints) |
+                                  static_cast<std::uint32_t>(PhysicsCapability::CookedShapes) |
+                                  static_cast<std::uint32_t>(PhysicsCapability::MaterialTable) |
+                                  static_cast<std::uint32_t>(PhysicsCapability::BatchedQueries) |
+                                  static_cast<std::uint32_t>(PhysicsCapability::OriginShift);
+    return {all};
+}
+
+void PhysicsWorld::register_material(std::uint16_t surface, const PhysicsMaterialDesc& desc) {
+    impl_->materials[surface] = desc;
+}
+
+std::optional<PhysicsMaterialDesc> PhysicsWorld::material(std::uint16_t surface) const {
+    const auto* mat = impl_->material_of(surface);
+    return mat ? std::optional<PhysicsMaterialDesc>(*mat) : std::nullopt;
+}
+
+void PhysicsWorld::clear_material(std::uint16_t surface) { impl_->materials.erase(surface); }
 
 BodyHandle PhysicsWorld::create_body(const BodyDesc& desc) {
     auto& m = *impl_;
-    JPH::Ref<JPH::Shape> shape = make_jolt_shape(desc.shape);
+    JPH::Ref<JPH::Shape> shape;
+    bool static_only = false;
+    if (desc.cooked_shape.valid()) {
+        const auto* rec = m.shapes.get(desc.cooked_shape);
+        if (!rec) {
+            m.error("create_body: invalid cooked_shape handle");
+            return {};
+        }
+        shape = rec->shape;
+        static_only = rec->static_only;
+    } else {
+        shape = make_jolt_shape(desc.shape);
+        static_only = shape_needs_static(desc.shape);
+    }
     if (!shape) {
         m.error("create_body: invalid shape (check dimensions, hull points, mesh indices, height field size)");
         return {};
     }
-    if (desc.motion == MotionType::Dynamic && shape_needs_static(desc.shape)) {
+    if (desc.motion == MotionType::Dynamic && static_only) {
         m.error("create_body: meshes and height fields cannot be dynamic bodies (use a convex hull or a compound of convex shapes)");
         return {};
     }
@@ -225,21 +154,30 @@ BodyHandle PhysicsWorld::create_body(const BodyDesc& desc) {
         m.error("create_body: layer must be below max_physics_layers (16)");
         return {};
     }
+    const PhysicsMaterialDesc* mat = m.material_of(desc.surface);
     JPH::BodyCreationSettings settings(shape, JPH::RVec3(to_jph(desc.position)), to_jph(desc.rotation), motion,
                                        physics_layers::object_layer(desc.layer, !is_static));
-    settings.mFriction = desc.friction;
-    settings.mRestitution = desc.restitution;
+    settings.mFriction = mat ? mat->friction : desc.friction;
+    settings.mRestitution = mat ? mat->restitution : desc.restitution;
     settings.mLinearDamping = desc.linear_damping;
     settings.mAngularDamping = desc.angular_damping;
     settings.mGravityFactor = desc.gravity_factor;
     settings.mIsSensor = desc.sensor;
-    settings.mCollideKinematicVsNonDynamic = desc.sensor; // sensors also see static/kinematic bodies
+    settings.mCollideKinematicVsNonDynamic = desc.sensor;
     settings.mLinearVelocity = to_jph(desc.linear_velocity);
     settings.mUserData = desc.user_data;
     if (desc.continuous) settings.mMotionQuality = JPH::EMotionQuality::LinearCast;
-    if (desc.mass > 0.0f && motion == JPH::EMotionType::Dynamic) {
-        settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
-        settings.mMassPropertiesOverride.mMass = desc.mass;
+    if (motion == JPH::EMotionType::Dynamic) {
+        if (desc.mass > 0.0f) {
+            settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
+            settings.mMassPropertiesOverride.mMass = desc.mass;
+        } else if (mat && positive_scalar(mat->density)) {
+            const float volume = shape->GetVolume();
+            if (volume > 0.0f) {
+                settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
+                settings.mMassPropertiesOverride.mMass = volume * mat->density;
+            }
+        }
     }
     const JPH::BodyID id = m.bi().CreateAndAddBody(
         settings, is_static ? JPH::EActivation::DontActivate : JPH::EActivation::Activate);
@@ -247,7 +185,7 @@ BodyHandle PhysicsWorld::create_body(const BodyDesc& desc) {
         m.error("create_body: max_bodies reached");
         return {};
     }
-    {   // every body can be told not to collide with the bodies it is joined to: its group is its own index
+    {
         JPH::BodyLockWrite lock(m.system->GetBodyLockInterface(), id);
         if (lock.Succeeded()) {
             lock.GetBody().SetCollisionGroup(JPH::CollisionGroup(m.pair_filter, 1, id.GetIndex()));
@@ -356,15 +294,24 @@ void PhysicsWorld::add_force_at(BodyHandle body, Vec3 force, Vec3 point) {
     if (r) impl_->bi().AddForce(r->id, to_jph(force), JPH::RVec3(to_jph(point)));
 }
 
+void PhysicsWorld::wake(BodyHandle body) {
+    if (const auto* r = impl_->record(body)) impl_->bi().ActivateBody(r->id);
+}
+
+void PhysicsWorld::sleep(BodyHandle body) {
+    if (const auto* r = impl_->record(body)) impl_->bi().DeactivateBody(r->id);
+}
+
 void PhysicsWorld::step(float dt, int collision_steps) {
     auto& m = *impl_;
     m.contacts.clear();
+    m.broken_joints.clear();
     if (dt <= 0.0f) return;
     const JPH::EPhysicsUpdateError error = m.system->Update(dt, std::max(collision_steps, 1), m.temp.get(), m.jobs.get());
     if (error != JPH::EPhysicsUpdateError::None) {
-        // Overflowing these buffers drops contacts: objects can fall through floors.
         m.error("physics step overflow: raise PhysicsDesc::max_body_pairs / max_contact_constraints");
     }
+    check_breakable_joints(m, dt);
 }
 
 std::span<const ContactEvent> PhysicsWorld::contacts() const noexcept { return impl_->contacts; }
@@ -390,6 +337,7 @@ void PhysicsWorld::shift_origin(Vec3 offset) {
     impl_->characters.for_each([&](CharacterHandle, Impl::CharacterRecord& r) {
         r.character->SetPosition(r.character->GetPosition() - delta);
     });
+    shift_world_anchored_joints(*impl_, offset);
     impl_->system->OptimizeBroadPhase();
 }
 

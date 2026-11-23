@@ -165,10 +165,11 @@ public:
     [[nodiscard]] Vec2 screen_size() const;
     /// What the App draws into `debug` by itself every frame.
     struct DebugShow {
-        bool physics = false; ///< RigidBody shapes (green: dynamic, blue: kinematic, grey: static) and characters.
-        bool lights = false;  ///< Point light ranges, rect light panels.
-        bool fields = false;  ///< WindZone boxes with their direction, WaterBody boxes.
-        bool world_cells = false; ///< Loaded map cells (squares on the ground) and the load range.
+        bool physics = false;        ///< RigidBody shapes (green: dynamic, blue: kinematic, grey: static), joints, and characters.
+        bool physics_joints = false; ///< Joint anchors, axes, limits, motors, and broken indicators.
+        bool lights = false;         ///< Point light ranges, rect light panels.
+        bool fields = false;         ///< WindZone boxes with their direction, WaterBody boxes.
+        bool world_cells = false;    ///< Loaded map cells (squares on the ground) and the load range.
     } debug_show;
     /// The engine's debug UI (F1): performance, entities, inspector, render settings. Needs a renderer.
     bool show_debug_ui = false;

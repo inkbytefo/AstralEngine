@@ -37,6 +37,7 @@ void register_app_types(Context& ctx) {
     types.add<AudioListener>();
     types.add<StreamingSource>();
     types.add<Joint>();
+    types.add<JointMotor>();
     types.add<WindZone>();
     types.add<WaterBody>();
     types.add<Buoyant>();
@@ -45,6 +46,8 @@ void register_app_types(Context& ctx) {
     ctx.events.add<Contact>();
     ctx.events.add<TriggerEntered>();
     ctx.events.add<TriggerExited>();
+    ctx.events.add<JointBroken>();
+    ctx.events.add<JointDetached>();
     RenderBridge::register_types(types);
 }
 
@@ -226,7 +229,7 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc.worker_threads
 
     m.physics_bridge = std::make_unique<PhysicsBridge>(
         m.world, m.context->fields, m.time, m.context->profiler, m.log,
-        PhysicsBridgeConfig{.max_steps = desc.max_physics_steps, .interpolation = desc.physics_interpolation});
+        PhysicsBridgeConfig{.max_steps = desc.max_physics_steps, .interpolation = desc.physics_interpolation, .jobs = &m.jobs});
     m.context->physics = m.physics_bridge->world();
 
     m.render_bridge = std::make_unique<RenderBridge>(

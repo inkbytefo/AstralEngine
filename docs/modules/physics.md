@@ -1,13 +1,16 @@
 # Astral::Physics
 
-Katman 2. Jolt Physics üzerine fizik; yalnızca Core'a bağlı (ECS'i bilmez, headless test edilir).
-Public API'de Jolt tipi yok ([ADR-0010](../decisions/0010-jolt-physics.md)).
+Katman 2. Jolt Physics **v5.7.0** üzerine fizik; yalnızca Core'a bağlı (ECS'i bilmez, headless test edilir).
+Public API'de Jolt tipi yok ([ADR-0010](../decisions/0010-jolt-physics.md), [ADR-0038](../decisions/0038-physics-api-v2.md)).
 
 ```cpp
 astral::PhysicsWorld physics;
+physics.register_material(1, {.friction = 0.02f, .friction_combine = PhysicsCombineMode::Min});
+auto cooked = astral::cook_physics_shape(ShapeDesc::box({0.5f, 0.5f, 0.5f}));
+auto shape = physics.create_shape_from_cooked(cooked);
 auto ground = physics.create_body({.shape = ShapeDesc::box({50, 0.5f, 50}), .motion = MotionType::Static,
                                    .position = {0, -0.5f, 0}});
-auto ball = physics.create_body({.shape = ShapeDesc::sphere(0.5f), .position = {0, 5, 0}, .restitution = 0.4f});
+auto ball = physics.create_body({.position = {0, 5, 0}, .surface = 1, .cooked_shape = shape});
 physics.step(1.0f / 60.0f);
 if (auto hit = physics.raycast(origin, direction, 100.0f)) { /* hit->body, position, normal, distance */ }
 ```
@@ -16,71 +19,42 @@ if (auto hit = physics.raycast(origin, direction, 100.0f)) { /* hit->body, posit
 
 | | |
 |---|---|
-| Şekiller | kutu, küre, kapsül, silindir, **convex hull** (`convex_hull(points)`), **mesh** (`mesh(vertices, indices)`, yalnız statik/kinematik), **heightfield** (`height_field(heights, samples, cell_size)`, gövdeye ortalı, yalnız statik/kinematik), **compound** (`compound({{konum, dönüş, şekil}...})`) |
-| Hareket | `Static` (zemin/duvar), `Kinematic` (kodla hareket, iter), `Dynamic` (simüle) |
-| Body | kütle (0 = hacimden), sürtünme, sekme, sönümleme, yerçekimi çarpanı, sensör, CCD (`continuous`) |
-| Kontrol | `set_transform`, `move_kinematic`, `set_linear_velocity`, `set_angular_velocity`, `add_impulse`, `add_force`, `add_force_at`, `add_torque`, `set_gravity`/`gravity()` |
-| Katmanlar | 16 çarpışma katmanı (`BodyDesc::layer`), simetrik matris (`set_layer_collision(a, b, false)`; varsayılan hepsi çarpışır); iki statik gövde hiç test edilmez |
-| Sorgu | `raycast`, **`shape_cast`** (süpürülen şekil: küre, kutu...), **`overlap`** (şekille temas eden gövdeler); hepsi `QueryFilter{.layers = layer_bit(a) \| layer_bit(b), .ignore, .include_sensors}` alır (sensörler varsayılan görünmez) |
-| Yüzey | `BodyDesc::surface` (senin tablonun kimliği): `RayHit`, `ShapeHit` ve temaslar `surface` taşır → ses/efekt eşlemesi |
-| Eklemler | `create_joint`: Fixed, Point (top eklem), Hinge (menteşe, limit/sürtünme), Slider, Distance (çubuk/halat/yay: `spring_frequency`, `spring_damping`); dünyaya ya da iki gövdeye; eklemli gövdeler birbiriyle çarpışmaz (`collide_connected` ile açılır); gövde silinince eklemleri de gider |
-| Alanlar | `fields.hpp`: `FieldWorld` — rüzgâr (küresel + kutu hacimleri, gust, türbülans, kenar sönümü) ve su hacimleri (yüzey, dalga, akış, yoğunluk); konum ve zamanın saf işlevi; aynı hash/gürültü/formül `fields.glsl`'de (GPU eşitlik testi) |
-| Olaylar | `contacts()`: son adımdaki Begin/End temasları; `ContactEvent::sensor` = tetik girişi/çıkışı, `surface_a/b` |
-| Karakter | kapsül karakter: zeminde durur, duvarda kayar, eğim sınırı, zıplama, dinamik body'leri iter; iç body sayesinde raycast ve sensörler onu görür, karakterler birbirinin içinden geçmez |
-| Hatalı girdi | sıfır/negatif/NaN boyutlar reddedilir (geçersiz handle + log), adım taşmaları loglanır |
+| Yetenekler (P0) | `capabilities()` / `supports(PhysicsCapability)`: backend özelliklerini sıcak yolda sanal çağrı olmadan bildirir |
+| Şekiller | kutu, küre, kapsül, silindir, **convex hull**, **mesh** (statik/kinematik), **heightfield** (statik/kinematik), **compound**; **paylaşımlı & cooked şekiller (`ShapeHandle`)**: `create_shape`, `cook_shape` / `cook_physics_shape`, `inspect_cooked_shape`, `create_shape_from_cooked` (`ASSH` v1 sürümlü ikili başlık + backend ABI doğrulaması) |
+| Materyal / Yüzey (P0) | `register_material(surface, PhysicsMaterialDesc)` (`friction`, `restitution`, `friction_combine`, `restitution_combine` — `Average`/`Min`/`Multiply`/`Max`, `density`); `RayHit`, `ShapeHit` ve temaslar `surface` taşır |
+| Hareket & Body | `Static`, `Kinematic`, `Dynamic`; kütle (0 = hacim × materyal yoğunluğu), sürtünme, sekme, sönümleme, yerçekimi çarpanı, sensör, CCD (`continuous`) |
+| Kontrol | `set_transform`, `move_kinematic`, `set_linear_velocity`, `set_angular_velocity`, `add_impulse`, `add_force`, `add_force_at`, `add_torque`, `wake`, `sleep`, `set_gravity`/`gravity()`, `shift_origin` (gövde + karakter + dünya çapalı eklemler) |
+| Katmanlar | 16 çarpışma katmanı (`BodyDesc::layer`), simetrik matris (`set_layer_collision(a, b, false)`) |
+| Sorgu & Batch (P0) | `raycast`, `shape_cast`, `overlap` + toplu **`raycast_batch`**, **`shape_cast_batch`**, **`overlap_batch`** (isteğe bağlı `JobSystem*` ile paralel çalışma, paylaşımlı `ShapeHandle` desteği); `QueryFilter{.layers, .ignore, .include_sensors}` |
+| Eklemler (P0) | `create_joint`: `Fixed`, `Point`, `Hinge`, `Slider`, `Distance`, **`SixDOF`**, **`SwingTwist`**; açısal/doğrusal limitler (`JointLimitsDesc`), **`JointMotorDesc`** (`Off`/`Velocity`/`Position`, frekans, sönüm, max kuvvet/tork), çalışma zamanı setter'ları (`set_joint_motor_*`, `set_joint_limits`), tepki ölçümü (`joint_reaction`) ve kuvvet/tork kırılma eşikleri (`break_force`/`break_torque` → `broken_joints()`, `break_joint()`, `joint_broken()`) |
+| Alanlar | `fields.hpp`: `FieldWorld` — rüzgâr ve su hacimleri; aynı formül `fields.glsl`'de (GPU eşitlik testi) |
+| Olaylar | `contacts()` (Begin/End temas & sensör tetikleri), `broken_joints()` (`JointBrokenEvent`) |
+| Karakter | kapsül `CharacterVirtual`: zemin/duvar/eğim, zıplama, iç kinematik gövde |
 
 ## App içinde
 
-```cpp
-ctx.world.create(Transform{.position = {0, 5, 0}}, MeshRenderer{ctx.meshes.sphere},
-                 RigidBody{.desc = {.shape = ShapeDesc::sphere(0.5f)}});
-ctx.world.create(Transform{}, CharacterController{});   // move/jump alanlarını system'den yaz
-if (auto hit = ctx.physics->raycast(o, d, 100)) { Entity e = entity_of(*hit); }
-for (const ContactEvent& c : ctx.contacts()) { ... }
-```
-
-- Body, component eklendiği ilk karede `Transform`'dan oluşturulur; entity silinince veya component
-  kaldırılınca body de silinir.
-- Fizik **sabit 60 Hz** adımla koşar (`AppDesc::physics_rate`), kare başına en fazla 4 adım; yavaş
-  karelerde zaman atılır (spiral of death yok). `Phase::FixedUpdate` system'leri her adımdan önce,
-  `ctx.time.fixed_delta` ile çalışır.
-- Dinamik body'ler `Transform`'u yazar; kinematik body'ler `Transform`'u takip eder (hedef, karedeki
-  adımlara bölünür: düşük FPS'te sarsıntı yok).
-- `ctx.contacts()`: FixedUpdate içinde bir önceki adımın, diğer fazlarda bu karenin tüm temasları.
-- Bir component'i kopyalamak (şablondan spawn) yeni entity'ye kendi body'sini verir.
-- Karakterin konumu **ayak**; görsel mesh'i çocuk entity olarak yukarı kaydır (`examples/physics_demo`).
-
-## Alanlar ve kuvvetler (M12)
-
-Karar: [ADR-0029](../decisions/0029-physics-fields-and-joints.md). `WindZone` ve `WaterBody` component'leri (App) her sabit adımın başında `ctx.fields`'e
-(`FieldWorld`) yazılır; kuvvetleri üç component uygular (`RigidBody` gerekir):
-
-| Component | Kuvvet |
-|---|---|
-| `AirDrag{area, drag}` | `F = ½ ρ Cd A \|v_rel\| v_rel`, `v_rel = rüzgâr − hız` (suya batmışsa azalır) |
-| `Buoyant{volume, height, area, drag, angular_drag}` | Arşimet: `ρ_su g V f` (f = suya batan oran: gövdenin altındaki noktada su derinliği / `height`), su sürüklemesi (akıma göre) ve dönüş sönümü; `volume` 0 ise `kütle / 500` (yarı batarak yüzer) |
-| `Airfoil{area, lift_slope, stall_angle, forward, up}` | Kanat: `½ ρ v² A · slope · α` akışa dik, `α` hücum açısı, `stall_angle` ötesinde söner |
-
-Sensör (`BodyDesc::sensor`) giriş/çıkışları ve çarpışmalar World olayı olur: `TriggerEntered{trigger, other}`, `TriggerExited`, `Contact{kind, a, b, point, normal, surface_a, surface_b}`;
-`Joint{type, a, b, anchor, axis, ...}` component'i iki entity'nin `RigidBody`'sini bağlar. `AppDesc::physics_interpolation`: dinamik gövdeler son iki simüle poz arasında çizilir
-(`physics_rate` kare hızından düşükse akıcı hareket; Transform simülasyonun bir adım kadar gerisinde). `ctx.debug_show.fields`: rüzgâr ve su kutuları; `debug_show.physics` yeni şekilleri de çizer.
+- `PhysicsService` (`ctx.physics_service()`): F1 sabit-adım komut kuyruğu (`add_impulse`, `add_force`, `set_linear_velocity`, `set_angular_velocity`, `set_body_transform`, `wake_body`, `sleep_body`, `set_joint_motor_mode`/`_velocity`/`_position`/`_angular_velocity`/`_rotation`, `break_joint`) ve tamamlanmış adım sorguları (`raycast`, `raycast_batch`, `spherecast`, `overlap_*`, `capabilities`).
+- ECS component ve olayları: `RigidBody`, `CharacterController`, `Joint` (7 eklem tipi + limit + kırılma), `JointMotor` (Inspector ve Luau'dan canlı düzenlenebilir), `Contact`, `TriggerEntered`, `TriggerExited`, **`JointBroken`**, **`JointDetached`**.
+- **Streaming detach/attach & origin shift:** Bir eklemin bağlı gövdesi hücre unload/silme ile gittiğinde eklem entity'si hayattaysa `JointDetached` olayı gönderilir (`Joint::broken` false kalır); gövde geri geldiğinde eklem otomatik yeniden bağlanır. `shift_origin()` dünya çapalı eklemleri ve ECS `Joint::anchor` konumlarını tutarlı kaydırır.
+- **Debug Inspector:** `ctx.debug_show.physics_joints` (veya `physics`) eklem çapalarını, eksenlerini, SwingTwist limit konilerini, motor durumunu ve kırık işaretini çizer.
+- **Luau (`astral.physics.*`):** `raycast`, `raycast_batch`, `spherecast`, `overlap_sphere`, `overlap_box`, `impulse`, `force`, `set_velocity`, `velocity`, `teleport`, `wake`, `sleep`, `set_joint_motor_mode`, `set_joint_motor_velocity`, `set_joint_motor_position`, `break_joint`.
+- Kabul örnekleri: `examples/physics_playground` (M12/F1 regresyonu) ve `examples/physics_lab` (P0 kabul sahnesi: motorlu eklemler, kırılma, materyaller, cooked shape, batched sorgu, 120 gövde/60 eklem stres ve fixed-step replay determinizmi).
 
 ## Bilinen sınırlar
 
-- `RigidBody` yalnızca kök entity'lerde (Parent'sız); `desc` yalnızca oluşturulurken okunur; statik
-  body'nin `Transform`'u sonradan değişirse body taşınmaz (`set_transform` kullan).
-- Karakterler birbirini iter (kütleye göre değil, eşit).
-- Mesh ve heightfield dinamik olamaz ve sorgularda süpürülemez (convex hull / compound kullan). Mesh/heightfield kinematik gövdede dönüş maliyetlidir.
-- Eklemler: 6 serbestlik dereceli (SixDOF), motorlu eklemler, halat/zincir yardımcısı, kırılan eklem yok. Katman adları yok (sayılarla; oyun sabitleri tanımlar).
-- Su: kutu hacmi + dalga formülü; gerçek dalga/ıslaklık/akış simülasyonu M16/M18. Yüzdürme kuvveti gövdenin tek noktasında; eğilen gövdelerde yaklaşık.
-- Alan GLSL'i hazır ve CPU ile birebir doğrulanıyor, ama henüz bir shader tüketmiyor (bitki, partikül, bulut M14/M17).
-- Jolt kendi iş parçacığı havuzunu kullanır (motorun JobSystem'iyle paylaşılmıyor; `Jolt::JobSystem` bağlama ertelendi, ADR-0029).
-- Jolt'un tip kaydı süreç genelinde (ilk `PhysicsWorld` kurar, sonuncusu kaldırır).
-- Görsel interpolasyon isteğe bağlı (`AppDesc::physics_interpolation`, varsayılan kapalı): kapalıyken 60 Hz'den yüksek ekranlarda hareket adım adım görünebilir.
+- `RigidBody` yalnızca kök entity'lerde (Parent'sız); `desc` oluşturulurken okunur; statik gövde taşımak için `set_body_transform` / `set_transform` kullan.
+- Mesh ve heightfield dinamik olamaz ve sorgularda süpürülemez (convex hull / compound kullan).
+- Su: kutu hacmi + dalga formülü; gerçek dalga/akış simülasyonu M16/M18.
+- Jolt kendi `JobSystemThreadPool` havuzunu kullanır (`astral-bench` ile worker çekişmesi ölçülür; ADR-0038).
+- Jolt'un tip kaydı süreç genelinde referans sayımlıdır (`acquire_jolt_registry` / `release_jolt_registry`).
 
-## Dosya düzeni (M13.5)
+## Dosya düzeni (P0)
 
-- `physics_internal.hpp`: modül içi paylaşılan Jolt katman filtreleri, dönüşümler ve `PhysicsWorld::Impl` tanımı.
-- `physics.cpp`: Jolt yaşam döngüsü, şekil doğrulama/üretimi (`make_jolt_shape`), gövde (`BodyHandle`) yönetimi, adım (`step`) ve katman çarpışma matrisi.
-- `physics_queries_joints.cpp`: dar faz sorguları (`raycast`, `shape_cast`, `overlap`), eklemler (`create_joint`, `build_jolt_constraint`) ve sanal karakter kontrolcüsü (`CharacterVirtual`).
-- `fields.cpp`: rüzgâr ve su hacmi (`FieldWorld`) değerlendirmesi.
+- `include/astral/physics/types.hpp`: P0 değer tipleri (yetenekler, materyaller, cooked şekil bilgisi, eklem limit/motor/tepki/kırılma).
+- `include/astral/physics/physics.hpp`: `PhysicsWorld`, `ShapeDesc`, `BodyDesc`, `JointDesc`, sorgu ve standalone cooking API'si.
+- `src/physics_internal.hpp`: modül içi paylaşılan Jolt katman filtreleri, materyal birleştirme ve `PhysicsWorld::Impl`.
+- `src/physics.cpp`: Jolt yaşam döngüsü, yetenekler, materyal tablosu, gövdeler, `step` ve `shift_origin`.
+- `src/physics_shapes.cpp`: şekil doğrulama/üretimi (`make_jolt_shape`), `ShapeHandle` havuzu ve sürümlü `ASSH` v1 shape cooking.
+- `src/physics_joints.cpp`: 7 eklem tipi (`Fixed`..`SwingTwist`), motor/limit setter'ları, tepki/kırılma ve dünya çapalı origin shift.
+- `src/physics_queries_joints.cpp`: tekil ve paralel toplu dar faz sorguları (`*_batch`) ve sanal karakter kontrolcüsü.
+- `src/fields.cpp`: rüzgâr ve su hacmi (`FieldWorld`) değerlendirmesi.

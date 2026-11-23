@@ -23,6 +23,7 @@ astral_add_module(NAME app
         src/services/dev_tools.cpp
         src/services/frame_loop.cpp
         src/services/physics_bridge.cpp
+        src/services/script_physics.cpp
         src/services/render_bridge.cpp
         src/services/script_bridge.cpp
         src/services/world_bridge.cpp
