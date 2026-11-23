@@ -1,374 +1,218 @@
 # Yol Haritası
 
-Durum: ✅ bitti · 🚧 sürüyor · 🔜 sıradaki · ⬜ planlı
+**Plan v5 · 23 Kasım 2026**
+
+**İncelenen taban** `inkbytefo/AstralEngine` · `master` · `c1de0e7`
+
+**Durum** ✅ tamamlandı · 🚧 sürüyor · 🔜 sıradaki · ⬜ planlı
+
+AstralEngine, C++20 kütüphaneleri ve isteğe bağlı App katmanıyla açık dünya, fizik tabanlı karakterler, deformasyonlu araçlar ve çok oyunculu oyunlar için ortak altyapı sunmayı hedefler. Editörde ajanlar değişiklik önerir, kullanıcı farkı ve önizlemeyi inceleyip kayda onay verir.
 
 ## Neredeyiz
 
 | Faz | Kapsam | Durum |
 |---|---|---|
-| M0–M2 | Core, Platform, Vulkan RHI, kendi ECS'imiz, App | ✅ |
-| M3, M3.5, M3.6 | Render graph; ray-traced aydınlatma (RT gölge, DDGI, RT yansıma, denoiser, TAA, bloom); render API v2 | ✅ |
-| M4 | Fizik (Jolt): body'ler, raycast, temaslar, karakter | ✅ |
-| M5a–c | ECS tamamlama, asset'ler (glTF, hot-reload), sahne ve prefab | ✅ |
-| M6 | Paketleme: cook, BC7/BC5, `.apak`, `astral_add_game` | ✅ |
-| M7 | İlk oyun: 3D Pong | ✅ |
-| M8 | Geliştirici araçları, metin/HUD, ses, görüntü testleri | ✅ |
-| M9 | Dünya ve harita sistemi: `.world` + `.ent`, hücre streaming, katmanlar, kayan orijin | ✅ |
-| M10 | Shader dili (`.ashader`) ve materyaller (`.material`): yaprak, cam, lav, hologram, sky, post | ✅ |
+| M0–M7 | Core, SDL3, Vulkan RHI, ECS, App, render graph ve hibrit RT, Jolt, glTF, sahne/prefab, cook/paketleme, Pong | ✅ |
+| M8–M10 | Debug araçları, ses ve HUD, dünya streaming, shader ve materyal dili | ✅ |
+| M11–M12 | FeatureSet ve Luau, sabit adımlı fizik köprüsü, sorgular, eklemler, rüzgâr ve su alanları | ✅ |
+| M13 | Gelişmiş PBR, deferred decal ve progresif path tracer referansı | ✅ |
+| M13.5–M13.6 | Modül ayrıştırması, test ve denetimler, paralel zamanlayıcı ve transform, arka planda hücre G/Ç, benchmark'lar | ✅ |
 
-## Plan v4 (2026-11-21)
+Tamamlanma işaretleri depo tarihçesinden gelir. Bu revizyonda kaynak ve test yapılandırması incelendi. Derleme, CTest, sanitizer, Windows Debug, golden ve performans sonuçları F0'da ilgili commit ve ortamla yeniden kaydedilecek.
 
-Hedef: **Unreal 5 seviyesinde bir dünya sistemi** (açık dünyada da hızlı), **yapay zekâyla rahat yazılan,
-spagettiye dönmeyen** oyun kodu, **gdshader benzeri özel shader/materyal** dili ve **hacim tabanlı VFX**
-(CS2 dumanı gibi); bunların üstüne fizik, arazi, su ve hava. Su ve hava tek başına özellik değil; ortak
-mekanizmaların birleşimi: materyal/shader dili, şeffaf geçiş, fizikte alanlar ve kuvvetler, hacimsel
-render ve GPU partikülleri. Bu yüzden önce temeller (M8–M12), sonra özellikler (M13–M22).
+### Kaynaktaki başlangıç noktaları
 
-v3'ten fark: kullanıcı öncelikleriyle **dünya/harita sistemi** (yeni M9) ve **modüler oyun kodu**
-(ADR-0023, M11) öne alındı, shader işi bir dile (ADR-0022) dönüştü, M14 hacimsel VFX'i (ADR-0024) içeriyor.
-Sonraki fazların numarası birer kaydı.
+| Alan | Mevcut uygulama | Sonraki iş |
+|---|---|---|
+| Gameplay | `FeatureSet` ve `FeatureContext` App'te. Script API ve tipler reflection/bağlamalardan üretiliyor. Luau kuvvet, impuls, sorgu, alan ve olaylara erişiyor. [Feature API](../modules/app/include/astral/app/feature.hpp) · [Script API](../modules/script/include/astral/script/script.hpp) | F1 sözleşme, komut zamanlaması ve yaşam döngüsü |
+| Fizik | Jolt **v5.3.0** sabitlenmiş. Fixed, Point, Hinge, Slider ve Distance mevcut. SixDOF, motorlu eklemler ve kırılma olayı eksik. `PhysicsService` App yüzü, `PhysicsWorld` ECS'den bağımsız alt API. [Sürüm](../modules/physics/CMakeLists.txt) · [Fizik](modules/physics.md) | P0 fizik sözleşmesini genişletir |
+| İçerik | `.world` = `astral.map` v1. `<harita>.entities/<id>.ent` = `astral.entity` v1, cook çıktısı `.cell`. `.scene` = `astral.scene`, `.prefab` = tek köklü aynı belge biçimi. ECS `World` canlı depo, `astral.world` tam ECS kayıt biçimi. Prefab override, nesting ve reload, haritada hücre durumu ve referans temelleri mevcut. [Harita API](../modules/world/include/astral/world/map.hpp) · [Sahne API](../modules/world/include/astral/world/scene.hpp) · [Hücre durumu](../modules/world/include/astral/world/map_state.hpp) | E1 düzenleme belgesi ve Level Instance sahipliği |
+| Araçlar | App içi ImGui debug UI, reflection Inspector, scene/world/material ve profiler panelleri mevcut. Bağımsız editör hedefi, belge transaction'ı ve insan onay akışı planlı. [Debug UI](../modules/app/src/debug_ui.cpp) · [Paneller](../modules/app/src/panels) | E0 mevcut bileşenleri değerlendirir |
+| Animasyon | glTF loader skin, animation ve morph'u uyarıyla atlıyor. [Model API](../modules/assets/include/astral/assets/model.hpp) · [Yükleyici](../modules/assets/src/gltf.cpp) | A0 import, cook, poz ve render teslimlerini uçtan uca ekler |
+| Sunucu | `AppDesc::headless` penceresiz/GPU'suz çalışır. Kök derleme Vulkan SDK ister. Transport, replication ve dedicated server paketi planlı. [App](../modules/app/include/astral/app/app.hpp) · [GPU CMake](../modules/gpu/CMakeLists.txt) | N0 çalışma zamanı ve dağıtım bağımlılıklarını ayrı doğrular |
 
-| Faz | Kapsam | Bağımlı | Durum |
+### Mimari ve kabul kuralları
+
+- Oyun döngüsünü tüketici yönetir, App standart kabuğu sağlar. ECS verisi C++ ve Luau için ortaktır. Component veriyi, System davranışı, Feature kurulumu ve paket sınırını taşır. Haberleşme component ve olayla, erişim yansıtılan şema ve dar servislerle yürür. Script durumunu kaydedilebilir component'lerde tut. [Mimari](architecture.md) · [ADR-0023](decisions/0023-modular-game-code.md) · [ADR-0026](decisions/0026-script-host-and-features.md)
+- Public header'lar motor tipleri ve handle kullanır. Jolt/Vulkan/Luau modül içinde kalır. Yeni CMake kenarlarını mimari tablo ve `tools/module_layers.json` ile birlikte güncelle. App köprüleri modülleri birleştirir. Editör App'i tüketebilir, oyun ve sunucu paketleri editörü linklemez.
+- Fizik komutları sabit adım sınırında uygulanır. Simülasyon pozu, animasyon hedefi ve render interpolasyonu ayrı tutulur. Seri/paralel ECS eşitliği, sabit girdili fizik replay ve ağ düzeltme davranışı ayrı test edilir. Platformlar arası ağ tutarlılığı snapshot ve reconciliation ile sağlanır.
+- Her faz sözleşme ve gerekiyorsa ADR, ilgili unit/integration/headless test, çalışır örnek, kullanıcı dokümanı ve ölçüm çıktısı verir. Oyun API'si değişirse C++/Luau örnekleri, uygulanabilir Inspector görünümü, üretilen `API.md` ve `astral.d.luau` birlikte doğrulanır. Görsel fazlar golden ve uygun olduğunda M13 path tracer referansını kullanır. [Faz kapanışı](process.md)
+- Performans sonuçlarına commit, donanım, sürücü, derleyici, çözünürlük, sahne, kalite ayarı, örnek sayısı, p50/p95/p99 ve bellek eklenir. RTX 3060 12 GB görsel referans profili, düşük donanım/CPU ve headless sunucu profilleri ayrı ölçülür. Sayısal bütçeler ilgili fazdan önce F0 ölçümleri ve hedef platform kararıyla belirlenir.
+
+## Öncelik ve bağımlılıklar
+
+M14–M23 kimlikleri korunur. A0, M20'nin teslim planı, S1 M21'in teslim planıdır. V0, V1 ve S2, M23'ün ayrı teslimleridir. M23 ayrıca M19 ile ortak kırılma entegrasyonunu kapsar. P0 bu plandaki Physics API v2 fazıdır. Tarihçedeki M13.6/P0 benchmark işini ifade eder.
+
+| Faz | Kapsam | Başlıca ön koşul | Durum |
 |---|---|---|---|
-| M8 | Geliştirici altyapısı: debug UI, debug çizim, profiler, metin/HUD, ses; görüntü testleri | — | ✅ |
-| M9 | **Dünya ve harita sistemi:** `.world`, nesne başına dosya, hücreler + asenkron streaming, veri katmanları, bölüm örnekleri, kayan orijin ([ADR-0021](decisions/0021-world-and-level-system.md)) | M8 | ✅ |
-| M10 | **Shader dili ve materyaller:** `.ashader` (gdshader benzeri), `.material` + örnekler, çalışma anında derleme + hot-reload, raster/RT/gölge/forward varyantları, alfa testi, şeffaf geçiş ([ADR-0022](decisions/0022-shader-and-material-language.md)) | M8 | ✅ |
-| M11 | **Oyun kodu ve scripting:** özellik paketleri + SOLID kuralları + sınır denetimi ([ADR-0023](decisions/0023-modular-game-code.md)), Luau ([ADR-0017](decisions/0017-gameplay-scripting.md), [ADR-0026](decisions/0026-script-host-and-features.md)), input eylemleri, `AGENTS.md`, üretilen API belgesi | M9 | ✅ |
-| M12 | Fizik altyapısı: katmanlar, mesh/heightfield, eklemler, sorgular; **alan sistemi** (rüzgâr, su hacmi) ve kuvvetler ([ADR-0029](decisions/0029-physics-fields-and-joints.md)) | M8 | ✅ |
-| M13 | Gelişmiş PBR: clearcoat, sheen, anizotropi, transmission, subsurface, ıslaklık, detay/POM, decal, path tracer referansı ([ADR-0033](decisions/0033-advanced-pbr-and-path-tracer.md)) | M10 | ✅ |
-| M13.5 | **Kod sağlığı ve modülerlik:** güvenlik ağı (Windows Debug CI, `.gitattributes`, doctest, donanımdan bağımsız görüntü testleri, boyut bütçesi), god class'ların bölünmesi (renderer, app/Context, debug UI, cook, glTF, asset yöneticisi, fizik, script bağlamaları, sahne, GPU cihazı), header ve derleme süresi hijyeni; davranış değişmez ([ADR-0030](decisions/0030-refactor-rules-and-size-budget.md), [ADR-0031](decisions/0031-hardware-independent-golden-tests.md)) | M13 | ✅ |
-| M13.6 | **Ölçeklenebilir çalışma zamanı:** erişim bildiren sistemler + deterministik paralel zamanlayıcı, paralel transform yayılımı, ana thread'den çıkan hücre G/Ç, toplu script sorguları (`astral.each`), modül başına script profiler kapsamı, ölçek benchmark'ları ([ADR-0032](decisions/0032-scalable-runtime-and-parallel-scheduler.md)) | M13.5 | ✅ |
-| M14 | **Atmosfer ve VFX:** fiziksel gökyüzü, froxel sis, **hacimsel efektler (CS2 dumanı)**, GPU partikülleri, decal/iz, `.vfx` ([ADR-0024](decisions/0024-volumetric-vfx.md)) | M10, M12 | ⬜ |
-| M15 | Arazi I: Terrain3D benzeri heightfield (clipmap, bölgeler, 32 katman, sculpt, delik, fizik, yerleştirme), dünya hücreleriyle stream ([ADR-0018](decisions/0018-terrain-and-sdf-world.md)) | M9, M10, M12 | ⬜ |
-| M16 | Su I: okyanus ve göller (FFT dalga, kırılma, köpük, su altı, kıyılar) + dalgayı izleyen kaldırma kuvveti | M14, M15 | ⬜ |
-| M17 | Hava: hacimsel bulutlar, hava durumu (yağmur, ıslaklık), ileri aerodinamik | M13, M14 | ⬜ |
-| M18 | Su II: etkileşimli su (GPU sığ su simülasyonu, iz, sıçrama, nehir akışı) | M16 | ⬜ |
-| M19 | SDF dünya ve yıkım: seyrek SDF hacimleri, çalışma anında CSG, yıkılabilir nesneler ([ADR-0018](decisions/0018-terrain-and-sdf-world.md)) | M12, M15 | ⬜ |
-| M20 | Animasyon: iskelet, GPU skinning, blend, root motion, IK (ayak yerleştirme, bakış, uzanma), skinned RT | M10 | ⬜ |
-| M21 | **Karakter fiziği:** ragdoll, kaslar, aktif ragdoll, Euphoria tarzı davranışlar (denge, darbe, düşüş, kalkma) ([ADR-0025](decisions/0025-physics-based-character-animation.md)) | M12, M20 | ⬜ |
-| M22 | Dünya ölçeği II: HLOD, büyük ölçekli bitki örtüsü, GPU-driven culling, meshlet LOD | M9, M15, M19 | ⬜ |
-| M23 | Fizik III: araçlar, kumaş/soft body (rüzgâr alanıyla), kopan parçalar, önceden kırılmış mesh'ler | M12, M19, M21 | ⬜ |
-| — | Kılıç arenası (yer tutucu): animasyon ve aktif ragdoll olgunlaşınca | M20, M21 | ⬜ |
+| F0 | Doğrulama ve capability envanteri | Mevcut master | 🔜 |
+| F1 | Gameplay API ve fizik adım sözleşmesi | F0, M11–M12 | ⬜ |
+| E0 | Bağımsız AI destekli editör çekirdeği | F0, M8, F1 kimlik/şema sözleşmesi | ⬜ |
+| E1 | Dünya düzenleme ve Level Instance | E0, M9, F1. Arazi araçları M15 ile birleşir | ⬜ |
+| P0 | Physics API v2 | F1, M12 | ⬜ |
+| M14 | Atmosfer, hacimsel VFX ve GPU partikülleri | F1, M10, M12–M13 | ⬜ |
+| M15 | Heightfield arazi ve streaming | F1, M9–M10, M12 | ⬜ |
+| M16 | Okyanus ve göller | M14–M15, P0 su örnekleme sözleşmesi | ⬜ |
+| M17 | Bulutlar ve hava durumu | M13–M14 | ⬜ |
+| M18 | Etkileşimli su ve nehir | M16 | ⬜ |
+| M19 | SDF dünya ve yıkım | M15, P0 | ⬜ |
+| M20 / A0 | Animasyon, IK ve skinned RT | F1, M5b, M10 | ⬜ |
+| M21 / S1 | Pasif ve aktif ragdoll | P0, A0 | ⬜ |
+| M22 | HLOD, bitki örtüsü ve GPU culling | M15, E1 hücre sözleşmesi. SDF kapsaması M19'a bağlı | ⬜ |
+| M23 / V0 | Rigid vehicle | F1. Kontrat/prototip P0 ile paralel, entegrasyon P0 sonrası | ⬜ |
+| M23 / V1 | Node-beam araç | V0, P0, solver ve çarpışma prototipi | ⬜ |
+| M23 / S2 | Cloth, soft body ve hair | P0, M12. Karakter kumaşı ve saç bağlama için A0 | ⬜ |
+| M23 | Parçalanma ve fizik entegrasyonu | M19, P0 ve M23 alt teslimleri | ⬜ |
+| N0 | Sunucu otoriteli co-op | F1, M9. Gelişmiş fizik profilleri S1/S2/V1 olgunlaştıkça | ⬜ |
 
-### İlkeler
+F0/F1 sonrasında M14 ve M15, E0 ile paralel ilerleyebilir. A0, P0 ve V0 prototipinin dosya sahipliği ayrılır. N0 protokol tasarımı F1 kimlik çalışmasıyla birlikte başlar. İlk co-op testi gelişmiş solver'ları beklemez.
 
-1. **Önce mekanizma, sonra özellik.** Su render'ı "şeffaf geçiş + `.ashader` + alan" üstüne yazılır,
-   kendi özel yolunu açmaz. Duman "hacimsel efekt + `volume` shader" üstüne.
-2. **Tek veri, iki tüketici.** Rüzgâr ve su alanları bir kez tanımlanır; fizik (CPU) ve partikül, bitki,
-   kumaş, bulut (GPU) aynı tanımı örnekler. Dumanın oyun ızgarası görüşü de görüntüyü de sürer.
-3. **Veri ECS'te, davranış sistemlerde, içerik dosyalarda.** Yeni her component reflect edilir: sahne
-   dosyası, editör paneli ve script bağlaması kendiliğinden gelir.
-4. **SOLID her zaman** ([architecture.md](architecture.md), [ADR-0023](decisions/0023-modular-game-code.md)):
-   yeni davranış yeni sistem/olayla eklenir, mevcut kod değiştirilmez; global durum yok; servisler arayüzle.
-5. **Yapay zekâ dostu.** Küçük kalıplı dosyalar, reflection'dan üretilen API belgesi ve tip tanımları,
-   headless testler, otomatik sınır denetimi. Ajan tahmin etmez, okur ve test eder.
-6. **Her şey çalışırken değişir.** Shader, materyal, script, sahne, prefab, dünya hücresi hot-reload.
-7. **Ölçmeden optimize yok, görmeden kabul yok.** Her faz profiler verisi ve görüntü testiyle (offscreen,
-   CI'da lavapipe) biter; her fazın bir demo sahnesi olur.
-8. **Doğruluk referansı.** M13'ten itibaren gerçek zamanlı sonuçlar birikimli path tracer referansıyla
-   karşılaştırılır.
+## Temel altyapı ve editör
 
-### Faz ayrıntıları
+### F0 — Repo doğrulama ve yetenek envanteri
 
-**M8 — Geliştirici altyapısı ve oyun temelleri.** ✅ Ayrıntı aşağıda (Tamamlanan fazlar → M8).
+1. SHA, toolchain/SDK ve ortamı sabitle. `.github/workflows/ci.yml` ile MSVC Debug, Linux GCC/Clang Release ve TSan işlerini karşılaştır. Debug/Release configure-build-CTest, ASan/UBSan preset'i, `layer_check`, `code_size_check`, paket ve kurulu tüketici testlerini kaydet. TSan mevcut CI'da Core/World/Physics/Script hedeflerine sınırlı. App zamanlayıcısı için TSan kapsamasını ayrıca doğrula.
+2. Lavapipe ile `ctest -L '^golden$'`, donanım GPU ile `ctest -L '^golden-hw$'` çalıştır. Atlanan işleri nedenleriyle, CI sonuçlarını SHA ve run bağlantısıyla kaydet. `astral_benchmarks_smoke` duman testi, Release `astral-bench` ölçek ölçümü, `astral-render-bench` GPU ölçümü verir. Streaming worker decode ölçümünü gerçek uçuş profiliyle tamamla.
+3. CMake grafiği, public API, loader'lar, testler ve TODO'ları eşleştir. `docs/status/capabilities.md` içinde her satıra `implemented / partial / planned / unsupported`, kaynak dosya, test ve çalıştırma kanıtı ekle. Koddaki davranış ve ADR hedefi farklıysa ikisini işaretle.
+4. README durum tablosunu bu yol haritasıyla eşleştir. Kapanmayan regresyon, eksik doğrulama ve riskler için ayrı takip kayıtları aç. Tarihsel ✅ durumlarını koru.
 
-**M9 — Dünya ve harita sistemi.** ✅ Ayrıntı aşağıda (Tamamlanan fazlar → M9). Karar: [ADR-0021](decisions/0021-world-and-level-system.md).
-- `.world` biçimi (dünya ayarları, ızgaralar, veri katmanları); `<harita>.entities/` klasöründe nesne başına
-  dosya; tek `.scene` küçük haritalar için geçerli kalır.
-- Cook: entity'leri sınır kutusuna göre hücrelere dağıtır, hücre başına ikili blok.
-- Çalışma anı: `StreamingSource`, asenkron hücre yükleme (JobSystem), kare bütçeli birleştirme, histerezisli
-  boşaltma, hücre farkı olarak saklanan oyun durumu, hücreler arası kalıcı referanslar.
-- Veri katmanları (açma/kapama), bölüm örnekleri (`.scene` → dünyaya yerleştirme), `ctx.open_world`.
-- Kayan orijin: dosyada `double`, çalışırken orijine göre `float`; fizik ve render geçmişi birlikte kayar.
-- Araçlar: debug UI'da hücre görünümü, yükleme yarıçapları (debug çizim), profiler'da streaming istatistiği.
-- *Çıkış:* 4×4 km test dünyası (binlerce prosedürel nesne), kamera uçarken takılmasız streaming; aynı
-  dünyada gece katmanı aç/kapa; iki nesne dosyası ayrı ayrı düzenleniyor.
+**Çıkış** Yeniden üretilebilir CI/yerel rapor, capability matrisi, benchmark tabanı ve takip kayıtları.
 
-**M10 — Shader dili ve materyaller.** ✅ Ayrıntı aşağıda (Tamamlanan fazlar → M10). Karar: [ADR-0022](decisions/0022-shader-and-material-language.md).
-- glslang ile çalışma anında derleme; `.ashader` başlık ayrıştırıcısı; built-in'ler; hata satır eşlemesi.
-- `shader_type surface` → G-buffer, gölge, RT vuruş (uber-shader'a eklenen dal), forward/şeffaf varyantları;
-  `vertex()` deformasyonu ve deforme mesh'ler için BLAS güncelleme politikası; alfa testi her yolda.
-- `.material` (+ ebeveyn zinciri), uniform ipuçlarından otomatik materyal paneli, `MaterialOverride`;
-  glTF materyalleri `standard.ashader` örneği olarak.
-- Şeffaf/forward geçiş: sıralı şeffaflar, RT yansıma, ekran uzayı kırılma. `post` ve `sky` türleri.
-- Cook'ta önceden derleme, diskte pipeline önbelleği.
-- *Çıkış:* rüzgârda sallanan yaprak, cam, akan lav ve hologram materyalleri dosyadan; shader düzenlenince
-  oyun durmadan değişiyor; raster ve RT görüntüleri aynı materyali gösteriyor.
+### F1 — Gameplay sözleşmesi ve fizik köprüsü
 
-**M11 — Oyun kodu ve scripting ✅** (sonuç: aşağıda "Tamamlanan fazlar"). Kararlar: [ADR-0023](decisions/0023-modular-game-code.md),
-[ADR-0017](decisions/0017-gameplay-scripting.md).
-- Özellik paketleri (`feature.json`, `install`), bağımlılık sırası, sınır denetimi (build/lint).
-- `Astral::Script` (Luau): reflection'dan bağlama, sistem script'leri ve entity davranışları, script'te
-  component, olaylar, hot-reload, sandbox; `astral.d.luau` ve `API.md` üretimi.
-- Oyun çatısı: input eylemleri (tuş eşleme, gamepad), zamanlayıcılar/tween, tetik hacimleri, durum
-  makinesi yardımcıları, kayıt sistemi.
-- `AGENTS.md`: yapay zekâ ajanları için özellik iskeleti, kurallar, komutlar.
-- *Çıkış:* Pong özellik paketlerine bölünüyor, kuralları Luau'da ve aynı testleri geçiyor.
+- `FeatureSet`, `feature.json`, `FeatureContext`, reflection/event registry ve `astral` bağlamalarını tek keşif yüzeyinde eşleştir. Reflection veri alanı ve tiplerin kaynağı, bağlama metadata'sı çağrılabilir API'nin kaynağı olsun. Inspector, API belgesi ve script tipleri arasındaki sapmayı test et. Şema sürümü, uyumlu okuma, migration ve içerik hatası teşhisini tanımla.
+- Runtime `Entity`/handle nesli ve World aidiyeti, sahne/prefab belge kimliği ve harita referansı ayrı sözleşmelere sahip olsun. Yok edilen, henüz yüklenmeyen ve yeniden yüklenen entity durumlarını, component ekleme/silme sırasını ve kayıtta handle yeniden bağlamayı doğrula.
+- Bugünkü `FrameLoop` C++ FixedUpdate'i, ardından Luau'yu çalıştırır. `PhysicsBridge` ECS komutlarını uygular, gövdeleri senkronlar, kinematik/karakter/alan kuvvetlerini hazırlar, step yapar ve kare sonunda temasları olaylara dönüştürür. FixedUpdate temas görünümü önceki adıma aittir. [FrameLoop](../modules/app/src/services/frame_loop.cpp) · [PhysicsBridge](../modules/app/src/services/physics_bridge.cpp)
+- App servisinde komut, sorgu ve olay yüzlerini daralt. Tick girdilerini sabit sırayla topla, ECS komutları ve gövde eşlemesi sonrası step öncesinde uygula. Sorgunun hangi tamamlanmış durumdan okuduğunu belirt. Tick sonrası olay ve mevcut karelik temas davranışını uyumluluk testleriyle tanımla. Doğrudan `PhysicsWorld` kullanan C++ tüketicilerinin adım kontrolü korunur. Paralel sistemlerin doğrudan solver mutasyonu yerine sıralı komut teslimini doğrula.
 
-**M12 — Fizik altyapısı ve alanlar.**
-- Çarpışma katmanları; mesh, convex hull, heightfield ve compound şekiller; eklemler; shape cast ve overlap.
-- Fizik materyalleri (yüzey tipi → ses ve VFX), görsel interpolasyon, Jolt'u JobSystem'e bağlama.
-- **Alan sistemi:** rüzgâr (genel + yerel hacimler + türbülans + esinti), su hacimleri (yükseklik, akış,
-  yoğunluk); CPU'da ve GPU'da aynı fonksiyon. Kuvvetler: kaldırma, su içi ve hava sürüklemesi.
-- *Çıkış:* yüzen kutular, rüzgârla sürüklenen nesneler, eklemli köprü, heightfield zemin.
+**Çıkış** `physics_playground` üzerinde Luau kuvveti ve temas dinleme, sıfır/çok alt adımlı kare, gecikmiş komut, geçersiz entity, kayıt/yükleme ve C++ tüketici regresyonları.
 
-**M13 — Gelişmiş PBR ve Path Tracer Referansı ✅** Karar: [ADR-0033](decisions/0033-advanced-pbr-and-path-tracer.md).
-- Turquin (2019) enerji koruyan çoklu saçılmalı GGX (`brdf.glsl`) ve ortak `bsdf.glsl` katman kütüphanesi: clearcoat (IOR 1.5), Charlie NDF sheen, Heitz anizotropik GGX, dielektrik Fresnel + Snell kırılma + Beer-Lambert hacimsel soğurma (`Transmission`), subsurface scattering (`Subsurface`), ıslaklık (`WETNESS`), RNM detay normal + Parallax Occlusion Mapping (POM).
-- `.ashader` `shading_model <standard|clearcoat|sheen|anisotropic|transmission|subsurface>;` başlığı ve ilgili tüm built-in değişkenler (`CLEARCOAT`, `SHEEN_COLOR`, `ANISOTROPY`, `TRANSMISSION`, `IOR`, `SUBSURFACE`, `WETNESS` vb.) raster, hibrit RT ve path tracer varyantlarında tekdüze derlenir.
-- Gecikmeli kutu-izdüşümlü decal sistemi (`Decal` component + `DecalPass` + `decal.comp`, path tracer birincil vuruşlarında da uygulanır).
-- Birikimli çok sekmeli yansız Path Tracer referans modu (`RenderSettings::path_tracer`, `PathTracerPass` + `path_tracer.comp`, RGBA32Float ping-pong biriktirme, kamera/ayar değişiminde otomatik sıfırlama).
-- *Çıkış:* `examples/material_showcase` (7 M13 PBR materyali + 2 decal, `P` tuşuyla canlı Hibrit RT / Path Tracer geçişi) + 1280×720 RTX 3060 kıyaslaması (`m13_pbr_rt` 2.98 ms / 335 FPS, 64-SPP Path Tracer 0.83 ms/spp, RMSE 2.74, ortalama parlaklık farkı %0.29).
+### E0 — AI destekli masaüstü editör çekirdeği
 
-**M13.5 — Kod sağlığı ve modülerlik (refaktör).** Kararlar faz başında: ADR-0030 (refaktör kuralları, boyut
-bütçesi, "god class" tanımı), ADR-0031 (donanımdan bağımsız görüntü testleri).
+- Ayrı editör hedefi, yeniden kullanılabilir reflection/asset/preview servisleri. ImGui docking ve multi-viewport'u mevcut wrapper, SDL3/Vulkan, DPI ve Linux/Windows pencere davranışıyla prototiple. Sade masaüstü çalışma alanında viewport, World/Scene/Prefab tarayıcı, hierarchy, Inspector, konsol ve profiler.
+- Belge komutları kullanıcı ve ajan için ortak, sürümlü ve keşfedilebilir olsun. Seçili ajan ve hedef entity/asset üzerinden öneri al. Kalıcı kimlik ve belge revizyonuyla doğrula, değişiklik farkı ve önizleme göster. Onayla tek transaction kaydet, hata halinde rollback yap, undo/redo ve audit log tut. Önizlemeyi geçici ECS örneğinde çalıştır. Eski revizyon ve kısmi dosya kaydı senaryolarını test et.
+- Editor araçlarının komut/şema testleri GPU'suz çalışabilir. Oyun ve sunucu paketlerinde editör hedefi ve ajan entegrasyonu bulunmadığını paket/tüketici testiyle doğrula.
 
-*Neden:* 2026-11-22 mimari incelemesi. Katmanlar, kurallar ve testler sağlam; ama birkaç dosya her fazda
-büyüyen "toplama noktası" oldu (`renderer.cpp` 1835 satır, `Renderer::Impl` 69 üye, `render_ray_traced` 396
-satırlık tek fonksiyon; `app.cpp` 1459 satır, `App::Impl` 106 satır, `Context` ~25 metot ve her fazda artıyor).
-Bunlar paralel çalışmada (görev başına worktree → master) merge çakışması ve yapay zekâ ajanları için bağlam
-yükü demek. İlk Windows/MSVC derlemesi de CI'ın yakalamadığı dört hata buldu (`0be42b0`).
+**Çıkış** `examples/world_editor` iş akışında ajan prefab önerir, kullanıcı inceler ve onaylar, dosya tekrar yüklenir ve undo/redo aynı içeriği üretir.
 
-*Değişmez kurallar (bu faz boyunca):*
-- **Davranış değişmez.** Her adım saf yapısal; public API kaynak uyumlu kalır (değişen her şey bir faz
-  `[[deprecated]]` sarmalayıcıyla yaşar). Lavapipe görüntü testleri **bit bit aynı** kalmalı.
-- **Önce karakterizasyon testi, sonra taşıma.** Bölünecek kodun mevcut davranışı (kare aşama sırası, render
-  istatistikleri, cook çıktısının hash'i) önce testle sabitlenir.
-- **Tek sorumluluk ölçütü:** bir sınıf/dosya birden fazla nedenle değişiyorsa bölünür. Boyut tek başına ölçüt
-  değil: tutarlı bir ayrıştırıcı (`core/json.cpp` `Parser` 216 satır, `shader/ashader.cpp` `Parser` 167 satır)
-  bölünmez.
-- **Hedef bütçe:** `src/` dosyası ≤ 600 satır, fonksiyon ≤ 80 satır, `Impl` ≤ 25 üye. Aşan yerler bilinçli
-  istisna listesinde (gerekçeli) durur; liste yalnızca küçülür.
-- **Her adım ayrı worktree, ayrı merge.** R1–R3 işleri dosya sahipliği ayrıştığında paralel yürüyebilir.
-  R1 hazırlığı R0 doğrulanırken başlayabilir. R1 adayları tamamlanmış R0 üzerine alınıp doğrulanır.
+### E1 — Dünya kompozisyonu ve içerik üretimi
 
-*R0 — Güvenlik ağı (önce bu).*
-- **Windows Debug CI job'u:** MSVC Debug (`_ITERATOR_DEBUG_LEVEL=2`), `ASTRAL_WARNINGS_AS_ERRORS=ON`, unit
-  testler. STL debug kontrolleri `vector::assign` türü tanımsız davranışı yakalar (M13'e kadar Linux ve Windows
-  Release'te gizli kalmıştı).
-- **`.gitattributes`:** `* text=auto eol=lf`; `*.png *.glb *.ttf *.apak binary`. Repoyu bir kez normalize et.
-  Metin ayrıştıran her kod (GLSL gömme, `.ashader`, `.material`, JSON, `.actions`) yine de CRLF'e dayanıklı
-  kalır ve bunun testi olur (kullanıcı dosyaları Windows'ta CRLF gelebilir).
-- **doctest 2.4.11 → 2.5.x:** CMake 4 (`cmake_minimum_required < 3.5`) ve MSVC 14.51 STL uyumsuzluğu biter;
-  yerel `CMAKE_POLICY_VERSION_MINIMUM` ve `DOCTEST_CONFIG_USE_STD_HEADERS` geçici çözümleri kalkar. README'deki
-  araç sürümleri (CMake 4, VS 2026) güncellenir.
-- **Görüntü testleri donanımdan bağımsız ([ADR-0031](decisions/0031-hardware-independent-golden-tests.md)):** referanslar lavapipe'ta üretiliyor; gerçek GPU'larda
-  (ör. RTX 3060) beş test sürekli kırmızı (`scene_viewer`, `open_world` ×3, `shader_showcase`). İkiye ayır:
-  `golden` (`ctest -L '^golden$'`) = lavapipe, CI'da zorunlu, piksel toleranslı; `golden-hw` (`ctest -L '^golden-hw$'`) = donanım GPU'su,
-  algısal metrik (parlaklık SSIM + güçlü piksel farkı sınırı) ve RT gürültüsü için sabit tohum + yeterli birikim. Yerelde `ctest -L '^golden$'`
-  lavapipe yoksa atlanır ve nedenini söyler; referans güncelleme yalnız lavapipe üzerinde `ASTRAL_UPDATE_GOLDEN=1 ctest -L '^golden$'`.
-  Yanlış alarm veren test güveni bitirir: amaç "kırmızı = gerçek hata".
-- **Boyut bütçesi denetimi:** `tools/check_sizes.py` + CTest `code_size_check` (dosya/fonksiyon/`Impl` üye
-  sayısı, istisna listesi `tools/size_budget.json`). Önce uyarı, R1–R3 bitince hata.
-- **Include hijyeni:** CI'da clang-tidy `misc-include-cleaner` (yalnız bizim kaynaklar). `std::clamp` için
-  eksik `<algorithm>` türü hatalar derleyiciye bağlı kalmaz.
-- **Katman diyagramı gerçeği gösterir ve denetlenir:** [architecture.md](architecture.md) diyagramında `shader`
-  modülü yok (`render` ona bağlı); Katman 2 içi bağımlılıkların oku yok (`assets → render, world`,
-  `script → world`, `render → shader`), bu yüzden "aynı katmanda ok yönünde" kuralı denetlenemiyor. Diyagram
-  gerçek DAG olarak yeniden çizilir. `tools/check_layers.py` ve CTest `layer_check`, yapılandırılmış
-  CMake modüllerinin `DEPS` ve `PRIVATE_DEPS` içindeki motor bağımlılıklarını izinli kenarlarla
-  karşılaştırır. Yeni kenarlar belge ve gerekirse ADR ile eklenir. Döngüler hata sayılır.
-- **`assets` → `render` başlık bağını daraltmak:** `assets/model.hpp` zaten `render/mesh.hpp` kullanıyor.
-  `ModelImage`, `ImageData`yı değer olarak tuttuğundan tam tanım gerekiyor. `ImageData` hafif bir
-  public başlığa taşınır ve `renderer.hpp` mevcut kullanıcıları için tipi sunmaya devam eder.
-  Geçişli include'a dayanan kaynaklar aynı adımda düzeltilir. GPU yükleme `asset_manager.cpp`'de kalır.
-- **Repo hijyeni:** yerel ajan ayarları, çalışma klasörleri ve üretilen Graphify çıktıları ignore edilir.
-  Paylaşılan kurallar açıkça benimsenip izlenen proje dokümanlarına eklenir.
-- *Çıkış:* `layer_check` ve başlık denetimi geçer. Windows MSVC Debug `/WX` derlemesi, tüm görüntü
-  dışı testler ve 12 donanım golden geçer. RTX üzerinde 12 yazılım golden beklenen şekilde atlanır.
-  Linux lavapipe, GCC/Clang ve Windows Release kanıtı CI koşusundan kaydedilir.
+- `.world` ve nesne başına `.ent` kaynak belgelerini düzenle. Cook hücrelerini, veri katmanlarını, streaming ownership'i ve floating origin'i göster. M15 arazi fırçası ve yükseklik çarpışmasıyla birleştir. Yol, bina, bitki, kaya ve prefab yerleştirmeyi veri güdümlü araçlar olarak ekle.
+- İlk Level Instance modeli dönüştürülmüş bir sahne referansı ve instance kapsamlı override kullanır. Mevcut prefab diff/migration mekanizmasını değerlendir. Kaynak sahne, yerleştirilen instance ve iç entity kimliklerini ayrı tut. Edit-in-context kaynak düzenlemesi ile instance override kaydını açıkça sun. Ardından nesting, döngü teşhisi, hücre sahipliği, cross-cell refs ve büyük instance sınırlarını test et.
+- Scene → World yükleme, WorldView/preview ve oynanabilir harita sahipliğini ayrı tut. Tam harita alt örneği kapsamı E1 ADR'sinde kararlaştırılır. Asset referansı üzerinden kurulan yerleşimi entity parenting'e bağlama. Dosya diff'i, hot reload sırasında override birleşimi ve cook tutarlılığı için regresyon ekle.
 
-*R1 — Renderer'ı bölmek* (`modules/render/src/renderer.cpp`). Hedef düzen:
+**Çıkış** 2×2 km düzenlenebilir harita, iki bağımsız Level Instance, kaynak düzenleme/override, hot reload ve hücre unload/reload sonrasında kimlik ve referansların korunması.
 
-| Yeni dosya | Ne taşınır | Bugün |
+### P0 — Physics API v2
+
+- Jolt v5.3.0 üzerinde SixDOF ve swing-twist, açısal limitler, motor/drive target, eklem kırılma olayı ve debug Inspector. Sürüm yükseltmeyi hedef özellik, uyumluluk ve karşılaştırmalı ölçüm gerekçelendirirse ayrı iş olarak ele al.
+- Shape cooking ve sürümlü kaynaklar, fizik materyali/yüzey eşlemesi, batched query, F1 komut hattı, body/joint ownership ve streaming detach/attach. Sabit adım ve origin shift sırasında gövde/eklem yaşam döngüsünü test et.
+- `PhysicsWorld` Core'a bağlı kalır, ECS ve Luau adaptörleri App katmanında kalır. Backend yeteneklerini dar sorgular üzerinden bildir. Ortak arayüz sınırını ikinci uygulamanın gerçek ihtiyaçlarıyla doğrula ve sıcak yolda body başına virtual dispatch ekleme. Jolt job havuzunu değiştirmeden önce worker çekişmesini ölç.
+
+**Çıkış** `physics_lab` motorlu eklem demosu, limit ve stres testi, kırılma/streaming olayı, fixed-step replay ve eski C++/Luau davranışı için regresyon.
+
+## Görsel dünya
+
+| Faz | Uygulama | Kabul |
 |---|---|---|
-| `gpu_layouts.hpp` | `GpuMesh`, `GpuInstance`, `GpuMaterial`, `GpuFrame`, ışıklar, 15+ push constant yapısı (`scene.glsl` aynası) | renderer.cpp 35–230 |
-| `stores/mesh_store.cpp` | `create/update/destroy_mesh`, `upload_mesh`, BLAS | 1007–1070 |
-| `stores/texture_store.cpp` | `build_mips`, `upload_texture`, `create/update/destroy_texture` | 71–100, 496–523, 981–1006 |
-| `stores/material_store.cpp` | `gpu_material`, parametre kelimeleri, materyal tablosu | 485–495, 1071–1098, `prepare_instances` içi |
-| `stores/shader_store.cpp` | `create_shader` (surface + screen), `rebuild_rt_surfaces`, RT pipeline'ları | 524–553, 862–980 |
-| `frame/frame_slot.hpp`, `frame/instances.cpp` | `FrameSlot`, `GrowBuffer`, `prepare_instances`, TLAS | 239–300, 651–752 |
-| `passes/*.cpp` | her pass ayrı: gbuffer, shadow, sdf, rt_lighting, ddgi (ensure + trace + update), denoise (temporal + à-trous), composite, taa, bloom, sky, transparent, post, tonemap, ui, debug_lines | 554–829, 1136–1800 |
-| `paths/raster_path.cpp`, `paths/ray_traced_path.cpp` | yalnız pass'leri sırayla ekler | `render` 206 satır, `render_ray_traced` 396 satır |
+| M14 | Fiziksel gökyüzü, gün döngüsü, aerial perspective, IBL/DDGI, froxel sis. Hacim ve partikül shader türleri, `.vfx`, GPU partikülleri ve M13 decal pass üzerinden izler. Gameplay dumanı CPU görüş ızgarası ve fizik sorgusuyla, GPU seyrek hacmi ortak alan girdisiyle çalışır. Parametreler E0 Inspector'a açılır. [ADR-0024](decisions/0024-volumetric-vfx.md) | Koridoru dolduran ve engellerden yön değiştiren duman, görüş sorgusu, rüzgârlı toz ve gün döngüsü |
+| M15 | `.aterrain` bölgeleri, hücre streaming, GPU clipmap, kaba RT BLAS, 32 materyal katmanı, heightfield ve delikler. Sculpt/boyama ve yerleştirme E1 üzerinden. [ADR-0018](decisions/0018-terrain-and-sdf-world.md) | 2×2 km arazide fırça değişikliği, fizik/karakter uyumu ve stream ölçümü |
+| M16 | FFT okyanus, göller, kırılma, RT yansıma, emilim, köpük, su altı ve araziyle kıyı. P0 ile sabit tick'te örneklenen dalga ve kaldırma sözleşmesi. | Dalgalı kıyıda tekne ve yüzen kasalar, CPU/GPU örnekleme hatası ve fizik kararlılığı |
+| M17 | Hacimsel bulutlar, bulut gölgeleri, yağış, sis, birikinti ve M13 ıslaklık. FieldWorld ile rüzgâr, ileri aerodinamik, balistik ve kanat kaldırma. S2 rüzgâr girdisini paylaşır. | Açık havadan fırtınaya geçiş ve ıslanan arazi, alan ve GPU bütçesi |
+| M18 | GPU sığ su, iz, sıçrama ve nehirler. Gameplay için CPU akış/yüzdürme örneği. S2/V0 su tepkisi aynı sözleşmeyi tüketir. | Nesne suya düşünce dalga ve nehirde sürüklenme, tick/çözünürlük profili |
+| M19 | Seyrek SDF tuğlaları, GPU mesh çıkarımı, çalışma anında CSG, çarpışma temsilinin güncellenmesi ve hücre deltasına yazma. V1 yapısal deformasyon ayrı solver'da, M23 kırılma/fragment sözleşmesi ortak. | Krater, tünel, delinen duvar ve unload/reload sonrasında kalan dünya değişikliği |
+| M22 | Hücreden cook edilen HLOD, büyük ölçekli bitki örtüsü, GPU-driven culling ve meshlet LOD. E1 world authoring ve streaming ile aynı hücre kimliği. | Birkaç km² dünyada LOD geçişi, CPU/GPU kare süresi yüzdelikleri, streaming ve bellek bütçesi |
 
-- Her pass küçük bir yapı: `struct BloomPass { void add(RenderGraph&, const FrameInputs&, …); }`; kendi
-  pipeline'ını ve geçmiş dokusunu sahiplenir. Pass'ler birbirini çağırmaz, render graph kaynaklarıyla konuşur
-  (açık/kapalı: yeni teknik = yeni pass dosyası, mevcut dosyalar değişmez).
-- `Renderer::Impl` yalnız store'ları, pass'leri ve kare yuvalarını tutar (≤ 25 üye).
-- Karakterizasyon: lavapipe golden'ları + `RenderStats` sayaçları + pass sırası (render graph'ın ürettiği pass
-  listesi) testle sabitlenir; her taşıma adımından sonra bit bit aynı.
-- *Çıkış:* `renderer.cpp` ≤ 400 satır, 80 satırı aşan fonksiyon yok, golden'lar değişmemiş.
+## Animasyon ve fizik simülasyonu
 
-*R2 — App ve Context'i bölmek* (`modules/app/src/app.cpp`, `include/astral/app/app.hpp`).
-- `App::Impl` içindeki işler ayrı iç servislere (`modules/app/src/services/`), her biri kendi `.hpp/.cpp`,
-  bağımlılıklar constructor'dan, her biri başsız birim testli:
+### M20 / A0 — Animasyon çekirdeği
 
-| Servis | Taşınan | Bugün |
-|---|---|---|
-| `RenderBridge` | `sync_primitives`, `sync_models`, `spawn_model`, `find_camera`, render geçmişi | 479–610 |
-| `PhysicsBridge` | `sync_physics_bodies`, `update_fields`, `apply_field_forces`, `step_physics`, `emit_contact_events`, interpolasyon, `AppScriptPhysics` | 68–116, 654–898 |
-| `AudioBridge` | `sync_audio`, ses önbelleği, `AudioVoice` | 46–53, 1054–1126 |
-| `ScriptBridge` | `ActionInput`, `FileStorage`, `run_scripts`, `reload_changed_scripts`, dosya izleme, input yönlendirme | 54–146, 1136–1154, 1358–1420 |
-| `WorldBridge` | `MapRuntime` + `streaming_sources`, `update_world`, kayan orijin | 1293–1347, 1430–1450 |
-| `DevTools` | `build_debug_ui`, `draw_debug_overlays` (114 satır), profiler | 1155–1292 |
-| `FrameLoop` | `frame()` (146 satır) → sıralı aşama listesi; aşama tablosu dokümanda ve testte | 899–1046 |
+- [ADR-0025](decisions/0025-physics-based-character-animation.md) çizgisinde `Astral::Animation` saf CPU çekirdeği: Skeleton, Pose, Clip, blend/graph, root motion, retargeting ve IK. Assets glTF skin, klip, morph ve rig mapping'i import/cook eder. Render skinning/morph, motion vector ve skinned BLAS güncellemesini sahiplenir. App animasyon, ECS ve render arasındaki sırayı kurar.
+- Önce skeleton/pose/clip import ve headless örnekleme, sonra GPU skinning/morph, ardından blend, retargeting, two-bone/FABRIK, look-at ve el/ayak yerleştirme. IK dünya sorguları köprü üzerinden alınır. Fizik öncesi hedef poz ve fizik sonrası render pozunu ayrı tamponla. Rig eşlemesi ve görsel düzeltme E0 Inspector ve ajan onay akışını kullanır.
 
-- App ctor (111 satır) yalnız servisleri kurar; yıkım sırası tek yerde, yorumlu (bugün 373–400).
-- **Context (arayüz ayrımı):** düz metot yığını yerine gruplu erişim: `ctx.scenes()` (load/save, prefab),
-  `ctx.maps()` (open/close/layers/streaming/origin), `ctx.materials()`, `ctx.audio_service()`,
-  `ctx.script_service()` (load, actions, API yazımı), `ctx.physics_service()` (temaslar). Mevcut public
-  işaretçi alanları `ctx.audio`, `ctx.scripts` ve `ctx.physics` kaynak uyumluluğu için aynı ad ve tiplerle
-  kalır; servis erişicileri `*_service()` adlarını kullanır. Eski metotlar bir faz `[[deprecated]]`
-  sarmalayıcı, örnekler, şablon, `AGENTS.md`, `writing-a-game.md` ve üretilen `API.md` aynı adımda
-  güncellenir; M14'te sarmalayıcılar silinir. Yeni servis eklemek `Context`'i değil yalnız ilgili grubu büyütür.
-- Karakterizasyon: kare aşama sırası (olay günlüğü testi), Pong ve physics_playground başsız testleri,
-  `*_features_check`, script tip denetimi.
-- *Çıkış:* `app.cpp` ≤ 400 satır, `App::Impl` ≤ 20 üye, `frame()` ≤ 40 satır; bütün örnekler değişmeden geçiyor.
+**Çıkış** `character_lab` içinde merdivene oturan ayaklar ve iki elle nesne tutuşu. Pose/IK birim testi, import ve cooked veri eşitliği, skinned raster/RT gölge ve yansıma tutarlılığı.
 
-*R3 — Diğer god class'lar ve uzun fonksiyonlar* (her satır ayrı worktree olabilir):
+### M21 / S1 — Pasif ragdoll'dan aktif ragdoll'a
 
-| Yer | Bugün | Bölünme |
-|---|---|---|
-| `app/debug_ui.cpp` `draw_panels` | 268 satır, tüm paneller tek fonksiyon | `panels/` altında panel başına dosya (entity, materyal, profiler, streaming, fizik); `DebugPanel` arayüzü + kayıt, özellikler kendi panelini ekleyebilir |
-| `assets/cook.cpp` `cook_directory` | 260 satır | tür başına cooker (doku, model, sahne, dünya/hücre, script, ses) tablosu; `cook_directory` = dolaş + dağıt + rapor |
-| Çevrimdışı shader doğrulaması | cook, render'ın surface/screen derleyicisini çağırıyor; derleyici gömülü `bindless.glsl` ve `scene.glsl` kullanıyor | önce teşhisleri ve cook çıktı baytlarını testle sabitle; GPU gerektirmeyen derleme ve doğrulamayı shader modülüne taşımanın sınırını belirle. GPU pipeline kurulumu render'da kalır |
-| `assets/gltf.cpp` `Loader` | 324 satırlık yapı | glTF bölümüne göre dosyalar: buffer/accessor, görüntü/materyal, mesh, düğüm/sahne |
-| `assets/asset_manager.cpp` `Impl` | 257 satır | yükleme kuyruğu, önbellek/handle tablosu, hot reload izleyicisi |
-| `assets/cooked_model.cpp` | okuma 102, yazma 67 satır | bölüm başına okuyucu/yazıcı çifti (primitive, materyal, görüntü, düğüm) |
-| `physics/physics.cpp` | 911 satır, 39 metot, `create_joint` 103 satır | `bodies`, `shapes`, `joints` (eklem türü → kurucu tablosu), `queries`, `contact_listener`, `layers` dosyaları |
-| `script/bindings.cpp` | 831 satır, 53 Lua C fonksiyonu, `open_astral` 74 satır | konuya göre: entity, query, events, input, physics, math, storage; kayıt tablosu |
-| `script/api.cpp` | 154 satırlık belge üreticisi | tablo tabanlı (bağlama tablosundan üretim: belge ve bağlama aynı kaynaktan) |
-| `world/scene.cpp` | 789 satır | `scene_io` (oku/yaz), `prefab_library`, `spawner`, `prefab_sync` |
-| `world/world.hpp` | 524 satır header, şablon gövdeleri içinde | `world_fwd.hpp` + `detail/world_impl.hpp`; derleme süresi için ileri bildirimler |
-| `world/serialize.hpp` `from_json` | 87 satırlık şablon | alan türü başına aşırı yükleme |
-| `gpu/device.cpp` | 721 satır; `create_logical_device` 94, `create_bindless` 75 | `device_select`, `device_create`, `bindless` dosyaları |
-| `gpu/pipelines.cpp` `create_graphics_pipeline` | 90 satır | durum blokları (raster, blend, depth, vertex) yardımcıları |
-| `examples/physics_playground` `on_start` | 86 satır kodla kurulan sahne | içerik `.scene`/prefab dosyalarına ("sayılar dosyada" kuralı) |
+- ADR-0025'teki `Astral::Character` sınırını temel al. Animation poz üretir, Physics P0 gövde/eklem ve motorları yürütür, Character Animation/Physics/World verisini birleştirir. Katman ve App entegrasyonunu ADR ile kesinleştir. `RagdollAsset` / `.ragdoll` kemik eşlemesi, kütle, eklem limiti, çarpışma filtreleri ve kas profili taşır.
+- Önce pasif ragdoll ve animasyon↔fizik geçişleri. Ardından kinematik/güçlü/kısmi/aktif/pasif/kalkma durumları, tork sınırı ve PD/drive hedefleri, bölgesel harmanlama ve kas profilleri. Denge/destek poligonu, adım alma, darbe tepkisi, düşüşü yakalama ve kalkmayı ayrı davranış verisiyle ayarla. Yorgunluk ve benzeri profil etkilerini temel kontrol kararlı olduktan sonra ekle.
+- Luau ve C++ gameplay yüzü mod seçimi, darbe ve toparlanma talebi gibi yüksek seviyeli eylemler sunar. Fizik LOD, aktif ragdoll sayısı, dünya sorgusu ve solver bütçesini ayrı izle. Ayarlamada simülasyon kararlılığı ile oyun tepkisi ayrı parametrelere sahip olsun.
 
-*R4 — Header ve derleme süresi.*
-- Önce ölç: temiz ve artımlı derleme süreleri (Ninja log + clang `-ftime-trace`, MSVC `/Bt+`) dokümana taban
-  çizgisi olarak yazılır; en pahalı 20 header listelenir.
-- Modül başına `*_fwd.hpp` ileri bildirim başlıkları; public header'larda ağır `#include` yerine ileri bildirim.
-- `ASTRAL_PCH` seçeneği (varsayılan açık; Vulkan/Jolt/Luau ağırlıklı `src/` dosyaları için) ve
-  `CMAKE_UNITY_BUILD` derlemesinin CI'da kırılmadığını gösteren job.
-- *Çıkış:* taban çizgisine göre ölçülmüş iyileşme (hedef: temiz derleme −%30, tek `.cpp` değişikliğinde artımlı
-  derleme −%50); sayılar `docs/modules/` ilgili sayfada.
+**Çıkış** `character_lab` arena sahnesinde darbe, sendeleme, düşme ve kalkma. Sabit girdili replay, poz/denge toleransları, uyuyan ve aktif NPC dağılımı için CPU profili.
 
-*Faz çıkışı (M13.5):* boyut bütçesi denetimi hata modunda yeşil; istisna listesi gerekçeli ve kısa; tüm testler
-ve lavapipe golden'ları değişmeden geçiyor; ADR-0030/0031; modül dokümanlarında yeni dosya düzeni.
+### M23 / V0 — Rigid Vehicle
 
-**M13.6 — Ölçeklenebilir çalışma zamanı.** Karar faz başında: ADR-0032 (sistem erişim bildirimi ve paralel
-zamanlayıcı). *İlke:* önce ölç (P0), sonra paralelleştir; determinizm bozulmaz.
+- Jolt VehicleConstraint'i P0 sınırında değerlendir. Araç asset/prefab ve App ECS adaptörü. Teker ve süspansiyon, direksiyon, fren, motor/vites/diferansiyel, lastik tutuşu/yüzey eşlemesi, input actions, Inspector ve hasar olayları.
+- Yüksek seviyeli sözleşme throttle, brake, steering, gear ve gözlemlenebilir araç durumu taşır. Simülasyon uygulaması Physics içinde kapsüllenir. V1 aynı girdiyi ve ortak durum görünümünü kullanır.
 
-*P0 — Ölçek benchmark'ları (önce bu).* `bench/` altında başsız hedefler: `bench_ecs` (100k entity, 30 sistem),
-`bench_transforms` (derin ve geniş hiyerarşiler), `bench_script` (10k scriptli entity), `bench_streaming`
-(4×4 km dünya, uçan kamera), `bench_shader_compile`. CI sayıları yayımlar (kapı değil); bu makinede ve
-lavapipe'ta taban çizgisi dokümana. Aşağıdaki hedefler bu tabana göre konur.
+**Çıkış** `driving_lab` pisti, iki veya daha fazla zeminde viraj/fren testi, süspansiyon kararlılığı ve en az 10 araç CPU profili.
 
-*P1 — Erişim bildiren sistemler ve paralel zamanlayıcı.*
-- Sistem, okuduğu/yazdığı component'leri bildirir: tipli sorgulardan otomatik (`Query<const A, B>` → A okur,
-  B yazar), elle `reads<…>()/writes<…>()`; Luau sistemleri `query/with` + yeni `writes = {...}` alanından.
-  Bildirmeyen sistem "dışlayıcı" sayılır (bugünkü gibi tek başına koşar) → geriye uyumlu.
-- Zamanlayıcı her faz için bir bağımlılık grafiği kurar: çakışan iki sistem **kayıt sırasını** korur,
-  çakışmayanlar JobSystem'de paralel. `Commands` ve olay gönderimleri sistem başına tamponlanır, senkron
-  noktada kayıt sırasıyla uygulanır → paralel ve seri koşu aynı sonucu verir.
-- Luau: tek VM'in iş parçacığı güvenliği yok; script sistemleri bir "script şeridi"nde sıralı koşar, C++
-  sistemleriyle paralel olabilir (çakışma yoksa).
-- Araçlar: `RenderSettings`'e benzer `ScheduleSettings{.parallel = false}` ile seri koşu; debug UI'da faz
-  başına zamanlama grafiği; çakışma nedenini söyleyen log.
-- Testler: 1000 sabit adım, seri ve paralel koşuda dünya hash'i aynı; TSan job'u zamanlayıcıyı kapsar;
-  kasıtlı çakışan sistemlerin sırası korunuyor.
+### M23 / V1 — Node-beam araç deformasyonu
 
-*P2 — Paralel transform yayılımı.* Hiyerarşi derinliğe göre seviyelenir, her seviye `parallel_for`; değişmeyen
-alt ağaçlar change detection ile atlanır (`docs/modules/world.md` bilinen sınırı kapanır).
+- Rigid Vehicle'dan bağımsız uygulama. Düğüm kütlesi, beam sertliği/sönümü, plastik deformasyon, kopma eşiği ve yapısal gruplar. Backend kararı için adaptif alt adım, kararlılık, enerji sapması, yüksek hızlı çarpışma ve lastik teması prototipi kur.
+- Jolt coupling'de temas sahipliği, kuvvet aktarım sırası, çarpışma temsilinin güncellenme maliyeti ve çift impulsu engelleyen sınır ADR'de açıklansın. Render mesh deformasyonu, fragment detach, çarpışma vekili ve LOD'u doğrula.
+- N0, araç girdileri ve kritik hasar olayları ile seçili düğüm snapshot/düzeltmelerini ölçer. Tam düğüm durumu, bant genişliği ve uzaklık profili açısından karşılaştırma adayıdır.
 
-*P3 — Ana thread'den çıkanlar.*
-- Shader derleme job'da; hazır olana kadar yedek materyal (bugün "kısa takılma", `docs/modules/app.md`).
-  Pipeline önbelleği diske.
-- Harita hücresi dosya okuma ve ayrıştırma job'da; ana thread yalnız kare bütçeli birleştirme yapar
-  (bugün G/Ç ana thread'de, `docs/modules/app.md` M9 notu).
-- Sahne/prefab ayrıştırma job'da; doku dekodlama zaten asenkron, denetlenir.
+**Çıkış** `crash_lab` kontrollü tek araç çarpışma tekrarı, deformasyon ve enerji metrikleri, ardından çoklu araç CPU/bellek ve ağ profili.
 
-*P4 — Script verimi.*
-- Sistem başına sınır geçişini azaltan toplu sorgu: `astral.each(query, fn)` VM içinde yineler, component'ler
-  tembel proxy ile; sık alanlar için dizi tabanlı `astral.query_columns`.
-- Script başına profiler kapsamı (bugün yalnız toplam "scripts"); bütçeyi aşan script'e uyarı.
-- Luau native codegen'i değerlendir (destekleyen platformlarda).
-- `AGENTS.md`'deki "yüzlerce entity'den fazlası C++'a" kuralı ölçülen eşikle değiştirilir.
+### M23 / S2 — Cloth, Soft Body ve Hair
 
-*P5 — Komut kaydı (ölçüm gösterirse).* Render pass'lerinin komut kaydı job'larda (Vulkan ikincil komut
-tamponları veya pass başına komut listesi). R1'in pass yapısı bunu mümkün kılar; P0 CPU'da render
-kaydının darboğaz olduğunu göstermezse yapılmaz.
+- `ClothAsset`, `SoftBodyAsset`, `GroomAsset` ve instance component'leri için ortak kaynak, binding, yaşam döngüsü ve LOD sözleşmesi. Solver seçimini iş yüküne göre yap. Cloth için topoloji, pinning, çarpışma ve rüzgâr, isteğe bağlı tearing. Soft body için hacim/şekil koruma, skinning ve rigid coupling, Jolt ile özel solver karşılaştırması. Hair için guide/follower strands, kafa derisine bağlama, collision ve GPU compute/render.
+- Gameplay'i etkileyen deformasyonun otoritesi CPU/sunucu profiline ait. Kozmetik GPU simülasyonu yerel kalabilir. M17 rüzgârı ve M18 akış/yüzdürme verisi alan sözleşmesinden alınır. Cloth/soft body ve hair aşamalı teslim edilir.
 
-*Faz çıkışı (M13.6):* `bench_ecs`'te bağımsız sistemlerde çekirdek sayısıyla ölçeklenen hızlanma (hedef: 8
-çekirdekte taban çizgisinin ≥ 3×'i), seri/paralel determinizm testi, `bench_streaming`'de ana thread'de G/Ç
-yok, shader düzenlerken takılma yok (profiler kanıtı), ADR-0032.
+**Çıkış** `physics_lab` içinde rüzgârda pelerin ve ezilip toparlanan soft body, `character_lab` içinde hareketli saç. Çarpışma, LOD geçişi ve kararlılık testleri, CPU/GPU maliyet tablosu.
 
-*M13.5/M13.6 kapsamı dışında, sonraya:* görsel editör (içerik üretiminin asıl ölçek kaldıracı), C++ hot reload,
-DLL eklentileri (component kimlikleri DLL'ler arasında farklı; bkz. `docs/modules/world.md`).
+### M23 — Kırılma entegrasyonu
 
-**M14 — Atmosfer ve VFX.** Karar: [ADR-0024](decisions/0024-volumetric-vfx.md).
-- Fiziksel gökyüzü, günün saati, aerial perspective, gökyüzünden IBL ve DDGI beslemesi.
-- Froxel hacimsel sis ve ışık huzmeleri; tek "katılımcı ortam" birleştiricisi.
-- **Hacimsel efektler:** deterministik oyun ızgarası (flood fill, fizik sorgusuyla duvar bilgisi, mermi/
-  patlama boşaltma, görüş sorgusu) + GPU görüntü hacmi (seyrek tuğla atlası, gürültü, rüzgâr, raymarch,
-  DDGI ışığı, zamansal yeniden kullanım); `shader_type volume` (duman, ateş, gaz).
-- GPU partikülleri (`shader_type particle`), decal/izler, `.vfx` bileşim dosyası.
-- *Çıkış:* koridoru dolduran, kapıdan taşan, mermiyle delinen ve el bombasıyla açılan duman bombası
-  (CS2 gibi); günün saati döngüsü; rüzgârda savrulan toz.
+M19 yıkım olayını ortak fragment yaşam döngüsüne bağla. Önceden kırılmış mesh'ler, dinamik parçalar, sahip olunan handle'lar, uyutma ve streaming sırasında temizleme. SDF geometri güncellemesi ve V1 beam kopması kendi simülasyon verilerini yönetir. Çok parçalı sahnede spawn bütçesi, hücreye geri dönüş ve save/load doğrulanır.
 
-**M15 — Arazi I: heightfield (Terrain3D benzeri).** Karar: [ADR-0018](decisions/0018-terrain-and-sdf-world.md).
-Bölgeli veri (`.aterrain`, dünya hücreleriyle stream), GPU clipmap, RT için kaba BLAS, 32 katmanlı
-materyal (`.ashader` arazi türü), heightfield fizik + delikler, motor içi fırçalar, bitki/kaya yerleştirme.
-*Çıkış:* motor içinde boyanıp şekillendirilmiş 2×2 km arazi; üstünde fizik ve karakter.
+## N0 — Multiplayer / Co-op
 
-**M16 — Su I: okyanus ve göller.** FFT okyanus, göl yüzeyleri, kırılma, RT yansıma, emilim, köpük, su altı;
-kıyı köpüğü arazi yüksekliğinden; kaldırma kuvveti dalgayı CPU'da aynı fonksiyondan örnekler.
-*Çıkış:* kıyıya vuran dalgalı denizde sallanan tekne ve yüzen kasalar.
+- İlk hedef iki oyunculu co-op. Transport arayüzü, handshake/protokol ve şema sürümü, sunucu otoritesi, ownership, spawn/despawn ve snapshot. Replication alanlarını reflection üzerinden açıkça seç. Runtime handle, kalıcı içerik kimliği ve bağlantı/oturum kimliği ayrı eşlemelerle çözülür.
+- Sunucu sabit tick'te doğrulanmış sıra numaralı input işler. İstemci yerel prediction/reconciliation ve uzaktaki entity'ler için interpolation kullanır. Lag compensation kapsamı oyun türüne göre ADR'de belirlenir. Sunucu otoritesi ve mesaj/snapshot bütçeleri için sınır, zaman aşımı ve desync telemetrisi ekle.
+- Cell interest ve oyuncu başına streaming ilgisi sunucu yükleme sahipliğinden ayrılır. Geç katılım, cross-cell refs, reconnect, oturum kapanışı ve kalıcı kayıt test edilir. Dedicated server penceresiz ve editör bağımlılığı olmadan çalışır. SDK'sız sunucu derlemesi gereksinimini platform hedefiyle değerlendir.
+- S1/S2/V1 sonrası ayrı fizik profilleri ekle. Örneğin ragdoll oyun durumunu sunucuda, uzak poz ayrıntılarını kozmetik tut. Araç hasarı ve soft body'nin oyun açısından gerekli verisini düşük frekanslı snapshot ve olaylarla ölç. Sözleşme packet loss, jitter ve latency altında yakınsamayı ve bant genişliğini tanımlar.
 
-**M17 — Hava: bulutlar ve hava durumu.** Hacimsel bulutlar, bulut gölgeleri; bulutluluk/yağış/rüzgâr/
-ıslaklık zamanla değişir ve sis, yağmur partikülleri, ıslak yüzeyler, su birikintilerini sürer; balistik
-ve kanat kaldırma kuvveti. *Çıkış:* açık havadan fırtınaya geçiş; ıslanan arazi.
+**Çıkış** `examples/coop_lab` içinde dedicated server ve iki istemci, hücre geçişi, geç katılım, paket kaybı/gecikme simülasyonu, authority ve düzeltme raporu.
 
-**M18 — Su II: etkileşimli su.** GPU sığ su simülasyonu: izler, dalgalar, sıçramalar, nehirler; akış
-fizikte kuvvet. *Çıkış:* suya düşen nesne dalga yapıyor; nehirde sürüklenen kütükler.
+## Kabul sahneleri
 
-**M19 — SDF dünya ve yıkım.** Seyrek tuğla SDF hacimleri (mağara, kemer), GPU'da mesh'e çevirme, çalışma
-anında CSG (krater, tünel), yıkılabilir nesneler. *Çıkış:* patlama kraterleri, kazılan tünel, delinen duvar.
+Her örnek `templates/blank`/standart oyun kabuğu ve feature sınırlarını izler. Editör örneği bağımsız editör hedefini açar. İlk kapsam için mevcut sahneler genişletilebilir.
 
-**M20 — Animasyon.** Yeni `Astral::Animation` modülü: iskelet, poz, GPU skinning, glTF animasyonları, blend
-ağaçları, root motion, morph target, IK (iki kemik, FABRIK zinciri, bakış, ayak yerleştirme, el uzanma),
-skinned BLAS. *Çıkış:* animasyonlu karakter merdivende ayakları basamağa oturarak yürür; RT gölge ve
-yansımada doğru.
+| Örnek | Kanıt |
+|---|---|
+| `examples/world_editor` | E0/E1 ve M15. Prefab onayı, undo/redo, Level Instance, arazi |
+| `examples/physics_lab` | F1/P0/S2. Komut, sorgu, motorlu eklem, cloth ve soft body. Başlangıç `physics_playground` |
+| `examples/character_lab` | A0/S1/S2. Rig, IK, aktif ragdoll, kalkma, saç |
+| `examples/driving_lab` / `examples/crash_lab` | V0/V1/M23. Sürüş, çarpışma ve deformasyon |
+| `examples/coop_lab` | N0. Sunucu otoritesi, replikasyon ve streaming |
+| `examples/open_world_game` | M14–M22 ve V0 entegrasyonu. Terrain, yollar, sürüş, hava, su, HLOD. Başlangıç `open_world` |
 
-**M21 — Karakter fiziği ([ADR-0025](decisions/0025-physics-based-character-animation.md)).** `.ragdoll` (Jolt
-ragdoll + swing-twist eklemler), kaslar (eklem başına güç/sönüm, kas profilleri, yorgunluk/acı), durumlar
-(kinematik → güçlü → kısmi → aktif → pasif → kalkma), Euphoria tarzı davranışlar (denge, sendeleme, darbe
-tepkisi, düşüşü yakalama, başını koruma, kalkma), fizik LOD'u ve ragdoll bütçesi. Yeni `Astral::Character`
-modülü. *Çıkış:* kılıç arenası yer tutucusu: vurulan karakter sendeler, düşerken elleriyle yakalanır,
-kalkar; aynı girdiyle aynı sonuç.
+## Uygulama sırası ve kararlar
 
-**M22 — Dünya ölçeği II.** HLOD (hücre vekil mesh'leri), büyük ölçekli bitki örtüsü, GPU-driven culling,
-meshlet LOD. *Çıkış:* birkaç km² açık dünya, uzakta da dolu ufuk, sabit kare süresi.
+| Sprint | Teslim |
+|---|---|
+| 1 | F0 kaynak envanteri, CI ve benchmark tabanı. Fizik, animasyon, scene/map ve editör için capability matrisi |
+| 2 | F1 gameplay sözleşmesi ve fizik komut prototipi. E0 hierarchy/Inspector ve transaction prototipi |
+| 3 | P0 motorlu eklem ve A0 skeleton/pose import dilimleri. E1 dünya/prefab ve Level Instance tasarımı |
 
-**M23 — Fizik III.** Araçlar, kumaş ve soft body (rüzgâr alanıyla), yıkım parçaları dinamik body olarak,
-önceden kırılmış mesh'ler.
+Sprintler sıralama önerisidir. Her teslimden önce ilgili `AGENTS.md`, `CLAUDE.md`, mimari, ADR, kod ve testleri oku. Dal/SHA ve mevcut API'leri dosya referanslarıyla kaydet. Modül sınırı, API adı, backend, asset biçimi, editör sahipliği veya determinizm sözleşmesi değişiyorsa önce ADR önerisini ve kabul testlerini incelemeye aç. Uygulamayı küçük worktree/PR'lara böl. İlgili build/test, feature/script denetimi, katman ve boyut kontrolleri, golden ve benchmark sonuçlarıyla kapanış yap. Tamamlanan faz tarihçesini koru.
 
-### Neden bu sıra
+| Karar | Ne zaman ve neyle |
+|---|---|
+| ImGui docking, multi-viewport ve editör hedefi | E0 prototipi. Mevcut panel kodu, Linux/Windows ve paket bağımlılıkları |
+| Level Instance kimliği, override, nesting ve cross-cell ownership | E1 ADR. Mevcut prefab path/diff modeli ve MapState üzerine iki instance round-trip |
+| Jolt yükseltmesi, job pool ve Physics API adları | P0. Mevcut pin üzerinde mini prototip, API uyumluluğu, sanitizer ve performans |
+| Character katmanı ve deformables solver sınırı | A0/S1/S2. ADR-0025'teki Character ayrımı, bağımlılık grafiği ve CPU/GPU yük profili |
+| Node-beam/Jolt coupling | V1. Temas, kararlılık, drift, yüksek hız ve maliyet ölçümü |
+| Co-op sonrası oyuncu sayısı ve rekabetçi özellikler | N0 protokol tasarımı. İki oyunculu referans, bant genişliği ve RTT/kayıp bütçesi |
+| Hedef platformlar, minimum CPU/GPU, kalite ve performans bütçeleri | F0 referans ölçümleri; ilgili faz başlamadan ürün kararı |
 
-- **M8 önce:** paneller, profiler ve görüntü testleri olmadan sonraki hiçbir şey ayarlanamaz ve doğrulanamaz.
-- **Dünya sistemi (M9) içerikten önce:** harita biçimi sonradan değişirse bütün içerik taşınır. Arazi,
-  SDF hacimleri ve streaming aynı hücre modeline oturmalı. Ayrıca "harita nedir" sorusu oyun kodunu da
-  belirliyor (dünya ayarları, oyun kuralları entity'si).
-- **Shader dili (M10) görsel her şeyden önce:** PBR, su, arazi, VFX hepsi `.ashader` türleri.
-- **Oyun kodu düzeni (M11) erken:** oyun kodu büyümeden kurallar ve araçlar yerinde olmalı; sonraki
-  demolar Luau ve özellik paketleriyle hızlı kurulur.
-- **Fizik alanları (M12) VFX'ten önce:** duman duvarları fizik sorgusuyla bulur, rüzgârla taşınır.
-- **Refaktör (M13.5) ve paralel çalışma zamanı (M13.6) M13'ten hemen sonra:** M14–M23'ün neredeyse hepsi
-  renderer'a (yeni pass'ler) ve App'e (yeni köprüler, `Context` erişimi) dokunuyor. Bölmek ne kadar geç kalırsa
-  o kadar pahalı. Paralel zamanlayıcı da büyük dünyalardan (M15, M22) ve çok sayıda karakterden (M21) önce
-  gerekiyor. M13.6, M13.5'ten sonra: zamanlayıcı R2'nin `FrameLoop`'una oturur.
-- **Arazi sudan önce; su ve hava iki dalgada; SDF ve yıkım araziden sonra; animasyon ve ragdoll sonra**
-  (v3'teki gerekçeler geçerli).
+### Önceki plandan izlenecek açık işler
+
+- F0, dağıtım ve test kanıtlarıyla M13.5/M13.6 kapsamını kapatır. Eski Context sarmalayıcılarının kaldırılması F1'de tüketici etkisiyle ele alınır. Script paralelliği, ek toplu sütun sorguları, script bütçe uyarıları, native codegen ve C++'a geçiş ölçütü profiler verisiyle önceliklendirilir.
+- G/Ç ve derleme izlemesinde sahne/prefab arka plan hazırlığı, shader pipeline disk önbelleği ve render komut kaydının paralelleştirilmesi ölçüme bağlı takip işleridir. Değişmeyen transform alt ağaçlarını atlama, gerçek sahne profiline göre değerlendirilir.
+- C++ hot reload ve DLL eklentileri ileri aşamadır. Özellikle modüller arası component kimliği için ayrı ADR gerekir. [World sınırları](modules/world.md)
 
 ## Tamamlanan fazlar
 
@@ -611,6 +455,15 @@ Luau bytecode cook'u, luau-analyze doğrulaması, iç içe reflection'ın script
 - **Script:** `astral.physics.*` ve `astral.fields.*` (`ScriptPhysics` arayüzü), olaylar `astral.on` ile; üretilen API ve tip tanımı güncel.
 - **Demo:** `examples/physics_playground` (arazi + göl, yüzen/batan gövdeler, rüzgâr, menteşeli köprü, zıplatma pedi, kanat), görüntü testi.
 - **Ertelenen:** Jolt'u `JobSystem`'e bağlama, SixDOF/motorlu eklem, alan GLSL'ini tüketen shader'lar (M14/M16/M17).
+
+## M13 — Gelişmiş PBR ve Path Tracer Referansı ✅
+
+Karar: [ADR-0033](decisions/0033-advanced-pbr-and-path-tracer.md).
+- Turquin (2019) enerji koruyan çoklu saçılmalı GGX (`brdf.glsl`) ve ortak `bsdf.glsl` katman kütüphanesi: clearcoat (IOR 1.5), Charlie NDF sheen, Heitz anizotropik GGX, dielektrik Fresnel + Snell kırılma + Beer-Lambert hacimsel soğurma (`Transmission`), subsurface scattering (`Subsurface`), ıslaklık (`WETNESS`), RNM detay normal + Parallax Occlusion Mapping (POM).
+- `.ashader` `shading_model <standard|clearcoat|sheen|anisotropic|transmission|subsurface>;` başlığı ve ilgili tüm built-in değişkenler (`CLEARCOAT`, `SHEEN_COLOR`, `ANISOTROPY`, `TRANSMISSION`, `IOR`, `SUBSURFACE`, `WETNESS` vb.) raster, hibrit RT ve path tracer varyantlarında tekdüze derlenir.
+- Gecikmeli kutu-izdüşümlü decal sistemi (`Decal` component + `DecalPass` + `decal.comp`, path tracer birincil vuruşlarında da uygulanır).
+- Birikimli çok sekmeli yansız Path Tracer referans modu (`RenderSettings::path_tracer`, `PathTracerPass` + `path_tracer.comp`, RGBA32Float ping-pong biriktirme, kamera/ayar değişiminde otomatik sıfırlama).
+- *Depoda kayıtlı sonuç:* `examples/material_showcase` (7 M13 PBR materyali + 2 decal, `P` tuşuyla canlı Hibrit RT / Path Tracer geçişi) + 1280×720 RTX 3060 kıyaslaması (`m13_pbr_rt` 2.98 ms / 335 FPS, 64-SPP Path Tracer 0.83 ms/spp, RMSE 2.74, ortalama parlaklık farkı %0.29).
 
 ## M13.5 — Kod sağlığı ve modülerlik ✅
 

@@ -51,7 +51,11 @@ module (core, gpu, platform, world, render) is also usable directly as a plain l
 | Modular game code (feature packages, boundary checks) + Luau scripting (reflection-bound components, systems, behaviours, events, hot reload, generated API docs), input actions; Pong's rules in Luau | ✅ M11 |
 | `templates/blank` (a new game in one folder) + the standard game shell (`run_game`); every example rebuilt on it | ✅ M11 |
 | Physics: collision layers, query filters, shape casts, convex hull / mesh / height field / compound shapes, joints, wind and water fields (same functions on the GPU), buoyancy, drag, lift, trigger events; `examples/physics_playground` | ✅ M12 |
-| Advanced PBR, atmosphere + volumetric VFX (CS2-style smoke), terrain (heightfield + SDF), water, weather, destruction, animation, world scale | ⬜ M13–M23 ([roadmap](docs/roadmap.md)) |
+| Advanced PBR, deferred decals and progressive path tracer reference | ✅ M13 |
+| Module refactor, layer and size checks, portable golden test suite | ✅ M13.5 |
+| Parallel system scheduling and transforms, worker-side cell I/O, runtime benchmarks | ✅ M13.6 |
+| Revalidate the baseline and inventory public capabilities | 🔜 F0 |
+| Gameplay API, editor and world authoring, physics v2, atmosphere, terrain, water, weather, destruction, animation, vehicles, deformables and co-op | ⬜ [Roadmap v5](docs/roadmap.md) |
 
 ![RT showcase](docs/images/m3.5-rt-showcase.png)
 
