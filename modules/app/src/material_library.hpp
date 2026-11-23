@@ -73,6 +73,7 @@ private:
 
     Shader* load_shader(const std::string& path, bool reload);
     bool build(Material& material, bool create);
+    bool build_pbr(const MaterialFile& file, MaterialDesc& desc, std::vector<std::string>& errors);
     bool reload_texture(Texture& texture);
     void update_textures();
     TextureHandle texture(const std::string& path, bool srgb);

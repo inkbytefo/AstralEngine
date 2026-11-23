@@ -27,11 +27,12 @@ using MaterialReader = std::function<std::optional<Json>(std::string_view path, 
 
 /// A material with its parent chain applied.
 struct MaterialFile {
+    bool standard_pbr = false;
     std::string shader;                                ///< Asset path of the .ashader.
     std::vector<std::pair<std::string, Json>> values;  ///< Uniform name → value; the child's wins.
     std::vector<std::string> dependencies;             ///< This file, then each parent: what hot reload watches.
     std::vector<std::string> errors;
-    [[nodiscard]] bool ok() const noexcept { return errors.empty() && !shader.empty(); }
+    [[nodiscard]] bool ok() const noexcept { return errors.empty() && (standard_pbr || !shader.empty()); }
     [[nodiscard]] const Json* value(std::string_view name) const noexcept;
 };
 

@@ -49,7 +49,16 @@ MaterialFile resolve_material(std::string_view path, const MaterialReader& read)
             m.errors.push_back(current + ": not an astral.material v1 document");
             return m;
         }
-        if (m.shader.empty() && (*doc)["shader"].is_string()) m.shader = (*doc)["shader"].as_string();
+        const Json& type = (*doc)["type"];
+        const Json& shader = (*doc)["shader"];
+        if ((!type.is_null() && type.as_string() != "pbr") || (type.as_string() == "pbr" && !shader.is_null())) {
+            m.errors.push_back(current + ": expected type pbr or a shader path");
+            return m;
+        }
+        if (!m.standard_pbr && m.shader.empty()) {
+            m.standard_pbr = type.as_string() == "pbr";
+            if (shader.is_string()) m.shader = shader.as_string();
+        }
         for (const auto& [name, v] : (*doc)["values"].as_object()) {
             if (!m.value(name)) m.values.emplace_back(name, v); // the child (read first) wins
         }
@@ -57,7 +66,7 @@ MaterialFile resolve_material(std::string_view path, const MaterialReader& read)
         if (!parent.is_string() || parent.as_string().empty()) break;
         current = parent.as_string();
     }
-    if (m.shader.empty()) m.errors.push_back(std::string(path) + ": no \"shader\" in the material or its parents");
+    if (!m.standard_pbr && m.shader.empty()) m.errors.push_back(std::string(path) + ": no shader or PBR type in the material or its parents");
     return m;
 }
 
