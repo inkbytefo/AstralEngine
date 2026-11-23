@@ -11,6 +11,7 @@
 #include <astral/render/renderer.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace astral {
@@ -19,6 +20,17 @@ struct TransparentDraw {
     MeshHandle mesh;
     std::uint32_t instance = 0;
     ShaderHandle shader;
+};
+
+struct SceneTlas {
+    SceneTlas(gpu::Device& device, std::uint32_t capacity);
+    ~SceneTlas();
+
+    gpu::Device& device;
+    gpu::AccelerationStructureHandle handle;
+    std::uint32_t capacity;
+    std::vector<gpu::TlasInstance> submitted_instances;
+    bool submitted = false;
 };
 
 struct FrameInstances {
@@ -32,14 +44,8 @@ struct FrameInstances {
     std::vector<GpuRectLight> rects;
     std::vector<GpuDecal> decals;
     std::vector<gpu::TlasInstance> tlas_instances;
-    gpu::AccelerationStructureHandle tlas;
-    std::uint32_t tlas_capacity = 0;
-
-    void destroy(gpu::Device& device) {
-        device.destroy(tlas);
-        tlas = {};
-        tlas_capacity = 0;
-    }
+    std::shared_ptr<SceneTlas> tlas;
+    bool tlas_build_recorded = false;
 };
 
 /// Uploads the material table, partitions and sorts opaque/blended instances (+ TLAS instances when

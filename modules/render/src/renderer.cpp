@@ -72,7 +72,7 @@ Renderer::~Renderer() {
     auto& m = *impl_;
     // Destroy TLAS and per-frame buffers before member destructors tear down MeshStore (BLAS), ShaderStore,
     // TextureStore.
-    m.frame_instances.destroy(m.device);
+    m.frame_instances.tlas.reset();
     m.ring.destroy(m.device);
     for (UiOnlySlot& slot : m.ui_ring) slot.destroy(m.device);
 }

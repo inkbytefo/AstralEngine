@@ -166,7 +166,7 @@ FrameAddresses collect_rt_addresses(gpu::Device& device, const FrameSlot& slot, 
         .rects = device.buffer_address(slot.rects.buffer),
         .decals = device.buffer_address(slot.decals.buffer),
         .params = device.buffer_address(slot.params.buffer),
-        .tlas = device.acceleration_structure_address(instances.tlas),
+        .tlas = device.acceleration_structure_address(instances.tlas->handle),
     };
 }
 

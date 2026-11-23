@@ -122,17 +122,40 @@ void upload_scene_buffers(gpu::Device& device, const RenderScene& scene, const T
     }
 }
 
+SceneTlas::SceneTlas(gpu::Device& gpu_device, std::uint32_t max_instances)
+    : device(gpu_device),
+      handle(device.create_tlas({.max_instances = max_instances, .debug_name = "astral.scene_tlas"})),
+      capacity(max_instances) {}
+
+SceneTlas::~SceneTlas() { device.destroy(handle); }
+
 bool build_tlas(gpu::Device& device, gpu::CommandList& cmd, FrameInstances& frame_instances) {
-    // TLAS grows in powers of two; the old one is destroyed once the GPU is done with it.
-    const auto needed = static_cast<std::uint32_t>(frame_instances.tlas_instances.size());
-    if (!frame_instances.tlas.valid() || needed > frame_instances.tlas_capacity) {
-        device.destroy(frame_instances.tlas);
-        frame_instances.tlas_capacity = 64;
-        while (frame_instances.tlas_capacity < needed) frame_instances.tlas_capacity *= 2;
-        frame_instances.tlas = device.create_tlas({.max_instances = frame_instances.tlas_capacity, .debug_name = "astral.scene_tlas"});
-        if (!frame_instances.tlas.valid()) return false;
+    auto& tlas = frame_instances.tlas;
+    const auto& instances = frame_instances.tlas_instances;
+    frame_instances.tlas_build_recorded = false;
+    if (tlas && tlas->submitted && instances == tlas->submitted_instances) {
+        // Pin the AS until this command list has been submitted or discarded.
+        cmd.on_submitted([keep_alive = tlas](gpu::SubmitTicket) {});
+        return true;
     }
-    cmd.build_tlas(frame_instances.tlas, frame_instances.tlas_instances);
+
+    // A list recorded but not yet submitted may still read or build the current AS.
+    if (!tlas || tlas.use_count() > 1 || instances.size() > tlas->capacity) {
+        std::uint32_t capacity = 64;
+        while (capacity < instances.size()) capacity *= 2;
+        auto replacement = std::make_shared<SceneTlas>(device, capacity);
+        if (!replacement->handle.valid()) return false;
+        tlas = std::move(replacement);
+    }
+    if (!cmd.build_tlas(tlas->handle, instances)) return false;
+
+    tlas->submitted = false;
+    frame_instances.tlas_build_recorded = true;
+    // Do not cache a build from a dropped or failed submission.
+    cmd.on_submitted([target = tlas, snapshot = instances](gpu::SubmitTicket) mutable {
+        target->submitted_instances = std::move(snapshot);
+        target->submitted = true;
+    });
     return true;
 }
 

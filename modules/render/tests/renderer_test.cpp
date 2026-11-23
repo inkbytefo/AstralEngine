@@ -142,6 +142,38 @@ TEST_CASE("many instances of one mesh are one draw call") {
     CHECK(f.renderer->stats().instances == 1000);
 }
 
+TEST_CASE("tiled raster lights preserve the image with offscreen lights and full tiles") {
+    Fixture f;
+    if (!f.device) return;
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const MeshInstance item{.mesh = cube, .material = f.renderer->default_material()};
+    const PointLight key{.position = {0, 0, 3}, .intensity = 5.0f, .radius = 4.0f};
+    RenderScene scene{.meshes = std::span(&item, 1), .lights = std::span(&key, 1), .sun = {.intensity = 0}};
+    const auto baseline = f.draw(scene);
+
+    std::vector<PointLight> lights(150, {.position = {100, 0, 0}, .intensity = 20.0f, .radius = 1.0f});
+    lights.back() = key;
+    scene.lights = lights;
+    CHECK(f.draw(scene) == baseline);
+
+    // More lights in the same tile than its shared list can hold. Keep the actual light last.
+    for (auto& light : std::span(lights).first(lights.size() - 1)) {
+        light = {.position = key.position, .intensity = 0.0f, .radius = key.radius};
+    }
+    CHECK(f.draw(scene) == baseline);
+}
+
+TEST_CASE("offscreen mesh groups still submit to the shadow pass") {
+    Fixture f;
+    if (!f.device) return;
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const MeshInstance item{.mesh = cube, .material = f.renderer->default_material(),
+                            .transform = translate({100, 0, 0})};
+    (void)f.draw({.meshes = std::span(&item, 1)});
+    CHECK(f.renderer->stats().draw_calls == 0);
+    CHECK(f.renderer->stats().shadow_draw_calls == 1);
+}
+
 TEST_CASE("draw items with destroyed meshes are skipped") {
     Fixture f;
     if (!f.device) return;
