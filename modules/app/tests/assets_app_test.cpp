@@ -82,8 +82,8 @@ TEST_CASE("a saved model slot override is scoped to its owner and can be cleared
             ModelRef loaded;
             REQUIRE(from_json(saved, loaded, {}));
             REQUIRE(loaded.material_overrides == source.material_overrides);
-            a = ctx.world.create(Transform{}, loaded);
-            b = ctx.world.create(Transform{}, ModelRef{"quad.glb"});
+            a = ctx.world.create(Name{"Overridden"}, Transform{}, loaded);
+            b = ctx.world.create(Name{"Original"}, Transform{}, ModelRef{"quad.glb"});
             blue = ctx.materials().load_material("blue.material");
             REQUIRE(blue.valid());
         }
@@ -101,12 +101,22 @@ TEST_CASE("a saved model slot override is scoped to its owner and can be cleared
                 REQUIRE(original.valid());
                 CHECK(original != blue);
                 CHECK(root_material(ctx, a) == blue);
+                REQUIRE(ctx.scenes().save_scene("roundtrip.scene"));
+                REQUIRE(ctx.scenes().load_scene("roundtrip.scene").errors.empty());
+                ctx.world.each<const Name, const ModelRef>([&](Entity entity, const Name& name, const ModelRef&) {
+                    if (name.value == "Overridden") a = entity;
+                    if (name.value == "Original") b = entity;
+                });
+            }
+            if (ctx.time.frame == 5) {
+                CHECK(root_material(ctx, a) == blue);
+                CHECK(root_material(ctx, b) == original);
                 ctx.world.get<ModelRef>(a)->material_overrides.clear();
             }
-            if (ctx.time.frame == 5) CHECK(root_material(ctx, a) == original);
+            if (ctx.time.frame == 7) CHECK(root_material(ctx, a) == original);
         }
     } game;
-    app.run_frames(game, 6);
+    app.run_frames(game, 8);
 }
 
 TEST_CASE("glTF masked and blended materials build Vulkan shader variants") {
