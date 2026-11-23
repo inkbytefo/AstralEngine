@@ -40,6 +40,9 @@ struct Model {
     struct Piece {
         MeshHandle mesh;
         MaterialHandle material;
+        int material_index = -1; ///< Source material slot.
+        std::uint32_t primitive_index = 0;
+        bool operator==(const Piece&) const = default;
     };
     struct Node {
         std::string name;

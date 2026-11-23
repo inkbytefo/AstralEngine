@@ -174,10 +174,13 @@ struct AssetManager::Impl {
         e.textures.clear();
     }
 
-    static bool same_structure(const Model& m, const ModelData& d) {
-        if (m.nodes.size() != d.nodes.size() || m.roots != d.roots) return false;
-        for (std::size_t i = 0; i < m.nodes.size(); ++i) {
-            if (m.nodes[i].children != d.nodes[i].children || m.nodes[i].pieces.size() != d.nodes[i].primitives.size()) return false;
+    static bool same_bindings(const Model& before, const Model& after) {
+        if (before.nodes.size() != after.nodes.size() || before.roots != after.roots) return false;
+        for (std::size_t i = 0; i < before.nodes.size(); ++i) {
+            const Model::Node& a = before.nodes[i];
+            const Model::Node& b = after.nodes[i];
+            if (a.name != b.name || a.translation != b.translation || a.rotation != b.rotation ||
+                a.scale != b.scale || a.children != b.children || a.pieces != b.pieces) return false;
         }
         return true;
     }
@@ -239,15 +242,12 @@ struct AssetManager::Impl {
             for (std::uint32_t p : n.primitives) {
                 const int mat = data.primitives[p].material;
                 node.pieces.push_back({r ? e.meshes[p] : MeshHandle{},
-                                       r && mat >= 0 ? e.materials[static_cast<std::size_t>(mat)] : MaterialHandle{}});
+                                       r && mat >= 0 ? e.materials[static_cast<std::size_t>(mat)] : MaterialHandle{}, mat, p});
             }
             model->nodes.push_back(std::move(node));
         }
         if (reload) {
-            // Spawned entities hold mesh/material handles: they go stale if the tree changed or if
-            // those handles had to be recreated.
-            const bool handles_changed = r && (!keep_meshes || !keep_materials);
-            model->version = same_structure(*e.model, data) && !handles_changed ? e.model->version : e.model->version + 1;
+            model->version = e.model->version + (same_bindings(*e.model, *model) ? 0u : 1u);
             ++reload_count;
         }
         e.model = std::move(model);

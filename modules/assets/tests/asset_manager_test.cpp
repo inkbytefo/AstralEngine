@@ -3,6 +3,8 @@
 #include <astral/assets/asset_manager.hpp>
 #include <doctest/doctest.h>
 
+#include <fstream>
+#include <iterator>
 #include <thread>
 
 using namespace astral;
@@ -62,11 +64,35 @@ TEST_CASE("hot reload: edited files reload; same structure keeps the version, a 
     CHECK(assets.reloads() == 1);
     CHECK(assets.model(id)->version == 1);
 
+    touch_later([&] {
+        const auto path = test::write_gltf(dir, "quad");
+        std::ifstream stream(path);
+        auto doc = Json::parse(std::string(std::istreambuf_iterator<char>(stream), {}));
+        REQUIRE(doc);
+        const Json second_material = (*doc)["materials"][0];
+        (*doc)["materials"].push_back(second_material);
+        Json mesh = (*doc)["meshes"][0];
+        Json primitive = mesh["primitives"][0];
+        primitive["material"] = 1;
+        mesh["primitives"] = Json::array({primitive});
+        (*doc)["meshes"] = Json::array({mesh});
+        Json root = (*doc)["nodes"][0];
+        root["translation"] = Json::array({0, 3, 0});
+        (*doc)["nodes"] = Json::array({root, (*doc)["nodes"][1]});
+        const auto text = doc->dump();
+        test::write_bytes(path, std::vector<std::uint8_t>(text.begin(), text.end()));
+    });
+    assets.update();
+    assets.update();
+    REQUIRE(assets.model(id)->version == 2);
+    CHECK(assets.model(id)->nodes[0].translation.y == 3.0f);
+    CHECK(assets.model(id)->nodes[0].pieces[0].material_index == 1);
+
     touch_later([&] { test::write_gltf(dir, "quad", {.child_node = false}); }); // one node fewer
     assets.update();
     assets.update();
-    CHECK(assets.reloads() == 2);
-    CHECK(assets.model(id)->version == 2);
+    CHECK(assets.reloads() == 3);
+    CHECK(assets.model(id)->version == 3);
     CHECK(assets.model(id)->nodes.size() == 1);
 
     // A broken edit keeps the last good version.
