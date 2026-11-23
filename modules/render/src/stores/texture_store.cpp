@@ -111,6 +111,51 @@ void TextureStore::destroy(TextureHandle handle) {
     }
 }
 
+TextureHandle TextureStore::create_render_target(std::uint32_t width, std::uint32_t height, gpu::Format format) {
+    if (width == 0 || height == 0) return {};
+    const gpu::TextureHandle t = device_.create_texture({
+        .width = width,
+        .height = height,
+        .format = format,
+        .usage = gpu::TextureUsage::ColorTarget | gpu::TextureUsage::Sampled | gpu::TextureUsage::TransferSrc,
+        .mip_levels = 1,
+        .debug_name = "astral.render_target",
+    });
+    if (!t.valid()) return {};
+    return textures_.create({t, width, height});
+}
+
+bool TextureStore::resize_render_target(TextureHandle handle, std::uint32_t width, std::uint32_t height,
+                                        gpu::Format format) {
+    GpuTexture* tex = textures_.get(handle);
+    if (!tex || width == 0 || height == 0) return false;
+    if (tex->width == width && tex->height == height) return true;
+    const gpu::TextureHandle t = device_.create_texture({
+        .width = width,
+        .height = height,
+        .format = format,
+        .usage = gpu::TextureUsage::ColorTarget | gpu::TextureUsage::Sampled | gpu::TextureUsage::TransferSrc,
+        .mip_levels = 1,
+        .debug_name = "astral.render_target",
+    });
+    if (!t.valid()) return false;
+    device_.destroy(tex->texture); // deferred until in-flight GPU submissions finish
+    *tex = {t, width, height};
+    return true;
+}
+
+gpu::TextureHandle TextureStore::native_handle(TextureHandle handle) const noexcept {
+    const GpuTexture* tex = textures_.get(handle);
+    return tex ? tex->texture : gpu::TextureHandle{};
+}
+
+bool TextureStore::is_linear_sampled(TextureHandle handle) const noexcept {
+    const GpuTexture* tex = textures_.get(handle);
+    if (!tex) return false;
+    const gpu::Format fmt = device_.texture_desc(tex->texture).format;
+    return fmt == gpu::Format::RGBA8Srgb || fmt == gpu::Format::BGRA8Srgb || fmt == gpu::Format::BC7Srgb;
+}
+
 std::uint32_t TextureStore::bindless_or(TextureHandle handle, std::uint32_t fallback) const {
     const GpuTexture* tex = textures_.get(handle);
     return tex ? device_.bindless_index(tex->texture) : fallback;

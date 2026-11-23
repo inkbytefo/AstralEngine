@@ -82,7 +82,45 @@ RenderBridge::RenderBridge(World& world, AssetManager& assets, Logger& log, gpu:
         std::make_unique<MaterialLibrary>(*renderer_, assets_, config.asset_root, config.watch_materials, log_);
 }
 
-RenderBridge::~RenderBridge() { material_library_.reset(); }
+RenderBridge::~RenderBridge() {
+    if (renderer_ && viewport_.target.valid()) renderer_->destroy(viewport_.target);
+    material_library_.reset();
+}
+
+void RenderBridge::set_size(std::uint32_t width, std::uint32_t height) {
+    viewport_.requested = {width, height};
+}
+
+void RenderBridge::set_camera_override(const CameraData* camera) noexcept {
+    if (camera) {
+        viewport_.has_camera_override = true;
+        viewport_.camera_override = *camera;
+    } else {
+        viewport_.has_camera_override = false;
+    }
+}
+
+void RenderBridge::ensure_viewport_target() {
+    if (!renderer_) return;
+    const gpu::Extent2D req = viewport_.requested;
+    if (req.width == 0 || req.height == 0) {
+        if (viewport_.target.valid()) {
+            renderer_->destroy(viewport_.target);
+            viewport_.target = {};
+            viewport_.actual = {};
+        }
+        return;
+    }
+    if (!viewport_.target.valid()) {
+        viewport_.target = renderer_->create_render_target(req.width, req.height);
+        if (viewport_.target.valid()) viewport_.actual = req;
+    } else if (viewport_.actual.width != req.width || viewport_.actual.height != req.height) {
+        if (renderer_->resize_render_target(viewport_.target, req.width, req.height)) {
+            viewport_.actual = req;
+            renderer_->reset_history();
+        }
+    }
+}
 
 gpu::Extent2D RenderBridge::extent() const {
     if (swapchain_ && !offscreen_target_.valid()) return swapchain_->extent();
@@ -131,25 +169,25 @@ void RenderBridge::shift_origin(Vec3 offset) {
     if (renderer_) renderer_->reset_history();
 }
 
-/// PrimitiveMesh -> MeshRenderer for new and edited components; drops the renderer when it is removed.
-void RenderBridge::sync_primitives() {
+void RenderBridge::sync_primitives() { sync_primitives_in(world_, true); }
+
+void RenderBridge::sync_primitives_in(World& w, bool incremental) {
     std::vector<Entity> gone;
-    world_.query<const PrimitiveDrawn>().without<PrimitiveMesh>().each([&](Entity e, const PrimitiveDrawn&) {
+    w.query<const PrimitiveDrawn>().without<PrimitiveMesh>().each([&](Entity e, const PrimitiveDrawn&) {
         gone.push_back(e);
     });
     for (Entity e : gone) {
-        world_.remove<PrimitiveDrawn>(e);
-        world_.remove<MeshRenderer>(e);
+        w.remove<PrimitiveDrawn>(e);
+        w.remove<MeshRenderer>(e);
     }
-    world_.set_change_baseline(primitives_seen_);
     std::vector<std::pair<Entity, MeshRenderer>> updates;
-    world_.query<const PrimitiveMesh>().changed<PrimitiveMesh>().each([&](Entity e, const PrimitiveMesh& p) {
+    auto collect = [&](Entity e, const PrimitiveMesh& p) {
         const MeshHandle mesh = p.shape == Primitive::Sphere ? builtin_meshes_.sphere
                                 : p.shape == Primitive::Plane ? builtin_meshes_.plane
                                                               : builtin_meshes_.cube;
         MaterialHandle material;
         if (renderer_ && !p.material_file.empty()) {
-            material = material_library_ ? material_library_->get(p.material_file) : MaterialHandle{}; // invalid: default material
+            material = material_library_ ? material_library_->get(p.material_file) : MaterialHandle{};
         } else if (renderer_) {
             const MaterialDesc& d = p.material;
             std::string key = to_json(d, {}).dump();
@@ -163,13 +201,21 @@ void RenderBridge::sync_primitives() {
             material = it->second;
         }
         updates.emplace_back(e, MeshRenderer{mesh, material});
-    });
-    for (const auto& [e, r] : updates) {
-        world_.add(e, r);
-        world_.add(e, PrimitiveDrawn{});
+    };
+    if (incremental) {
+        w.set_change_baseline(primitives_seen_);
+        w.query<const PrimitiveMesh>().changed<PrimitiveMesh>().each(collect);
+    } else {
+        w.each<const PrimitiveMesh>(collect);
     }
-    primitives_seen_ = world_.tick();
-    world_.advance_tick();
+    for (const auto& [e, r] : updates) {
+        w.add(e, r);
+        w.add(e, PrimitiveDrawn{});
+    }
+    if (incremental) {
+        primitives_seen_ = w.tick();
+        w.advance_tick();
+    }
 }
 
 void RenderBridge::spawn_model(Entity owner, const Model& model) {
@@ -230,30 +276,29 @@ void RenderBridge::sync_models() {
     }
 }
 
-void RenderBridge::extract_meshes() {
-    // Extract: one MeshInstance per entity, with last frame's transform for motion vectors.
+void RenderBridge::extract_meshes(World& w) {
     scratch_.draw_items.clear();
     scratch_.new_histories.clear();
-    world_.each<const MeshRenderer, const WorldTransform>([&](Entity e, const MeshRenderer& r, const WorldTransform& w) {
-        MeshInstance inst{.mesh = r.mesh, .material = r.material, .transform = w.matrix};
-        if (RenderHistory* h = world_.get<RenderHistory>(e)) {
+    w.each<const MeshRenderer, const WorldTransform>([&](Entity e, const MeshRenderer& r, const WorldTransform& wt) {
+        MeshInstance inst{.mesh = r.mesh, .material = r.material, .transform = wt.matrix};
+        if (RenderHistory* h = w.get<RenderHistory>(e)) {
             inst.previous_transform = h->previous;
-            h->previous = w.matrix;
+            h->previous = wt.matrix;
         } else {
-            scratch_.new_histories.emplace_back(e, w.matrix);
+            scratch_.new_histories.emplace_back(e, wt.matrix);
         }
         scratch_.draw_items.push_back(inst);
     });
-    for (const auto& [e, matrix] : scratch_.new_histories) world_.add(e, RenderHistory{matrix});
+    for (const auto& [e, matrix] : scratch_.new_histories) w.add(e, RenderHistory{matrix});
 }
 
-void RenderBridge::extract_sdfs() {
+void RenderBridge::extract_sdfs(World& w) {
     scratch_.sdf_sorted.clear();
-    world_.each<const Sdf>([&](Entity e, const Sdf& s) {
+    w.each<const Sdf>([&](Entity e, const Sdf& s) {
         SdfShape shape = s.shape;
-        if (const WorldTransform* w = world_.get<WorldTransform>(e)) {
-            shape.position = {w->matrix[3].x, w->matrix[3].y, w->matrix[3].z};
-            shape.rotation = rotation_of(w->matrix);
+        if (const WorldTransform* wt = w.get<WorldTransform>(e)) {
+            shape.position = {wt->matrix[3].x, wt->matrix[3].y, wt->matrix[3].z};
+            shape.rotation = rotation_of(wt->matrix);
         }
         scratch_.sdf_sorted.emplace_back(s.order, shape);
     });
@@ -263,32 +308,31 @@ void RenderBridge::extract_sdfs() {
     for (const auto& [order, shape] : scratch_.sdf_sorted) scratch_.sdf_shapes.push_back(shape);
 }
 
-void RenderBridge::extract_lights() {
+void RenderBridge::extract_lights(World& w) {
     scratch_.point_lights.clear();
-    world_.each<const PointLight>([&](Entity e, const PointLight& l) {
+    w.each<const PointLight>([&](Entity e, const PointLight& l) {
         PointLight light = l;
-        if (const WorldTransform* w = world_.get<WorldTransform>(e)) {
-            light.position = {w->matrix[3].x, w->matrix[3].y, w->matrix[3].z};
+        if (const WorldTransform* wt = w.get<WorldTransform>(e)) {
+            light.position = {wt->matrix[3].x, wt->matrix[3].y, wt->matrix[3].z};
         }
         scratch_.point_lights.push_back(light);
     });
     scratch_.rect_lights.clear();
-    world_.each<const RectLight>([&](Entity e, const RectLight& l) {
+    w.each<const RectLight>([&](Entity e, const RectLight& l) {
         RectLight light = l;
-        if (const WorldTransform* w = world_.get<WorldTransform>(e)) {
-            // Position from the entity; the panel's axes turn and scale with it.
-            light.position = {w->matrix[3].x, w->matrix[3].y, w->matrix[3].z};
-            const Vec4 r = w->matrix * Vec4{l.right.x, l.right.y, l.right.z, 0};
-            const Vec4 u = w->matrix * Vec4{l.up.x, l.up.y, l.up.z, 0};
+        if (const WorldTransform* wt = w.get<WorldTransform>(e)) {
+            light.position = {wt->matrix[3].x, wt->matrix[3].y, wt->matrix[3].z};
+            const Vec4 r = wt->matrix * Vec4{l.right.x, l.right.y, l.right.z, 0};
+            const Vec4 u = wt->matrix * Vec4{l.up.x, l.up.y, l.up.z, 0};
             light.right = {r.x, r.y, r.z};
             light.up = {u.x, u.y, u.z};
         }
         scratch_.rect_lights.push_back(light);
     });
     scratch_.decals.clear();
-    world_.each<const Decal>([&](Entity e, const Decal& d) {
+    w.each<const Decal>([&](Entity e, const Decal& d) {
         Decal decal = d;
-        if (const WorldTransform* w = world_.get<WorldTransform>(e)) decal.transform = w->matrix;
+        if (const WorldTransform* wt = w.get<WorldTransform>(e)) decal.transform = wt->matrix;
         scratch_.decals.push_back(decal);
     });
 }
@@ -296,30 +340,59 @@ void RenderBridge::extract_lights() {
 void RenderBridge::render_frame(const RenderFrameInput& input) {
     const bool offscreen = offscreen_target_.valid();
     if (!renderer_ || (!offscreen && (!swapchain_ || (window_ && window_->minimized())))) return;
+    ensure_viewport_target();
     gpu::TextureHandle image = offscreen ? offscreen_target_ : swapchain_->acquire();
     if (!image.valid()) return;
 
-    extract_meshes();
-    extract_sdfs();
-    extract_lights();
+    World& active_world = viewport_.alt_world ? *viewport_.alt_world : world_;
+    if (viewport_.alt_world) {
+        update_transforms(active_world);
+        sync_primitives_in(active_world, false);
+    }
+    extract_meshes(active_world);
+    extract_sdfs(active_world);
+    extract_lights(active_world);
 
-    const gpu::Extent2D size = extent();
-    const float aspect = size.height ? static_cast<float>(size.width) / static_cast<float>(size.height) : 1.0f;
-    const CameraData camera = find_camera(world_, aspect);
     auto cmd = device_->begin_commands();
-    renderer_->render(cmd, image, camera,
-                      {.meshes = scratch_.draw_items,
-                       .sdf = scratch_.sdf_shapes,
-                       .lights = scratch_.point_lights,
-                       .rect_lights = scratch_.rect_lights,
-                       .decals = scratch_.decals,
-                       .sun = input.sun,
-                       .environment = input.environment,
-                       .debug_lines = input.debug_lines,
-                       .ui = input.ui_layers,
-                       .time = input.time,
-                       .sky = input.sky,
-                       .post = input.post});
+    const gpu::TextureHandle vp_native = viewport_.target.valid() ? renderer_->native_target(viewport_.target) : gpu::TextureHandle{};
+    if (vp_native.valid()) {
+        const float vp_aspect = viewport_.actual.height
+                                    ? static_cast<float>(viewport_.actual.width) / static_cast<float>(viewport_.actual.height)
+                                    : 1.0f;
+        const CameraData camera = viewport_.has_camera_override ? viewport_.camera_override : find_camera(active_world, vp_aspect);
+        renderer_->render(cmd, vp_native, camera,
+                          {.meshes = scratch_.draw_items,
+                           .sdf = scratch_.sdf_shapes,
+                           .lights = scratch_.point_lights,
+                           .rect_lights = scratch_.rect_lights,
+                           .decals = scratch_.decals,
+                           .sun = input.sun,
+                           .environment = input.environment,
+                           .debug_lines = input.debug_lines,
+                           .ui = {},
+                           .time = input.time,
+                           .sky = input.sky,
+                           .post = input.post});
+        cmd.transition(vp_native, gpu::ResourceState::ShaderRead);
+        renderer_->render_ui(cmd, image, input.ui_layers, viewport_.clear_color);
+    } else {
+        const gpu::Extent2D size = extent();
+        const float aspect = size.height ? static_cast<float>(size.width) / static_cast<float>(size.height) : 1.0f;
+        const CameraData camera = viewport_.has_camera_override ? viewport_.camera_override : find_camera(active_world, aspect);
+        renderer_->render(cmd, image, camera,
+                          {.meshes = scratch_.draw_items,
+                           .sdf = scratch_.sdf_shapes,
+                           .lights = scratch_.point_lights,
+                           .rect_lights = scratch_.rect_lights,
+                           .decals = scratch_.decals,
+                           .sun = input.sun,
+                           .environment = input.environment,
+                           .debug_lines = input.debug_lines,
+                           .ui = input.ui_layers,
+                           .time = input.time,
+                           .sky = input.sky,
+                           .post = input.post});
+    }
     if (offscreen) {
         cmd.transition(image, gpu::ResourceState::TransferSrc);
         cmd.copy_texture_to_buffer(image, offscreen_readback_);

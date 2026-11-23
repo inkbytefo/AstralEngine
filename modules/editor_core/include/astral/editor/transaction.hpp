@@ -28,10 +28,16 @@ struct DocumentDiff {
 /// Computes a structured field-level diff between two scene/prefab JSON documents.
 [[nodiscard]] DocumentDiff diff_documents(const Json& before, const Json& after);
 
+enum class PersistPolicy : std::uint8_t {
+    Immediate,  ///< Every apply/undo/redo writes atomically to disk immediately (default for headless E0 API).
+    ManualSave, ///< Edits stay in-memory with dirty state & coalescing until explicit save() (Ctrl+S).
+};
+
 struct Transaction {
     std::string author = "user";        ///< "user" or "agent:<id>"
     std::string summary;                ///< Human-readable description
     DocumentRevision expected_revision; ///< Must match open document's revision (stale check)
+    std::string coalesce_key;           ///< Optional key to merge consecutive interactive drags into one undo step
     std::vector<EditorCommand> commands;
 };
 
@@ -85,18 +91,35 @@ public:
     [[nodiscard]] AuditLog& audit_log() noexcept { return audit_; }
     [[nodiscard]] const AuditLog& audit_log() const noexcept { return audit_; }
 
-    /// Validates, applies, and atomically persists `tx`. On any validation or I/O failure, rolls back cleanly.
+    /// Validates, applies, and persists (per PersistPolicy) `tx`. On any validation or I/O failure, rolls back cleanly.
     TransactionResult apply(const Transaction& tx);
     TransactionResult undo();
     TransactionResult redo();
 
+    void set_persist_policy(PersistPolicy policy) noexcept { policy_ = policy; }
+    [[nodiscard]] PersistPolicy persist_policy() const noexcept { return policy_; }
+    [[nodiscard]] bool is_dirty() const noexcept { return dirty_; }
+    /// True if the file on disk was modified externally since it was last loaded or saved by this session.
+    [[nodiscard]] bool has_external_conflict() const;
+    /// Atomically writes the current in-memory document (and any staged prefabs) to disk.
+    bool save(std::string* error = nullptr, bool force_overwrite = false);
+
+    /// Crash-recovery sidecar autosave (`<path>.astral_autosave`).
+    [[nodiscard]] std::filesystem::path autosave_path() const;
+    bool write_autosave(std::string* error = nullptr);
+    [[nodiscard]] bool has_autosave() const;
+    bool restore_autosave(std::string* error = nullptr);
+    void clear_autosave();
+
     [[nodiscard]] bool can_undo() const noexcept { return cursor_ > 0; }
     [[nodiscard]] bool can_redo() const noexcept { return cursor_ + 1 < snapshots_.size(); }
+    [[nodiscard]] std::size_t pending_change_count() const noexcept { return dirty_ ? std::max<std::size_t>(1, cursor_) : 0; }
 
 private:
     struct Snapshot {
         Json root;
         std::string summary;
+        std::string coalesce_key;
     };
 
     TransactionResult restore_snapshot(std::size_t target_index, std::string_view action);
@@ -106,6 +129,10 @@ private:
     std::filesystem::path asset_root_;
     EditorDocument doc_;
     bool open_ = false;
+    PersistPolicy policy_ = PersistPolicy::Immediate;
+    bool dirty_ = false;
+    std::uint64_t saved_disk_hash_ = 0;
+    std::vector<std::pair<std::filesystem::path, std::string>> staged_prefabs_;
     std::vector<Snapshot> snapshots_;
     std::size_t cursor_ = 0;
     AuditLog audit_;

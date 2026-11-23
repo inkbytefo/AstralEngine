@@ -11,13 +11,13 @@
         "astral::Transform": {
           "position": [0, -0.25, 0],
           "rotation": [0, 0, 0, 1],
-          "scale": [14.5, 6.300000190734863, 17.950000762939453]
+          "scale": [12, 0.5, 12]
         },
         "astral::PrimitiveMesh": {
           "shape": "Cube",
           "material": {
-            "base_color": [0.32, 0.34, 0.38, 1],
-            "roughness": 0.75
+            "base_color": [0.16, 0.17, 0.20, 1],
+            "roughness": 0.72
           }
         }
       }

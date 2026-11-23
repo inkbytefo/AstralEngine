@@ -13,3 +13,5 @@
 *.user
 compile_commands.json
 .cache/
+*.astral_autosave
+astral_editor_layout.ini

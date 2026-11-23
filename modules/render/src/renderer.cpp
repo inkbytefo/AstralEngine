@@ -13,6 +13,16 @@
 
 namespace astral {
 
+struct UiOnlySlot {
+    GrowBuffer vertices;
+    GrowBuffer indices;
+    std::shared_ptr<std::uint64_t> last_use = std::make_shared<std::uint64_t>(0);
+    void destroy(gpu::Device& d) {
+        vertices.destroy(d);
+        indices.destroy(d);
+    }
+};
+
 struct Renderer::Impl {
     gpu::Device& device;
     gpu::Format target_format;
@@ -24,6 +34,8 @@ struct Renderer::Impl {
     MaterialStore materials;
     FrameInstances frame_instances;
     FrameRing ring;
+    std::array<UiOnlySlot, ring_size> ui_ring;
+    std::uint32_t ui_ring_index = 0;
     RenderPasses passes;
     RenderStats stats;
     TemporalState temporal;
@@ -62,6 +74,7 @@ Renderer::~Renderer() {
     // TextureStore.
     m.frame_instances.destroy(m.device);
     m.ring.destroy(m.device);
+    for (UiOnlySlot& slot : m.ui_ring) slot.destroy(m.device);
 }
 
 bool Renderer::supports(ImageFormat format) const noexcept { return impl_->textures.supports(format); }
@@ -75,6 +88,16 @@ void Renderer::destroy(ShaderHandle shader) { impl_->shaders.destroy(shader); }
 std::string_view Renderer::shader_error() const noexcept { return impl_->shaders.error(); }
 
 TextureHandle Renderer::create_texture(const ImageData& image) { return impl_->textures.create(image); }
+TextureHandle Renderer::create_render_target(std::uint32_t width, std::uint32_t height) {
+    return impl_->textures.create_render_target(width, height, impl_->target_format);
+}
+bool Renderer::resize_render_target(TextureHandle target, std::uint32_t width, std::uint32_t height) {
+    return impl_->textures.resize_render_target(target, width, height, impl_->target_format);
+}
+gpu::TextureHandle Renderer::native_target(TextureHandle target) const noexcept {
+    return impl_->textures.native_handle(target);
+}
+gpu::Format Renderer::target_format() const noexcept { return impl_->target_format; }
 bool Renderer::update_texture(TextureHandle texture, const ImageData& image) {
     return impl_->textures.update(texture, image);
 }
@@ -148,6 +171,19 @@ void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const Ca
     RasterPathContext ctx{m.device, m.graph, m.meshes, m.materials, m.shaders, m.textures, m.frame_instances,
                           m.ring,   m.passes, m.settings, m.target_format, m.stats};
     render_raster_path(ctx, cmd, target, camera, scene, extent);
+}
+
+void Renderer::render_ui(gpu::CommandList& cmd, gpu::TextureHandle target, std::span<const UiLayer> ui,
+                         Vec4 clear_color) {
+    auto& m = *impl_;
+    const gpu::TextureDesc target_desc = m.device.texture_desc(target);
+    if (target_desc.width == 0) return;
+    UiOnlySlot& slot = m.ui_ring[m.ui_ring_index];
+    m.ui_ring_index = (m.ui_ring_index + 1) % ring_size;
+    m.device.wait({*slot.last_use});
+    cmd.on_submitted([use = slot.last_use](gpu::SubmitTicket t) { *use = t.value; });
+    m.passes.ui.record_standalone(cmd, target, {target_desc.width, target_desc.height}, m.target_format, m.textures, ui,
+                                  slot.vertices, slot.indices, clear_color);
 }
 
 } // namespace astral

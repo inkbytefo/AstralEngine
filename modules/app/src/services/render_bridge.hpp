@@ -47,7 +47,7 @@ struct RenderFrameInput {
     std::span<const MaterialHandle> post;
 };
 
-class RenderBridge final : public MaterialService {
+class RenderBridge final : public MaterialService, public ViewportService {
 public:
     RenderBridge(World& world, AssetManager& assets, Logger& log, gpu::Device* device, gpu::Swapchain* swapchain,
                  Window* window, Renderer* renderer, const RenderBridgeConfig& config);
@@ -69,6 +69,14 @@ public:
     MaterialHandle load_material(std::string_view path) override;
     [[nodiscard]] std::string_view shader_error() const noexcept override;
 
+    void set_size(std::uint32_t width, std::uint32_t height) override;
+    [[nodiscard]] TextureHandle texture() const noexcept override { return viewport_.target; }
+    [[nodiscard]] gpu::Extent2D size() const noexcept override { return viewport_.actual; }
+    void set_render_world(World* world) noexcept override { viewport_.alt_world = world; }
+    [[nodiscard]] World* render_world() const noexcept override { return viewport_.alt_world; }
+    void set_camera_override(const CameraData* camera) noexcept override;
+    void set_clear_color(Vec4 rgba) noexcept override { viewport_.clear_color = rgba; }
+
     void update_materials(double elapsed);
     void sync_models();
     void sync_primitives();
@@ -76,6 +84,16 @@ public:
     void render_frame(const RenderFrameInput& input);
 
 private:
+    struct ViewportState {
+        TextureHandle target{};
+        gpu::Extent2D requested{};
+        gpu::Extent2D actual{};
+        World* alt_world = nullptr;
+        bool has_camera_override = false;
+        CameraData camera_override{};
+        Vec4 clear_color{0.06f, 0.06f, 0.07f, 1.0f};
+    };
+
     struct FrameScratch {
         std::vector<MeshInstance> draw_items;
         std::vector<std::pair<Entity, Mat4>> new_histories;
@@ -86,10 +104,12 @@ private:
         std::vector<Decal> decals;
     };
 
+    void ensure_viewport_target();
+    void sync_primitives_in(World& w, bool incremental);
     void spawn_model(Entity owner, const Model& model);
-    void extract_meshes();
-    void extract_sdfs();
-    void extract_lights();
+    void extract_meshes(World& w);
+    void extract_sdfs(World& w);
+    void extract_lights(World& w);
 
     World& world_;
     AssetManager& assets_;
@@ -106,6 +126,7 @@ private:
     std::unique_ptr<MaterialLibrary> material_library_;
     Tick primitives_seen_ = 0;
     std::unordered_map<std::string, MaterialHandle> primitive_materials_;
+    ViewportState viewport_{};
     FrameScratch scratch_;
 };
 

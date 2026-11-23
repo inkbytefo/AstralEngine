@@ -1,6 +1,7 @@
 // GPU-free tests for Astral::EditorCore: command schema, transactions, stale revisions,
 // partial-write rollback, byte-for-byte undo/redo, audit log, isolated ECS preview, and AI approval (ADR-0035).
 #include <astral/editor/agent.hpp>
+#include <astral/editor/agent_task.hpp>
 #include <astral/editor/command.hpp>
 #include <astral/editor/document.hpp>
 #include <astral/editor/transaction.hpp>
@@ -211,4 +212,108 @@ TEST_CASE("AI prefab proposal previews in isolated ECS world, approves atomicall
     REQUIRE(session.reload(&err));
     CHECK(serialize_document(session.document().root) == after_approve_bytes);
     CHECK(session.audit_log().entries().size() >= 4); // reject, apply, undo, redo
+}
+
+TEST_CASE("ManualSave supports dirty state, drag coalescing, external conflict detection, autosave, and path safety") {
+    FaultyMemoryFileSystem fs;
+    fs.files["scenes/level.scene"] = std::string(kInitialScene);
+    const TypeRegistry types = make_types();
+
+    EditorSession session(fs, types, "");
+    session.set_persist_policy(PersistPolicy::ManualSave);
+    REQUIRE(session.open("scenes/level.scene"));
+    CHECK_FALSE(session.is_dirty());
+    const std::string original_disk = fs.files["scenes/level.scene"];
+
+    // Path traversal must be rejected.
+    EditorCommand bad_path;
+    bad_path.kind = CommandKind::SavePrefab;
+    bad_path.asset_path = "../outside.prefab";
+    bad_path.value = Json::parse(kInitialScene).value();
+    CHECK_FALSE(validate_command(session.document(), types, bad_path).empty());
+
+    // 3 consecutive coalesced drag edits produce ONE undo step and do not touch disk yet.
+    for (int i = 1; i <= 3; ++i) {
+        Transaction drag;
+        drag.summary = "Move Floor";
+        drag.expected_revision = session.document().revision;
+        drag.coalesce_key = "drag:1:pos";
+        Json pos = Json::array();
+        pos.push_back(static_cast<double>(i));
+        pos.push_back(0.0);
+        pos.push_back(0.0);
+        drag.commands.push_back({.kind = CommandKind::SetComponentField, .target = {1, ""},
+                                 .component = "astral::Transform", .field = "position", .value = std::move(pos)});
+        REQUIRE(session.apply(drag).ok);
+    }
+    CHECK(session.is_dirty());
+    CHECK(fs.files["scenes/level.scene"] == original_disk); // untouched until Ctrl+S
+
+    // Autosave sidecar + recovery.
+    std::string err;
+    REQUIRE(session.write_autosave(&err));
+    CHECK(session.has_autosave());
+
+    // Single undo reverts the entire coalesced drag back to clean state.
+    REQUIRE(session.undo().ok);
+    CHECK_FALSE(session.can_undo());
+    CHECK_FALSE(session.is_dirty());
+    REQUIRE(session.redo().ok);
+    CHECK(session.is_dirty());
+
+    // Simulate external disk edit -> save() refuses unless force_overwrite=true.
+    fs.files["scenes/level.scene"] += " ";
+    CHECK(session.has_external_conflict());
+    CHECK_FALSE(session.save(&err, false));
+    REQUIRE(session.save(&err, true));
+    CHECK_FALSE(session.is_dirty());
+    CHECK_FALSE(session.has_external_conflict());
+}
+
+TEST_CASE("AgentTaskManager enforces policy gate, async review, selective approval, revision, and Codex JSON parsing") {
+    FaultyMemoryFileSystem fs;
+    fs.files["scenes/workshop.scene"] = std::string(kInitialScene);
+    const TypeRegistry types = make_types();
+
+    EditorSession session(fs, types, "");
+    session.set_persist_policy(PersistPolicy::ManualSave);
+    REQUIRE(session.open("scenes/workshop.scene"));
+
+    AgentTaskManager mgr(session, {.allow_read_and_preview = true, .require_approval_for_edits = true,
+                                   .allow_external_commands = false, .allow_network = false});
+    CodexCliProvider codex("nonexistent_codex_binary_for_test");
+    std::string err;
+    // External CLI must be blocked by policy before spawning anything.
+    CHECK_FALSE(mgr.submit(codex, {}, "Add a lamp", false, &err));
+    CHECK(mgr.state() == AgentTaskState::Blocked);
+
+    // Offline built-in provider async -> poll -> Review -> selective approval (approve only SavePrefab or all).
+    PrefabAssistantAgent builtin;
+    REQUIRE(mgr.submit(builtin, {}, "Create crate prefab", true, &err));
+    while (mgr.busy()) mgr.poll();
+    REQUIRE(mgr.state() == AgentTaskState::Review);
+    REQUIRE(mgr.current() != nullptr);
+    REQUIRE(mgr.preview() != nullptr);
+    CHECK(mgr.preview()->valid);
+    CHECK(mgr.current()->command_selection.size() == 2);
+
+    // Revision flow keeps task history.
+    REQUIRE(mgr.request_revision(builtin, "Place it higher", false, &err));
+    CHECK(mgr.state() == AgentTaskState::Review);
+    CHECK(mgr.history().size() >= 2);
+
+    const TransactionResult res = mgr.approve_selected();
+    REQUIRE(res.ok);
+    CHECK(mgr.state() == AgentTaskState::Complete);
+    CHECK(session.is_dirty());
+
+    // Codex response parser handles markdown-fenced JSON and rejects malformed output.
+    AgentContext ctx;
+    ctx.base_revision = session.document().revision;
+    const std::string fenced = "Here is the proposal:\n```json\n{\"summary\":\"Rename floor\",\"commands\":[{\"kind\":\"set_component_field\",\"target\":\"1\",\"component\":\"astral::Name\",\"field\":\"value\",\"value\":\"Stone Floor\"}]}\n```";
+    const auto parsed = CodexCliProvider::parse_response(fenced, ctx, "codex_cli", &err);
+    REQUIRE(parsed.has_value());
+    CHECK(parsed->summary == "Rename floor");
+    CHECK(parsed->commands.size() == 1);
+    CHECK_FALSE(CodexCliProvider::parse_response("not json at all", ctx, "codex_cli", &err).has_value());
 }

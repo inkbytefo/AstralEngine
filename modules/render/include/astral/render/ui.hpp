@@ -14,6 +14,14 @@ namespace astral {
 struct RenderTextureTag;
 using TextureHandle = Handle<RenderTextureTag>;
 
+/// Packs/unpacks a TextureHandle into a 64-bit UI texture identifier (shared by DebugUi and Editor).
+[[nodiscard]] inline constexpr std::uint64_t pack_ui_texture(TextureHandle h) noexcept {
+    return (static_cast<std::uint64_t>(h.generation) << 32u) | h.index;
+}
+[[nodiscard]] inline constexpr TextureHandle unpack_ui_texture(std::uint64_t id) noexcept {
+    return {static_cast<std::uint32_t>(id & 0xFFFFFFFFu), static_cast<std::uint32_t>(id >> 32u)};
+}
+
 struct UiVertex {
     Vec2 position{};            ///< Pixels, origin top-left.
     Vec2 uv{};

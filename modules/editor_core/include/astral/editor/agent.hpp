@@ -38,6 +38,7 @@ public:
     virtual ~IAgentProvider() = default;
     [[nodiscard]] virtual std::string_view id() const noexcept = 0;
     [[nodiscard]] virtual std::string_view display_name() const noexcept = 0;
+    [[nodiscard]] virtual bool requires_external_process() const noexcept { return false; }
     [[nodiscard]] virtual std::optional<AgentProposal> propose(const AgentContext& ctx, std::string* error = nullptr) = 0;
 };
 

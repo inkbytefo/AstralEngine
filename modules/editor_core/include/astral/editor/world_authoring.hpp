@@ -123,9 +123,22 @@ public:
     [[nodiscard]] AuditLog& audit_log() noexcept { return audit_; }
     [[nodiscard]] const AuditLog& audit_log() const noexcept { return audit_; }
 
+    [[nodiscard]] bool can_undo() const noexcept { return history_cursor_ > 0; }
+    [[nodiscard]] bool can_redo() const noexcept { return history_cursor_ + 1 < history_.size(); }
+    bool undo(std::string* error = nullptr);
+    bool redo(std::string* error = nullptr);
+
 private:
+    struct WorldSnapshot {
+        MapDesc map;
+        std::vector<MapEntity> raw_entities;
+        std::string summary;
+    };
+
     std::filesystem::path resolve_asset(std::string_view rel) const;
     bool write_entity_file(std::uint64_t id, const Json& doc, std::string* error);
+    void push_snapshot(std::string summary);
+    bool restore_snapshot(std::size_t index, std::string_view action, std::string* error);
 
     IEditorFileSystem& fs_;
     const TypeRegistry& types_;
@@ -136,6 +149,8 @@ private:
     std::vector<MapEntity> raw_entities_;
     WorldPosition preview_origin_{};
     AuditLog audit_;
+    std::vector<WorldSnapshot> history_;
+    std::size_t history_cursor_ = 0;
     bool open_ = false;
 };
 

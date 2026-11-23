@@ -29,6 +29,12 @@ Key to_key(SDL_Scancode code) {
     case SDL_SCANCODE_ESCAPE: return Key::Escape;
     case SDL_SCANCODE_TAB: return Key::Tab;
     case SDL_SCANCODE_BACKSPACE: return Key::Backspace;
+    case SDL_SCANCODE_DELETE: return Key::Delete;
+    case SDL_SCANCODE_INSERT: return Key::Insert;
+    case SDL_SCANCODE_HOME: return Key::Home;
+    case SDL_SCANCODE_END: return Key::End;
+    case SDL_SCANCODE_PAGEUP: return Key::PageUp;
+    case SDL_SCANCODE_PAGEDOWN: return Key::PageDown;
     case SDL_SCANCODE_LEFT: return Key::Left;
     case SDL_SCANCODE_RIGHT: return Key::Right;
     case SDL_SCANCODE_UP: return Key::Up;
@@ -39,6 +45,19 @@ Key to_key(SDL_Scancode code) {
     case SDL_SCANCODE_RCTRL: return Key::RightCtrl;
     case SDL_SCANCODE_LALT: return Key::LeftAlt;
     case SDL_SCANCODE_RALT: return Key::RightAlt;
+    case SDL_SCANCODE_LGUI: return Key::LeftSuper;
+    case SDL_SCANCODE_RGUI: return Key::RightSuper;
+    case SDL_SCANCODE_MINUS: return Key::Minus;
+    case SDL_SCANCODE_EQUALS: return Key::Equal;
+    case SDL_SCANCODE_LEFTBRACKET: return Key::LeftBracket;
+    case SDL_SCANCODE_RIGHTBRACKET: return Key::RightBracket;
+    case SDL_SCANCODE_BACKSLASH: return Key::Backslash;
+    case SDL_SCANCODE_SEMICOLON: return Key::Semicolon;
+    case SDL_SCANCODE_APOSTROPHE: return Key::Apostrophe;
+    case SDL_SCANCODE_GRAVE: return Key::Grave;
+    case SDL_SCANCODE_COMMA: return Key::Comma;
+    case SDL_SCANCODE_PERIOD: return Key::Period;
+    case SDL_SCANCODE_SLASH: return Key::Slash;
     default: return Key::Unknown;
     }
 }
@@ -76,8 +95,13 @@ MouseButton to_button(Uint8 button) {
 struct Window::Impl {
     SDL_Window* window = nullptr;
     SDL_Gamepad* gamepad = nullptr; ///< The first connected gamepad.
+    std::array<SDL_Cursor*, static_cast<std::size_t>(CursorShape::Count)> cursors{};
+    CursorShape active_cursor = CursorShape::Arrow;
     bool vulkan = true; ///< False when the video driver cannot create Vulkan surfaces.
     ~Impl() {
+        for (SDL_Cursor* c : cursors) {
+            if (c) SDL_DestroyCursor(c);
+        }
         if (gamepad) SDL_CloseGamepad(gamepad);
         if (window) SDL_DestroyWindow(window);
         SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
@@ -199,6 +223,41 @@ void Window::set_text_input(bool enabled) {
 float Window::pixel_density() const {
     const float d = SDL_GetWindowPixelDensity(impl_->window);
     return d > 0.0f ? d : 1.0f;
+}
+
+std::string Window::clipboard_text() const {
+    char* text = SDL_GetClipboardText();
+    if (!text) return {};
+    std::string out(text);
+    SDL_free(text);
+    return out;
+}
+
+void Window::set_clipboard_text(std::string_view utf8) {
+    const std::string copy(utf8);
+    SDL_SetClipboardText(copy.c_str());
+}
+
+void Window::set_cursor(CursorShape shape) {
+    const auto idx = static_cast<std::size_t>(shape);
+    if (idx >= impl_->cursors.size() || impl_->active_cursor == shape) return;
+    if (!impl_->cursors[idx]) {
+        SDL_SystemCursor sys = SDL_SYSTEM_CURSOR_DEFAULT;
+        switch (shape) {
+        case CursorShape::TextInput: sys = SDL_SYSTEM_CURSOR_TEXT; break;
+        case CursorShape::ResizeAll: sys = SDL_SYSTEM_CURSOR_MOVE; break;
+        case CursorShape::ResizeNS: sys = SDL_SYSTEM_CURSOR_NS_RESIZE; break;
+        case CursorShape::ResizeEW: sys = SDL_SYSTEM_CURSOR_EW_RESIZE; break;
+        case CursorShape::ResizeNESW: sys = SDL_SYSTEM_CURSOR_NESW_RESIZE; break;
+        case CursorShape::ResizeNWSE: sys = SDL_SYSTEM_CURSOR_NWSE_RESIZE; break;
+        case CursorShape::Hand: sys = SDL_SYSTEM_CURSOR_POINTER; break;
+        case CursorShape::NotAllowed: sys = SDL_SYSTEM_CURSOR_NOT_ALLOWED; break;
+        default: break;
+        }
+        impl_->cursors[idx] = SDL_CreateSystemCursor(sys);
+    }
+    if (impl_->cursors[idx]) SDL_SetCursor(impl_->cursors[idx]);
+    impl_->active_cursor = shape;
 }
 
 gpu::SurfaceSource Window::surface_source() const {

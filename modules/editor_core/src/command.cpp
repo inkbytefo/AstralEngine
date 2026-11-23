@@ -62,6 +62,17 @@ Json& ensure_object_member(Json& parent, std::string_view key) {
     return parent[key];
 }
 
+bool is_safe_relative_asset_path(std::string_view raw) {
+    if (raw.empty() || raw.front() == '/' || raw.front() == '\\') return false;
+    if (raw.find(':') != std::string_view::npos || raw.find('\0') != std::string_view::npos) return false;
+    const std::filesystem::path p(raw);
+    if (p.is_absolute()) return false;
+    for (const auto& part : p) {
+        if (part == "..") return false;
+    }
+    return true;
+}
+
 std::string apply_set_component_field(EditorDocument& doc, const EditorCommand& cmd) {
     const Json* existing = doc.find_record(cmd.target.record_id);
     if (!existing) return "target entity " + cmd.target.to_string() + " not found";
@@ -230,11 +241,11 @@ std::string validate_command(const EditorDocument& doc, const TypeRegistry& type
         if (cmd.parent.valid() && cmd.parent == cmd.target) return "cannot reparent entity to itself";
         return {};
     case CommandKind::InstantiatePrefab:
-        if (cmd.asset_path.empty()) return "instantiate_prefab requires non-empty asset_path";
+        if (!is_safe_relative_asset_path(cmd.asset_path)) return "instantiate_prefab requires a safe relative asset_path";
         if (cmd.target.valid() && doc.find_record(cmd.target.record_id)) return "record id already exists";
         return {};
     case CommandKind::SavePrefab:
-        if (cmd.asset_path.empty()) return "save_prefab requires non-empty asset_path";
+        if (!is_safe_relative_asset_path(cmd.asset_path)) return "save_prefab requires a safe relative asset_path";
         if (!cmd.value.is_object() || cmd.value["format"].as_string() != "astral.scene") {
             return "save_prefab value must be an astral.scene prefab document";
         }

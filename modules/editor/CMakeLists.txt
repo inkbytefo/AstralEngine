@@ -1,8 +1,17 @@
 astral_add_module(NAME editor
     SOURCES
         src/workspace.cpp
-        src/panels.cpp
         src/world_panel.cpp
+        src/theme/editor_theme.cpp
+        src/viewport/viewport_math.cpp
+        src/services/play_host.cpp
+        src/shell/editor_shell.cpp
+        src/panels/viewport_panel.cpp
+        src/panels/scene_tree_panel.cpp
+        src/panels/inspector_panel.cpp
+        src/panels/content_shelf_panel.cpp
+        src/panels/agent_panel.cpp
+        src/panels/advanced_panels.cpp
     DEPS
         Astral::Core
         Astral::World

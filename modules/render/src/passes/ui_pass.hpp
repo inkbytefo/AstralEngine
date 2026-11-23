@@ -19,6 +19,9 @@ struct UiPass {
     UiPass& operator=(const UiPass&) = delete;
 
     void add(RenderGraph& graph, const FrameInputs& inputs, RGTexture output);
+    void record_standalone(gpu::CommandList& cmd, gpu::TextureHandle output, gpu::Extent2D extent,
+                           gpu::Format target_format, const TextureStore& textures, std::span<const UiLayer> layers,
+                           GrowBuffer& ui_vertices, GrowBuffer& ui_indices, Vec4 clear_color);
 
 private:
     gpu::Device& device_;

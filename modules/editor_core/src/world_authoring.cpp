@@ -124,6 +124,9 @@ bool WorldAuthoringSession::create_map(const std::filesystem::path& world_path, 
     map_ = std::move(clean);
     raw_entities_.clear();
     open_ = true;
+    history_.clear();
+    history_.push_back({map_, raw_entities_, "create_map"});
+    history_cursor_ = 0;
     audit_.record({0, "user", "create_map", "Created .world map", world_path_.string(), 0, 1, 0, true, {}});
     return true;
 }
@@ -154,6 +157,9 @@ bool WorldAuthoringSession::open_map(const std::filesystem::path& world_path, st
     map_ = std::move(*parsed);
     raw_entities_ = std::move(src.entities);
     open_ = true;
+    history_.clear();
+    history_.push_back({map_, raw_entities_, "open_map"});
+    history_cursor_ = 0;
     return true;
 }
 
@@ -167,6 +173,7 @@ bool WorldAuthoringSession::save_map_desc(const MapDesc& updated, std::string* e
     if (!open_) return error ? (*error = "no map open", false) : false;
     if (!fs_.write_atomic(world_path_, serialize_document(write_map(updated)), error)) return false;
     map_ = updated;
+    push_snapshot("save_map");
     audit_.record({0, "user", "save_map", "Updated .world descriptor", world_path_.string(), 0, 0, 1, true, {}});
     return true;
 }
@@ -174,6 +181,47 @@ bool WorldAuthoringSession::save_map_desc(const MapDesc& updated, std::string* e
 bool WorldAuthoringSession::write_entity_file(std::uint64_t id, const Json& doc, std::string* error) {
     const std::filesystem::path file = entities_dir_ / entity_file_name(id);
     return fs_.write_atomic(file, serialize_document(doc), error);
+}
+
+void WorldAuthoringSession::push_snapshot(std::string summary) {
+    if (!history_.empty()) history_.resize(history_cursor_ + 1);
+    history_.push_back({map_, raw_entities_, std::move(summary)});
+    history_cursor_ = history_.size() - 1;
+}
+
+bool WorldAuthoringSession::restore_snapshot(std::size_t index, std::string_view action, std::string* error) {
+    if (!open_ || index >= history_.size()) {
+        if (error) *error = "nothing to " + std::string(action);
+        return false;
+    }
+    const WorldSnapshot& snap = history_[index];
+    if (!fs_.write_atomic(world_path_, serialize_document(write_map(snap.map)), error)) return false;
+    std::unordered_map<std::uint64_t, bool> keep;
+    for (const MapEntity& e : snap.raw_entities) {
+        keep[e.id] = true;
+        if (!write_entity_file(e.id, make_entity_file(e), error)) return false;
+    }
+    for (const MapEntity& cur : raw_entities_) {
+        if (!keep.count(cur.id)) {
+            std::error_code ec;
+            std::filesystem::remove(entities_dir_ / entity_file_name(cur.id), ec);
+        }
+    }
+    map_ = snap.map;
+    raw_entities_ = snap.raw_entities;
+    history_cursor_ = index;
+    audit_.record({0, "user", std::string(action), snap.summary, world_path_.string(), 0, 0, 1, true, {}});
+    return true;
+}
+
+bool WorldAuthoringSession::undo(std::string* error) {
+    return can_undo() ? restore_snapshot(history_cursor_ - 1, "undo", error)
+                      : (error ? (*error = "nothing to undo", false) : false);
+}
+
+bool WorldAuthoringSession::redo(std::string* error) {
+    return can_redo() ? restore_snapshot(history_cursor_ + 1, "redo", error)
+                      : (error ? (*error = "nothing to redo", false) : false);
 }
 
 bool WorldAuthoringSession::upsert_entity(const MapEntity& entity, std::string* error) {
@@ -186,6 +234,7 @@ bool WorldAuthoringSession::upsert_entity(const MapEntity& entity, std::string* 
     if (it != raw_entities_.end()) *it = entity;
     else raw_entities_.push_back(entity);
     std::sort(raw_entities_.begin(), raw_entities_.end(), [](const MapEntity& a, const MapEntity& b) { return a.id < b.id; });
+    push_snapshot("upsert_entity #" + std::to_string(entity.id));
     audit_.record({0, "user", "upsert_entity", "Saved " + entity_file_name(entity.id),
                    (entities_dir_ / entity_file_name(entity.id)).string(), 0, 0, 1, true, {}});
     return true;

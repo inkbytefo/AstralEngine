@@ -4,6 +4,7 @@ astral_add_module(NAME editor_core
         src/command.cpp
         src/transaction.cpp
         src/agent.cpp
+        src/agent_task.cpp
         src/world_authoring.cpp
     DEPS
         Astral::Core

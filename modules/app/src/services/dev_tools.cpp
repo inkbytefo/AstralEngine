@@ -143,10 +143,11 @@ void draw_lights_overlay(World& world, DebugDraw& debug) {
 
 } // namespace
 
-DevTools::DevTools(World& world, Window* window, Renderer* renderer, bool enable_debug_ui, bool builtin_panels)
+DevTools::DevTools(World& world, Window* window, Renderer* renderer, bool enable_debug_ui, bool builtin_panels,
+                   std::string_view ini_path)
     : world_(world), window_(window), builtin_panels_(builtin_panels) {
     if (builtin_panels_) register_builtin_panels(panels_);
-    if (renderer && enable_debug_ui) debug_ui_ = std::make_unique<DebugUi>(*renderer);
+    if (renderer && enable_debug_ui) debug_ui_ = std::make_unique<DebugUi>(*renderer, window, ini_path);
     font_ = Font::create(default_font_ttf());
     if (font_ && renderer) font_->upload(*renderer);
 }

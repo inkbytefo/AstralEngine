@@ -4,6 +4,14 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+### Added (E2 — AI-First Native Editör, Offscreen Viewport & Asenkron AI İnceleme, ADR-0037)
+- `platform`: `Key` enum sonuna eksik düzenleme/noktalama/Super tuşları, `CursorShape` ve `Window::clipboard_text()` / `set_clipboard_text()` / `set_cursor()` eklendi.
+- `render`: Dear ImGui `v1.93.0-docking` güncellemesi; `Renderer::create_render_target()` / `resize_render_target()` / `native_target()` / `render_ui()`, `pack_ui_texture()` / `unpack_ui_texture()`, `ui.frag` içinde sRGB-doku çift gama düzeltmesi (`FLAG_TEXTURE_LINEAR`).
+- `app`: `ViewportService` (`Context::viewport()`), `AppDesc::debug_ui_ini_path`; `DebugUi` içinde `#ifdef IMGUI_HAS_DOCK` docking düzeltmesi, `NavEnableKeyboard`, pano/imleç köprüsü ve mantıksal/fiziksel DPI ölçeklemesi.
+- `editor_core`: `PersistPolicy::ManualSave`, kirli durum (`is_dirty`), sürükleme birleştirme (`coalesce_key`), dış dosya çakışma algılama (`has_external_conflict`), `.astral_autosave` kurtarma, path-traversal koruması, `WorldAuthoringSession::undo()`/`redo()`, asenkron 7 durumlu `AgentTaskManager` (`AgentPolicy`, seçili komut onayı, revizyon) ve `CodexCliProvider`.
+- `editor` & `examples/world_editor`: PIMPL `EditorWorkspace` + modüler `EditorPanel` kayıt defteri (`shell/`, `theme/`, `viewport/`, `services/`, `panels/`), sakin koyu nötr + mat mor `UIStyle` token'ları, **Focus / Advanced** çalışma alanı düzenleri, canlı offscreen **3D Viewport**, CPU ray picking, 3D Translate/Rotate/Scale gizmosu, izole **Play/Pause/Stop** dünyası, bağlamsal reflection Inspector, `Ctrl+K` Komut Paleti, gerçek 3D **Önce/Sonra** AI önizlemesi ve `AstralEditor` hedefi (`--capture`, `--advanced`).
+- Dokümanlar & testler: `docs/decisions/0037-ai-first-native-editor-v2.md`, `docs/editor/README.md`, `docs/modules/editor.md`, genişletilmiş `editor_core_test`, `world_authoring_test`, `devtools_app_test` (GPU viewport testi) ve `world_editor_test` (E2 kabul testi).
+
 ### Added (E1 — Dünya kompozisyonu ve Level Instance, ADR-0036)
 - `world`: `level_instance.hpp` / `level_instance.cpp` — `LevelInstanceMember`, `CrossCellRef`, `LevelInstancePlacement`, `LevelInstanceLimits`, deterministik `level_instance_entity_id()`, `make_level_instance_entity_file()` / `parse_level_instance_entity()`, `expand_level_instance()` / `expand_map_level_instances()`, `set_level_instance_override()`, `register_level_instance_types()`; yerleşim yapay entity parenting'i olmadan asset referans transform'u ile açılır, döngü/derinlik/entity sınırları teşhis edilir.
 - `assets` & `app`: `cook_one_world()` (`astral-cook`) ve `MapRuntime::open()` kaynak `.world` açılışında Level Instance'ları tutarlı biçimde genişleterek hücrelere böler.

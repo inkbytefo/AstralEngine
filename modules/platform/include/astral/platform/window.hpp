@@ -4,11 +4,25 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <string_view>
 
 namespace astral {
 
 class Input;
+
+enum class CursorShape : std::uint8_t {
+    Arrow,
+    TextInput,
+    ResizeAll,
+    ResizeNS,
+    ResizeEW,
+    ResizeNESW,
+    ResizeNWSE,
+    Hand,
+    NotAllowed,
+    Count,
+};
 
 struct WindowDesc {
     std::string_view title = "Astral";
@@ -44,6 +58,12 @@ public:
     /// Drawable pixels per window coordinate (2 on many high-DPI screens). Mouse positions are in
     /// window coordinates: multiply by this to get pixels.
     [[nodiscard]] float pixel_density() const;
+
+    /// System clipboard UTF-8 text (empty if unavailable).
+    [[nodiscard]] std::string clipboard_text() const;
+    void set_clipboard_text(std::string_view utf8);
+    /// Sets the OS mouse cursor shape for this window.
+    void set_cursor(CursorShape shape);
 
     /// False under drivers without Vulkan support (e.g. SDL's headless "dummy" driver).
     [[nodiscard]] bool supports_vulkan() const noexcept;

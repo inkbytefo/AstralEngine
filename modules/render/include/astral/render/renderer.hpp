@@ -284,6 +284,13 @@ public:
 
     /// Uploads an image with a full mip chain (blocking). Invalid handle on bad data.
     TextureHandle create_texture(const ImageData& image);
+    /// Creates an offscreen color render target that can be rendered into with render() and sampled in UiLayer.
+    TextureHandle create_render_target(std::uint32_t width, std::uint32_t height);
+    /// Resizes an offscreen render target (old GPU image is deferred-destroyed safely after in-flight frames).
+    bool resize_render_target(TextureHandle target, std::uint32_t width, std::uint32_t height);
+    /// Returns the underlying gpu::TextureHandle of a render target (for render() / layout transitions).
+    [[nodiscard]] gpu::TextureHandle native_target(TextureHandle target) const noexcept;
+    [[nodiscard]] gpu::Format target_format() const noexcept;
     /// Pipelines for a compiled surface shader; invalid if the build failed. Destroy after the materials
     /// that use it (until then they draw with it).
     ShaderHandle create_shader(const SurfaceShaderBuild& build, std::string_view debug_name = {});
@@ -316,6 +323,10 @@ public:
     /// Per-frame data is ring-buffered and synchronised with the GPU automatically.
     void render(gpu::CommandList& cmd, gpu::TextureHandle target, const CameraData& camera,
                 const RenderScene& scene);
+    /// Clears `target` and records only 2D `ui` layers into `cmd`; `target` ends in ColorTarget state.
+    /// Ideal when the 3D scene was rendered into an offscreen render target sampled inside the UI.
+    void render_ui(gpu::CommandList& cmd, gpu::TextureHandle target, std::span<const UiLayer> ui,
+                   Vec4 clear_color = {0.06f, 0.06f, 0.07f, 1.0f});
 
     [[nodiscard]] const RenderStats& stats() const noexcept;
     /// GPU time per render pass of a recent frame, and their total (see RenderGraph::gpu_timings).

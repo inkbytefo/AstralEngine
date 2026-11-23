@@ -11,9 +11,13 @@ layout(location = 0) out vec4 out_color;
 
 const uint FLAG_TEXTURE = 1u;
 const uint FLAG_LINEAR_TARGET = 2u; // sRGB target: hardware encodes, so hand it linear values
+const uint FLAG_TEXTURE_LINEAR = 4u; // sampled texture is sRGB (hardware already linearized on read)
 
 void main() {
     vec4 c = in_color;
+    bool linear_target = (pc.flags & FLAG_LINEAR_TARGET) != 0u;
+    bool linear_tex = (pc.flags & FLAG_TEXTURE_LINEAR) != 0u;
+    if (linear_target && linear_tex) c.rgb = astral_srgb_to_linear(c.rgb);
     if ((pc.flags & FLAG_TEXTURE) != 0u) {
         vec4 t = textureLod(sampler2D(astral_textures[nonuniformEXT(pc.texture)], astral_samplers[ASTRAL_SAMPLER_LINEAR_CLAMP]), in_uv, 0.0);
         if (pc.sdf_softness > 0.0) {
@@ -24,6 +28,6 @@ void main() {
             c *= t;
         }
     }
-    if ((pc.flags & FLAG_LINEAR_TARGET) != 0u) c.rgb = astral_srgb_to_linear(c.rgb);
+    if (linear_target && !linear_tex) c.rgb = astral_srgb_to_linear(c.rgb);
     out_color = c;
 }

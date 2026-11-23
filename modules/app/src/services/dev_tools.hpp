@@ -29,7 +29,8 @@ struct InputCapture {
 
 class DevTools {
 public:
-    DevTools(World& world, Window* window, Renderer* renderer, bool enable_debug_ui, bool builtin_panels = true);
+    DevTools(World& world, Window* window, Renderer* renderer, bool enable_debug_ui, bool builtin_panels = true,
+             std::string_view ini_path = {});
     ~DevTools();
     DevTools(const DevTools&) = delete;
     DevTools& operator=(const DevTools&) = delete;

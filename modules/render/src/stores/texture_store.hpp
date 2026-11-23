@@ -19,10 +19,14 @@ public:
 
     TextureHandle create(const ImageData& image);
     bool update(TextureHandle handle, const ImageData& image);
+    TextureHandle create_render_target(std::uint32_t width, std::uint32_t height, gpu::Format format);
+    bool resize_render_target(TextureHandle handle, std::uint32_t width, std::uint32_t height, gpu::Format format);
     void destroy(TextureHandle handle);
 
     [[nodiscard]] bool supports(ImageFormat format) const noexcept;
     [[nodiscard]] const GpuTexture* get(TextureHandle handle) const noexcept { return textures_.get(handle); }
+    [[nodiscard]] gpu::TextureHandle native_handle(TextureHandle handle) const noexcept;
+    [[nodiscard]] bool is_linear_sampled(TextureHandle handle) const noexcept;
     [[nodiscard]] std::uint32_t bindless_or(TextureHandle handle, std::uint32_t fallback) const;
     [[nodiscard]] std::uint32_t stand_in_bindless(bool normal) const;
     [[nodiscard]] TextureHandle white() const noexcept { return white_; }

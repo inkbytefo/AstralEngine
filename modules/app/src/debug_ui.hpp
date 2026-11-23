@@ -6,15 +6,19 @@
 #include <astral/app/app.hpp>
 
 #include <cstdint>
+#include <string>
+#include <string_view>
 #include <vector>
 
 struct ImGuiContext;
 
 namespace astral {
 
+class Window;
+
 class DebugUi {
 public:
-    explicit DebugUi(Renderer& renderer);
+    explicit DebugUi(Renderer& renderer, Window* window = nullptr, std::string_view ini_path = {});
     ~DebugUi();
     DebugUi(const DebugUi&) = delete;
     DebugUi& operator=(const DebugUi&) = delete;
@@ -35,9 +39,13 @@ public:
 
 private:
     void update_textures();
+    void update_cursor();
 
     Renderer& renderer_;
+    Window* window_ = nullptr;
     ImGuiContext* context_ = nullptr;
+    std::string ini_path_;
+    std::string clipboard_cache_;
     std::vector<UiVertex> vertices_;
     std::vector<std::uint32_t> indices_;
     std::vector<UiCommand> commands_;

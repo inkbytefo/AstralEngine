@@ -17,6 +17,9 @@ enum class Key : std::uint8_t {
     Left, Right, Up, Down,
     LeftShift, RightShift, LeftCtrl, RightCtrl, LeftAlt, RightAlt,
     F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
+    Delete, Insert, Home, End, PageUp, PageDown,
+    LeftSuper, RightSuper,
+    Minus, Equal, LeftBracket, RightBracket, Backslash, Semicolon, Apostrophe, Grave, Comma, Period, Slash,
     Count
 };
 

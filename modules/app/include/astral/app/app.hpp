@@ -8,6 +8,7 @@
 #include <astral/app/physics_service.hpp>
 #include <astral/app/scene_service.hpp>
 #include <astral/app/script_service.hpp>
+#include <astral/app/viewport_service.hpp>
 #include <astral/core/jobs.hpp>
 #include <astral/core/log.hpp>
 #include <astral/core/profiler.hpp>
@@ -212,6 +213,8 @@ public:
     [[nodiscard]] const ScriptService& script_service() const noexcept;
     [[nodiscard]] PhysicsService& physics_service() noexcept;
     [[nodiscard]] const PhysicsService& physics_service() const noexcept;
+    [[nodiscard]] ViewportService& viewport() noexcept;
+    [[nodiscard]] const ViewportService& viewport() const noexcept;
 
     /// Ends the run loop after the current frame.
     void quit() noexcept { quit_requested_ = true; }
@@ -255,6 +258,8 @@ struct AppDesc {
     bool debug_ui = true;
     /// Draw built-in F1 debug panels and menu bar (false for standalone editors that own the whole ImGui dockspace).
     bool debug_ui_builtin_panels = true;
+    /// Optional ImGui layout persistence file (.ini). Empty = no file written (default for games).
+    std::string_view debug_ui_ini_path = {};
     /// Play sound on the default device (headless and offscreen always mix silently).
     bool audio = true;
     /// Open maps: the origin moves to the first streaming source when it is farther than this (metres).

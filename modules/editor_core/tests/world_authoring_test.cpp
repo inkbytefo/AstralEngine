@@ -118,6 +118,19 @@ TEST_CASE("WorldAuthoringSession creates and edits .world, .ent, data layers, an
     std::vector<std::string> cell_errs;
     const std::vector<CellOwnershipInfo> cells = reopened.inspect_cells(&cell_errs);
     CHECK(cell_errs.empty());
+
+    // Verify WorldAuthoringSession undo/redo removes and restores placed .ent files atomically.
+    const std::size_t before_count = wa.raw_entities().size();
+    const auto extra_id = wa.place_with_tool(tools[1], 50.0, 60.0, slope, &err);
+    REQUIRE(extra_id.has_value());
+    CHECK(wa.raw_entities().size() == before_count + 1);
+    CHECK(wa.can_undo());
+    REQUIRE(wa.undo(&err));
+    CHECK(wa.raw_entities().size() == before_count);
+    CHECK_FALSE(std::filesystem::exists(wa.entities_dir() / entity_file_name(*extra_id)));
+    REQUIRE(wa.redo(&err));
+    CHECK(wa.raw_entities().size() == before_count + 1);
+    CHECK(std::filesystem::exists(wa.entities_dir() / entity_file_name(*extra_id)));
     CHECK(cells.size() >= 2); // (0,0) and (1,0) at x=300 with cell_size=256
 }
 

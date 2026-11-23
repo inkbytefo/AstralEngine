@@ -216,7 +216,7 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc.worker_threads
     m.context->prefabs = m.prefabs.get();
 
     m.dev_tools = std::make_unique<DevTools>(m.world, m.graphics.window.get(), m.graphics.renderer.get(), desc.debug_ui,
-                                             desc.debug_ui_builtin_panels);
+                                             desc.debug_ui_builtin_panels, desc.debug_ui_ini_path);
     m.context->profiler = &m.dev_tools->profiler();
     m.context->font = m.dev_tools->font();
 
@@ -429,5 +429,8 @@ const ScriptService& Context::script_service() const noexcept { return app_.impl
 
 PhysicsService& Context::physics_service() noexcept { return *app_.impl_->physics_bridge; }
 const PhysicsService& Context::physics_service() const noexcept { return *app_.impl_->physics_bridge; }
+
+ViewportService& Context::viewport() noexcept { return *app_.impl_->render_bridge; }
+const ViewportService& Context::viewport() const noexcept { return *app_.impl_->render_bridge; }
 
 } // namespace astral

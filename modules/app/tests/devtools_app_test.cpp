@@ -135,3 +135,53 @@ TEST_CASE("ctx.hud lays out text every frame (headless too) and starts empty eac
     CHECK(game.size.x > 200.0f);
     CHECK(game.screen.x == 400.0f);
 }
+
+TEST_CASE("ViewportService renders 3D scene into offscreen texture sampled by ImGui and handles resize") {
+    App app({.width = 320, .height = 200, .fixed_timestep = 1.0f / 60.0f, .offscreen = true,
+             .debug_ui = true, .debug_ui_builtin_panels = false});
+    if (!app.context().renderer) return; // no GPU
+    struct G final : Game {
+        int frame = 0;
+        TextureHandle last_tex{};
+        gpu::Extent2D last_size{};
+        void on_start(Context& ctx) override {
+            ctx.show_debug_ui = true;
+            ctx.world.create(Transform{.position = {0, 0, 5}}, Camera{.active = true});
+            ctx.world.create(Transform{}, PrimitiveMesh{.shape = Primitive::Cube,
+                                                        .material = {.base_color = {0.9f, 0.2f, 0.2f, 1.0f}}});
+        }
+        void on_debug_ui(Context& ctx) override {
+            const std::uint32_t w = frame < 2 ? 160u : 220u;
+            const std::uint32_t h = frame < 2 ? 120u : 140u;
+            ctx.viewport().set_size(w, h);
+            last_tex = ctx.viewport().texture();
+            last_size = ctx.viewport().size();
+            ImGui::SetNextWindowPos(ImVec2(10, 10));
+            ImGui::SetNextWindowSize(ImVec2(static_cast<float>(w) + 16, static_cast<float>(h) + 36));
+            if (ImGui::Begin("Viewport")) {
+                if (last_tex.valid()) {
+                    ImGui::Image(static_cast<ImTextureID>(pack_ui_texture(last_tex)),
+                                 ImVec2(static_cast<float>(w), static_cast<float>(h)));
+                }
+            }
+            ImGui::End();
+            ++frame;
+        }
+    } game;
+    app.run_frames(game, 4);
+    CHECK(game.last_tex.valid());
+    CHECK(game.last_size.width == 220u);
+    CHECK(game.last_size.height == 140u);
+    std::vector<std::uint8_t> rgba;
+    REQUIRE(app.read_frame(rgba));
+    CHECK(rgba.size() == 320u * 200u * 4u);
+    // Verify non-black rendered pixels inside the viewport region (red cube / blue sky).
+    std::size_t lit = 0;
+    for (std::uint32_t y = 40; y < 140; ++y) {
+        for (std::uint32_t x = 20; x < 200; ++x) {
+            const std::size_t i = (std::size_t{y} * 320u + x) * 4u;
+            if (rgba[i] > 35 || rgba[i + 2] > 35) ++lit;
+        }
+    }
+    CHECK(lit > 500);
+}
