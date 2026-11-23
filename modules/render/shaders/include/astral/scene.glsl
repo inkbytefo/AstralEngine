@@ -3,7 +3,7 @@
 #define ASTRAL_SCENE_GLSL
 #include <astral/bindless.glsl>
 
-struct Vertex { vec3 position; vec3 normal; vec2 uv; };
+struct Vertex { vec3 position; vec3 normal; vec2 uv; vec2 uv1; };
 struct Instance {
     mat4 model;
     mat4 prev_model;   // last frame's transform (motion vectors)
@@ -24,6 +24,9 @@ struct Material {
     vec4 attenuation;        // rgb attenuation_color, a subsurface_radius
     uvec4 detail_textures;   // bindless: x detail_albedo, y detail_normal, z height_map, w unused
     vec4 detail_params;      // x uv_scale, y normal_scale, z parallax_scale, w unused
+    vec4 uv_transform;
+    vec4 projection;
+    vec4 projection_phase;
 };
 struct Decal {
     mat4 inv_transform;      // world -> decal local [-0.5, 0.5]^3

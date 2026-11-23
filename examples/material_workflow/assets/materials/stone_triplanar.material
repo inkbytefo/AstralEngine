@@ -1,0 +1,13 @@
+{
+  "format": "astral.material",
+  "version": 1,
+  "parent": "materials/stone.material",
+  "values": {
+    "mapping": {
+      "projection": "Triplanar",
+      "tile_size_m": 2,
+      "blend_sharpness": 4,
+      "world_space": true
+    }
+  }
+}

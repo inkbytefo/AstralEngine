@@ -88,16 +88,16 @@ std::string compose_rt_surfaces(std::span<const RtSurface> surfaces) {
         replace_all(chunk, "@ID@", std::to_string(surface.slot));
         s += chunk;
     }
-    s += "void astral_custom_surface(uint shader, uint base, vec2 uv, vec3 view_dir, inout Surface s) {\n    switch (shader) {\n";
+    s += "void astral_custom_surface(uint shader, uint base, vec2 uv, vec2 uv1, vec3 view_dir, inout Surface s) {\n    switch (shader) {\n";
     for (const RtSurface& surface : surfaces) {
         if (surface.chunk.empty()) continue;
-        s += "    case " + std::to_string(surface.slot) + "u: astral_run_" + std::to_string(surface.slot) + "(base, uv, view_dir, s); break;\n";
+        s += "    case " + std::to_string(surface.slot) + "u: astral_run_" + std::to_string(surface.slot) + "(base, uv, uv1, view_dir, s); break;\n";
     }
     s += "    default: break;\n    }\n}\n";
-    s += "bool astral_custom_alpha_test(uint shader, uint base, vec2 uv, vec3 p, vec3 n, vec3 view_dir, bool backface) {\n    switch (shader) {\n";
+    s += "bool astral_custom_alpha_test(uint shader, uint base, vec2 uv, vec2 uv1, vec3 p, vec3 n, vec3 view_dir, bool backface) {\n    switch (shader) {\n";
     for (const RtSurface& surface : surfaces) {
         if (surface.chunk.empty() || !surface.alpha_test) continue;
-        s += "    case " + std::to_string(surface.slot) + "u: return astral_alpha_" + std::to_string(surface.slot) + "(base, uv, p, n, view_dir, backface);\n";
+        s += "    case " + std::to_string(surface.slot) + "u: return astral_alpha_" + std::to_string(surface.slot) + "(base, uv, uv1, p, n, view_dir, backface);\n";
     }
     s += "    default: return true;\n    }\n}\n";
     return s;
@@ -107,6 +107,7 @@ RtVariants compile_rt_variants(std::span<const RtSurface> surfaces) {
     RtVariants out;
     std::vector<GlslInclude> includes = detail::engine_includes();
     includes.push_back({"astral/rt.glsl", detail::embedded_text(embedded::astral_rt_glsl, embedded::astral_rt_glsl_size)});
+    includes.push_back({"astral/projection.glsl", detail::embedded_text(embedded::astral_projection_glsl, embedded::astral_projection_glsl_size)});
     includes.push_back({"astral/restir.glsl", detail::embedded_text(embedded::astral_restir_glsl, embedded::astral_restir_glsl_size)});
     includes.push_back({"astral/primary.glsl", detail::embedded_text(embedded::astral_primary_glsl, embedded::astral_primary_glsl_size)});
     includes.push_back({"astral/sdf.glsl", detail::embedded_text(embedded::astral_sdf_glsl, embedded::astral_sdf_glsl_size)});

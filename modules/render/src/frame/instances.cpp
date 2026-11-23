@@ -28,7 +28,7 @@ GpuInstance pack_instance(gpu::Device& device, const MeshInstance& d, const GpuM
 void prepare_instances(gpu::Device& device, const RenderScene& scene, const Vec3& camera_position,
                        const MeshStore& meshes, MaterialStore& materials, FrameSlot& slot, FrameInstances& out,
                        bool with_tlas) {
-    materials.upload(slot.materials, slot.params);
+    materials.upload(slot.materials, slot.params, scene.world_origin);
 
     out.order.clear();
     out.blended.clear();

@@ -30,6 +30,14 @@ struct ModelSampler {
     bool operator==(const ModelSampler&) const = default;
 };
 
+struct ModelTextureTransform {
+    Vec2 scale{1, 1};
+    Vec2 offset{};
+    float rotation = 0.0f;
+    std::uint8_t uv_set = 0;
+    bool operator==(const ModelTextureTransform&) const = default;
+};
+
 struct ModelMaterial {
     std::string name;
     Vec4 base_color{1, 1, 1, 1};
@@ -46,6 +54,7 @@ struct ModelMaterial {
     float alpha_cutoff = 0.5f;
     float occlusion_strength = 1.0f;
     bool double_sided = false;
+    std::array<ModelTextureTransform, 5> texture_transforms{};
     std::array<ModelSampler, 5> samplers{}; // Color, metallic-roughness, normal, emissive, occlusion.
 };
 

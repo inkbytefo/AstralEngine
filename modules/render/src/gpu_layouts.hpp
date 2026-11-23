@@ -70,8 +70,11 @@ struct GpuMaterial {
     Vec4 attenuation{};                     // rgb attenuation_color, a subsurface_radius
     std::uint32_t detail_textures[4] = {no_texture, no_texture, no_texture, no_texture}; // albedo, normal, height, unused
     Vec4 detail_params{4.0f, 0.5f, 0.0f, 0.0f}; // x uv_scale, y normal_scale, z parallax_scale, w unused
+    Vec4 uv_transform{1, 1, 0, 0};
+    Vec4 projection{0, 1, 4, 1}; // mode, inverse tile size, sharpness, world space
+    Vec4 projection_phase{}; // wrapped origin phase and UV rotation in w
 };
-static_assert(sizeof(GpuMaterial) == 192);
+static_assert(sizeof(GpuMaterial) == 240);
 static_assert(offsetof(GpuMaterial, emissive_roughness) == 16);
 static_assert(offsetof(GpuMaterial, params) == 32);
 static_assert(offsetof(GpuMaterial, textures) == 48);

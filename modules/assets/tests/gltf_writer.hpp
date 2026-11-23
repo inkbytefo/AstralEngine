@@ -64,6 +64,7 @@ struct GltfOptions {
     float alpha = 1.0f;
     bool gltf_sampler = false;
     bool double_sided = false;
+    bool uv_transform = false;
 };
 
 /// Geometry buffer: positions, (normals), uvs, uint16 indices of one quad in the XY plane.
@@ -84,6 +85,10 @@ inline std::vector<std::uint8_t> quad_buffer(const GltfOptions& o, std::size_t& 
     pos_off = put(pos, sizeof(pos));
     nrm_off = o.normals ? put(nrm, sizeof(nrm)) : 0;
     uv_off = put(uv, sizeof(uv));
+    if (o.uv_transform) {
+        const float uv1[] = {1, 1, 0, 1, 0, 0, 1, 0};
+        put(uv1, sizeof(uv1));
+    }
     idx_off = put(idx, sizeof(idx));
     return buf;
 }
@@ -106,7 +111,7 @@ inline Json quad_json(const GltfOptions& o, std::size_t buf_len, std::size_t pos
         v["byteLength"] = static_cast<std::uint64_t>(len);
         return v;
     };
-    Json views = Json::array({view(pos_off, 48), view(uv_off, 32), view(idx_off, 12)});
+    Json views = Json::array({view(pos_off, 48), view(uv_off, o.uv_transform ? 64 : 32), view(idx_off, 12)});
     if (o.normals) views.push_back(view(nrm_off, 48));
     for (const Json& v : extra_views) views.push_back(v);
     doc["bufferViews"] = views;
@@ -124,6 +129,13 @@ inline Json quad_json(const GltfOptions& o, std::size_t buf_len, std::size_t pos
     Json attributes = Json::object();
     attributes["POSITION"] = 0;
     attributes["TEXCOORD_0"] = 1;
+    if (o.uv_transform) {
+        attributes["TEXCOORD_1"] = static_cast<std::uint64_t>(accessors.size());
+        Json second = accessor(1, 5126, 4, "VEC2");
+        second["byteOffset"] = 32;
+        accessors.push_back(second);
+        doc["accessors"] = accessors;
+    }
     if (o.normals) attributes["NORMAL"] = 3;
     Json prim = Json::object();
     prim["attributes"] = attributes;
@@ -138,6 +150,16 @@ inline Json quad_json(const GltfOptions& o, std::size_t buf_len, std::size_t pos
     mat["pbrMetallicRoughness"]["metallicFactor"] = 0.25;
     mat["pbrMetallicRoughness"]["roughnessFactor"] = 0.5;
     mat["normalTexture"]["index"] = 1;
+    if (o.uv_transform) {
+        Json& info = mat["pbrMetallicRoughness"]["baseColorTexture"];
+        info["texCoord"] = 0;
+        Json& transform = info["extensions"]["KHR_texture_transform"];
+        transform["texCoord"] = 1;
+        transform["scale"] = Json::array({2, 3});
+        transform["offset"] = Json::array({0.25, 0.5});
+        transform["rotation"] = 0.75;
+        doc["extensionsRequired"] = Json::array({"KHR_texture_transform"});
+    }
     mat["normalTexture"]["scale"] = 0.8;
     mat["emissiveFactor"] = Json::array({1, 0.5, 0});
     mat["extensions"]["KHR_materials_emissive_strength"]["emissiveStrength"] = 4;

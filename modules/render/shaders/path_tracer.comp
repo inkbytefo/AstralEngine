@@ -207,7 +207,7 @@ void main() {
         }
 
         Surface s = h.sdf ? sdf_surface(li.shapes, li.sdf_count, ray_o, ray_d, h.t)
-                          : triangle_surface(scene_instances, scene_materials, h.instance, h.prim, h.bary, ray_o, ray_d, h.t);
+                          : triangle_surface(scene_instances, scene_materials, h.instance, h.prim, h.bary, ray_o, ray_d, h.t, 2.0 * f.screen.w);
         if (bounce == 0u) apply_pt_decals(f, scene_decals, s);
 
         if (s.unshaded) {

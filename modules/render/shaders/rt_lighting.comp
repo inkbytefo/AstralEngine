@@ -56,7 +56,7 @@ vec3 trace_env_or_surface(Frame f, LightingInputs li, Instances insts, Materials
     if (h.hit) {
         out_t = min(h.t, 60000.0);
         Surface hs = h.sdf ? sdf_surface(li.shapes, li.sdf_count, origin, dir, h.t)
-                           : triangle_surface(insts, mats, h.instance, h.prim, h.bary, origin, dir, h.t);
+                           : triangle_surface(insts, mats, h.instance, h.prim, h.bary, origin, dir, h.t, 2.0 * f.screen.w);
         return hs.backface ? vec3(0) : shade_secondary(f, li, hs, -dir, pc.irr, pc.dist, true, seed);
     }
     out_t = -1.0;
@@ -122,7 +122,7 @@ void main() {
         if (nh.hit) {
             near_hit = true;
             Surface hs = nh.sdf ? sdf_surface(li.shapes, sdf_count, origin, dir, nh.t)
-                                : triangle_surface(scene_instances, scene_materials, nh.instance, nh.prim, nh.bary, origin, dir, nh.t);
+                                : triangle_surface(scene_instances, scene_materials, nh.instance, nh.prim, nh.bary, origin, dir, nh.t, 2.0 * f.screen.w);
             indirect = hs.backface ? vec3(0) : shade_secondary(f, li, hs, -dir, pc.irr, pc.dist, true, seed);
         }
     }
@@ -179,7 +179,7 @@ void main() {
             TraceHit th = trace(li.tlas, li.shapes, sdf_count, in_origin, t_dir, f.rt_params.w);
             if (th.hit) {
                 Surface hs = th.sdf ? sdf_surface(li.shapes, sdf_count, in_origin, t_dir, th.t)
-                                    : triangle_surface(scene_instances, scene_materials, th.instance, th.prim, th.bary, in_origin, t_dir, th.t);
+                                    : triangle_surface(scene_instances, scene_materials, th.instance, th.prim, th.bary, in_origin, t_dir, th.t, 2.0 * f.screen.w);
                 if (hs.backface) {
                     // Exit interface of solid glass: apply Beer-Lambert volume absorption and trace exit ray.
                     vec3 absorb = beer_lambert(s.attenuation_color, s.mat_ext.w, th.t);

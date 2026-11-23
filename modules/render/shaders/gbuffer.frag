@@ -13,9 +13,13 @@ layout(location = 2) out vec4 out_emissive;     // rgb emissive, a encoded shadi
 layout(location = 3) out vec2 out_velocity;     // screen uv now - uv last frame
 layout(location = 4) out vec4 out_material_ext; // per-model M13 PBR parameters
 
-vec4 tex(uint index, vec2 uv) {
+vec4 gbuffer_tex(uint index, vec2 uv) {
     return texture(sampler2D(astral_textures[nonuniformEXT(index)], astral_samplers[ASTRAL_SAMPLER_LINEAR_REPEAT]), uv);
 }
+
+#define ASTRAL_PROJECT_SAMPLE(index, uv, lod) gbuffer_tex(index, uv)
+#include <astral/projection.glsl>
+#undef ASTRAL_PROJECT_SAMPLE
 
 mat3 cotangent_frame(vec3 n, vec3 p, vec2 uv) {
     vec3 dp1 = dFdx(p), dp2 = dFdy(p);
@@ -49,27 +53,32 @@ void main() {
     float roughness = m.emissive_roughness.a;
     float metallic = m.params.x;
     vec3 emissive = m.emissive_roughness.rgb;
-    if (m.textures.x != NO_TEXTURE) albedo *= tex(m.textures.x, uv).rgb;
-    if (m.detail_textures.x != NO_TEXTURE) albedo *= tex(m.detail_textures.x, uv * m.detail_params.x).rgb;
+    TextureCoords coords = material_coords(m, pc.instances.data[in_instance].model, in_world, n, uv);
+    if (m.textures.x != NO_TEXTURE) albedo *= material_sample(m.textures.x, m, coords, 0.0).rgb;
+    if (m.detail_textures.x != NO_TEXTURE) albedo *= gbuffer_tex(m.detail_textures.x, uv * m.detail_params.x).rgb;
     if (m.textures.y != NO_TEXTURE) {
-        vec4 mr = tex(m.textures.y, uv);
+        vec4 mr = material_sample(m.textures.y, m, coords, 0.0);
         roughness *= mr.g;
         metallic *= mr.b;
     }
     if (m.textures.z != NO_TEXTURE || m.detail_textures.y != NO_TEXTURE) {
         vec3 n_ts = vec3(0.0, 0.0, 1.0);
-        if (m.textures.z != NO_TEXTURE) {
-            vec2 xy = tex(m.textures.z, uv).xy * 2.0 - 1.0;
+        if (m.textures.z != NO_TEXTURE && m.projection.x < 0.5) {
+            vec2 xy = material_sample(m.textures.z, m, coords, 0.0).xy * 2.0 - 1.0;
             n_ts = normalize(vec3(xy * m.params.y, sqrt(max(0.0, 1.0 - dot(xy, xy)))));
         }
         if (m.detail_textures.y != NO_TEXTURE) {
-            vec2 dxy = tex(m.detail_textures.y, uv * m.detail_params.x).xy * 2.0 - 1.0;
+            vec2 dxy = gbuffer_tex(m.detail_textures.y, uv * m.detail_params.x).xy * 2.0 - 1.0;
             vec3 d_ts = normalize(vec3(dxy, sqrt(max(0.0, 1.0 - dot(dxy, dxy)))));
             n_ts = astral_detail_normal(n_ts, d_ts, m.detail_params.y);
         }
+        if (m.projection.x < 0.5 && m.textures.z != NO_TEXTURE && (m.uv_transform != vec4(1, 1, 0, 0) || m.projection_phase.w != 0.0)) {
+            tbn = cotangent_frame(n, in_world, coords.uv);
+        }
         n = normalize(tbn * n_ts);
+        if (m.textures.z != NO_TEXTURE && m.projection.x > 0.5) n = projected_normal(m.textures.z, m, coords, n, 0.0);
     }
-    if (m.textures.w != NO_TEXTURE) emissive *= tex(m.textures.w, uv).rgb;
+    if (m.textures.w != NO_TEXTURE) emissive *= material_sample(m.textures.w, m, coords, 0.0).rgb;
 
     float coat = m.coat_aniso.x;
     float coat_r = m.coat_aniso.y;

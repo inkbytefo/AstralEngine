@@ -26,7 +26,7 @@ void main() {
         result = vec4(sky_radiance(f, dir), 1e4);
     } else {
         Surface s = h.sdf ? sdf_surface(pc.shapes, sdf_count, origin, dir, h.t)
-                          : triangle_surface(pc.instances, pc.materials, h.instance, h.prim, h.bary, origin, dir, h.t);
+                          : triangle_surface(pc.instances, pc.materials, h.instance, h.prim, h.bary, origin, dir, h.t, 2.0 * f.screen.w);
         if (s.backface) {
             // Negative distance flags a backface hit so ddgi_update can detect embedded probes
             // and pull Chebyshev visibility inward without injecting bogus radiance.

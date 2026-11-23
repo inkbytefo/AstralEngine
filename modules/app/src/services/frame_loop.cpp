@@ -150,6 +150,7 @@ void FrameLoop::render_frame(Game& game, float delta) {
     const auto world_cells = context_.debug_show.world_cells ? world_bridge_.debug_cells() : std::nullopt;
     dev_tools_.draw_overlays(context_.debug_show, context_.debug, world_cells ? &*world_cells : nullptr);
     dev_tools_.build_ui(game, context_, raw_input_, delta, render_bridge_.extent(), render_bridge_.material_library());
+    const WorldPosition origin = world_bridge_.origin();
     render_bridge_.render_frame({
         .sun = context_.sun,
         .environment = context_.environment,
@@ -158,6 +159,7 @@ void FrameLoop::render_frame(Game& game, float delta) {
         .time = static_cast<float>(time_.elapsed),
         .sky = context_.sky,
         .post = context_.post,
+        .world_origin = {origin.x, origin.y, origin.z},
     });
 }
 

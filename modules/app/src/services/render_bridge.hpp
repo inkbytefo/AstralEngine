@@ -45,6 +45,7 @@ struct RenderFrameInput {
     float time = 0.0f;
     MaterialHandle sky{};
     std::span<const MaterialHandle> post;
+    std::array<double, 3> world_origin{};
 };
 
 class RenderBridge final : public MaterialService, public ViewportService {

@@ -7,6 +7,16 @@
 #include <astral/sdf.glsl>
 #include <astral/bsdf.glsl>
 #include <astral/color.glsl>
+vec4 rt_project_sample(uint index, vec2 uv, float footprint) {
+    ivec2 size = textureSize(sampler2D(astral_textures[nonuniformEXT(index)],
+                                      astral_samplers[ASTRAL_SAMPLER_LINEAR_REPEAT]), 0);
+    float mip = log2(max(footprint * float(max(size.x, size.y)), 1.0));
+    return textureLod(sampler2D(astral_textures[nonuniformEXT(index)],
+                                astral_samplers[ASTRAL_SAMPLER_LINEAR_REPEAT]), uv, mip);
+}
+#define ASTRAL_PROJECT_SAMPLE(index, uv, lod) rt_project_sample(index, uv, lod)
+#include <astral/projection.glsl>
+#undef ASTRAL_PROJECT_SAMPLE
 
 struct RectLight {
     vec4 position_two_sided; // xyz center, w 1 = emits on both sides
@@ -167,12 +177,12 @@ void astral_rt_begin(Frame f, Instances instances, Materials materials) {
     astral_rt_instances = instances;
     astral_rt_materials = materials;
 }
-void astral_custom_surface(uint shader, uint base, vec2 uv, vec3 view_dir, inout Surface s);
-bool astral_custom_alpha_test(uint shader, uint base, vec2 uv, vec3 p, vec3 n, vec3 view_dir, bool backface);
+void astral_custom_surface(uint shader, uint base, vec2 uv, vec2 uv1, vec3 view_dir, inout Surface s);
+bool astral_custom_alpha_test(uint shader, uint base, vec2 uv, vec2 uv1, vec3 p, vec3 n, vec3 view_dir, bool backface);
 
 // Triangle hit -> interpolated surface. `dir` is the ray direction.
 Surface triangle_surface(Instances instances, Materials materials, uint instance, uint prim, vec2 bary,
-                         vec3 origin, vec3 dir, float t) {
+                         vec3 origin, vec3 dir, float t, float angular_spread) {
     Instance inst = instances.data[instance];
     Material mat = materials.data[inst.material];
     Indices idx = Indices(address_of(inst.indices));
@@ -201,16 +211,26 @@ Surface triangle_surface(Instances instances, Materials materials, uint instance
     float roughness = mat.emissive_roughness.a;
     s.metallic = mat.params.x;
     s.emissive = mat.emissive_roughness.rgb;
-    // Textures at a fixed coarse mip: compute shaders have no screen-space derivatives.
+    // Approximate the ray footprint in UV units from the world-space triangle edges.
     vec2 uv = v0.uv * b0 + v1.uv * bary.x + v2.uv * bary.y;
-    const float lod = 2.0;
-    if (mat.textures.x != NO_TEXTURE) s.albedo *= textureLod(sampler2D(astral_textures[nonuniformEXT(mat.textures.x)], astral_samplers[ASTRAL_SAMPLER_LINEAR_REPEAT]), uv, lod).rgb;
+    vec2 uv1 = v0.uv1 * b0 + v1.uv1 * bary.x + v2.uv1 * bary.y;
+    TextureCoords coords = material_coords(mat, inst.model, s.p, s.n, uv);
+    float uv_density = mat.projection.y;
+    if (mat.projection.x < 0.5) {
+        uv_density = max(length((v1.uv - v0.uv) * mat.uv_transform.xy) / max(length(p1 - p0), 1e-6),
+                         length((v2.uv - v0.uv) * mat.uv_transform.xy) / max(length(p2 - p0), 1e-6));
+    }
+    float lod = t * angular_spread * uv_density / max(abs(dot(s.ng, dir)), 0.2);
+    if (mat.textures.x != NO_TEXTURE) s.albedo *= material_sample(mat.textures.x, mat, coords, lod).rgb;
     if (mat.textures.y != NO_TEXTURE) {
-        vec4 mr = textureLod(sampler2D(astral_textures[nonuniformEXT(mat.textures.y)], astral_samplers[ASTRAL_SAMPLER_LINEAR_REPEAT]), uv, lod);
+        vec4 mr = material_sample(mat.textures.y, mat, coords, lod);
         roughness *= mr.g;
         s.metallic *= mr.b;
     }
-    if (mat.textures.w != NO_TEXTURE) s.emissive *= textureLod(sampler2D(astral_textures[nonuniformEXT(mat.textures.w)], astral_samplers[ASTRAL_SAMPLER_LINEAR_REPEAT]), uv, lod).rgb;
+    if (mat.textures.w != NO_TEXTURE) s.emissive *= material_sample(mat.textures.w, mat, coords, lod).rgb;
+    if (mat.textures.z != NO_TEXTURE && mat.projection.x > 0.5) {
+        s.n = projected_normal(mat.textures.z, mat, coords, s.n, lod);
+    }
     float coat = mat.coat_aniso.x;
     float coat_r = mat.coat_aniso.y;
     astral_apply_wetness(s.albedo, roughness, coat, coat_r, s.metallic, mat.params.z);
@@ -233,7 +253,7 @@ Surface triangle_surface(Instances instances, Materials materials, uint instance
     }
     s.attenuation_color = mat.attenuation.rgb;
     s.sss_radius = mat.attenuation.a;
-    if (mat.custom.y != 0u) astral_custom_surface(mat.custom.y - 1u, mat.custom.x, uv, -dir, s);
+    if (mat.custom.y != 0u) astral_custom_surface(mat.custom.y - 1u, mat.custom.x, uv, uv1, -dir, s);
     return s;
 }
 
@@ -252,6 +272,7 @@ bool confirm_candidate_hit(rayQueryEXT q, vec3 dir) {
     Vertex v2 = verts.data[idx.data[prim * 3u + 2u]];
     float b0 = 1.0 - bary.x - bary.y;
     vec2 uv = v0.uv * b0 + v1.uv * bary.x + v2.uv * bary.y;
+    vec2 uv1 = v0.uv1 * b0 + v1.uv1 * bary.x + v2.uv1 * bary.y;
     vec3 p0 = (inst.model * vec4(v0.position, 1)).xyz;
     vec3 p1 = (inst.model * vec4(v1.position, 1)).xyz;
     vec3 p2 = (inst.model * vec4(v2.position, 1)).xyz;
@@ -260,7 +281,7 @@ bool confirm_candidate_hit(rayQueryEXT q, vec3 dir) {
     vec3 ng = dot(ce, ce) > 1e-20 ? normalize(ce) : -dir;
     bool backface = dot(ng, dir) > 0.0;
     vec3 n = backface ? -ng : ng;
-    return astral_custom_alpha_test(mat.custom.y - 1u, mat.custom.x, uv, p, n, -dir, backface);
+    return astral_custom_alpha_test(mat.custom.y - 1u, mat.custom.x, uv, uv1, p, n, -dir, backface);
 }
 #endif
 
@@ -721,8 +742,8 @@ vec3 shade_secondary(Frame f, LightingInputs li, Surface s, vec3 v, uint irr_tex
 #ifdef ASTRAL_RT_CUSTOM
 #include <astral/rt_custom.glsl>
 #else
-void astral_custom_surface(uint shader, uint base, vec2 uv, vec3 view_dir, inout Surface s) {}
-bool astral_custom_alpha_test(uint shader, uint base, vec2 uv, vec3 p, vec3 n, vec3 view_dir, bool backface) { return true; }
+void astral_custom_surface(uint shader, uint base, vec2 uv, vec2 uv1, vec3 view_dir, inout Surface s) {}
+bool astral_custom_alpha_test(uint shader, uint base, vec2 uv, vec2 uv1, vec3 p, vec3 n, vec3 view_dir, bool backface) { return true; }
 #endif
 
 #endif

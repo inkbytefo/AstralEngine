@@ -122,7 +122,7 @@ TEST_CASE("a saved model slot override is scoped to its owner and can be cleared
 TEST_CASE("glTF masked and blended materials build Vulkan shader variants") {
     const auto dir = test::temp_dir("app_gltf_surface_features");
     test::write_glb(dir, "mask", {.child_node = false, .alpha_mode = "MASK", .alpha = 0.2f,
-                                .gltf_sampler = true, .double_sided = true});
+                                .gltf_sampler = true, .double_sided = true, .uv_transform = true});
     test::write_glb(dir, "blend", {.child_node = false, .alpha_mode = "BLEND", .alpha = 0.5f});
     const std::string root = dir.string();
 

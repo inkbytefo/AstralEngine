@@ -33,10 +33,10 @@ public:
     [[nodiscard]] bool is_post(MaterialHandle handle) const noexcept;
 
     /// Uploads the GPU material table and .ashader parameter block into the frame's buffers.
-    void upload(GrowBuffer& material_buffer, GrowBuffer& param_buffer);
+    void upload(GrowBuffer& material_buffer, GrowBuffer& param_buffer, const std::array<double, 3>& origin = {});
 
 private:
-    [[nodiscard]] GpuMaterial to_gpu(const MaterialDesc& desc) const;
+    [[nodiscard]] GpuMaterial to_gpu(const MaterialDesc& desc, const std::array<double, 3>& origin) const;
 
     gpu::Device& device_;
     const TextureStore& textures_;

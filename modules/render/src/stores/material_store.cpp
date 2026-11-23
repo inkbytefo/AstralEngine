@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <cstring>
 
+#include <cmath>
+
 namespace astral {
 
 MaterialStore::MaterialStore(gpu::Device& device, const TextureStore& textures, const ShaderStore& shaders)
@@ -50,7 +52,7 @@ bool MaterialStore::is_post(MaterialHandle handle) const noexcept {
     return gs && gs->kind == GpuShader::Kind::Post;
 }
 
-GpuMaterial MaterialStore::to_gpu(const MaterialDesc& d) const {
+GpuMaterial MaterialStore::to_gpu(const MaterialDesc& d, const std::array<double, 3>& origin) const {
     GpuMaterial gm{};
     gm.base_color = d.base_color;
     gm.emissive_roughness = {d.emissive.x, d.emissive.y, d.emissive.z, d.roughness};
@@ -72,18 +74,27 @@ GpuMaterial MaterialStore::to_gpu(const MaterialDesc& d) const {
     gm.detail_textures[2] = textures_.bindless_or(d.detail.height_texture, no_texture);
     gm.detail_textures[3] = no_texture;
     gm.detail_params = {d.detail.uv_scale, d.detail.normal_scale, d.detail.parallax_scale, 0.0f};
+    const auto& m = d.mapping;
+    const float size = std::isfinite(m.tile_size_m) ? std::max(m.tile_size_m, 0.001f) : 1.0f;
+    gm.uv_transform = {m.uv_scale.x, m.uv_scale.y, m.uv_offset.x, m.uv_offset.y};
+    gm.projection = {static_cast<float>(m.projection), 1.0f / size, std::clamp(m.blend_sharpness, 1.0f, 32.0f),
+                     m.world_space ? 1.0f : 0.0f};
+    gm.projection_phase.w = m.uv_rotation;
+    if (m.world_space && m.projection != TextureProjection::MeshUV) {
+        for (int i = 0; i < 3; ++i) gm.projection_phase[i] = static_cast<float>(std::fmod(origin[i], size) / size);
+    }
     return gm;
 }
 
-void MaterialStore::upload(GrowBuffer& material_buffer, GrowBuffer& param_buffer) {
+void MaterialStore::upload(GrowBuffer& material_buffer, GrowBuffer& param_buffer, const std::array<double, 3>& origin) {
     // Material table indexed by handle slot; dead slots keep the default material's values.
     table_.assign(slots_, {});
     const MaterialDesc* fallback = materials_.get(default_material_);
-    const GpuMaterial fallback_gpu = to_gpu(*fallback);
+    const GpuMaterial fallback_gpu = to_gpu(*fallback, origin);
     for (auto& entry : table_) entry = fallback_gpu;
     param_words_.clear();
     materials_.for_each([&](MaterialHandle h, MaterialDesc& d) {
-        GpuMaterial gm = to_gpu(d);
+        GpuMaterial gm = to_gpu(d, origin);
         if (const GpuShader* gs = shaders_.get(d.shader)) {
             const auto base = static_cast<std::uint32_t>(param_words_.size());
             gm.custom[0] = base;
