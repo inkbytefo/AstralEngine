@@ -2,6 +2,7 @@
 #include "gltf_writer.hpp"
 
 #include <astral/assets/model.hpp>
+#include <astral/assets/material_export.hpp>
 #include <astral/assets/cook.hpp>
 #include <doctest/doctest.h>
 
@@ -119,4 +120,22 @@ TEST_CASE("images decode from memory; garbage is refused") {
     std::string error;
     CHECK_FALSE(decode_image(junk, true, &error).has_value());
     CHECK_FALSE(error.empty());
+}
+
+TEST_CASE("embedded glTF material extraction writes reusable PBR assets without replacing files") {
+    const auto root = test::temp_dir("gltf_material_export");
+    test::write_glb(root, "quad");
+    std::string error;
+    const auto material = export_model_material(root, "quad.glb", 0, "materials/painted", &error);
+    REQUIRE_MESSAGE(material, error);
+    CHECK(*material == "materials/painted/surface.material");
+    std::ifstream stream(root / *material);
+    const auto doc = Json::parse(std::string(std::istreambuf_iterator<char>(stream), {}));
+    REQUIRE(doc);
+    CHECK((*doc)["type"].as_string() == "pbr");
+    const std::string image_path = (*doc)["values"]["base_color_texture"].as_string();
+    const auto image = load_image(root / image_path, true, &error);
+    REQUIRE_MESSAGE(image, error);
+    CHECK(image->rgba[0] == 200);
+    CHECK_FALSE(export_model_material(root, "quad.glb", 0, "materials/painted", &error));
 }

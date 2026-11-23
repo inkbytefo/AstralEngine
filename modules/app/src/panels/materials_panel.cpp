@@ -58,6 +58,7 @@ public:
                 ImGui::Separator();
             }
             if (!materials) ImGui::TextDisabled("No renderer: no materials.");
+            else ImGui::TextWrapped("Live edits affect every user of the material for this session.");
             for (MaterialLibrary::Info& info : materials ? materials->loaded() : std::vector<MaterialLibrary::Info>{}) {
                 if (!ImGui::CollapsingHeader(info.path.c_str())) continue;
                 ImGui::PushID(info.path.c_str());
