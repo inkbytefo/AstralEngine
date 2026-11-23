@@ -54,8 +54,10 @@ module (core, gpu, platform, world, render) is also usable directly as a plain l
 | Advanced PBR, deferred decals and progressive path tracer reference | ✅ M13 |
 | Module refactor, layer and size checks, portable golden test suite | ✅ M13.5 |
 | Parallel system scheduling and transforms, worker-side cell I/O, runtime benchmarks | ✅ M13.6 |
-| Revalidate the baseline and inventory public capabilities | 🔜 F0 |
-| Gameplay API, editor and world authoring, physics v2, atmosphere, terrain, water, weather, destruction, animation, vehicles, deformables and co-op | ⬜ [Roadmap v5](docs/roadmap.md) |
+| Revalidate the baseline and inventory public capabilities ([report](docs/status/f0-verification-report.md), [matrix](docs/status/capabilities.md)) | ✅ F0 |
+| Gameplay API, unified discovery, identity/schema contracts and deterministic physics step queue ([ADR-0034](docs/decisions/0034-gameplay-api-and-physics-step-contract.md)) | ✅ F1 |
+| Standalone AI-assisted desktop editor core (`Astral::Editor_core`, `Astral::Editor`, `examples/world_editor`, [ADR-0035](docs/decisions/0035-standalone-ai-assisted-editor-core.md)) | ✅ E0 |
+| World authoring & Level Instance (`E1`), physics v2, atmosphere, terrain, water, weather, destruction, animation, vehicles, deformables and co-op | 🔜 E1 · [Roadmap v5](docs/roadmap.md) |
 
 ![RT showcase](docs/images/m3.5-rt-showcase.png)
 

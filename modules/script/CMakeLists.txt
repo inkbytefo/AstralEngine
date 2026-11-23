@@ -38,4 +38,5 @@ astral_add_tests(MODULE script
         ${CMAKE_SOURCE_DIR}/modules/core/tests/test_main.cpp
         tests/script_test.cpp
         tests/api_test.cpp
+        tests/api_parity_test.cpp
         tests/compile_test.cpp)

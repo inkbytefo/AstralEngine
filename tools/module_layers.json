@@ -54,11 +54,19 @@
         "physics",
         "audio"
       ]
+    },
+    "editor_core": {
+      "layer": 3,
+      "allowed_deps": ["core", "world", "assets"]
+    },
+    "editor": {
+      "layer": 4,
+      "allowed_deps": ["core", "world", "assets", "app", "editor_core"]
     }
   },
   "third_party_aliases": {
     "Astral::ImGui": {
-      "allowed_from": ["app"],
+      "allowed_from": ["app", "editor"],
       "reason": "Dear ImGui static wrapper target (astral_imgui) built in modules/app/CMakeLists.txt"
     }
   }

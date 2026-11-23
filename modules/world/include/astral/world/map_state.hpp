@@ -43,6 +43,25 @@ struct CellDiff {
     std::vector<Json> changed; ///< Full scene records ("id" = MapEntity::id).
 };
 
+/// Lifecycle status of a map entity id in MapState / MapRuntime (ADR-0034).
+enum class MapEntityStatus : std::uint8_t { Unknown, Unloaded, Alive, Destroyed };
+
+/// Persistent map-level entity reference paired with its owning cell.
+struct MapEntityRef {
+    std::uint64_t id = 0;
+    CellKey cell{};
+    [[nodiscard]] bool valid() const noexcept { return id != 0; }
+    friend bool operator==(const MapEntityRef&, const MapEntityRef&) = default;
+};
+
+/// Result of resolving a MapEntity::id against live MapState.
+struct MapEntityLookup {
+    MapEntityStatus status = MapEntityStatus::Unknown;
+    Entity entity{};
+    CellKey cell{};
+    std::uint32_t load_count = 0; ///< > 1 when the entity was unloaded and reloaded.
+};
+
 class MapState {
 public:
     /// Spawns the cell's visible entities (with the remembered diff applied). Remembers the cell's
@@ -53,6 +72,11 @@ public:
     void despawn_cell(World& world, PrefabLibrary& prefabs, CellKey cell);
     /// Spawns/destroys layer entities in every loaded cell to match `layers`.
     void refresh_layers(World& world, PrefabLibrary& prefabs, const MapLayers& layers);
+
+    /// Registers a map entity id known to belong to `cell` even before that cell streams in.
+    void register_known(std::uint64_t id, CellKey cell);
+    /// Resolves a persistent MapEntity::id into its lifecycle state and live Entity (if Alive).
+    [[nodiscard]] MapEntityLookup lookup(World& world, std::uint64_t id) const;
 
     /// World position of local zero (floating origin). Spawned top-level entities are placed relative
     /// to it; remembered changes are kept in world coordinates.
@@ -73,15 +97,22 @@ private:
         CellKey key;
         CellDiff diff;
     };
+    struct KnownRecord {
+        std::uint64_t id = 0;
+        CellKey cell{};
+        std::uint32_t load_count = 0;
+    };
 
     Loaded* find_loaded(CellKey cell) noexcept;
     LoadResult spawn(World& world, PrefabLibrary& prefabs, Loaded& cell, std::size_t index);
+    KnownRecord& ensure_known(std::uint64_t id, CellKey cell);
 
     Json save_world_record(World& world, PrefabLibrary& prefabs, Entity e) const;
 
     WorldPosition origin_{};
     std::vector<Loaded> loaded_;
     std::vector<Remembered> remembered_;
+    std::vector<KnownRecord> known_;
 };
 
 } // namespace astral

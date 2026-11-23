@@ -242,7 +242,7 @@ void Spawner::finish() {
             if (p.keep_existing && t->has(world, p.entity)) continue;
             LoadContext c = ctx;
             c.path = p.label + ": " + name;
-            t->load(world, p.entity, value, c);
+            TypeRegistry::load_entry(*t, world, p.entity, value, c);
         }
     }
     pending.clear();

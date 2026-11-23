@@ -4,6 +4,32 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+### Added (E0 — Bağımsız AI destekli masaüstü editör çekirdeği, ADR-0035)
+- `editor_core` (Katman 3, GPU/pencere/ImGui bağımsız): `EditorDocument`, `DocumentRevision`, atomik `LocalEditorFileSystem` / `IEditorFileSystem`, sürümlü keşfedilebilir `EditorCommand` kataloğu (`build_command_schema`), alan-düzeyi `diff_documents`, `EditorSession` (eski revizyon reddi, kısmi yazma/hata rollback, bayt-bayt undo/redo, `AuditLog` JSONL), `IAgentProvider`, `PrefabAssistantAgent`, geçici izole ECS `run_proposal_preview` ve `ProposalReview`.
+- `editor` (Katman 4): `EditorWorkspace` dockable masaüstü çalışma alanı (Dear ImGui `v1.92.9-docking` + `AppDesc::debug_ui_builtin_panels`), Asset Browser, Hierarchy, transactional Inspector, AI Assistant & Diff Review, Console & Profiler.
+- `examples/world_editor` + `world_editor_tests`: ajan prefab önerisi → fark ve geçici ECS önizleme → atomik onay → canlı sahne yeniden yükleme → bayt-bayt undo/redo kabul testi.
+- `tools/check_editor_isolation.py` (`editor_isolation_check`) ve `tests/consumer/CMakeLists.txt` izolasyon doğrulaması (oyun/sunucu hedefleri editöre bağlanmaz).
+- Dokümanlar: `docs/decisions/0035-standalone-ai-assisted-editor-core.md`, `docs/modules/editor.md`, güncellenmiş `tools/module_layers.json` ve `docs/architecture.md`.
+
+### Added (F1 — Gameplay API ve fizik adım sözleşmesi, ADR-0034)
+- world: `WorldId`, `WorldEntityRef`, `World::id()/ref()/owns()` ile çalışma zamanı World aidiyeti; `#w<id>:<idx>.<gen>` çapraz-world güvenli canlı referanslar; `DocumentEntityId` (sahne/prefab kalıcı belge adresi); `MapEntityStatus`/`MapEntityLookup` ve `MapState::register_known()/lookup()` (yüklenmemiş/canlı/yeniden yüklenmiş/yok edilmiş durumları).
+- world: `TypeRegistry::set_schema_version()` ile component şema sürümü (`$schema_version`), uyumlu okuma, migration kancası ve ileri-sürüm hata teşhisi (`TypeRegistry::save_entry`/`load_entry`).
+- script: `ScriptApiCatalog` (`script_api_catalog()`) ve `ApiDiscoverySummary` (`collect_api_discovery()`) tek keşif yüzeyi; `generate_script_api()` ve `api_parity_test.cpp` (Luau VM ↔ katalog ↔ `astral.d.luau` / `API.md` ↔ `TypeRegistry` 1:1 eşitlik testi).
+- app: dar `PhysicsService` komut/sorgu/olay arayüzü (`add_impulse`, `add_force`, `set_linear_velocity`, `set_angular_velocity`, `raycast`, `spherecast`, `overlap_*`, `linear_velocity`, `query_state`, `pending_command_count`); `PhysicsBridge` içinde thread-safe ve deterministik sıralı komut kuyruğu (sabit adım sınırında `apply_commands()` + `sync_bodies()` sonrasında uygulanır); `MapService::resolve_map_entity()`.
+- `examples/physics_playground`: `playground::ContactStats` + Luau `astral::Contact` ve `TriggerEntered` + kuyruklu `astral.physics.force` testleri; `physics_step_contract_test.cpp` (0/çok alt adım, gecikmiş spawn+komut, geçersiz entity, paralel=seri eşitliği, doğrudan `PhysicsWorld` regresyonu).
+
+### Removed (F1)
+- app: `Context` üzerindeki eski `[[deprecated]]` düz servis forward metotları kaldırıldı (tüm tüketiciler gruplu servis erişimcilerini kullanır).
+
+### Added (F0 — Doğrulama ve capability envanteri)
+- `docs/status/capabilities.md`: CMake modül grafiği, public API, loader'lar, testler ve ADR sapmalarıyla tam yetenek matrisi.
+- `docs/status/f0-verification-report.md`: Windows MSVC Debug/Release (`-Werror`), kurulu paket/tüketici, `templates/blank`, `golden-hw`, `astral-bench` ve `astral-render-bench` (RTX 3060) taban raporu ile 5 takip kaydı (`F0-TRACK-01..05`).
+- `bench/main.cpp`: p50/p95/p99 yüzdelikleri, RSS bellek raporu ve 16×16 hücreli gerçek uçuş profilli arka plan streaming worker decode ölçümü.
+- `.github/workflows/ci.yml`: `tsan` işine `astral_app_tests` headless paralel zamanlayıcı alt kümesi eklendi.
+
+### Fixed (F0)
+- `templates/blank/CMakeLists.txt`: bağımsız kurulum testinde CMake 4.x ve MSVC 14.51 ile kırılan `doctest v2.4.11` → `v2.5.3` ve `DOCTEST_USE_STD_HEADERS=ON` olarak güncellendi.
+
 ## [0.17.0] — 2026-11-22 — M12 (fizik altyapısı ve alanlar)
 
 ### Added

@@ -199,7 +199,7 @@ public:
         return ref;
     }
 
-    /// Grouped engine services (preferred over the deprecated flat methods below).
+    /// Grouped engine services.
     [[nodiscard]] SceneService& scenes() noexcept;
     [[nodiscard]] const SceneService& scenes() const noexcept;
     [[nodiscard]] MapService& maps() noexcept;
@@ -212,27 +212,6 @@ public:
     [[nodiscard]] const ScriptService& script_service() const noexcept;
     [[nodiscard]] PhysicsService& physics_service() noexcept;
     [[nodiscard]] const PhysicsService& physics_service() const noexcept;
-
-    // Deprecated flat service forwards (scheduled for removal in M14).
-    [[deprecated("use ctx.audio_service().sound")]] SoundHandle sound(std::string_view path) { return audio_service().sound(path); }
-    [[deprecated("use ctx.script_service().load_script")]] std::vector<std::string> load_script(std::string_view path) { return script_service().load_script(path); }
-    [[deprecated("use ctx.script_service().write_script_api")]] bool write_script_api(std::string_view folder) { return script_service().write_script_api(folder); }
-    [[deprecated("use ctx.script_service().load_actions")]] bool load_actions(std::string_view path) { return script_service().load_actions(path); }
-    [[deprecated("use ctx.materials().create_mesh")]] MeshHandle create_mesh(const MeshData& data) { return materials().create_mesh(data); }
-    [[deprecated("use ctx.materials().create_material")]] MaterialHandle create_material(const MaterialDesc& desc) { return materials().create_material(desc); }
-    [[deprecated("use ctx.materials().update_material")]] bool update_material(MaterialHandle material, const MaterialDesc& desc) { return materials().update_material(material, desc); }
-    [[deprecated("use ctx.materials().load_material")]] MaterialHandle load_material(std::string_view path) { return materials().load_material(path); }
-    [[deprecated("use ctx.materials().shader_error"), nodiscard]] std::string_view shader_error() const noexcept { return materials().shader_error(); }
-    [[deprecated("use ctx.scenes().load_scene")]] LoadResult load_scene(std::string_view path) { return scenes().load_scene(path); }
-    [[deprecated("use ctx.scenes().save_scene")]] bool save_scene(std::string_view path) { return scenes().save_scene(path); }
-    [[deprecated("use ctx.scenes().spawn_prefab")]] Entity spawn_prefab(std::string_view path, const Transform& transform = {}) { return scenes().spawn_prefab(path, transform); }
-    [[deprecated("use ctx.maps().open_world")]] bool open_world(std::string_view path) { return maps().open_world(path); }
-    [[deprecated("use ctx.maps().close_world")]] void close_world() { maps().close_world(); }
-    [[deprecated("use ctx.maps().finish_world_loading")]] void finish_world_loading() { maps().finish_world_loading(); }
-    [[deprecated("use ctx.maps().world_layers"), nodiscard]] MapLayers* world_layers() noexcept { return maps().world_layers(); }
-    [[deprecated("use ctx.maps().world_streaming"), nodiscard]] const StreamingStats* world_streaming() const noexcept { return maps().world_streaming(); }
-    [[deprecated("use ctx.maps().world_origin"), nodiscard]] WorldPosition world_origin() const noexcept { return maps().world_origin(); }
-    [[deprecated("use ctx.physics_service().contacts"), nodiscard]] std::span<const ContactEvent> contacts() const noexcept { return physics_service().contacts(); }
 
     /// Ends the run loop after the current frame.
     void quit() noexcept { quit_requested_ = true; }
@@ -274,6 +253,8 @@ struct AppDesc {
     bool offscreen = false;
     /// F1 opens the debug UI (Context::show_debug_ui). Off: no ImGui at all.
     bool debug_ui = true;
+    /// Draw built-in F1 debug panels and menu bar (false for standalone editors that own the whole ImGui dockspace).
+    bool debug_ui_builtin_panels = true;
     /// Play sound on the default device (headless and offscreen always mix silently).
     bool audio = true;
     /// Open maps: the origin moves to the first streaming source when it is farther than this (metres).

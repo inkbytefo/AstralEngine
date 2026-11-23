@@ -87,6 +87,11 @@ bool MapRuntime::open(std::string_view path, const std::filesystem::path& asset_
         }
         const MapSource source = read_map_source(*map, files);
         for (const std::string& e : source.errors) log_.log(LogLevel::Error, "open_world " + std::string(path) + ": " + e);
+        const CellAssignment assigned = assign_cells(*map, source.entities);
+        for (const Cell& c : assigned.cells) {
+            for (std::size_t idx : c.entities) state_.register_known(source.entities[idx].id, c.key);
+        }
+        for (std::size_t idx : assigned.always_loaded) state_.register_known(source.entities[idx].id, always_cell);
         CookedMap cooked = cook_map(source);
         for (CookedCell& cell : cooked.cells) {
             if (cell.name == "always") always = std::move(cell.document);

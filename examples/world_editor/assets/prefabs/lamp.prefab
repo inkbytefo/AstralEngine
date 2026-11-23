@@ -1,0 +1,32 @@
+{
+  "format": "astral.scene",
+  "version": 1,
+  "entities": [
+    {
+      "id": 1,
+      "components": {
+        "astral::Name": {
+          "value": "Workshop Lamp"
+        },
+        "astral::Transform": {
+          "position": [0, 2.2, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [0.35, 0.35, 0.35]
+        },
+        "astral::PrimitiveMesh": {
+          "shape": "Sphere",
+          "material": {
+            "base_color": [1, 0.92, 0.75, 1],
+            "emissive": [4, 3.2, 2],
+            "roughness": 0.2
+          }
+        },
+        "astral::PointLight": {
+          "color": [1, 0.92, 0.75],
+          "intensity": 18,
+          "radius": 10
+        }
+      }
+    }
+  ]
+}

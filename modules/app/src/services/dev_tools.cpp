@@ -143,9 +143,9 @@ void draw_lights_overlay(World& world, DebugDraw& debug) {
 
 } // namespace
 
-DevTools::DevTools(World& world, Window* window, Renderer* renderer, bool enable_debug_ui)
-    : world_(world), window_(window) {
-    register_builtin_panels(panels_);
+DevTools::DevTools(World& world, Window* window, Renderer* renderer, bool enable_debug_ui, bool builtin_panels)
+    : world_(world), window_(window), builtin_panels_(builtin_panels) {
+    if (builtin_panels_) register_builtin_panels(panels_);
     if (renderer && enable_debug_ui) debug_ui_ = std::make_unique<DebugUi>(*renderer);
     font_ = Font::create(default_font_ttf());
     if (font_ && renderer) font_->upload(*renderer);
@@ -191,7 +191,7 @@ void DevTools::build_ui(Game& game, Context& ctx, const Input& raw_input, float 
     if (!visible) return;
     ASTRAL_PROFILE_SCOPE(&profiler_, "debug ui");
     debug_ui_->begin(raw_input, delta, extent, window_ ? window_->pixel_density() : 1.0f);
-    debug_ui_->draw_panels(ctx, panels_, materials);
+    if (builtin_panels_) debug_ui_->draw_panels(ctx, panels_, materials);
     game.on_debug_ui(ctx);
     debug_ui_->end();
     ui_layer_ = debug_ui_->layer();

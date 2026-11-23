@@ -27,6 +27,7 @@ public:
 void install_playground(FeatureContext& feature) {
     feature.component<JumpPad>();
     feature.component<Dropper>();
+    feature.component<ContactStats>();
     feature.system<DropperSystem>(Phase::Update);
 }
 

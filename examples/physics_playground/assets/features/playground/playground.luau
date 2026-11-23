@@ -1,7 +1,18 @@
 --!strict
--- Rules of the playground. State lives in components (JumpPad, WindZone); events come from the physics.
+-- Rules of the playground. State lives in components (JumpPad, WindZone, ContactStats); events come from physics.
 
--- A body that enters a jump pad's sensor gets thrown upwards.
+local function ensure_stats(): Entity
+    local existing = astral.find("playground_stats")
+    if existing then
+        return existing
+    end
+    return astral.spawn({
+        ["astral::Name"] = { value = "playground_stats" },
+        ["playground::ContactStats"] = { begin_count = 0, pad_launches = 0 },
+    })
+end
+
+-- A body that enters a jump pad's sensor gets thrown upwards via queued physics commands.
 astral.on("astral::TriggerEntered", function(_, event)
     local trigger: Entity?, other: Entity? = event.trigger, event.other
     if not trigger or not other then
@@ -11,6 +22,20 @@ astral.on("astral::TriggerEntered", function(_, event)
     if pad then
         local v = astral.physics.velocity(other)
         astral.physics.set_velocity(other, v + vector.create(0, pad.speed, 0))
+        local stats = ensure_stats():get("playground::ContactStats")
+        if stats then
+            stats.pad_launches += 1
+        end
+    end
+end, "FixedUpdate")
+
+-- Listen to solid contact events and record contact counts in a reflected component (F1).
+astral.on("astral::Contact", function(_, event)
+    if event.kind == "Begin" then
+        local stats = ensure_stats():get("playground::ContactStats")
+        if stats then
+            stats.begin_count += 1
+        end
     end
 end, "FixedUpdate")
 

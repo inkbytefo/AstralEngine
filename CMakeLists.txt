@@ -43,6 +43,8 @@ add_subdirectory(modules/render)
 add_subdirectory(modules/audio)
 add_subdirectory(modules/assets)
 add_subdirectory(modules/app)
+add_subdirectory(modules/editor_core)
+add_subdirectory(modules/editor)
 set(ASTRAL_MODULE_GRAPH_FILE "${CMAKE_CURRENT_BINARY_DIR}/astral_module_graph.json")
 astral_export_module_graph("${ASTRAL_MODULE_GRAPH_FILE}")
 add_subdirectory(tools)
@@ -67,6 +69,9 @@ if(ASTRAL_BUILD_TESTS)
         add_test(NAME layer_check_self_test
             COMMAND Python3::Interpreter -B -m unittest discover
                     -s "${CMAKE_CURRENT_SOURCE_DIR}/tools/tests" -p "test_check_layers.py" -v)
+        add_test(NAME editor_isolation_check
+            COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_editor_isolation.py"
+                    --manifest "${ASTRAL_MODULE_GRAPH_FILE}")
     else()
         message(STATUS "Python3 interpreter not found: skipping shared_features_in_sync, code_size_check, and layer_check")
     endif()

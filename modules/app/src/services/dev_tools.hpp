@@ -29,7 +29,7 @@ struct InputCapture {
 
 class DevTools {
 public:
-    DevTools(World& world, Window* window, Renderer* renderer, bool enable_debug_ui);
+    DevTools(World& world, Window* window, Renderer* renderer, bool enable_debug_ui, bool builtin_panels = true);
     ~DevTools();
     DevTools(const DevTools&) = delete;
     DevTools& operator=(const DevTools&) = delete;
@@ -60,6 +60,7 @@ private:
     std::array<UiLayer, 2> layers_{};
     bool restore_mouse_capture_ = false;
     bool text_input_ = false;
+    bool builtin_panels_ = true;
 };
 
 } // namespace astral

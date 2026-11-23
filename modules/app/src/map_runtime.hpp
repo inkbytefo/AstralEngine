@@ -44,6 +44,8 @@ public:
     [[nodiscard]] const std::string& path() const noexcept { return path_; }
     /// Cells currently in the world (for debug drawing).
     [[nodiscard]] std::vector<CellKey> attached_cells() const;
+    /// Resolves a persistent MapEntity::id into its current lifecycle status and live Entity (if Alive).
+    [[nodiscard]] MapEntityLookup lookup(std::uint64_t id) const { return state_.lookup(world_, id); }
 
     // CellLoader
     void begin_load(CellKey cell) override;

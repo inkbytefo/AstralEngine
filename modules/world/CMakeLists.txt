@@ -30,4 +30,5 @@ astral_add_tests(MODULE world
         tests/map_test.cpp
         tests/streaming_test.cpp
         tests/map_state_test.cpp
-        tests/origin_test.cpp)
+        tests/origin_test.cpp
+        tests/identity_schema_test.cpp)

@@ -11,14 +11,31 @@
 #include <astral/script/script.hpp>
 #include <astral/shader/ashader.hpp>
 #include <astral/world/map.hpp>
+#include <astral/world/streaming.hpp>
 #include <astral/world/transform.hpp>
 #include <astral/world/world.hpp>
 
+#include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
+
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <psapi.h>
+#elif defined(__linux__)
+#include <fstream>
+#include <unistd.h>
+#endif
 
 using namespace astral;
 
@@ -28,6 +45,42 @@ using Clock = std::chrono::steady_clock;
 
 double elapsed_ms(Clock::time_point start) {
     return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+}
+
+struct Percentiles {
+    double p50 = 0.0;
+    double p95 = 0.0;
+    double p99 = 0.0;
+};
+
+Percentiles compute_percentiles(std::vector<double> samples) {
+    if (samples.empty()) return {};
+    std::sort(samples.begin(), samples.end());
+    auto at = [&](double q) {
+        const std::size_t idx =
+            std::min<std::size_t>(samples.size() - 1, static_cast<std::size_t>(std::floor(q * static_cast<double>(samples.size() - 1))));
+        return samples[idx];
+    };
+    return {at(0.50), at(0.95), at(0.99)};
+}
+
+double process_rss_mb() {
+#if defined(_WIN32)
+    PROCESS_MEMORY_COUNTERS pmc{};
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) {
+        return static_cast<double>(pmc.WorkingSetSize) / (1024.0 * 1024.0);
+    }
+    return 0.0;
+#elif defined(__linux__)
+    std::ifstream in("/proc/self/statm");
+    std::size_t total = 0, rss_pages = 0;
+    if (in >> total >> rss_pages) {
+        return static_cast<double>(rss_pages * static_cast<std::size_t>(sysconf(_SC_PAGESIZE))) / (1024.0 * 1024.0);
+    }
+    return 0.0;
+#else
+    return 0.0;
+#endif
 }
 
 struct BenchPos { Vec3 v{}; };
@@ -70,13 +123,12 @@ void bench_ecs(bool smoke) {
         App app({.headless = true, .fixed_timestep = 1.0f / 60.0f, .physics_rate = 60.0f, .parallel_systems = parallel});
         struct BenchGame final : Game {
             std::size_t entity_count = 0;
-            Clock::time_point frames_start{};
-            double total_ms = 0.0;
+            Clock::time_point frame_start{};
+            std::vector<double> samples;
             void on_start(Context& ctx) override {
                 for (std::size_t i = 0; i < entity_count; ++i) {
                     ctx.world.create(BenchC0{}, BenchC1{}, BenchC2{}, BenchC3{}, BenchC4{}, BenchC5{});
                 }
-                // 30 systems across 5 waves of 6 independent component streams each.
                 for (int wave = 0; wave < 5; ++wave) {
                     ctx.add_system<WaveBenchSystem<BenchC0>>(Phase::Update);
                     ctx.add_system<WaveBenchSystem<BenchC1>>(Phase::Update);
@@ -85,19 +137,38 @@ void bench_ecs(bool smoke) {
                     ctx.add_system<WaveBenchSystem<BenchC4>>(Phase::Update);
                     ctx.add_system<WaveBenchSystem<BenchC5>>(Phase::Update);
                 }
-                frames_start = Clock::now();
+                frame_start = Clock::now();
             }
-            void on_shutdown(Context&) override { total_ms = elapsed_ms(frames_start); }
+            void on_update(Context&) override { frame_start = Clock::now(); }
+            void on_shutdown(Context&) override {}
         } game;
+        class FrameSampler final : public System {
+        public:
+            explicit FrameSampler(BenchGame& g) : game_(g) {}
+            void update(Context&) override { game_.samples.push_back(elapsed_ms(game_.frame_start)); }
+        private:
+            BenchGame& game_;
+        };
         game.entity_count = count;
-        app.run_frames(game, steps);
-        return game.total_ms / steps;
+        struct Wrapper final : Game {
+            BenchGame* inner = nullptr;
+            void on_start(Context& ctx) override {
+                inner->on_start(ctx);
+                ctx.add_system<FrameSampler>(Phase::PostUpdate, *inner);
+            }
+            void on_update(Context& ctx) override { inner->on_update(ctx); }
+        } wrapper;
+        wrapper.inner = &game;
+        app.run_frames(wrapper, steps);
+        return compute_percentiles(std::move(game.samples));
     };
 
-    const double serial_ms = run_mode(false);
-    const double parallel_ms = run_mode(true);
-    std::printf("[bench_ecs]        entities=%zu systems=30 steps=%d serial=%.3f ms/step parallel=%.3f ms/step speedup=%.2fx\n",
-                count, steps, serial_ms, parallel_ms, parallel_ms > 0.0 ? serial_ms / parallel_ms : 1.0);
+    const Percentiles serial = run_mode(false);
+    const Percentiles parallel = run_mode(true);
+    std::printf("[bench_ecs]        entities=%zu systems=30 samples=%d serial(p50/p95/p99)=%.3f/%.3f/%.3f ms "
+                "parallel=%.3f/%.3f/%.3f ms speedup=%.2fx rss=%.1f MB\n",
+                count, steps, serial.p50, serial.p95, serial.p99, parallel.p50, parallel.p95, parallel.p99,
+                parallel.p50 > 0.0 ? serial.p50 / parallel.p50 : 1.0, process_rss_mb());
 }
 
 void bench_transforms(bool smoke) {
@@ -114,16 +185,26 @@ void bench_transforms(bool smoke) {
     JobSystem jobs(0);
     update_transforms(world); // warm up
 
-    const auto start_serial = Clock::now();
-    for (int s = 0; s < steps; ++s) update_transforms(world, nullptr);
-    const double serial_ms = elapsed_ms(start_serial) / steps;
-
-    const auto start_parallel = Clock::now();
-    for (int s = 0; s < steps; ++s) update_transforms(world, &jobs);
-    const double parallel_ms = elapsed_ms(start_parallel) / steps;
-    std::printf("[bench_transforms] entities=%zu depth=%d serial=%.3f ms parallel=%.3f ms speedup=%.2fx\n",
-                roots * static_cast<std::size_t>(depth), depth, serial_ms, parallel_ms,
-                parallel_ms > 0.0 ? serial_ms / parallel_ms : 1.0);
+    std::vector<double> serial_samples, parallel_samples;
+    serial_samples.reserve(static_cast<std::size_t>(steps));
+    parallel_samples.reserve(static_cast<std::size_t>(steps));
+    for (int s = 0; s < steps; ++s) {
+        const auto t0 = Clock::now();
+        update_transforms(world, nullptr);
+        serial_samples.push_back(elapsed_ms(t0));
+    }
+    for (int s = 0; s < steps; ++s) {
+        const auto t0 = Clock::now();
+        update_transforms(world, &jobs);
+        parallel_samples.push_back(elapsed_ms(t0));
+    }
+    const Percentiles serial = compute_percentiles(std::move(serial_samples));
+    const Percentiles parallel = compute_percentiles(std::move(parallel_samples));
+    std::printf("[bench_transforms] entities=%zu depth=%d samples=%d serial(p50/p95/p99)=%.3f/%.3f/%.3f ms "
+                "parallel=%.3f/%.3f/%.3f ms speedup=%.2fx rss=%.1f MB\n",
+                roots * static_cast<std::size_t>(depth), depth, steps, serial.p50, serial.p95, serial.p99,
+                parallel.p50, parallel.p95, parallel.p99, parallel.p50 > 0.0 ? serial.p50 / parallel.p50 : 1.0,
+                process_rss_mb());
 }
 
 void bench_script(bool smoke) {
@@ -150,47 +231,146 @@ void bench_script(bool smoke) {
             end
         }
     )");
-    const auto start = Clock::now();
-    for (int s = 0; s < steps; ++s) host.run(ScriptPhase::Update, {.delta = 1.0f / 60.0f});
-    const double each_ms = elapsed_ms(start) / steps;
-    std::printf("[bench_script]     entities=%zu steps=%d astral.each=%.3f ms/step\n", count, steps, each_ms);
+    std::vector<double> samples;
+    samples.reserve(static_cast<std::size_t>(steps));
+    for (int s = 0; s < steps; ++s) {
+        const auto t0 = Clock::now();
+        host.run(ScriptPhase::Update, {.delta = 1.0f / 60.0f});
+        samples.push_back(elapsed_ms(t0));
+    }
+    const Percentiles p = compute_percentiles(std::move(samples));
+    std::printf("[bench_script]     entities=%zu samples=%d astral.each(p50/p95/p99)=%.3f/%.3f/%.3f ms rss=%.1f MB\n",
+                count, steps, p.p50, p.p95, p.p99, process_rss_mb());
 }
 
+struct CellKeyHash {
+    std::size_t operator()(const CellKey& k) const noexcept {
+        return (static_cast<std::size_t>(k.grid) << 40) ^
+               (static_cast<std::size_t>(static_cast<std::uint32_t>(k.x)) << 20) ^
+               static_cast<std::size_t>(static_cast<std::uint32_t>(k.z));
+    }
+};
+
+class FlightCellLoader final : public CellLoader {
+public:
+    FlightCellLoader(const MapDesc& map, const std::unordered_map<CellKey, std::string, CellKeyHash>& blobs, JobSystem& jobs)
+        : map_(map), blobs_(blobs), jobs_(jobs) {}
+    ~FlightCellLoader() override { wait_all(); }
+
+    void begin_load(CellKey cell) override {
+        auto it = blobs_.find(cell);
+        if (it == blobs_.end()) return;
+        auto state = std::make_shared<Pending>();
+        {
+            std::scoped_lock lock(mu_);
+            pending_[cell] = state;
+        }
+        const std::string* blob = &it->second;
+        jobs_.submit(counter_, [this, state, blob]() {
+            const auto t0 = Clock::now();
+            if (auto doc = Json::parse(*blob)) state->entities = read_cell(map_, *doc);
+            state->decode_ms = elapsed_ms(t0);
+            state->done.store(true, std::memory_order_release);
+        });
+    }
+    bool ready(CellKey cell) override {
+        std::scoped_lock lock(mu_);
+        const auto it = pending_.find(cell);
+        return it != pending_.end() && it->second->done.load(std::memory_order_acquire);
+    }
+    void attach(CellKey cell) override {
+        std::shared_ptr<Pending> state;
+        {
+            std::scoped_lock lock(mu_);
+            if (auto it = pending_.find(cell); it != pending_.end()) {
+                state = std::move(it->second);
+                pending_.erase(it);
+            }
+        }
+        if (state) {
+            decode_samples.push_back(state->decode_ms);
+            attached_entities += state->entities.size();
+            ++attached_cells;
+        }
+    }
+    void detach(CellKey) override { ++detached_cells; }
+    void cancel(CellKey cell) override {
+        std::scoped_lock lock(mu_);
+        if (pending_.erase(cell) > 0) ++cancelled_cells;
+    }
+    void wait_all() { jobs_.wait(counter_); }
+
+    std::vector<double> decode_samples;
+    std::size_t attached_cells = 0;
+    std::size_t detached_cells = 0;
+    std::size_t cancelled_cells = 0;
+    std::size_t attached_entities = 0;
+
+private:
+    struct Pending {
+        std::vector<MapEntity> entities;
+        double decode_ms = 0.0;
+        std::atomic<bool> done{false};
+    };
+    const MapDesc& map_;
+    const std::unordered_map<CellKey, std::string, CellKeyHash>& blobs_;
+    JobSystem& jobs_;
+    JobCounter counter_;
+    std::mutex mu_;
+    std::unordered_map<CellKey, std::shared_ptr<Pending>, CellKeyHash> pending_;
+};
+
 void bench_streaming(bool smoke) {
-    const int cells = smoke ? 16 : 64;
+    const int side = smoke ? 6 : 16;
     const int entities_per_cell = smoke ? 20 : 60;
+    const double cell_size = 128.0;
     MapSource src;
-    src.map.grids.push_back(GridDesc{.name = "main", .cell_size = 100.0, .load_range = 300.0});
+    src.map.grids.push_back(GridDesc{.name = "main", .cell_size = cell_size, .load_range = 384.0});
     std::uint64_t next_id = 1;
-    for (int c = 0; c < cells; ++c) {
-        const double cx = static_cast<double>((c % 8) * 100 + 25);
-        const double cz = static_cast<double>((c / 8) * 100 + 25);
-        for (int i = 0; i < entities_per_cell; ++i) {
-            MapEntity e;
-            e.id = next_id++;
-            e.grid = "main";
-            e.position = {cx + static_cast<double>(i), 0.0, cz};
-            Json pos = Json::array();
-            pos.push_back(Json(e.position[0]));
-            pos.push_back(Json(0.0));
-            pos.push_back(Json(e.position[2]));
-            Json tf = Json::object();
-            tf["position"] = std::move(pos);
-            Json comps = Json::object();
-            comps["astral::Transform"] = std::move(tf);
-            e.record = Json::object();
-            e.record["id"] = Json(static_cast<double>(e.id));
-            e.record["components"] = std::move(comps);
-            src.entities.push_back(std::move(e));
+    std::vector<CellKey> cell_keys;
+    cell_keys.reserve(static_cast<std::size_t>(side * side));
+    for (int gz = 0; gz < side; ++gz) {
+        for (int gx = 0; gx < side; ++gx) {
+            cell_keys.push_back(CellKey{0, gx, gz});
+            const double cx = static_cast<double>(gx) * cell_size + 16.0;
+            const double cz = static_cast<double>(gz) * cell_size + 16.0;
+            for (int i = 0; i < entities_per_cell; ++i) {
+                MapEntity e;
+                e.id = next_id++;
+                e.grid = "main";
+                e.position = {cx + static_cast<double>(i % 16), 0.0, cz + static_cast<double>(i / 16)};
+                Json pos = Json::array();
+                pos.push_back(Json(e.position[0]));
+                pos.push_back(Json(0.0));
+                pos.push_back(Json(e.position[2]));
+                Json tf = Json::object();
+                tf["position"] = std::move(pos);
+                Json comps = Json::object();
+                comps["astral::Transform"] = std::move(tf);
+                e.record = Json::object();
+                e.record["id"] = Json(static_cast<double>(e.id));
+                e.record["components"] = std::move(comps);
+                src.entities.push_back(std::move(e));
+            }
         }
     }
     const CookedMap cooked = cook_map(src);
     std::vector<std::string> blobs;
+    std::unordered_map<CellKey, std::string, CellKeyHash> blob_by_key;
     blobs.reserve(cooked.cells.size());
-    for (const CookedCell& cell : cooked.cells) blobs.push_back(cell.document.dump());
+    for (const CookedCell& cell : cooked.cells) {
+        std::string dumped = cell.document.dump();
+        for (const CellKey& k : cell_keys) {
+            if (cell_name(src.map, k) == cell.name) {
+                blob_by_key.emplace(k, dumped);
+                break;
+            }
+        }
+        blobs.push_back(std::move(dumped));
+    }
 
     JobSystem jobs(0);
-    const auto start = Clock::now();
+    const auto burst_start = Clock::now();
     JobCounter counter;
     std::vector<std::vector<MapEntity>> decoded(blobs.size());
     jobs.parallel_for(counter, blobs.size(), 1, [&](std::size_t begin, std::size_t end) {
@@ -199,9 +379,35 @@ void bench_streaming(bool smoke) {
         }
     });
     jobs.wait(counter);
-    const double ms = elapsed_ms(start);
-    std::printf("[bench_streaming]  cells=%zu entities=%zu worker_decode=%.3f ms\n",
-                blobs.size(), static_cast<std::size_t>(cells * entities_per_cell), ms);
+    const double burst_ms = elapsed_ms(burst_start);
+
+    // Real flight profile: fly diagonally across the map, streaming cells asynchronously on workers.
+    FlightCellLoader loader(src.map, blob_by_key, jobs);
+    CellStreamer streamer(src.map, cell_keys, loader);
+    const int flight_frames = smoke ? 16 : 120;
+    const double max_coord = static_cast<double>(side) * cell_size;
+    std::vector<double> tick_samples;
+    tick_samples.reserve(static_cast<std::size_t>(flight_frames));
+    for (int f = 0; f < flight_frames; ++f) {
+        const double t = static_cast<double>(f) / static_cast<double>(std::max(flight_frames - 1, 1));
+        const StreamingPoint pt{t * max_coord, t * max_coord};
+        const auto t0 = Clock::now();
+        streamer.update(std::span(&pt, 1), 4);
+        tick_samples.push_back(elapsed_ms(t0));
+        loader.wait_all();
+        streamer.update(std::span(&pt, 1), 4);
+    }
+    streamer.unload_all();
+    loader.wait_all();
+
+    const Percentiles dec_p = compute_percentiles(loader.decode_samples);
+    const Percentiles tick_p = compute_percentiles(std::move(tick_samples));
+    std::printf("[bench_streaming]  cells=%zu entities=%zu burst_decode=%.3f ms | "
+                "flight(frames=%d attached=%zu detached=%zu cancelled=%zu) "
+                "cell_decode(p50/p95/p99)=%.3f/%.3f/%.3f ms tick(p50/p95/p99)=%.3f/%.3f/%.3f ms rss=%.1f MB\n",
+                blobs.size(), static_cast<std::size_t>(side * side * entities_per_cell), burst_ms,
+                flight_frames, loader.attached_cells, loader.detached_cells, loader.cancelled_cells,
+                dec_p.p50, dec_p.p95, dec_p.p99, tick_p.p50, tick_p.p95, tick_p.p99, process_rss_mb());
 }
 
 void bench_shader_compile(bool smoke) {
@@ -216,14 +422,18 @@ void bench_shader_compile(bool smoke) {
             ROUGHNESS = 0.3;
         }
     )";
-    const auto start = Clock::now();
+    std::vector<double> samples;
+    samples.reserve(static_cast<std::size_t>(count));
     for (int i = 0; i < count; ++i) {
+        const auto t0 = Clock::now();
         const ShaderParse parsed = parse_ashader(src);
         const SurfaceShaderBuild build = compile_surface_shader(parsed.source, "bench.ashader");
         if (!build.ok()) std::fprintf(stderr, "bench_shader_compile failed\n");
+        samples.push_back(elapsed_ms(t0));
     }
-    const double ms = elapsed_ms(start) / count;
-    std::printf("[bench_shader]     compiles=%d avg=%.3f ms/shader\n", count, ms);
+    const Percentiles p = compute_percentiles(std::move(samples));
+    std::printf("[bench_shader]     samples=%d compile(p50/p95/p99)=%.3f/%.3f/%.3f ms rss=%.1f MB\n",
+                count, p.p50, p.p95, p.p99, process_rss_mb());
 }
 
 } // namespace

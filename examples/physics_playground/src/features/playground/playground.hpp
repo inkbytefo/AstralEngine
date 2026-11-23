@@ -18,9 +18,16 @@ struct Dropper {
     float timer = 0.0f;
 };
 
+/// Tallies physics contact events and jump-pad launches observed by Luau rules (F1).
+struct ContactStats {
+    std::uint32_t begin_count = 0;
+    std::uint32_t pad_launches = 0;
+};
+
 void install_playground(astral::FeatureContext& feature);
 
 } // namespace playground
 
 ASTRAL_REFLECT(playground::JumpPad, speed)
 ASTRAL_REFLECT(playground::Dropper, interval, timer)
+ASTRAL_REFLECT(playground::ContactStats, begin_count, pad_launches)

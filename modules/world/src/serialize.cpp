@@ -15,6 +15,70 @@ const TypeRegistry::Entry* TypeRegistry::find(std::string_view name) const noexc
     return nullptr;
 }
 
+bool TypeRegistry::prepare_schema(const Entry& entry, const Json& input, Json& out, const LoadContext& ctx) {
+    if (!input.is_object()) {
+        out = input;
+        return true;
+    }
+    std::uint32_t doc_ver = 1;
+    if (const Json* sv = input.find("$schema_version")) {
+        const double num = sv->as_number(-1.0);
+        if (!sv->is_number() || num < 1.0 || num != static_cast<double>(static_cast<std::uint32_t>(num))) {
+            ctx.error("invalid $schema_version " + sv->dump());
+            return false;
+        }
+        doc_ver = static_cast<std::uint32_t>(num);
+    }
+    if (doc_ver > entry.schema_version) {
+        ctx.error("schema version " + std::to_string(doc_ver) + " is newer than supported version " +
+                  std::to_string(entry.schema_version));
+        return false;
+    }
+    out = input;
+    if (doc_ver < entry.schema_version) {
+        if (!entry.migrate) {
+            ctx.error("missing migration from schema version " + std::to_string(doc_ver) + " to " +
+                      std::to_string(entry.schema_version));
+            return false;
+        }
+        std::string err;
+        if (!entry.migrate(doc_ver, out, err)) {
+            ctx.error("migration v" + std::to_string(doc_ver) + "->v" + std::to_string(entry.schema_version) +
+                      " failed: " + (err.empty() ? "unknown error" : err));
+            return false;
+        }
+    }
+    return true;
+}
+
+Json TypeRegistry::stamp_schema(const Entry& entry, Json value) {
+    if (entry.schema_version > 1 && value.is_object()) {
+        value["$schema_version"] = static_cast<double>(entry.schema_version);
+    }
+    return value;
+}
+
+bool TypeRegistry::set_schema_version(std::string_view name, std::uint32_t version, Migration migrate) {
+    if (version == 0) return false;
+    for (Entry& e : entries_) {
+        if (e.name != name) continue;
+        e.schema_version = version;
+        e.migrate = std::move(migrate);
+        return true;
+    }
+    return false;
+}
+
+Json TypeRegistry::save_entry(const Entry& entry, World& world, Entity entity, const SaveContext& ctx) {
+    return stamp_schema(entry, entry.save(world, entity, ctx));
+}
+
+void TypeRegistry::load_entry(const Entry& entry, World& world, Entity entity, const Json& value, const LoadContext& ctx) {
+    Json prepared;
+    if (!prepare_schema(entry, value, prepared, ctx)) return;
+    entry.load(world, entity, prepared, ctx);
+}
+
 void register_world_types(TypeRegistry& types) {
     types.add<Name>();
     types.add<Transform>();
@@ -52,7 +116,7 @@ Json save_world(World& world, const TypeRegistry& types) {
         Json& components = record["components"];
         components = Json::object();
         for (const auto& t : types.entries()) { // registration order: stable output
-            if (t.has(world, saved[i])) components[t.name] = t.save(world, saved[i], ctx);
+            if (t.has(world, saved[i])) components[t.name] = TypeRegistry::save_entry(t, world, saved[i], ctx);
         }
         list.push_back(std::move(record));
     }
@@ -95,7 +159,7 @@ LoadResult load_world(World& world, const TypeRegistry& types, const Json& docum
                 c.error("unknown component (not registered)");
                 continue;
             }
-            t->load(world, entities[i], value, c);
+            TypeRegistry::load_entry(*t, world, entities[i], value, c);
         }
     }
     result.entities = std::move(entities);
@@ -103,12 +167,14 @@ LoadResult load_world(World& world, const TypeRegistry& types, const Json& docum
 }
 
 namespace {
-std::string live_ref(Entity e) { return "#" + std::to_string(e.index) + "." + std::to_string(e.generation); }
+std::string live_ref(WorldId world_id, Entity e) {
+    return "#w" + std::to_string(world_id) + ":" + std::to_string(e.index) + "." + std::to_string(e.generation);
+}
 } // namespace
 
 SaveContext live_save_context(World& world) {
     SaveContext ctx;
-    ctx.ref = [&world](Entity e) { return world.alive(e) ? Json(live_ref(e)) : Json(nullptr); };
+    ctx.ref = [&world](Entity e) { return world.alive(e) ? Json(live_ref(world.id(), e)) : Json(nullptr); };
     return ctx;
 }
 
@@ -117,11 +183,26 @@ LoadContext live_load_context(World& world, std::vector<std::string>* errors, st
     ctx.errors = errors;
     ctx.path = std::move(path);
     ctx.resolve = [&world](const Json& j, Entity& out) {
+        if (!j.is_string()) return false;
         const std::string& s = j.as_string();
-        const std::size_t dot = s.find('.');
-        if (!j.is_string() || s.size() < 4 || s[0] != '#' || dot == std::string::npos) return false;
+        if (s.size() < 4 || s[0] != '#') return false;
+        std::size_t pos = 1;
+        if (s[1] == 'w') {
+            const std::size_t colon = s.find(':', 2);
+            if (colon == std::string::npos || colon <= 2) return false;
+            try {
+                const WorldId ref_world = static_cast<WorldId>(std::stoull(s.substr(2, colon - 2)));
+                if (ref_world != world.id()) return false;
+            } catch (...) {
+                return false;
+            }
+            pos = colon + 1;
+        }
+        const std::size_t dot = s.find('.', pos);
+        if (dot == std::string::npos || dot <= pos) return false;
         try {
-            out = Entity{static_cast<std::uint32_t>(std::stoul(s.substr(1, dot - 1))), static_cast<std::uint32_t>(std::stoul(s.substr(dot + 1)))};
+            out = Entity{static_cast<std::uint32_t>(std::stoul(s.substr(pos, dot - pos))),
+                         static_cast<std::uint32_t>(std::stoul(s.substr(dot + 1)))};
         } catch (...) {
             return false;
         }
@@ -132,7 +213,7 @@ LoadContext live_load_context(World& world, std::vector<std::string>* errors, st
 
 Json component_to_json(World& world, const TypeRegistry::Entry& type, Entity entity) {
     if (!world.alive(entity) || !type.has(world, entity)) return nullptr;
-    return type.save(world, entity, live_save_context(world));
+    return TypeRegistry::save_entry(type, world, entity, live_save_context(world));
 }
 
 std::vector<std::string> component_from_json(World& world, const TypeRegistry::Entry& type, Entity entity, const Json& value) {
@@ -141,7 +222,7 @@ std::vector<std::string> component_from_json(World& world, const TypeRegistry::E
         errors.push_back("component_from_json: dead entity");
         return errors;
     }
-    type.load(world, entity, value, live_load_context(world, &errors, std::string(type.name)));
+    TypeRegistry::load_entry(type, world, entity, value, live_load_context(world, &errors, std::string(type.name)));
     return errors;
 }
 

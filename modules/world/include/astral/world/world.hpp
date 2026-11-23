@@ -30,6 +30,17 @@ template <class... Cs> class QueryView;
 /// world's change baseline. 32 bits: ~4 billion system runs before it wraps.
 using Tick = std::uint32_t;
 
+/// Unique runtime identity of a World instance (ADR-0034).
+using WorldId = std::uint64_t;
+
+/// Runtime entity handle paired with its owning World identity (detects cross-world misuse).
+struct WorldEntityRef {
+    WorldId world = 0;
+    Entity entity{};
+    [[nodiscard]] bool valid() const noexcept { return world != 0 && entity.valid(); }
+    friend bool operator==(const WorldEntityRef&, const WorldEntityRef&) = default;
+};
+
 /// Queue of events of one type, owned by the world as a resource (World::send / EventReader).
 /// Events live for two World::update_events() calls, so every system gets a chance to read them.
 template <class T> class Events {
@@ -108,6 +119,9 @@ public:
     World& operator=(const World&) = delete;
 
     // Entities ----------------------------------------------------------------------------
+    [[nodiscard]] WorldId id() const noexcept { return id_; }
+    [[nodiscard]] WorldEntityRef ref(Entity entity) const noexcept { return {id_, entity}; }
+    [[nodiscard]] bool owns(WorldEntityRef handle) const noexcept { return handle.world == id_ && alive(handle.entity); }
     Entity create();
     template <class... Cs> Entity create(Cs&&... components);
     EntityRef spawn();
@@ -248,6 +262,7 @@ private:
     Tick baseline_ = 0;
     std::vector<std::pair<ComponentId, void (*)(void*)>> event_updaters_;
     std::vector<std::shared_ptr<const void>> keep_alive_; // type data behind script-defined components
+    WorldId id_ = 0;
 };
 
 /// Builder over World::each with filters. Cheap to create; build it where you use it.

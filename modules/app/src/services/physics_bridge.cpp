@@ -15,35 +15,34 @@ namespace astral {
 
 namespace {
 
-/// What scripts may do with physics: the App's bodies and fields behind a narrow interface.
+/// What scripts may do with physics: routes queries and queued commands through PhysicsService.
 class AppScriptPhysics final : public ScriptPhysics {
 public:
-    AppScriptPhysics(World& world, PhysicsWorld& physics, const FieldWorld& fields, const Time& time)
-        : world_(world), physics_(physics), fields_(fields), time_(time) {}
+    AppScriptPhysics(World& world, PhysicsService& service, const FieldWorld& fields, const Time& time)
+        : world_(world), service_(service), fields_(fields), time_(time) {}
 
     std::optional<ScriptHit> raycast(Vec3 origin, Vec3 direction, float max_distance, std::uint32_t layers,
                                      Entity ignore) const override {
-        const auto hit = physics_.raycast(origin, direction, max_distance, {.layers = layers, .ignore = body_of(ignore)});
+        const auto hit = service_.raycast(origin, direction, max_distance, {.layers = layers, .ignore = body_of(ignore)});
         return hit ? std::optional<ScriptHit>(to_script(hit->user_data, hit->position, hit->normal, hit->distance, hit->surface))
                    : std::nullopt;
     }
     std::optional<ScriptHit> spherecast(Vec3 origin, float radius, Vec3 displacement, std::uint32_t layers,
                                         Entity ignore) const override {
-        const auto hit = physics_.shape_cast(ShapeDesc::sphere(radius), origin, {}, displacement,
-                                             {.layers = layers, .ignore = body_of(ignore)});
+        const auto hit = service_.spherecast(origin, radius, displacement, {.layers = layers, .ignore = body_of(ignore)});
         return hit ? std::optional<ScriptHit>(to_script(hit->user_data, hit->position, hit->normal, hit->distance, hit->surface))
                    : std::nullopt;
     }
     std::vector<Entity> overlap_sphere(Vec3 center, float radius, std::uint32_t layers) const override {
-        return entities(physics_.overlap(ShapeDesc::sphere(radius), center, {}, {.layers = layers}));
+        return entities(service_.overlap_sphere(center, radius, {.layers = layers}));
     }
     std::vector<Entity> overlap_box(Vec3 center, Vec3 half_extents, Quat rotation, std::uint32_t layers) const override {
-        return entities(physics_.overlap(ShapeDesc::box(half_extents), center, rotation, {.layers = layers}));
+        return entities(service_.overlap_box(center, half_extents, rotation, {.layers = layers}));
     }
-    void impulse(Entity body, Vec3 v) override { physics_.add_impulse(body_of(body), v); }
-    void force(Entity body, Vec3 v) override { physics_.add_force(body_of(body), v); }
-    void set_velocity(Entity body, Vec3 v) override { physics_.set_linear_velocity(body_of(body), v); }
-    Vec3 velocity(Entity body) const override { return physics_.linear_velocity(body_of(body)); }
+    void impulse(Entity body, Vec3 v) override { service_.add_impulse(body, v); }
+    void force(Entity body, Vec3 v) override { service_.add_force(body, v); }
+    void set_velocity(Entity body, Vec3 v) override { service_.set_linear_velocity(body, v); }
+    Vec3 velocity(Entity body) const override { return service_.linear_velocity(body); }
     Vec3 wind(Vec3 position) const override { return fields_.wind_at(position, time_.elapsed); }
     ScriptWater water(Vec3 position) const override {
         const WaterSample s = fields_.water_at(position, time_.elapsed);
@@ -52,7 +51,7 @@ public:
 
 private:
     BodyHandle body_of(Entity e) const {
-        const RigidBody* rb = e.valid() ? world_.get<const RigidBody>(e) : nullptr;
+        const RigidBody* rb = (e.valid() && world_.alive(e)) ? world_.get<const RigidBody>(e) : nullptr;
         return rb ? rb->handle : BodyHandle{};
     }
     static ScriptHit to_script(std::uint64_t user_data, Vec3 position, Vec3 normal, float distance, int surface) {
@@ -60,12 +59,13 @@ private:
     }
     static std::vector<Entity> entities(const std::vector<OverlapHit>& hits) {
         std::vector<Entity> out;
+        out.reserve(hits.size());
         for (const OverlapHit& h : hits) out.push_back(entity_from_user_data(h.user_data));
         return out;
     }
 
     World& world_;
-    PhysicsWorld& physics_;
+    PhysicsService& service_;
     const FieldWorld& fields_;
     const Time& time_;
 };
@@ -74,6 +74,10 @@ Quat nlerp_shortest(Quat from, Quat to, float alpha) {
     const float sign = (from.x * to.x + from.y * to.y + from.z * to.z + from.w * to.w) < 0 ? -1.0f : 1.0f;
     return normalize(Quat{from.x + (to.x * sign - from.x) * alpha, from.y + (to.y * sign - from.y) * alpha,
                           from.z + (to.z * sign - from.z) * alpha, from.w + (to.w * sign - from.w) * alpha});
+}
+
+std::uint64_t default_order_key(Entity e) noexcept {
+    return (static_cast<std::uint64_t>(e.index) << 32) | static_cast<std::uint64_t>(e.generation);
 }
 
 } // namespace
@@ -86,7 +90,7 @@ PhysicsBridge::PhysicsBridge(World& world, FieldWorld& fields, const Time& time,
       profiler_(profiler),
       config_(config),
       physics_(std::make_unique<PhysicsWorld>(PhysicsDesc{.logger = &log})),
-      script_physics_(std::make_unique<AppScriptPhysics>(world_, *physics_, fields_, time_)) {}
+      script_physics_(std::make_unique<AppScriptPhysics>(world_, *this, fields_, time_)) {}
 
 PhysicsBridge::~PhysicsBridge() {
     script_physics_.reset();
@@ -94,9 +98,90 @@ PhysicsBridge::~PhysicsBridge() {
 }
 
 std::span<const ContactEvent> PhysicsBridge::contacts() const noexcept {
-    // Inside FixedUpdate: the previous physics step (possibly last frame's final step);
-    // elsewhere: every step of this frame.
+    // Inside FixedUpdate: the previous completed physics step; elsewhere: every step of this frame.
     return in_fixed_update_ ? physics_->contacts() : std::span<const ContactEvent>(frame_contacts_);
+}
+
+PhysicsQueryState PhysicsBridge::query_state() const noexcept {
+    return {step_index_, sim_time_, in_fixed_update_};
+}
+
+BodyHandle PhysicsBridge::body_of(Entity e) const noexcept {
+    if (!e.valid() || !world_.alive(e)) return {};
+    const RigidBody* rb = world_.get<const RigidBody>(e);
+    if (!rb || !physics_->valid(rb->handle) || physics_->user_data(rb->handle) != to_user_data(e)) return {};
+    return rb->handle;
+}
+
+std::optional<RayHit> PhysicsBridge::raycast(Vec3 origin, Vec3 direction, float max_distance, QueryFilter filter) const {
+    return physics_->raycast(origin, direction, max_distance, filter);
+}
+
+std::optional<ShapeHit> PhysicsBridge::spherecast(Vec3 origin, float radius, Vec3 displacement, QueryFilter filter) const {
+    return physics_->shape_cast(ShapeDesc::sphere(radius), origin, {}, displacement, filter);
+}
+
+std::vector<OverlapHit> PhysicsBridge::overlap_sphere(Vec3 center, float radius, QueryFilter filter) const {
+    return physics_->overlap(ShapeDesc::sphere(radius), center, {}, filter);
+}
+
+std::vector<OverlapHit> PhysicsBridge::overlap_box(Vec3 center, Vec3 half_extents, Quat rotation, QueryFilter filter) const {
+    return physics_->overlap(ShapeDesc::box(half_extents), center, rotation, filter);
+}
+
+Vec3 PhysicsBridge::linear_velocity(Entity body) const {
+    const BodyHandle handle = body_of(body);
+    return handle.valid() ? physics_->linear_velocity(handle) : Vec3{};
+}
+
+void PhysicsBridge::enqueue(Entity body, CommandKind kind, Vec3 value, std::uint64_t order_key) {
+    if (!body.valid()) return;
+    const std::uint64_t key = order_key != 0 ? order_key : default_order_key(body);
+    std::scoped_lock lock(command_mutex_);
+    pending_commands_.push_back({key, next_command_seq_++, body, kind, value});
+}
+
+void PhysicsBridge::add_impulse(Entity body, Vec3 impulse, std::uint64_t order_key) {
+    enqueue(body, CommandKind::Impulse, impulse, order_key);
+}
+
+void PhysicsBridge::add_force(Entity body, Vec3 force, std::uint64_t order_key) {
+    enqueue(body, CommandKind::Force, force, order_key);
+}
+
+void PhysicsBridge::set_linear_velocity(Entity body, Vec3 velocity, std::uint64_t order_key) {
+    enqueue(body, CommandKind::SetLinearVelocity, velocity, order_key);
+}
+
+void PhysicsBridge::set_angular_velocity(Entity body, Vec3 velocity, std::uint64_t order_key) {
+    enqueue(body, CommandKind::SetAngularVelocity, velocity, order_key);
+}
+
+std::size_t PhysicsBridge::pending_command_count() const noexcept {
+    std::scoped_lock lock(command_mutex_);
+    return pending_commands_.size();
+}
+
+void PhysicsBridge::flush_commands() {
+    std::vector<QueuedCommand> batch;
+    {
+        std::scoped_lock lock(command_mutex_);
+        batch.swap(pending_commands_);
+    }
+    if (batch.empty()) return;
+    std::sort(batch.begin(), batch.end(), [](const QueuedCommand& a, const QueuedCommand& b) {
+        return a.order_key != b.order_key ? a.order_key < b.order_key : a.sequence < b.sequence;
+    });
+    for (const QueuedCommand& cmd : batch) {
+        const BodyHandle handle = body_of(cmd.entity);
+        if (!handle.valid()) continue; // dead entity or entity without a synced RigidBody
+        switch (cmd.kind) {
+        case CommandKind::Impulse: physics_->add_impulse(handle, cmd.value); break;
+        case CommandKind::Force: physics_->add_force(handle, cmd.value); break;
+        case CommandKind::SetLinearVelocity: physics_->set_linear_velocity(handle, cmd.value); break;
+        case CommandKind::SetAngularVelocity: physics_->set_angular_velocity(handle, cmd.value); break;
+        }
+    }
 }
 
 void PhysicsBridge::shift_origin(Vec3 offset) {
@@ -118,8 +203,6 @@ void PhysicsBridge::sync_bodies() {
         physics_->destroy(link.character);
         return true;
     });
-    // A component copied from another entity carries that entity's handle: only a body whose
-    // user data names *this* entity counts as its own.
     world_.each<RigidBody, const Transform>([&](Entity e, RigidBody& rb, const Transform& t) {
         if (physics_->valid(rb.handle) && physics_->user_data(rb.handle) == to_user_data(e)) return;
         BodyDesc body_desc = rb.desc;
@@ -129,8 +212,6 @@ void PhysicsBridge::sync_bodies() {
         rb.handle = physics_->create_body(body_desc);
         if (rb.handle.valid()) body_links_.push_back({e, rb.handle, t.position, t.rotation, t.position, t.rotation});
     });
-    // Joints: once both bodies exist. A joint whose entity or bodies are gone goes away (the physics world also drops the
-    // joints of destroyed bodies).
     std::erase_if(joint_links_, [&](const JointLink& link) {
         const Joint* j = world_.get<const Joint>(link.entity);
         if (j && j->handle == link.joint && physics_->valid(link.joint)) return false;
@@ -161,7 +242,6 @@ void PhysicsBridge::sync_bodies() {
     });
 }
 
-/// Rebuilds the fields from WindZone / WaterBody entities (their position is the box centre).
 void PhysicsBridge::update_fields() {
     fields_.clear_volumes();
     fields_.set_global_wind({});
@@ -198,29 +278,27 @@ void PhysicsBridge::update_characters(float fixed) {
     world_.each<CharacterController>([&](Entity e, CharacterController& cc) {
         if (physics_->user_data(cc.handle) != to_user_data(e)) return;
         physics_->update_character(cc.handle, cc.move, cc.jump, fixed, cc.jump_speed);
-        cc.jump = false; // one jump per press
+        cc.jump = false;
     });
 }
 
 void PhysicsBridge::snapshot_interpolation() {
-    for (BodyLink& link : body_links_) { // the pose this step starts from
+    for (BodyLink& link : body_links_) {
         link.step_position = physics_->position(link.body);
         link.step_rotation = physics_->rotation(link.body);
     }
 }
 
-/// AirDrag, Buoyant and Airfoil: forces from the fields on the bodies that have them.
 void PhysicsBridge::apply_field_forces(float dt) {
     const double now = time_.elapsed;
     const float gravity = length(physics_->gravity());
-    const auto body_of = [&](const RigidBody& rb) { return rb.desc.motion == MotionType::Dynamic && physics_->valid(rb.handle); };
-    // Water first: how much of each body is under, so air drag can fade out.
+    const auto body_of_rb = [&](const RigidBody& rb) { return rb.desc.motion == MotionType::Dynamic && physics_->valid(rb.handle); };
     world_.each<const RigidBody, const Buoyant>([&](const RigidBody& rb, const Buoyant& b) {
-        if (!body_of(rb)) return;
+        if (!body_of_rb(rb)) return;
         const Vec3 p = physics_->position(rb.handle);
         const Vec3 v = physics_->linear_velocity(rb.handle);
         const float height = std::max(b.height, 0.01f);
-        const WaterSample water = fields_.water_at({p.x, p.y - 0.5f * height, p.z}, now); // at the bottom of the body
+        const WaterSample water = fields_.water_at({p.x, p.y - 0.5f * height, p.z}, now);
         if (!water.inside) return;
         const float fraction = std::clamp(water.depth / height, 0.0f, 1.0f);
         const float mass = physics_->mass(rb.handle);
@@ -233,7 +311,7 @@ void PhysicsBridge::apply_field_forces(float dt) {
         physics_->set_angular_velocity(rb.handle, spin * std::max(0.0f, 1.0f - b.angular_drag * fraction * dt));
     });
     world_.each<const RigidBody, const AirDrag>([&](Entity e, const RigidBody& rb, const AirDrag& d) {
-        if (!body_of(rb)) return;
+        if (!body_of_rb(rb)) return;
         const Vec3 p = physics_->position(rb.handle);
         float in_air = 1.0f;
         if (const Buoyant* b = world_.get<const Buoyant>(e)) {
@@ -244,24 +322,23 @@ void PhysicsBridge::apply_field_forces(float dt) {
         physics_->add_force(rb.handle, relative * (0.5f * air_density * d.drag * d.area * length(relative) * in_air));
     });
     world_.each<const RigidBody, const Airfoil>([&](const RigidBody& rb, const Airfoil& wing) {
-        if (!body_of(rb)) return;
+        if (!body_of_rb(rb)) return;
         const Vec3 p = physics_->position(rb.handle);
         const Quat q = physics_->rotation(rb.handle);
-        const Vec3 flow = fields_.wind_at(p, now) - physics_->linear_velocity(rb.handle); // air moving past the wing
+        const Vec3 flow = fields_.wind_at(p, now) - physics_->linear_velocity(rb.handle);
         const float speed = length(flow);
         if (speed < 0.1f) return;
         const Vec3 forward = q * normalize(wing.forward), up = q * normalize(wing.up);
-        const float alpha = std::atan2(dot(flow, up), -dot(flow, forward)); // + when the air meets the underside
+        const float alpha = std::atan2(dot(flow, up), -dot(flow, forward));
         const float stall = std::max(wing.stall_angle, 0.01f);
         float coefficient = wing.lift_slope * std::clamp(alpha, -stall, stall);
         if (std::abs(alpha) > stall) coefficient *= std::clamp(1.0f - (std::abs(alpha) - stall) / stall, 0.0f, 1.0f);
         const Vec3 direction = flow / speed;
-        const Vec3 lift_axis = normalize(up - direction * dot(up, direction)); // perpendicular to the flow, on the lift side
+        const Vec3 lift_axis = normalize(up - direction * dot(up, direction));
         physics_->add_force(rb.handle, lift_axis * (0.5f * air_density * speed * speed * wing.area * coefficient));
     });
 }
 
-/// Physics contacts of this frame as events: collisions and triggers.
 void PhysicsBridge::emit_contact_events() {
     for (const ContactEvent& c : frame_contacts_) {
         const Entity a = c.user_data_a ? entity_from_user_data(c.user_data_a) : Entity{};
@@ -290,7 +367,7 @@ void PhysicsBridge::write_simulated_transforms(float blend) {
         t.rotation = physics_->rotation(rb.handle);
     });
     if (config_.interpolation) {
-        for (const BodyLink& link : body_links_) { // between the last two simulated poses
+        for (const BodyLink& link : body_links_) {
             Transform* t = world_.get<Transform>(link.entity);
             const RigidBody* rb = world_.get<RigidBody>(link.entity);
             if (!t || !rb || rb->desc.motion != MotionType::Dynamic || !physics_->valid(rb->handle)) continue;
@@ -307,16 +384,12 @@ void PhysicsBridge::write_simulated_transforms(float blend) {
     });
 }
 
-/// Fixed-rate physics: FixedUpdate systems, kinematic targets, characters, step; then the
-/// simulated poses go back into Transforms.
 void PhysicsBridge::step(float delta, FixedStepCallback on_fixed_update, void* user) {
     frame_contacts_.clear();
     sync_bodies();
     const float fixed = time_.fixed_delta;
     const std::uint32_t max_steps = std::max(config_.max_steps, 1u);
     accumulator_ += delta;
-    // Kinematic targets are spread over this frame's steps (a 30 FPS frame = 2 even moves,
-    // not one jump and one stop).
     const auto planned = static_cast<std::uint32_t>(std::min<float>(accumulator_ / fixed, static_cast<float>(max_steps)));
     std::uint32_t steps = 0;
     while (accumulator_ >= fixed && steps < max_steps) {
@@ -325,7 +398,8 @@ void PhysicsBridge::step(float delta, FixedStepCallback on_fixed_update, void* u
         if (on_fixed_update) on_fixed_update(user);
         in_fixed_update_ = false;
         world_.apply_commands();
-        sync_bodies(); // FixedUpdate systems may have spawned or removed bodies
+        sync_bodies();   // FixedUpdate systems may have spawned or removed bodies
+        flush_commands(); // Apply queued C++/Luau commands deterministically after body sync
         const float alpha = planned > 0 ? std::min(1.0f, static_cast<float>(steps + 1) / static_cast<float>(planned)) : 1.0f;
         move_kinematics(alpha, fixed);
         update_characters(fixed);
@@ -335,11 +409,13 @@ void PhysicsBridge::step(float delta, FixedStepCallback on_fixed_update, void* u
             ASTRAL_PROFILE_SCOPE(profiler_, "physics.step");
             physics_->step(fixed);
         }
+        ++step_index_;
+        sim_time_ += static_cast<double>(fixed);
         frame_contacts_.insert(frame_contacts_.end(), physics_->contacts().begin(), physics_->contacts().end());
         accumulator_ -= fixed;
         ++steps;
     }
-    if (steps == max_steps) accumulator_ = std::min(accumulator_, fixed); // drop the backlog
+    if (steps == max_steps) accumulator_ = std::min(accumulator_, fixed);
     if (steps > 0) {
         for (BodyLink& link : body_links_) {
             if (const Transform* t = world_.get<Transform>(link.entity)) {

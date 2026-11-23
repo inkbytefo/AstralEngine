@@ -88,6 +88,9 @@ DebugUi::DebugUi(Renderer& renderer) : renderer_(renderer) {
     io.IniFilename = nullptr; // no imgui.ini next to the game
     io.BackendRendererName = "astral";
     io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures | ImGuiBackendFlags_RendererHasVtxOffset;
+#ifdef ImGuiConfigFlags_DockingEnable
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+#endif
     const auto font = default_font_ttf();
     ImFontConfig config;
     config.FontDataOwnedByAtlas = false; // embedded in the binary

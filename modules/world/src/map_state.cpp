@@ -94,6 +94,65 @@ Json MapState::save_world_record(World& world, PrefabLibrary& prefabs, Entity e)
     return record;
 }
 
+MapState::KnownRecord& MapState::ensure_known(std::uint64_t id, CellKey cell) {
+    for (KnownRecord& k : known_) {
+        if (k.id == id) {
+            k.cell = cell;
+            return k;
+        }
+    }
+    return known_.emplace_back(KnownRecord{id, cell, 0});
+}
+
+void MapState::register_known(std::uint64_t id, CellKey cell) {
+    if (id != 0) (void)ensure_known(id, cell);
+}
+
+MapEntityLookup MapState::lookup(World& world, std::uint64_t id) const {
+    if (id == 0) return {};
+    MapEntityLookup out;
+    const KnownRecord* known = nullptr;
+    for (const KnownRecord& k : known_) {
+        if (k.id == id) {
+            known = &k;
+            out.cell = k.cell;
+            out.load_count = k.load_count;
+            break;
+        }
+    }
+    Entity live{};
+    CellKey live_cell{};
+    world.each<const CellMember>([&](Entity e, const CellMember& m) {
+        if (m.id == id) {
+            live = e;
+            live_cell = m.cell;
+        }
+    });
+    if (live.valid()) {
+        out.status = MapEntityStatus::Alive;
+        out.entity = live;
+        out.cell = live_cell;
+        return out;
+    }
+    for (const Remembered& r : remembered_) {
+        if (std::find(r.diff.removed.begin(), r.diff.removed.end(), id) != r.diff.removed.end()) {
+            out.status = MapEntityStatus::Destroyed;
+            out.cell = r.key;
+            return out;
+        }
+    }
+    for (const Loaded& l : loaded_) {
+        for (std::size_t i = 0; i < l.entities.size(); ++i) {
+            if (l.entities[i].id != id) continue;
+            out.cell = l.key;
+            out.status = l.spawned[i] ? MapEntityStatus::Destroyed : MapEntityStatus::Unloaded;
+            return out;
+        }
+    }
+    if (known) out.status = MapEntityStatus::Unloaded;
+    return out;
+}
+
 LoadResult MapState::spawn(World& world, PrefabLibrary& prefabs, Loaded& cell, std::size_t index) {
     const MapEntity& e = cell.entities[index];
     LoadResult r = load_scene(world, prefabs, scene_of(e.record));
@@ -109,6 +168,7 @@ LoadResult MapState::spawn(World& world, PrefabLibrary& prefabs, Loaded& cell, s
         world.add(root, CellMember{cell.key, e.id});
         cell.baseline[index] = save_world_record(world, prefabs, root);
         cell.spawned[index] = true;
+        ++ensure_known(e.id, cell.key).load_count;
     }
     return r;
 }
@@ -119,6 +179,7 @@ LoadResult MapState::spawn_cell(World& world, PrefabLibrary& prefabs, CellKey ce
     Loaded l{cell, {}, {}, {}};
     const CellDiff* d = diff(cell);
     for (const MapEntity& e : entities) {
+        register_known(e.id, cell);
         if (d && std::find(d->removed.begin(), d->removed.end(), e.id) != d->removed.end()) continue;
         MapEntity copy = e;
         if (d) {

@@ -101,6 +101,10 @@ MapLayers* WorldBridge::layers() noexcept { return is_open() ? map_->layers() : 
 
 const StreamingStats* WorldBridge::streaming() const noexcept { return is_open() ? map_->stats() : nullptr; }
 
+MapEntityLookup WorldBridge::resolve_map_entity(std::uint64_t id) const {
+    return is_open() ? map_->lookup(id) : MapEntityLookup{};
+}
+
 std::vector<Vec3> WorldBridge::streaming_sources() const {
     std::vector<Vec3> out;
     auto position_of = [&](Entity e) -> std::optional<Vec3> {

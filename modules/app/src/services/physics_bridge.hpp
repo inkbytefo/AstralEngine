@@ -1,5 +1,6 @@
 #pragma once
-// Internal to Astral::App: bridges RigidBody, CharacterController, Joint, fields and contacts to PhysicsWorld.
+// Internal to Astral::App: bridges RigidBody, CharacterController, Joint, fields, queued commands,
+// and contacts to PhysicsWorld (ADR-0029, ADR-0034).
 
 #include <astral/app/components.hpp>
 #include <astral/app/physics_service.hpp>
@@ -8,6 +9,8 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -35,12 +38,37 @@ public:
 
     [[nodiscard]] PhysicsWorld* world() noexcept { return physics_.get(); }
     [[nodiscard]] ScriptPhysics* script_physics() noexcept { return script_physics_.get(); }
+
+    // PhysicsService
     [[nodiscard]] std::span<const ContactEvent> contacts() const noexcept override;
+    [[nodiscard]] PhysicsQueryState query_state() const noexcept override;
+    [[nodiscard]] std::optional<RayHit> raycast(Vec3 origin, Vec3 direction, float max_distance,
+                                                QueryFilter filter = {}) const override;
+    [[nodiscard]] std::optional<ShapeHit> spherecast(Vec3 origin, float radius, Vec3 displacement,
+                                                     QueryFilter filter = {}) const override;
+    [[nodiscard]] std::vector<OverlapHit> overlap_sphere(Vec3 center, float radius,
+                                                         QueryFilter filter = {}) const override;
+    [[nodiscard]] std::vector<OverlapHit> overlap_box(Vec3 center, Vec3 half_extents, Quat rotation = {},
+                                                      QueryFilter filter = {}) const override;
+    [[nodiscard]] Vec3 linear_velocity(Entity body) const override;
+    void add_impulse(Entity body, Vec3 impulse, std::uint64_t order_key = 0) override;
+    void add_force(Entity body, Vec3 force, std::uint64_t order_key = 0) override;
+    void set_linear_velocity(Entity body, Vec3 velocity, std::uint64_t order_key = 0) override;
+    void set_angular_velocity(Entity body, Vec3 velocity, std::uint64_t order_key = 0) override;
+    [[nodiscard]] std::size_t pending_command_count() const noexcept override;
 
     void step(float delta, FixedStepCallback on_fixed_update = nullptr, void* user = nullptr);
     void shift_origin(Vec3 offset);
 
 private:
+    enum class CommandKind : std::uint8_t { Impulse, Force, SetLinearVelocity, SetAngularVelocity };
+    struct QueuedCommand {
+        std::uint64_t order_key = 0;
+        std::uint64_t sequence = 0;
+        Entity entity{};
+        CommandKind kind = CommandKind::Impulse;
+        Vec3 value{};
+    };
     struct BodyLink {
         Entity entity;
         BodyHandle body;
@@ -58,6 +86,9 @@ private:
         JointHandle joint;
     };
 
+    [[nodiscard]] BodyHandle body_of(Entity e) const noexcept;
+    void enqueue(Entity body, CommandKind kind, Vec3 value, std::uint64_t order_key);
+    void flush_commands();
     void sync_bodies();
     void update_fields();
     void move_kinematics(float alpha, float fixed);
@@ -75,10 +106,15 @@ private:
     std::unique_ptr<PhysicsWorld> physics_;
     std::unique_ptr<ScriptPhysics> script_physics_;
     float accumulator_ = 0.0f;
+    std::uint64_t step_index_ = 0;
+    double sim_time_ = 0.0;
     std::vector<ContactEvent> frame_contacts_;
     std::vector<BodyLink> body_links_;
     std::vector<CharacterLink> character_links_;
     std::vector<JointLink> joint_links_;
+    mutable std::mutex command_mutex_;
+    std::vector<QueuedCommand> pending_commands_;
+    std::uint64_t next_command_seq_ = 0;
     bool in_fixed_update_ = false;
 };
 

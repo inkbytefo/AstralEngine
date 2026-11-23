@@ -131,6 +131,7 @@ struct ThreadTickState {
 };
 
 thread_local ThreadTickState tls_tick_state{};
+std::atomic<WorldId> next_world_id{1};
 
 } // namespace
 
@@ -151,7 +152,7 @@ Tick World::change_baseline() const noexcept {
     return tls_tick_state.world == this ? tls_tick_state.baseline : baseline_;
 }
 
-World::World() { root_ = archetype_for({}); }
+World::World() : id_(next_world_id.fetch_add(1, std::memory_order_relaxed)) { root_ = archetype_for({}); }
 
 World::~World() {
     archetypes_.clear(); // destroys every component value

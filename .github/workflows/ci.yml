@@ -98,11 +98,13 @@ jobs:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $LINUX_DEPS
       - run: cmake --preset tsan
-      - run: cmake --build --preset tsan --target astral_core_tests astral_world_tests astral_physics_tests astral_script_tests
+      - run: cmake --build --preset tsan --target astral_core_tests astral_world_tests astral_physics_tests astral_script_tests astral_app_tests
       - run: ./build/tsan/modules/core/astral_core_tests
       - run: ./build/tsan/modules/world/astral_world_tests
       - run: ./build/tsan/modules/physics/astral_physics_tests
       - run: ./build/tsan/modules/script/astral_script_tests
+      - name: App parallel scheduler and headless services (TSan)
+        run: ./build/tsan/modules/app/astral_app_tests --source-file=*ecs_app_test.cpp,*frame_order_test.cpp,*physics_app_test.cpp,*world_app_test.cpp
 
   include-hygiene:
     name: linux-clang-include-hygiene

@@ -239,6 +239,9 @@ template <class T> bool from_json(const Json& j, T& v, const LoadContext& ctx) {
 /// Components that can be saved and loaded, by stable name.
 class TypeRegistry {
 public:
+    /// Upgrades a component JSON object from `from_version` to the entry's current `schema_version`.
+    using Migration = std::function<bool(std::uint32_t from_version, Json& value, std::string& error)>;
+
     struct Entry {
         std::string_view name;
         std::uint64_t id = 0; ///< stable_hash(name)
@@ -254,7 +257,15 @@ public:
         std::vector<FieldInfo> fields;
         /// Script-defined (add_dynamic): plain data, no C++ type behind it.
         bool dynamic = false;
+        /// Schema version for compatible loading & migrations (ADR-0034; 1 = implicit default).
+        std::uint32_t schema_version = 1;
+        Migration migrate;
     };
+
+    /// Validates and migrates component JSON against `entry.schema_version` before decoding.
+    [[nodiscard]] static bool prepare_schema(const Entry& entry, const Json& input, Json& out, const LoadContext& ctx);
+    /// Stamps `"$schema_version"` when `entry.schema_version > 1`.
+    [[nodiscard]] static Json stamp_schema(const Entry& entry, Json value);
 
     /// T must be ASTRAL_REFLECT'ed. Registering again is a no-op.
     template <class T> void add() {
@@ -275,8 +286,17 @@ public:
                 from_json(j, value, in);
                 return to_json(value, out);
             },
-            describe_fields<T>(), false});
+            describe_fields<T>(), false, 1, {}});
     }
+
+    /// Sets a component's schema version and optional migration hook (ADR-0034). False if unknown.
+    bool set_schema_version(std::string_view name, std::uint32_t version, Migration migrate = {});
+    template <class T> bool set_schema_version(std::uint32_t version, Migration migrate = {}) {
+        return set_schema_version(Reflect<T>::name, version, std::move(migrate));
+    }
+    /// Schema-aware component save/load helpers (respect `schema_version` and `migrate`).
+    [[nodiscard]] static Json save_entry(const Entry& entry, World& world, Entity entity, const SaveContext& ctx);
+    static void load_entry(const Entry& entry, World& world, Entity entity, const Json& value, const LoadContext& ctx);
 
     /// Defines a component from a schema at run time (plain data: Bool, Int, UInt, Float, Vec2..Quat,
     /// Entity; at most 256 bytes). It behaves like a reflected C++ one: scenes, saves and the inspector

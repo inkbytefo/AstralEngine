@@ -31,6 +31,8 @@ public:
     /// World position of local zero. Transform positions are relative to it; OriginShifted events tell
     /// when it moves (only while a map is open).
     [[nodiscard]] virtual WorldPosition world_origin() const noexcept = 0;
+    /// Resolves a persistent MapEntity::id against the open map (Unknown / Unloaded / Alive / Destroyed).
+    [[nodiscard]] virtual MapEntityLookup resolve_map_entity(std::uint64_t id) const = 0;
 
 protected:
     MapService() = default;

@@ -49,4 +49,42 @@ TEST_CASE("the lake floats the crates and sinks the stones; the bridge holds; th
     CHECK(app.context().physics->body_count() > 25);
     const Vec3 wind = app.context().fields.wind_at({0, 5, 0}, app.time().elapsed);
     CHECK(length(wind) > 1.0f);
+
+    // F1: Luau Contact & TriggerEntered listeners recorded real physics events in reflected state.
+    const Entity stats_entity = find_by_name(w, "playground_stats");
+    REQUIRE(stats_entity.valid());
+    const auto* stats = w.get<const playground::ContactStats>(stats_entity);
+    REQUIRE(stats != nullptr);
+    CHECK(stats->begin_count > 0);
+    CHECK(stats->pad_launches > 0);
+}
+
+TEST_CASE("physics_playground supports Luau queued forces and contact listening on dynamic bodies") {
+    struct ForceGame final : Game {
+        physics_playground::PlaygroundGame base;
+        Entity probe{};
+        void on_start(Context& ctx) override {
+            base.on_start(ctx);
+            probe = ctx.world.create(Name{"luau_force_probe"}, Transform{.position = {0, 20.0f, 0}},
+                                     RigidBody{.desc = {.shape = ShapeDesc::sphere(0.4f), .mass = 2.0f}});
+            REQUIRE(ctx.scripts->load("f1_force_rule.luau", R"(
+                astral.system {
+                    phase = "FixedUpdate",
+                    run = function()
+                        local e = astral.find("luau_force_probe")
+                        if e then
+                            astral.physics.force(e, vector.create(40, 0, 0))
+                        end
+                    end
+                }
+            )").empty());
+        }
+        void on_update(Context& ctx) override { base.on_update(ctx); }
+    } game;
+
+    App app({.headless = true, .fixed_timestep = 1.0f / 60.0f, .asset_root = ASTRAL_GAME_ASSETS, .hot_reload = false});
+    app.run_frames(game, 30);
+    CHECK(app.context().scripts->take_errors().empty());
+    CHECK(app.world().get<const Transform>(game.probe)->position.x > 0.5f);
+    CHECK(app.context().physics_service().linear_velocity(game.probe).x > 2.0f);
 }

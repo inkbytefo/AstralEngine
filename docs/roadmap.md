@@ -45,10 +45,10 @@ M14–M23 kimlikleri korunur. A0, M20'nin teslim planı, S1 M21'in teslim planı
 
 | Faz | Kapsam | Başlıca ön koşul | Durum |
 |---|---|---|---|
-| F0 | Doğrulama ve capability envanteri | Mevcut master | 🔜 |
-| F1 | Gameplay API ve fizik adım sözleşmesi | F0, M11–M12 | ⬜ |
-| E0 | Bağımsız AI destekli editör çekirdeği | F0, M8, F1 kimlik/şema sözleşmesi | ⬜ |
-| E1 | Dünya düzenleme ve Level Instance | E0, M9, F1. Arazi araçları M15 ile birleşir | ⬜ |
+| F0 | Doğrulama ve capability envanteri | Mevcut master | ✅ |
+| F1 | Gameplay API ve fizik adım sözleşmesi | F0, M11–M12 | ✅ |
+| E0 | Bağımsız AI destekli editör çekirdeği | F0, M8, F1 kimlik/şema sözleşmesi | ✅ |
+| E1 | Dünya düzenleme ve Level Instance | E0, M9, F1. Arazi araçları M15 ile birleşir | 🔜 |
 | P0 | Physics API v2 | F1, M12 | ⬜ |
 | M14 | Atmosfer, hacimsel VFX ve GPU partikülleri | F1, M10, M12–M13 | ⬜ |
 | M15 | Heightfield arazi ve streaming | F1, M9–M10, M12 | ⬜ |

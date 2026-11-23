@@ -1,0 +1,35 @@
+{
+  "format": "astral.scene",
+  "version": 1,
+  "entities": [
+    {
+      "id": 1,
+      "components": {
+        "astral::Name": {
+          "value": "Workshop Floor"
+        },
+        "astral::Transform": {
+          "position": [0, -0.25, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [14.5, 6.300000190734863, 17.950000762939453]
+        },
+        "astral::PrimitiveMesh": {
+          "shape": "Cube",
+          "material": {
+            "base_color": [0.32, 0.34, 0.38, 1],
+            "roughness": 0.75
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "prefab": "prefabs/lamp.prefab",
+      "components": {
+        "astral::Transform": {
+          "position": [-2, 0, 0]
+        }
+      }
+    }
+  ]
+}

@@ -216,7 +216,7 @@ Json save_selected(World& world, PrefabLibrary& prefabs, std::vector<Entity> sav
         } else { // a plain entity, or an instance not spawned yet: its own components in full
             Json components = Json::object();
             for (const auto& t : types.entries()) {
-                if (t.has(world, e)) components[t.name] = t.save(world, e, ctx);
+                if (t.has(world, e)) components[t.name] = TypeRegistry::save_entry(t, world, e, ctx);
             }
             if (!pi || components.size()) record["components"] = std::move(components);
         }

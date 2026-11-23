@@ -22,7 +22,8 @@ Alt katman her zaman doğrudan kullanılabilir kalır.
 ## Katmanlar
 
 ```
-Katman 3  │ app (Game + System + Context; + Astral::ImGui) — oyunlar buradan yazılır
+Katman 4  │ editor (bağımsız masaüstü çalışma alanı, Astral::ImGui) — oyun ve sunucu linklemez
+Katman 3  │ app (Game + System + Context; + Astral::ImGui) · editor_core (GPU'suz belge/transaction/AI)
 Katman 2  │ world (ECS) ← script (Luau) · physics (Jolt) · audio · render · assets (→ world, render)
 Katman 1  │ shader (.ashader / glslang) · gpu (Vulkan RHI) ← platform (pencere/input, SDL3)
 Katman 0  │ core (log, handle, clock, jobs, math)
@@ -43,6 +44,8 @@ CMake'te tanımlı doğrudan yönlü bağımlılık grafiği (`Astral::*` modül
 | `render` | 2 | `core`, `gpu`, `shader` |
 | `assets` | 2 | `core`, `world`, `render` |
 | `app` | 3 | `core`, `platform`, `gpu`, `world`, `script`, `render`, `assets`, `physics`, `audio` (+ üçüncü parti sarmalayıcı `Astral::ImGui`) |
+| `editor_core` | 3 | `core`, `world`, `assets` (GPU/pencere/ImGui bağımsız) |
+| `editor` | 4 | `core`, `world`, `assets`, `app`, `editor_core` (+ üçüncü parti sarmalayıcı `Astral::ImGui`; oyun/sunucu linklemez) |
 
 **Kural ve denetim:**
 - Bir modül yalnızca kendinden alttaki katmanlara (veya izin listesinde açıkça belirtilen aynı katmandaki ok yönüne) bağımlı olabilir; döngü yasaktır.

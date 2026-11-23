@@ -132,7 +132,7 @@ const TypeRegistry::Entry* TypeRegistry::add_dynamic(std::string_view name, std:
             make_value(j, in, buffer);
             return save_value(buffer.data(), out);
         },
-        type->fields, true});
+        type->fields, true, 1, {}});
     return &entries_.back();
 }
 

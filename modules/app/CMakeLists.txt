@@ -65,6 +65,7 @@ astral_add_tests(MODULE app
         tests/frame_order_test.cpp
         tests/services_test.cpp
         tests/physics_app_test.cpp
+        tests/physics_step_contract_test.cpp
         tests/ecs_app_test.cpp
         tests/assets_app_test.cpp
         tests/scene_app_test.cpp

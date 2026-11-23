@@ -60,6 +60,35 @@ struct SceneId {
     std::uint32_t value = 0;
 };
 
+/// Persistent document address of an entity inside a scene or prefab (ADR-0034):
+/// record_id alone ("2") for top-level records, or record_id + part_path ("2/5") inside a prefab instance.
+struct DocumentEntityId {
+    std::uint32_t record_id = 0;
+    std::string part_path;
+
+    [[nodiscard]] bool valid() const noexcept { return record_id != 0; }
+    [[nodiscard]] std::string to_string() const {
+        if (!valid()) return {};
+        return part_path.empty() ? std::to_string(record_id) : std::to_string(record_id) + "/" + part_path;
+    }
+    [[nodiscard]] static std::optional<DocumentEntityId> parse(std::string_view text) {
+        if (text.empty()) return std::nullopt;
+        const std::size_t slash = text.find('/');
+        const std::string_view head = slash == std::string_view::npos ? text : text.substr(0, slash);
+        if (head.empty()) return std::nullopt;
+        std::uint32_t id = 0;
+        for (char c : head) {
+            if (c < '0' || c > '9') return std::nullopt;
+            id = id * 10u + static_cast<std::uint32_t>(c - '0');
+        }
+        if (id == 0) return std::nullopt;
+        std::string tail = slash == std::string_view::npos ? std::string{} : std::string(text.substr(slash + 1));
+        if (slash != std::string_view::npos && tail.empty()) return std::nullopt;
+        return DocumentEntityId{id, std::move(tail)};
+    }
+    friend bool operator==(const DocumentEntityId&, const DocumentEntityId&) = default;
+};
+
 /// On an entity spawned from a prefab: its instance and its path inside the prefab ("3", "4/2").
 struct PrefabPart {
     Entity instance;

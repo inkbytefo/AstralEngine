@@ -133,6 +133,7 @@ struct ContextServices {
         MapLayers* world_layers() noexcept override { return bridge_.layers(); }
         const StreamingStats* world_streaming() const noexcept override { return bridge_.streaming(); }
         WorldPosition world_origin() const noexcept override { return bridge_.origin(); }
+        MapEntityLookup resolve_map_entity(std::uint64_t id) const override { return bridge_.resolve_map_entity(id); }
 
     private:
         WorldBridge& bridge_;
@@ -214,7 +215,8 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc.worker_threads
     m.prefabs = make_prefab_library(m.context->types, *m.assets);
     m.context->prefabs = m.prefabs.get();
 
-    m.dev_tools = std::make_unique<DevTools>(m.world, m.graphics.window.get(), m.graphics.renderer.get(), desc.debug_ui);
+    m.dev_tools = std::make_unique<DevTools>(m.world, m.graphics.window.get(), m.graphics.renderer.get(), desc.debug_ui,
+                                             desc.debug_ui_builtin_panels);
     m.context->profiler = &m.dev_tools->profiler();
     m.context->font = m.dev_tools->font();
 

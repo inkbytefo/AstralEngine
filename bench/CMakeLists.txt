@@ -9,6 +9,9 @@ target_link_libraries(astral_bench PRIVATE
     Astral::Render
     Astral::Assets
     Astral::App)
+if(WIN32)
+    target_link_libraries(astral_bench PRIVATE psapi)
+endif()
 astral_set_warnings(astral_bench)
 
 add_executable(astral_render_bench

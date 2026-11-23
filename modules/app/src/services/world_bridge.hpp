@@ -50,6 +50,7 @@ public:
     [[nodiscard]] MapLayers* layers() noexcept;
     [[nodiscard]] const StreamingStats* streaming() const noexcept;
     [[nodiscard]] WorldPosition origin() const noexcept { return origin_.origin(); }
+    [[nodiscard]] MapEntityLookup resolve_map_entity(std::uint64_t id) const;
 
     [[nodiscard]] std::vector<Vec3> streaming_sources() const;
     [[nodiscard]] std::optional<Vec3> begin_origin_shift(std::span<const Vec3> sources);
