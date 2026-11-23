@@ -45,26 +45,31 @@ RGTexture TaaPass::add(RenderGraph& graph, const FrameInputs& inputs, const GBuf
     const std::uint32_t prev = parity ^ 1u;
     const RGTexture taa_out = graph.import(history_[parity], "history.taa");
     const RGTexture taa_prev = graph.import(history_[prev], "history.taa.prev");
+    // Keep transparent surfaces out of the history, which only has opaque motion vectors.
+    const RGTexture composite = inputs.instances.transparent_draws.empty()
+                                    ? taa_out
+                                    : graph.create("taa.composite", {w, h, gpu::Format::RGBA16Float});
 
     const std::uint64_t frame_address = inputs.addresses.frame;
     const float blend = std::clamp(inputs.settings.taa_blend, 0.01f, 1.0f);
     const gpu::PipelineHandle pipeline = pipeline_;
     graph.add_pass(
         "taa",
-        [gbuffer, hdr, taa_prev, taa_out](PassBuilder& b) {
+        [gbuffer, hdr, taa_prev, taa_out, composite](PassBuilder& b) {
             read_gbuffer(b, gbuffer);
             b.read(hdr);
             b.read(taa_prev);
             b.write_storage(taa_out);
+            if (composite != taa_out) b.write_storage(composite);
         },
-        [pipeline, frame_address, gbuffer, hdr, taa_prev, taa_out, blend, w, h](PassContext& ctx) {
+        [pipeline, frame_address, gbuffer, hdr, taa_prev, taa_out, composite, blend, w, h](PassContext& ctx) {
             const TaaPush push{frame_address, bindless_gbuffer(ctx, gbuffer), ctx.bindless(hdr), ctx.bindless(taa_prev),
-                               ctx.bindless(taa_out), blend};
+                               ctx.bindless(taa_out), blend, ctx.bindless(composite)};
             ctx.cmd.bind_pipeline(pipeline);
             ctx.cmd.push_constants(&push, sizeof(push));
             ctx.cmd.dispatch((w + 7) / 8, (h + 7) / 8);
         });
-    return taa_out;
+    return composite;
 }
 
 } // namespace astral

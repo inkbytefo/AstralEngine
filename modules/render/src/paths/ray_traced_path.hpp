@@ -26,6 +26,7 @@ struct TemporalState {
     std::uint32_t prev_point_lights = 0;
     std::uint32_t prev_rect_lights = 0;
     bool prev_restir_active = false;
+    std::uint64_t path_tracer_scene_signature = 0;
 };
 
 struct RayTracedPathContext {
@@ -45,7 +46,7 @@ struct RayTracedPathContext {
 };
 
 /// Records a hybrid ray-traced frame (ADR-0011): gbuffer -> sdf -> ddgi -> rt.lighting -> denoise -> composite ->
-/// sky -> taa -> bloom -> tonemap -> transparent -> post -> debug -> ui.
+/// sky -> taa -> transparent -> bloom -> tonemap -> post -> debug -> ui.
 void render_ray_traced_path(RayTracedPathContext& ctx, gpu::CommandList& cmd, gpu::TextureHandle target,
                             const CameraData& camera, const RenderScene& scene, gpu::Extent2D extent);
 

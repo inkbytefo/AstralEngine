@@ -1050,7 +1050,7 @@ TEST_CASE("characterization: RenderStats and pass list for raster and ray-traced
             MESSAGE("no GPU timestamps — skipping raster pass list assertion");
         } else {
             const std::vector<std::string> expected{
-                "shadow", "gbuffer", "sdf", "lighting", "tonemap", "transparent", "debug.lines",
+                "shadow", "gbuffer", "sdf", "lighting", "transparent", "tonemap", "debug.lines",
             };
             CHECK(pass_names(*f.renderer) == expected);
         }
@@ -1109,10 +1109,10 @@ TEST_CASE("characterization: RenderStats and pass list for raster and ray-traced
             const std::vector<std::string> expected{
                 "gbuffer", "sdf", "ddgi.trace", "ddgi.update.irradiance", "ddgi.update.distance",
                 "rt.lighting", "denoise.temporal", "denoise.atrous", "denoise.atrous", "denoise.atrous",
-                "composite", "taa",
+                "composite", "taa", "transparent",
                 "bloom.down", "bloom.down", "bloom.down", "bloom.down", "bloom.down", "bloom.down",
                 "bloom.up", "bloom.up", "bloom.up", "bloom.up", "bloom.up",
-                "tonemap", "transparent", "debug.lines",
+                "tonemap", "debug.lines",
             };
             CHECK(pass_names(*f.renderer) == expected);
         }

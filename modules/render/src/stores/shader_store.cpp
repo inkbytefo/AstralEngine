@@ -56,7 +56,7 @@ ShaderHandle ShaderStore::create(const SurfaceShaderBuild& build, std::string_vi
         blended.forward = device_.create_graphics_pipeline({
             .vertex = {build.forward_vertex},
             .fragment = {build.forward_fragment},
-            .color_formats = {target_format_},
+            .color_formats = {gpu::Format::RGBA16Float},
             .depth = {.format = gpu::Format::D32Float, .test = true, .write = false, .compare = gpu::CompareOp::LessEqual},
             .cull = cull,
             .alpha_blend = !build.additive,

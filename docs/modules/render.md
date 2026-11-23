@@ -34,9 +34,9 @@ renderer.set_settings(s);   // çalışma anında; teknik/GI değişirse geçmi�
 ```
 TLAS build ─► gbuffer (+material_ext) ─► sdf ─► decals (varsa) ─► ddgi.trace ─► ddgi.update (×2)
           ─► restir.temporal ─► restir.spatial (3+ ışık) ─► rt.lighting ─► denoise.temporal
-          ─► denoise.atrous (×N) ─► composite ─► sky ─► taa ─► bloom ─► tonemap
+          ─► denoise.atrous (×N) ─► composite ─► sky ─► taa ─► şeffaf ─► bloom ─► tonemap
 ```
-`RenderSettings::path_tracer = true` iken hibrit geçişler yerine `path_tracer` (`RGBA32Float` ping-pong birikimli çok sekmeli NEE+MIS yansız yol izleyici) → `tonemap` → `post` → `ui` çalışır.
+`RenderSettings::path_tracer = true` iken hibrit geçişler yerine `path_tracer` (`RGBA32Float` ping-pong birikimli çok sekmeli NEE+MIS yansız yol izleyici) → şeffaf → bloom → `tonemap` → `post` → `ui` çalışır.
 
 | Pass | Ne yapar |
 |---|---|
@@ -156,9 +156,9 @@ Karar: [ADR-0022](../decisions/0022-shader-and-material-language.md). Dil: [shad
 | `Renderer::shader_error()` | Özel yüzeyler ışın izleme shader'larına giremediyse nedeni |
 
 **Çizim sırası:** opak mesh'ler shader'a göre gruplanır (raster G-buffer ve RT G-buffer geçişleri aynı
-mantık) → aydınlatma → **sky** (yalnız derinliği 1 olan piksellerde, HDR'a) → tonemap → **şeffaf** geçiş
+mantık) → aydınlatma → **sky** (yalnız derinliği 1 olan piksellerde, HDR'a) → **şeffaf** HDR geçiş
 (`blend_mix`/`blend_add`; arkadan öne sıralı, derinlik testli, ileri aydınlatma: güneş + nokta ışıklar + ortam;
-tonemap shader içinde) → **post** zinciri (ping-pong) → debug çizgileri → UI.
+RT yolunda TAA sonrasında, TAA geçmişinden ayrı) → tonemap → **post** zinciri (ping-pong) → debug çizgileri → UI.
 
 **Işın izleme tutarlılığı:** RT compute shader'ları (`rt_lighting`, `ddgi_trace`), her özel `surface()`
 fonksiyonu eklenmiş hâliyle çalışma anında yeniden derlenir (`compile_rt_variants`); özel shader yoksa
