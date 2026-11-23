@@ -1,6 +1,7 @@
 #include <astral/assets/cook.hpp>
 #include <astral/core/json.hpp>
 #include <astral/render/surface_shader.hpp>
+#include <astral/world/level_instance.hpp>
 #include <astral/world/map.hpp>
 
 #include "file_util.hpp"
@@ -197,6 +198,21 @@ std::optional<Json> read_cook_json(CookSession& s, const std::string& file) {
     return doc;
 }
 
+MapSource expand_world_for_cook(CookSession& s, const MapSource& raw) {
+    TypeRegistry types;
+    register_world_types(types);
+    std::unordered_map<std::string, Json> scene_cache;
+    const DocumentSource loader = [&](std::string_view rel) -> SourceDocument {
+        const std::string key(rel);
+        if (auto it = scene_cache.find(key); it != scene_cache.end()) return {&it->second, 1, {}};
+        auto doc = read_cook_json(s, key);
+        if (!doc) return {nullptr, 0, "cannot read " + key};
+        auto [ins, _] = scene_cache.emplace(key, std::move(*doc));
+        return {&ins->second, 1, {}};
+    };
+    return expand_map_level_instances(raw, types, loader);
+}
+
 void cook_one_world(CookSession& s, const std::string& rel) {
     const std::string stem = world_stem(rel);
     const std::string folder = stem + ".entities/";
@@ -225,7 +241,8 @@ void cook_one_world(CookSession& s, const std::string& rel) {
         if (auto doc = read_cook_json(s, f)) files.push_back({f, std::move(*doc)});
         else clean = false;
     }
-    const MapSource source = read_map_source(*map, files);
+    const MapSource raw_source = read_map_source(*map, files);
+    const MapSource source = expand_world_for_cook(s, raw_source);
     for (const std::string& e : source.errors) {
         s.error(e);
         clean = false;

@@ -220,6 +220,7 @@ void EditorWorkspace::draw_panels(Context& ctx) {
     draw_asset_browser(*this, ctx, desc_.asset_root);
     draw_hierarchy(*this);
     draw_inspector(*this, ctx);
+    draw_world_panel(ctx);
     draw_ai_panel(*this, ctx, prompt_input_, preview_mode_);
     draw_console_and_profiler(*this, ctx);
 }

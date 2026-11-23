@@ -124,7 +124,12 @@ MapSource read_map_source(const MapDesc& map, std::span<const EntityFile> files)
         for (const Json& l : file.document["layers"].as_array()) e.layers.push_back(l.as_string());
         e.always_loaded = file.document["always_loaded"].as_bool(false);
         const Json& p = record["components"]["astral::Transform"]["position"];
-        for (std::size_t i = 0; i < 3; ++i) e.position[i] = p[i].as_number(0.0);
+        if (p.is_array() && p.size() == 3) {
+            for (std::size_t i = 0; i < 3; ++i) e.position[i] = p[i].as_number(0.0);
+        } else if (const Json* li = record.find("level_instance"); li && li->is_object()) {
+            const Json& lp = (*li)["position"];
+            for (std::size_t i = 0; i < 3; ++i) e.position[i] = lp[i].as_number(0.0);
+        }
         out.entities.push_back(std::move(e));
     }
     std::sort(out.entities.begin(), out.entities.end(),

@@ -1,3 +1,4 @@
+#include <astral/world/level_instance.hpp>
 #include <astral/world/serialize.hpp>
 #include <astral/world/scene.hpp>
 
@@ -83,6 +84,7 @@ void register_world_types(TypeRegistry& types) {
     types.add<Name>();
     types.add<Transform>();
     types.add<Parent>();
+    register_level_instance_types(types);
 }
 
 Json save_world(World& world, const TypeRegistry& types) {

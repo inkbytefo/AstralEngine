@@ -4,6 +4,13 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+### Added (E1 — Dünya kompozisyonu ve Level Instance, ADR-0036)
+- `world`: `level_instance.hpp` / `level_instance.cpp` — `LevelInstanceMember`, `CrossCellRef`, `LevelInstancePlacement`, `LevelInstanceLimits`, deterministik `level_instance_entity_id()`, `make_level_instance_entity_file()` / `parse_level_instance_entity()`, `expand_level_instance()` / `expand_map_level_instances()`, `set_level_instance_override()`, `register_level_instance_types()`; yerleşim yapay entity parenting'i olmadan asset referans transform'u ile açılır, döngü/derinlik/entity sınırları teşhis edilir.
+- `assets` & `app`: `cook_one_world()` (`astral-cook`) ve `MapRuntime::open()` kaynak `.world` açılışında Level Instance'ları tutarlı biçimde genişleterek hücrelere böler.
+- `editor_core`: `WorldAuthoringSession` (`astral/editor/world_authoring.hpp`), `.world` + `<harita>.entities/<id>.ent` düzenleme, `IHeightSampler` / `FlatHeightSampler` (M15 arazi kancası), veri güdümlü `PlacementToolDef` (`Road`, `Building`, `Foliage`, `Rock`, `Prefab`, JSON ayrıştırma + spline yerleştirme), açık `edit_instance_override()` vs `edit_source_scene_in_context()`, `inspect_cells()` ve `cook_current_map()`.
+- `editor`: `EditorWorkspace::open_world_map()` / `reload_world_preview()` (WorldView önizlemesi oynanabilir `ctx.maps()` sahipliğinden ayrı) ve `World Authoring` ImGui paneli (cook hücreleri, veri katmanları, streaming ownership, floating origin, Level Instance override/edit-in-context, yerleştirme paleti).
+- Testler & ADR: `level_instance_test.cpp`, `world_authoring_test.cpp`, `examples/world_editor/tests/world_authoring_e1_test.cpp` (2×2 km harita, 2 bağımsız Level Instance, veri güdümlü yerleştirme, override vs edit-in-context hot-reload birleşimi, cook eşitliği, hücre unload/reload sonrasında `LevelInstanceMember` ve `CrossCellRef` korunumu); `docs/decisions/0036-world-authoring-and-level-instances.md`.
+
 ### Added (E0 — Bağımsız AI destekli masaüstü editör çekirdeği, ADR-0035)
 - `editor_core` (Katman 3, GPU/pencere/ImGui bağımsız): `EditorDocument`, `DocumentRevision`, atomik `LocalEditorFileSystem` / `IEditorFileSystem`, sürümlü keşfedilebilir `EditorCommand` kataloğu (`build_command_schema`), alan-düzeyi `diff_documents`, `EditorSession` (eski revizyon reddi, kısmi yazma/hata rollback, bayt-bayt undo/redo, `AuditLog` JSONL), `IAgentProvider`, `PrefabAssistantAgent`, geçici izole ECS `run_proposal_preview` ve `ProposalReview`.
 - `editor` (Katman 4): `EditorWorkspace` dockable masaüstü çalışma alanı (Dear ImGui `v1.92.9-docking` + `AppDesc::debug_ui_builtin_panels`), Asset Browser, Hierarchy, transactional Inspector, AI Assistant & Diff Review, Console & Profiler.

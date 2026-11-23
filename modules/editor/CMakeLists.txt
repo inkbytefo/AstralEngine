@@ -2,6 +2,7 @@ astral_add_module(NAME editor
     SOURCES
         src/workspace.cpp
         src/panels.cpp
+        src/world_panel.cpp
     DEPS
         Astral::Core
         Astral::World

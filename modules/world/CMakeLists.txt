@@ -10,6 +10,7 @@ astral_add_module(NAME world
         src/map.cpp
         src/streaming.cpp
         src/map_state.cpp
+        src/level_instance.cpp
         src/origin.cpp
     DEPS
         Astral::Core)
@@ -31,4 +32,5 @@ astral_add_tests(MODULE world
         tests/streaming_test.cpp
         tests/map_state_test.cpp
         tests/origin_test.cpp
-        tests/identity_schema_test.cpp)
+        tests/identity_schema_test.cpp
+        tests/level_instance_test.cpp)

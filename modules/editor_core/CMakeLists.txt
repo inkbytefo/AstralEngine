@@ -4,6 +4,7 @@ astral_add_module(NAME editor_core
         src/command.cpp
         src/transaction.cpp
         src/agent.cpp
+        src/world_authoring.cpp
     DEPS
         Astral::Core
         Astral::World
@@ -12,4 +13,5 @@ astral_add_module(NAME editor_core
 astral_add_tests(MODULE editor_core
     SOURCES
         ${CMAKE_SOURCE_DIR}/modules/core/tests/test_main.cpp
-        tests/editor_core_test.cpp)
+        tests/editor_core_test.cpp
+        tests/world_authoring_test.cpp)

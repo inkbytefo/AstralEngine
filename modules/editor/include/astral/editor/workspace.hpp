@@ -6,6 +6,7 @@
 #include <astral/editor/agent.hpp>
 #include <astral/editor/document.hpp>
 #include <astral/editor/transaction.hpp>
+#include <astral/editor/world_authoring.hpp>
 
 #include <filesystem>
 #include <memory>
@@ -20,8 +21,21 @@ struct EditorWorkspaceDesc {
     std::filesystem::path initial_document; ///< Optional scene/prefab relative to asset_root.
 };
 
+struct WorldAuthoringUiState {
+    std::vector<PlacementToolDef> tools;
+    std::size_t selected_tool = 0;
+    std::uint64_t selected_instance_id = 0;
+    double place_x = 0.0;
+    double place_z = 0.0;
+    std::string edit_local_path = "1";
+    std::string edit_component = "astral::Name";
+    std::string edit_field = "value";
+    std::string edit_value = "Renamed";
+};
+
 /// Standalone desktop editor Game host: dockable viewport, asset browser, hierarchy, reflection inspector
-/// backed by transactional document commands, AI proposal review with isolated ECS preview, console, and profiler.
+/// backed by transactional document commands, AI proposal review with isolated ECS preview, world authoring
+/// (`.world`, `.ent`, Level Instances, cook cells, layers, floating origin, placement tools), console, and profiler.
 class EditorWorkspace final : public Game {
 public:
     explicit EditorWorkspace(EditorWorkspaceDesc desc = {});
@@ -37,7 +51,9 @@ public:
 
     // Programmatic workflow API (shared by interactive UI and automated acceptance tests)
     bool open_document(Context& ctx, const std::filesystem::path& relative_or_full_path, std::string* error = nullptr);
+    bool open_world_map(Context& ctx, const std::filesystem::path& relative_or_full_path, std::string* error = nullptr);
     bool reload_live_scene(Context& ctx, std::string* error = nullptr);
+    bool reload_world_preview(Context& ctx, std::string* error = nullptr);
     bool request_ai_proposal(std::string prompt, std::string* error = nullptr);
     TransactionResult approve_proposal(Context& ctx);
     void reject_proposal(std::string_view reason = "rejected by user");
@@ -48,6 +64,9 @@ public:
     [[nodiscard]] const DocumentEntityId& selected_entity() const noexcept { return selected_; }
     [[nodiscard]] EditorSession* session() noexcept { return session_.get(); }
     [[nodiscard]] const EditorSession* session() const noexcept { return session_.get(); }
+    [[nodiscard]] WorldAuthoringSession* world_authoring() noexcept { return world_authoring_.get(); }
+    [[nodiscard]] const WorldAuthoringSession* world_authoring() const noexcept { return world_authoring_.get(); }
+    [[nodiscard]] const std::vector<PlacementToolDef>& placement_tools() const noexcept { return world_ui_.tools; }
     [[nodiscard]] ProposalReview* review() noexcept { return review_.get(); }
     [[nodiscard]] const ProposalReview* review() const noexcept { return review_.get(); }
     [[nodiscard]] const std::vector<std::string>& console_lines() const noexcept { return console_; }
@@ -61,12 +80,15 @@ private:
     void clear_scene_entities(World& world);
     void ensure_editor_camera(Context& ctx);
     void draw_panels(Context& ctx);
+    void draw_world_panel(Context& ctx);
 
     EditorWorkspaceDesc desc_;
     LocalEditorFileSystem fs_;
     std::unique_ptr<EditorSession> session_;
+    std::unique_ptr<WorldAuthoringSession> world_authoring_;
     std::unique_ptr<PrefabAssistantAgent> default_agent_;
     std::unique_ptr<ProposalReview> review_;
+    WorldAuthoringUiState world_ui_;
     DocumentEntityId selected_{};
     Entity camera_{};
     std::vector<std::filesystem::path> asset_files_;

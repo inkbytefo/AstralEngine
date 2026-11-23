@@ -3,6 +3,7 @@
 #include <astral/assets/asset_manager.hpp>
 #include <astral/core/jobs.hpp>
 #include <astral/core/log.hpp>
+#include <astral/world/level_instance.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -85,7 +86,9 @@ bool MapRuntime::open(std::string_view path, const std::filesystem::path& asset_
             }
             files.push_back({file.filename().string(), std::move(*entity)});
         }
-        const MapSource source = read_map_source(*map, files);
+        const MapSource raw_source = read_map_source(*map, files);
+        const MapSource source = expand_map_level_instances(
+            raw_source, prefabs_.types(), [&](std::string_view p) { return prefabs_.document(p); });
         for (const std::string& e : source.errors) log_.log(LogLevel::Error, "open_world " + std::string(path) + ": " + e);
         const CellAssignment assigned = assign_cells(*map, source.entities);
         for (const Cell& c : assigned.cells) {

@@ -43,6 +43,8 @@ void EditorWorkspace::ensure_editor_camera(Context& ctx) {
 void EditorWorkspace::on_start(Context& ctx) {
     ctx.show_debug_ui = true;
     session_ = std::make_unique<EditorSession>(fs_, ctx.types, desc_.asset_root);
+    world_authoring_ = std::make_unique<WorldAuthoringSession>(fs_, ctx.types, desc_.asset_root);
+    world_ui_.tools = default_placement_tools();
     review_ = std::make_unique<ProposalReview>(*session_);
     ensure_editor_camera(ctx);
     refresh_asset_list();
@@ -81,6 +83,7 @@ bool EditorWorkspace::open_document(Context& ctx, const std::filesystem::path& r
     }
     const std::filesystem::path full =
         relative_or_full_path.is_absolute() ? relative_or_full_path : (desc_.asset_root / relative_or_full_path);
+    if (full.extension() == ".world") return open_world_map(ctx, full, error);
     if (!session_->open(full, error)) return false;
     selected_ = {};
     preview_mode_ = false;
@@ -88,6 +91,66 @@ bool EditorWorkspace::open_document(Context& ctx, const std::filesystem::path& r
     push_console("opened " + full.string() + " (rev " + std::to_string(session_->document().revision.number) + ")");
     status_line_ = "Opened " + full.filename().string();
     return reload_live_scene(ctx, error);
+}
+
+bool EditorWorkspace::open_world_map(Context& ctx, const std::filesystem::path& relative_or_full_path, std::string* error) {
+    if (!world_authoring_) {
+        if (error) *error = "workspace not started";
+        return false;
+    }
+    const std::filesystem::path full =
+        relative_or_full_path.is_absolute() ? relative_or_full_path : (desc_.asset_root / relative_or_full_path);
+    if (!world_authoring_->open_map(full, error)) return false;
+    world_ui_.selected_instance_id = 0;
+    push_console("opened world map " + full.string() + " (" +
+                 std::to_string(world_authoring_->raw_entities().size()) + " source .ent files)");
+    status_line_ = "World: " + full.filename().string();
+    return reload_world_preview(ctx, error);
+}
+
+bool EditorWorkspace::reload_world_preview(Context& ctx, std::string* error) {
+    if (!world_authoring_ || !world_authoring_->is_open()) {
+        if (error) *error = "no world map open";
+        return false;
+    }
+    // WorldView preview is strictly separated from playable map ownership (ctx.maps()).
+    clear_scene_entities(ctx.world);
+    std::vector<std::string> expand_errors;
+    const MapSource expanded = world_authoring_->build_expanded_source(&expand_errors);
+    for (const std::string& e : expand_errors) push_console("world warning: " + e);
+
+    Json preview_scene = Json::object();
+    preview_scene["format"] = "astral.scene";
+    preview_scene["version"] = 1.0;
+    Json entities = Json::array();
+    for (const MapEntity& me : expanded.entities) entities.push_back(me.record);
+    preview_scene["entities"] = std::move(entities);
+
+    std::unordered_map<std::string, Json> prefab_cache;
+    PrefabLibrary live_prefabs(ctx.types, [&](std::string_view rel_path) -> SourceDocument {
+        const std::string key(rel_path);
+        if (auto it = prefab_cache.find(key); it != prefab_cache.end()) return {&it->second, 1, {}};
+        std::string err;
+        auto text = fs_.read_text(desc_.asset_root / key, &err);
+        if (!text) return {nullptr, 0, err};
+        auto parsed = Json::parse(*text, &err);
+        if (!parsed) return {nullptr, 0, err};
+        auto [ins, _] = prefab_cache.emplace(key, std::move(*parsed));
+        return {&ins->second, 1, {}};
+    });
+    const LoadResult loaded = astral::load_scene(ctx.world, live_prefabs, preview_scene);
+    const WorldPosition origin = world_authoring_->preview_origin();
+    if (origin.x != 0.0 || origin.y != 0.0 || origin.z != 0.0) {
+        for (Entity e : loaded.entities) {
+            if (auto* tf = ctx.world.get<Transform>(e); tf && !ctx.world.has<Parent>(e)) {
+                tf->position.x -= static_cast<float>(origin.x);
+                tf->position.y -= static_cast<float>(origin.y);
+                tf->position.z -= static_cast<float>(origin.z);
+            }
+        }
+    }
+    push_console("reloaded world preview (" + std::to_string(loaded.entities.size()) + " entities)");
+    return true;
 }
 
 bool EditorWorkspace::reload_live_scene(Context& ctx, std::string* error) {
