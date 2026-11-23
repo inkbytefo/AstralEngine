@@ -175,7 +175,8 @@ struct AssetManager::Impl {
     }
 
     static bool same_bindings(const Model& before, const Model& after) {
-        if (before.nodes.size() != after.nodes.size() || before.roots != after.roots) return false;
+        if (before.nodes.size() != after.nodes.size() || before.roots != after.roots ||
+            before.material_slots != after.material_slots) return false;
         for (std::size_t i = 0; i < before.nodes.size(); ++i) {
             const Model::Node& a = before.nodes[i];
             const Model::Node& b = after.nodes[i];
@@ -237,6 +238,7 @@ struct AssetManager::Impl {
 
         auto model = std::make_unique<Model>();
         model->roots = data.roots;
+        for (const ModelMaterial& material : data.materials) model->material_slots.push_back(material.name);
         for (const ModelNode& n : data.nodes) {
             Model::Node node{n.name, n.translation, n.rotation, n.scale, {}, n.children};
             for (std::uint32_t p : n.primitives) {

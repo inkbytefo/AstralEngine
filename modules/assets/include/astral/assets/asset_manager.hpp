@@ -53,6 +53,7 @@ struct Model {
         std::vector<std::uint32_t> children;
     };
     std::vector<Node> nodes;
+    std::vector<std::string> material_slots; ///< Source material names, in glTF material order.
     std::vector<std::uint32_t> roots;
     /// Increments when a reload changed the node tree (entities spawned from the old one are stale).
     /// Reloads that keep the structure update meshes/materials/textures in place: version unchanged.
@@ -118,10 +119,18 @@ private:
 
 /// Component: "this entity shows this model". The App loads it and spawns one child entity per node
 /// piece under the entity (respawning if a reload changed the node tree). Serializable.
+struct ModelMaterialOverride {
+    std::string slot; ///< Exact, unique source material name.
+    std::string material_file;
+    bool operator==(const ModelMaterialOverride&) const = default;
+};
+
 struct ModelRef {
     std::string path; ///< Relative to the asset root.
+    std::vector<ModelMaterialOverride> material_overrides{};
 };
 
 } // namespace astral
 
-ASTRAL_REFLECT(astral::ModelRef, path)
+ASTRAL_REFLECT(astral::ModelMaterialOverride, slot, material_file)
+ASTRAL_REFLECT(astral::ModelRef, path, material_overrides)
