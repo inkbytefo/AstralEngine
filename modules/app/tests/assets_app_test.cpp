@@ -108,3 +108,43 @@ TEST_CASE("a saved model slot override is scoped to its owner and can be cleared
     } game;
     app.run_frames(game, 6);
 }
+
+TEST_CASE("glTF masked and blended materials build Vulkan shader variants") {
+    const auto dir = test::temp_dir("app_gltf_surface_features");
+    test::write_glb(dir, "mask", {.child_node = false, .alpha_mode = "MASK", .alpha = 0.2f,
+                                .gltf_sampler = true, .double_sided = true});
+    test::write_glb(dir, "blend", {.child_node = false, .alpha_mode = "BLEND", .alpha = 0.5f});
+    const std::string root = dir.string();
+
+    struct G final : Game {
+        void on_start(Context& ctx) override {
+            for (const char* filename : {"mask.glb", "blend.glb"}) {
+                const AssetId id = ctx.assets->load_model(filename);
+                ctx.assets->wait_all();
+                const auto* model = ctx.assets->model(id);
+                REQUIRE(model);
+                const auto* material = ctx.renderer->material(model->nodes[0].pieces[0].material);
+                REQUIRE(material);
+                CHECK(material->shader.valid());
+                ctx.world.create(Transform{}, ModelRef{filename});
+            }
+            ctx.world.create(Transform{.position = {0, 1, 3}}, Camera{});
+        }
+    };
+    for (int mode = 0; mode < 3; ++mode) {
+        CAPTURE(mode);
+        App app({.width = 80, .height = 60,
+                 .render = {.ray_tracing = mode != 0, .gi = {.probes_x = 4, .probes_y = 4, .probes_z = 4},
+                            .path_tracer = mode == 2},
+                 .asset_root = root, .hot_reload = false, .offscreen = true});
+        if (!app.context().renderer) return;
+        if (mode != 0 && !app.context().renderer->ray_tracing()) continue;
+        G game;
+        app.run_frames(game, 4);
+        const auto error = app.context().renderer->shader_error();
+        CHECK_MESSAGE(error.empty(), error);
+        std::vector<std::uint8_t> rgba;
+        CHECK(app.read_frame(rgba));
+        if (mode == 2) CHECK(app.context().renderer->stats().path_tracer_samples > 0);
+    }
+}

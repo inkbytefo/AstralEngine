@@ -4,6 +4,8 @@
 #include <astral/render/renderer.hpp>
 
 #include "file_util.hpp"
+#include "imported_material.hpp"
+#include <astral/render/surface_shader.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -70,6 +72,13 @@ struct AssetManager::Impl {
     std::vector<std::unique_ptr<Pending>> pending;
     std::uint32_t reload_count = 0;
     std::chrono::steady_clock::time_point last_poll = std::chrono::steady_clock::now();
+
+    struct ImportedShader {
+        ShaderHandle handle;
+        ShaderSource source;
+        UniformLayout layout;
+    };
+    std::unordered_map<unsigned, ImportedShader> imported_shaders;
 
     std::unique_ptr<Pack> pack;
 
@@ -186,6 +195,42 @@ struct AssetManager::Impl {
         return true;
     }
 
+    void apply_imported_shader(const ModelMaterial& source, const std::vector<TextureHandle>& textures, MaterialDesc& desc_m) {
+        const auto key = detail::imported_surface_key(source);
+        if (!key) return;
+        auto [it, inserted] = imported_shaders.try_emplace(key);
+        ImportedShader& shader = it->second;
+        if (inserted) {
+            auto parsed = parse_ashader(detail::imported_surface_source(source));
+            if (parsed.errors.empty()) {
+                const auto build = compile_surface_shader(parsed.source, "glTF surface");
+                if (build.ok()) {
+                    shader.handle = desc.renderer->create_shader(build, "gltf.surface");
+                    shader.layout = build.layout;
+                    shader.source = std::move(parsed.source);
+                } else {
+                    for (const auto& error : build.errors) log_error("glTF surface shader: " + error.message);
+                }
+            } else {
+                for (const auto& error : parsed.errors) log_error("glTF surface shader: " + error.message);
+            }
+            if (!shader.handle.valid()) log_error("cannot create glTF surface shader");
+        }
+        if (!shader.handle.valid()) return;
+        desc_m.shader = shader.handle;
+        const auto values = detail::imported_surface_values(source);
+        desc_m.params = evaluate_uniforms(shader.source, shader.layout, values).params;
+        const auto images = detail::imported_surface_images(source);
+        for (std::size_t i = 0; i < shader.source.uniforms.size(); ++i) {
+            for (const auto& [name, index] : images) {
+                if (name != shader.source.uniforms[i].name || index < 0 ||
+                    static_cast<std::size_t>(index) >= textures.size()) continue;
+                desc_m.textures.push_back({shader.layout.offsets[i], textures[static_cast<std::size_t>(index)],
+                                           name == "normal_texture"});
+            }
+        }
+    }
+
     /// Main thread: data -> renderer resources -> Model. Reuses handles when the shapes allow it.
     void finish(Entry& e, ModelData& data) {
         Renderer* r = desc.renderer;
@@ -215,11 +260,12 @@ struct AssetManager::Impl {
             auto tex = [&](int i) { return i >= 0 && static_cast<std::size_t>(i) < textures.size() ? textures[static_cast<std::size_t>(i)] : TextureHandle{}; };
             for (std::size_t i = 0; i < data.materials.size(); ++i) {
                 const ModelMaterial& m = data.materials[i];
-                const MaterialDesc desc_m{.base_color = m.base_color, .roughness = m.roughness, .metallic = m.metallic,
+                MaterialDesc desc_m{.base_color = m.base_color, .roughness = m.roughness, .metallic = m.metallic,
                                           .emissive = m.emissive, .base_color_texture = tex(m.base_color_image),
                                           .metallic_roughness_texture = tex(m.metallic_roughness_image),
                                           .normal_texture = tex(m.normal_image), .emissive_texture = tex(m.emissive_image),
                                           .normal_scale = m.normal_scale};
+                apply_imported_shader(m, textures, desc_m);
                 if (keep_materials && r->update_material(e.materials[i], desc_m)) materials.push_back(e.materials[i]);
                 else materials.push_back(r->create_material(desc_m));
             }
@@ -318,6 +364,9 @@ AssetManager::~AssetManager() {
         if (m.desc.jobs) m.desc.jobs->wait(p->counter);
     }
     for (auto& [key, e] : m.entries) m.destroy_resources(e);
+    if (m.desc.renderer) {
+        for (auto& [key, shader] : m.imported_shaders) m.desc.renderer->destroy(shader.handle);
+    }
 }
 
 AssetId AssetManager::load_model(std::string_view relative_path) {

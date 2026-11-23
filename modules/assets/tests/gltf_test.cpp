@@ -139,3 +139,20 @@ TEST_CASE("embedded glTF material extraction writes reusable PBR assets without 
     CHECK(image->rgba[0] == 200);
     CHECK_FALSE(export_model_material(root, "quad.glb", 0, "materials/painted", &error));
 }
+
+TEST_CASE("glTF alpha sidedness occlusion and samplers survive cooking") {
+    const auto dir = test::temp_dir("gltf_surface_features");
+    const auto model = load_gltf(test::write_glb(dir, "mask", {.alpha_mode = "MASK", .alpha = 0.2f,
+                                                             .gltf_sampler = true, .double_sided = true}));
+    REQUIRE(model);
+    const auto cooked = read_cooked_model(write_cooked_model(*model));
+    REQUIRE(cooked);
+    const auto& mat = cooked->materials[0];
+    CHECK(mat.alpha_mode == ModelAlphaMode::Mask);
+    CHECK(mat.alpha_cutoff == doctest::Approx(0.6));
+    CHECK(mat.double_sided);
+    REQUIRE(mat.occlusion_image >= 0);
+    CHECK(mat.occlusion_strength == doctest::Approx(0.75));
+    CHECK(mat.samplers[0] == ModelSampler{0, 2, 4, false});
+    CHECK_FALSE(cooked->images[static_cast<std::size_t>(mat.occlusion_image)].image.srgb);
+}

@@ -37,7 +37,9 @@ std::string uniform_macros(const ShaderSource& source, const UniformLayout& layo
             const char* sampler = u.hints.filter == TextureFilter::Nearest || u.hints.filter == TextureFilter::NearestMipmap
                                       ? "ASTRAL_SAMPLER_NEAREST_CLAMP"
                                       : (u.hints.repeat ? "ASTRAL_SAMPLER_LINEAR_REPEAT" : "ASTRAL_SAMPLER_LINEAR_CLAMP");
-            value = "sampler2D(astral_textures[nonuniformEXT(astral_pu(" + o + "))], astral_samplers[" + sampler + "])";
+            const std::string image = "astral_textures[nonuniformEXT(astral_pu(" + o + "))]";
+            s += "#define astral_image_" + u.name + " " + image + "\n";
+            value = "sampler2D(" + image + ", astral_samplers[" + sampler + "])";
             break;
         }
         }
@@ -48,7 +50,10 @@ std::string uniform_macros(const ShaderSource& source, const UniformLayout& layo
 
 std::string wrap_body(const ShaderSource& source, const UniformLayout& layout, const std::string& body) {
     std::string undefs;
-    for (const ShaderUniform& u : source.uniforms) undefs += "#undef " + u.name + "\n";
+    for (const ShaderUniform& u : source.uniforms) {
+        undefs += "#undef " + u.name + "\n";
+        if (u.type == UniformType::Sampler2D) undefs += "#undef astral_image_" + u.name + "\n";
+    }
     return uniform_macros(source, layout) + "#line 1\n" + body + "\n#line 100000\n" + undefs;
 }
 

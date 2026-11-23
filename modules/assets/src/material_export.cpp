@@ -4,6 +4,7 @@
 #include <astral/core/json.hpp>
 
 #include "file_util.hpp"
+#include "imported_material.hpp"
 
 #include <cstdint>
 #include <span>
@@ -71,21 +72,25 @@ std::optional<std::string> export_model_material(const std::filesystem::path& as
     Json data = Json::object();
     data["format"] = "astral.material";
     data["version"] = 1;
-    data["type"] = "pbr";
-    Json& values = data["values"];
-    const auto c = material.base_color;
-    const auto e = material.emissive;
-    values["base_color"] = Json::array({c.x, c.y, c.z, c.w});
-    values["emissive"] = Json::array({e.x, e.y, e.z});
-    values["roughness"] = material.roughness;
-    values["metallic"] = material.metallic;
-    values["normal_scale"] = material.normal_scale;
-    const std::pair<std::string_view, int> images[] = {
-        {"base_color_texture", material.base_color_image},
-        {"metallic_roughness_texture", material.metallic_roughness_image},
-        {"normal_texture", material.normal_image},
-        {"emissive_texture", material.emissive_image},
-    };
+    Json values = Json::object();
+    if (detail::imported_surface_key(material)) {
+        const auto shader_file = output_folder / "surface.ashader";
+        const auto shader = detail::imported_surface_source(material);
+        const auto shader_bytes = std::span(reinterpret_cast<const std::uint8_t*>(shader.data()), shader.size());
+        if (!detail::write_file(asset_root / shader_file, shader_bytes, &load_error)) return rollback(load_error);
+        data["shader"] = shader_file.generic_string();
+        for (const auto& [name, value] : detail::imported_surface_values(material).values) values[name] = value;
+    } else {
+        data["type"] = "pbr";
+        const auto c = material.base_color;
+        const auto e = material.emissive;
+        values["base_color"] = Json::array({c.x, c.y, c.z, c.w});
+        values["emissive"] = Json::array({e.x, e.y, e.z});
+        values["roughness"] = material.roughness;
+        values["metallic"] = material.metallic;
+        values["normal_scale"] = material.normal_scale;
+    }
+    const auto images = detail::imported_surface_images(material);
     for (const auto& [name, index] : images) {
         if (index < 0) continue;
         const auto pixels = tga(model->images[static_cast<std::size_t>(index)].image);
@@ -95,6 +100,7 @@ std::optional<std::string> export_model_material(const std::filesystem::path& as
         }
         values[name] = (output_folder / filename).generic_string();
     }
+    data["values"] = std::move(values);
     const std::string text = data.dump(2);
     const auto bytes = std::span(reinterpret_cast<const std::uint8_t*>(text.data()), text.size());
     if (!detail::write_file(output / "surface.material", bytes, &load_error)) return rollback(load_error);

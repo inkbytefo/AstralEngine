@@ -180,6 +180,18 @@ struct Loader {
         return alternate;
     }
 
+    ModelSampler texture_sampler(const Json& info) const {
+        const Json& texture = doc["textures"][static_cast<std::size_t>(info["index"].as_number(-1))];
+        const Json& sampler = doc["samplers"][static_cast<std::size_t>(texture["sampler"].as_number(-1))];
+        const auto wrap = [](double value) -> std::uint8_t {
+            return value == 33071 ? 0u : value == 33648 ? 2u : 1u;
+        };
+        const auto min = sampler["minFilter"].as_number(9987);
+        const auto filter = min == 9728 ? 0 : min == 9729 ? 1 : min == 9984 ? 2 : min == 9985 ? 3 : min == 9986 ? 4 : 5;
+        return {wrap(sampler["wrapS"].as_number()), wrap(sampler["wrapT"].as_number()),
+                static_cast<std::uint8_t>(filter), sampler["magFilter"].as_number(9729) != 9728};
+    }
+
     void load_materials() {
         image_count = doc["images"].size();
         image_srgb.assign(image_count, -1);
@@ -206,7 +218,16 @@ struct Loader {
                 mat.emissive = Vec3{static_cast<float>(e[0].as_number()), static_cast<float>(e[1].as_number()),
                                     static_cast<float>(e[2].as_number())} * strength;
             }
-            if (m["alphaMode"].as_string() == "BLEND") model.warnings.push_back("alpha blending is not supported (" + mat.name + ")");
+            const auto alpha = m["alphaMode"].as_string();
+            if (alpha == "MASK") mat.alpha_mode = ModelAlphaMode::Mask;
+            else if (alpha == "BLEND") mat.alpha_mode = ModelAlphaMode::Blend;
+            mat.alpha_cutoff = static_cast<float>(m["alphaCutoff"].as_number(0.5));
+            mat.double_sided = m["doubleSided"].as_bool();
+            mat.occlusion_image = texture_image(m["occlusionTexture"], false);
+            mat.occlusion_strength = static_cast<float>(m["occlusionTexture"]["strength"].as_number(1.0));
+            mat.samplers = {texture_sampler(pbr["baseColorTexture"]), texture_sampler(pbr["metallicRoughnessTexture"]),
+                            texture_sampler(m["normalTexture"]), texture_sampler(m["emissiveTexture"]),
+                            texture_sampler(m["occlusionTexture"])};
             model.materials.push_back(std::move(mat));
         }
     }
