@@ -1,8 +1,10 @@
 #version 460
 #include <astral/primary.glsl>
-// Temporal accumulation of the noisy diffuse and specular signals (SVGF-style): reproject using
-// per-object motion vectors, validate normal and previous-camera distance (immune to camera translation),
-// and accumulate exponential moving averages plus the first two luminance moments of each signal.
+// Temporal accumulation of noisy diffuse and specular signals (SVGF-style):
+//   - Diffuse reprojects using primary surface motion vectors, validated against prev_camera_position.
+//   - Specular reprojects independently using virtual reflection-hit depth along the unjittered view ray
+//     (Hirvonen / Stachowiak 2015, NVIDIA NRD), blended by surface roughness with world-space plane
+//     validation and variance-guided 3x3 neighborhood clamping to keep mirrors razor sharp during motion.
 layout(push_constant, scalar) uniform Push {
     FrameRef frame; GBufferIds g;
     uint geometry; uint prev_geometry;
@@ -16,60 +18,158 @@ layout(local_size_x = 8, local_size_y = 8) in;
 void main() {
     Frame f = pc.frame.f;
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-    if (pixel.x >= int(f.screen.x) || pixel.y >= int(f.screen.y)) return;
+    ivec2 size_i = ivec2(f.screen.xy);
+    if (pixel.x >= size_i.x || pixel.y >= size_i.y) return;
     vec4 geo = fetch_texel(pc.geometry, pixel);
     vec3 d = fetch_texel(pc.diffuse, pixel).rgb;
-    vec3 sp = fetch_texel(pc.specular, pixel).rgb;
-    if (geo.w < 0.0) { // sky
+    vec4 sp_raw = fetch_texel(pc.specular, pixel);
+    vec3 sp = sp_raw.rgb;
+    float spec_hit_t = sp_raw.a;
+    if (geo.w < 0.0) { // sky or unshaded
         imageStore(astral_storage_images[pc.out_diffuse], pixel, vec4(0));
         imageStore(astral_storage_images[pc.out_specular], pixel, vec4(0));
         imageStore(astral_storage_images[pc.out_moments], pixel, vec4(0));
         return;
     }
+    float roughness = fetch_texel(pc.g.albedo, pixel).a;
+    if (f.counts.y > 0u && fetch_texel(pc.g.sdf_depth, pixel).r < fetch_texel(pc.g.depth, pixel).r) {
+        roughness = fetch_texel(pc.g.sdf_albedo, pixel).a;
+    }
+    roughness = clamp(roughness, ASTRAL_MIN_ROUGHNESS, 1.0);
+
     vec3 world = f.camera_position.xyz + camera_ray(f, pixel) * geo.w;
-    // Compare prev_geometry.w (distance from previous camera) against expected distance from previous camera.
     float expected_prev_dist = length(f.prev_camera_position.xyz - world);
-    vec2 uv = (vec2(pixel) + 0.5) * f.screen.zw - primary_velocity(f, pc.g, pixel); // per-object motion
-    bool on_screen = all(greaterThanEqual(uv, vec2(0))) && all(lessThanEqual(uv, vec2(1)));
-    vec4 hist_d = vec4(0), hist_s = vec4(0), hist_m = vec4(0);
-    float history = 0.0;
-    if (f.rt_counts.z != 0u && on_screen) {
-        // Bilinear footprint, each tap validated against the previous geometry.
-        vec2 size = f.screen.xy;
-        vec2 pos = uv * size - 0.5;
+    vec2 uv_curr = (vec2(pixel) + 0.5) * f.screen.zw;
+    vec2 vel = primary_velocity(f, pc.g, pixel);
+    vec2 uv_surf = uv_curr - vel;
+    vec2 size = f.screen.xy;
+
+    // Decide virtual reflection-hit reprojection up front so rough surfaces reuse the surface tap loop at zero cost.
+    vec2 uv_spec = uv_surf;
+    bool use_virtual = false;
+    float parallax_w = 1.0 - smoothstep(ASTRAL_MIRROR_ROUGHNESS, 0.45, roughness);
+    if (parallax_w > 0.01 && spec_hit_t != 0.0) {
+        vec3 view_ray = unjittered_camera_ray(f, pixel);
+        // Per-object velocity delta (strictly 0 for static reflectors; immune to sub-pixel Halton jitter).
+        vec2 static_vel = compute_velocity(f.unjittered_view_projection * vec4(world, 1.0),
+                                           f.prev_view_projection * vec4(world, 1.0));
+        vec2 obj_delta = static_vel - vel;
+        vec3 virt_world = spec_hit_t > 0.0
+            ? f.camera_position.xyz + view_ray * (geo.w + spec_hit_t)
+            : f.camera_position.xyz + view_ray * 1e4;
+        vec2 uv_virt;
+        if (reproject(f, virt_world, uv_virt)) {
+            uv_spec = mix(uv_surf, uv_virt + obj_delta, parallax_w);
+            use_virtual = true;
+        }
+    }
+
+    // 1. Diffuse history via surface motion (and specular when !use_virtual, avoiding duplicate fetches on rough pixels).
+    vec4 hist_d = vec4(0), hist_s = vec4(0);
+    vec2 hist_md = vec2(0), hist_ms = vec2(0);
+    float history_d = 0.0, history_s = 0.0;
+    bool surf_on_screen = all(greaterThanEqual(uv_surf, vec2(0))) && all(lessThanEqual(uv_surf, vec2(1)));
+    if (f.rt_counts.z != 0u && surf_on_screen) {
+        vec2 pos = uv_surf * size - 0.5;
         ivec2 base = ivec2(floor(pos));
         vec2 fr = pos - vec2(base);
         float wsum = 0.0;
         for (int i = 0; i < 4; ++i) {
             ivec2 tap = base + ivec2(i & 1, i >> 1);
-            if (any(lessThan(tap, ivec2(0))) || any(greaterThanEqual(tap, ivec2(size)))) continue;
+            if (any(lessThan(tap, ivec2(0))) || any(greaterThanEqual(tap, size_i))) continue;
             vec4 pg = fetch_texel(pc.prev_geometry, tap);
             if (pg.w < 0.0) continue;
             float normal_ok = dot(pg.xyz, geo.xyz) > 0.9 ? 1.0 : 0.0;
             float depth_ok = abs(pg.w - expected_prev_dist) < 0.05 * expected_prev_dist + 0.02 ? 1.0 : 0.0;
-            float bw = (i & 1) == 1 ? fr.x : 1.0 - fr.x;
-            bw *= (i >> 1) == 1 ? fr.y : 1.0 - fr.y;
+            float bw = ((i & 1) == 1 ? fr.x : 1.0 - fr.x) * ((i >> 1) == 1 ? fr.y : 1.0 - fr.y);
             float w = bw * normal_ok * depth_ok;
             hist_d += fetch_texel(pc.prev_diffuse, tap) * w;
-            hist_s += fetch_texel(pc.prev_specular, tap) * w;
-            hist_m += fetch_texel(pc.prev_moments, tap) * w;
+            vec4 pm = fetch_texel(pc.prev_moments, tap);
+            hist_md += pm.xy * w;
+            if (!use_virtual) {
+                hist_s += fetch_texel(pc.prev_specular, tap) * w;
+                hist_ms += pm.zw * w;
+            }
             wsum += w;
         }
         if (wsum > 0.01) {
             hist_d /= wsum;
-            hist_s /= wsum;
-            hist_m /= wsum;
-            history = hist_d.a;
+            hist_md /= wsum;
+            history_d = hist_d.a;
+            if (!use_virtual) {
+                hist_s /= wsum;
+                hist_ms /= wsum;
+                history_s = hist_s.a;
+            }
         }
     }
-    history = min(history + 1.0, pc.max_history);
-    float alpha = 1.0 / history;
-    vec3 out_d = mix(hist_d.rgb, d, alpha);
-    vec3 out_s = mix(hist_s.rgb, sp, max(alpha, 0.08)); // specular reacts faster (view dependent)
+
+    // 2. Independent virtual-hit specular history (only for smooth/glossy pixels where virtual parallax is active).
+    bool spec_on_screen = all(greaterThanEqual(uv_spec, vec2(0))) && all(lessThanEqual(uv_spec, vec2(1)));
+    if (use_virtual && f.rt_counts.z != 0u && spec_on_screen) {
+        vec2 pos = uv_spec * size - 0.5;
+        ivec2 base = ivec2(floor(pos));
+        vec2 fr = pos - vec2(base);
+        float normal_thresh = roughness < 0.12 ? 0.92 : 0.85;
+        float wsum = 0.0;
+        for (int i = 0; i < 4; ++i) {
+            ivec2 tap = base + ivec2(i & 1, i >> 1);
+            if (any(lessThan(tap, ivec2(0))) || any(greaterThanEqual(tap, size_i))) continue;
+            vec4 pg = fetch_texel(pc.prev_geometry, tap);
+            if (pg.w < 0.0) continue;
+            float normal_ok = dot(pg.xyz, geo.xyz) > normal_thresh ? 1.0 : 0.0;
+            // World-space plane distance validates taps shifted across a flat reflector without false rejection.
+            vec2 tap_uv = (vec2(tap) + 0.5) * f.screen.zw;
+            vec3 prev_ray = normalize(reconstruct_prev_world(f, tap_uv, 1.0) - f.prev_camera_position.xyz);
+            vec3 prev_p = f.prev_camera_position.xyz + prev_ray * pg.w;
+            float plane_dist = abs(dot(prev_p - world, geo.xyz));
+            float geom_ok = plane_dist < 0.04 * geo.w + 0.025 ? 1.0 : 0.0;
+            float bw = ((i & 1) == 1 ? fr.x : 1.0 - fr.x) * ((i >> 1) == 1 ? fr.y : 1.0 - fr.y);
+            float w = bw * normal_ok * geom_ok;
+            hist_s += fetch_texel(pc.prev_specular, tap) * w;
+            hist_ms += fetch_texel(pc.prev_moments, tap).zw * w;
+            wsum += w;
+        }
+        if (wsum > 0.01) {
+            hist_s /= wsum;
+            hist_ms /= wsum;
+            history_s = hist_s.a;
+        }
+    }
+
+    // Variance-guided 3x3 neighborhood clamp on specular history (only needed on smooth/glossy reflectors).
+    if (use_virtual && history_s > 0.0) {
+        vec3 s_m1 = sp, s_m2 = sp * sp;
+        float s_cnt = 1.0;
+        for (int dy = -1; dy <= 1; ++dy) {
+            for (int dx = -1; dx <= 1; ++dx) {
+                if (dx == 0 && dy == 0) continue;
+                ivec2 q = clamp(pixel + ivec2(dx, dy), ivec2(0), size_i - 1);
+                vec4 qg = fetch_texel(pc.geometry, q);
+                if (qg.w < 0.0 || dot(qg.xyz, geo.xyz) < 0.85) continue;
+                vec3 qs = fetch_texel(pc.specular, q).rgb;
+                s_m1 += qs;
+                s_m2 += qs * qs;
+                s_cnt += 1.0;
+            }
+        }
+        vec3 s_mean = s_m1 / s_cnt;
+        vec3 s_sigma = sqrt(max(s_m2 / s_cnt - s_mean * s_mean, vec3(0.0)));
+        float clamp_k = mix(1.25, 3.5, clamp((roughness - ASTRAL_MIRROR_ROUGHNESS) / 0.35, 0.0, 1.0));
+        hist_s.rgb = clamp(hist_s.rgb, max(s_mean - clamp_k * s_sigma, vec3(0.0)), s_mean + clamp_k * s_sigma);
+    }
+
+    history_d = min(history_d + 1.0, pc.max_history);
+    history_s = min(history_s + 1.0, pc.max_history);
+    float alpha_d = 1.0 / history_d;
+    float spec_min_alpha = mix(0.20, 0.08, clamp((roughness - ASTRAL_MIRROR_ROUGHNESS) / 0.25, 0.0, 1.0));
+    float alpha_s = max(1.0 / history_s, spec_min_alpha);
+    vec3 out_d = mix(hist_d.rgb, d, alpha_d);
+    vec3 out_s = mix(hist_s.rgb, sp, alpha_s);
     float ld = astral_luminance(d), ls = astral_luminance(sp);
-    vec4 moments = vec4(ld, ld * ld, ls, ls * ls);
-    vec4 out_m = history <= 1.0 ? moments : mix(hist_m, moments, max(alpha, 0.2));
-    imageStore(astral_storage_images[pc.out_moments], pixel, out_m);
-    imageStore(astral_storage_images[pc.out_diffuse], pixel, vec4(out_d, history));
-    imageStore(astral_storage_images[pc.out_specular], pixel, vec4(out_s, history));
+    vec2 md = history_d <= 1.0 ? vec2(ld, ld * ld) : mix(hist_md, vec2(ld, ld * ld), max(alpha_d, 0.2));
+    vec2 ms = history_s <= 1.0 ? vec2(ls, ls * ls) : mix(hist_ms, vec2(ls, ls * ls), max(alpha_s, 0.2));
+    imageStore(astral_storage_images[pc.out_moments], pixel, vec4(md, ms));
+    imageStore(astral_storage_images[pc.out_diffuse], pixel, vec4(out_d, history_d));
+    imageStore(astral_storage_images[pc.out_specular], pixel, vec4(out_s, history_s));
 }

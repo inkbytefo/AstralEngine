@@ -1,9 +1,12 @@
 #version 460
 #include <astral/primary.glsl>
-// Per pixel: direct light with ray-traced visibility (sun cone, point bulbs, rect area lights with
-// MIS), near-field GI falling back to DDGI, and one Heitz VNDF reflection ray (unbiased demodulated).
+#include <astral/restir.glsl>
+// Per pixel: direct light with ray-traced visibility (sun cone; local point + rect lights via
+// spatiotemporal ReSTIR DI or direct/RIS), near-field GI falling back to DDGI, and one Heitz VNDF
+// reflection ray (unbiased demodulated) outputting hit distance in specular.a for virtual reprojection.
 layout(push_constant, scalar) uniform Push {
     FrameRef frame; uint64_t tlas; Instances instances; Materials materials; PointLights lights; RectLights rects; SdfShapes shapes;
+    Reservoirs reservoirs;
     GBufferIds g; uint irr; uint dist;
     uint out_diffuse; uint out_specular; uint out_geometry; float near_gi_radius;
 } pc;
@@ -16,7 +19,7 @@ void main() {
     if (pixel.x >= int(f.screen.x) || pixel.y >= int(f.screen.y)) return;
     Surface s;
     float depth;
-    if (!load_primary(f, pc.g, pixel, s, depth)) {
+    if (!load_primary(f, pc.g, pixel, s, depth) || s.unshaded) {
         imageStore(astral_storage_images[pc.out_diffuse], pixel, vec4(0));
         imageStore(astral_storage_images[pc.out_specular], pixel, vec4(0));
         imageStore(astral_storage_images[pc.out_geometry], pixel, vec4(0, 0, 0, -1));
@@ -31,6 +34,16 @@ void main() {
 
     vec3 diffuse, specular_direct;
     direct_light(f, li, s, v, true, seed, diffuse, specular_direct);
+    if ((f.counts.w & 1u) != 0u) {
+        Reservoir r = pc.reservoirs.data[uint(pixel.y) * uint(f.screen.x) + uint(pixel.x)];
+        if (r.W > 0.0 && r.light_id != RESTIR_EMPTY_LIGHT) {
+            vec3 rd, rsp;
+            if (restir_eval_sample(f, pc.lights, pc.rects, s, v, r.light_id, r.uv_packed, rd, rsp)) {
+                diffuse += rd * r.W;
+                specular_direct += rsp * r.W;
+            }
+        }
+    }
 
     // Pre-integrated specular reflectance: computed once and reused for diffuse kd and specular demodulation.
     vec3 f0 = mix(vec3(0.04), s.albedo, s.metallic);
@@ -83,6 +96,7 @@ void main() {
         }
     }
     vec3 reflected = vec3(0);
+    float spec_hit_t = 0.0; // >0: hit distance, -1: sky/infinite miss, 0: no reflection ray traced
     if (dot(s.n, l) > 0.0 && any(greaterThan(spec_weight, vec3(0.0)))) {
         TraceHit h = trace(pc.tlas, pc.shapes, sdf_count, origin, l, f.rt_params.w);
         float hit_t = h.hit ? h.t : 1e30;
@@ -95,6 +109,7 @@ void main() {
             if (t > 0.0 && t < rect_t) { rect_t = t; rect_idx = i; rect_radiance = r.radiance.rgb; }
         }
         if (rect_t < hit_t) {
+            spec_hit_t = min(rect_t, 60000.0);
             float w_mis = 1.0;
             if (!is_mirror) {
                 RectLight rl = pc.rects.data[rect_idx];
@@ -108,10 +123,12 @@ void main() {
             }
             reflected = rect_radiance * w_mis;
         } else if (h.hit) {
+            spec_hit_t = min(h.t, 60000.0);
             Surface hs = h.sdf ? sdf_surface(pc.shapes, sdf_count, origin, l, h.t)
                                : triangle_surface(pc.instances, pc.materials, h.instance, h.prim, h.bary, origin, l, h.t);
             reflected = hs.backface ? vec3(0) : shade_secondary(f, li, hs, -l, pc.irr, pc.dist, true, seed);
         } else {
+            spec_hit_t = -1.0;
             reflected = sky_radiance(f, l);
         }
         reflected *= spec_weight;
@@ -126,6 +143,6 @@ void main() {
     if (any(isnan(diffuse)) || any(isinf(diffuse))) diffuse = vec3(0);
     if (any(isnan(specular)) || any(isinf(specular))) specular = vec3(0);
     imageStore(astral_storage_images[pc.out_diffuse], pixel, vec4(diffuse, 1));
-    imageStore(astral_storage_images[pc.out_specular], pixel, vec4(specular, 1));
+    imageStore(astral_storage_images[pc.out_specular], pixel, vec4(specular, spec_hit_t));
     imageStore(astral_storage_images[pc.out_geometry], pixel, vec4(s.n, length(f.camera_position.xyz - s.p)));
 }

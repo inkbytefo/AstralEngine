@@ -96,11 +96,23 @@ Both headers were registered in `modules/render/CMakeLists.txt` (`ASTRAL_EMBEDDE
 
 ---
 
-## 4. Migration Notes & Known Limitations
+## 4. Migration Notes & Follow-Up Milestone Completed
 
-- **Golden Image Baselines (ADR-0031):** Fixing Bloom's 6× DC amplification (`F1`) and exact IEC sRGB encoding (`F3`) legitimately darkens scenes with bloom/shadows relative to pre-refactor references. Golden reference PNGs in `tests/golden/references/` must be regenerated on Linux Mesa lavapipe (`ASTRAL_UPDATE_GOLDEN=1 ctest -L '^golden$'`) — never overwritten with hardware GPU captures.
-- **Unchanged Known Limitations:**
-  - `render_mode unshaded` in `.ashader` is parsed but does not yet bypass deferred lighting (`hello_triangle`).
-  - Specular reflection reprojection uses surface motion rather than virtual reflection-hit depth.
-  - Custom `sky` passes test mesh `gbuffer.depth` only (not SDF depth).
-  - Single-frame RIS (`G3`) trades deterministic multi-light traversal for temporal stochasticity above 4 point / 2 rect lights; full spatiotemporal ReSTIR DI remains a future milestone.
+- **Golden Image Baselines (ADR-0031):** Fixing Bloom's 6× DC amplification (`F1`), exact IEC sRGB encoding (`F3`), and `render_mode unshaded` (`hello_triangle`) legitimately shifts affected scenes relative to pre-refactor references. Golden reference PNGs in `tests/golden/references/` must be regenerated on Linux Mesa lavapipe (`ASTRAL_UPDATE_GOLDEN=1 ctest -L '^golden$'`) — never overwritten with hardware GPU captures.
+
+### Milestone 2 — Deferred Audit Features Implemented & Validated
+
+1. **End-to-End `render_mode unshaded` (`surface_shader.cpp`, `primary.glsl`, `rt.glsl`, `lighting.comp`, `rt_lighting.comp`, `composite.comp`):**
+   - Opaque G-buffer encodes `emissive = vec4(ALBEDO + EMISSION, 2.0)` (preserving `albedo`, `normal`, and `velocity` for debug views & TAA, zero extra G-buffer textures); `lighting.comp` and `composite.comp` bypass PBR lighting directly; `rt_lighting.comp` and ReSTIR passes skip ray tracing and output `geometry.w = -1` so denoiser neighbors do not bleed black.
+   - Secondary RT hits (`rt_chunk` + `shade_secondary`) return `s.albedo + s.emissive` directly for mirrors and GI.
+   - Forward transparent (`blend_mix` / `blend_add` + `unshaded`) skips `astral_lit` and tonemaps `ALBEDO + EMISSION` directly.
+2. **Sky–SDF Depth Coherence (`sky_pass.{hpp,cpp}`, `surface_shader.cpp`, `raster_path.cpp`, `ray_traced_path.cpp`):**
+   - `SkyPass` passes `gbuffer.sdf_depth` via unused `ScreenPush::scene` (`no_texture` when `sdf_count == 0`); sky fragment shaders discard early whenever `f.counts.y > 0u && sd < 1.0`. Zero extra render passes and zero overhead when `sdf_count == 0`.
+3. **Virtual Reflection-Hit Specular Reprojection (`rt_lighting.comp`, `denoise_temporal.comp`, `denoise_atrous.comp`, `gpu_layouts.hpp`, `scene.glsl`):**
+   - `rt_lighting.comp` packs reflection hit distance `spec_hit_t` into unused `rt.specular.a`.
+   - Added `inv_prev_view_projection` to `GpuFrame`/`Frame` (608 B).
+   - `denoise_temporal.comp` computes virtual reflection world point along `unjittered_camera_ray`, blends surface and virtual-hit motion smoothly by roughness (fast-path merged with diffuse taps on rough surfaces), validates specular taps with world-space plane distance, tracks independent specular history in `history.specular.a`, and applies roughness-scaled 3×3 neighborhood variance clamping.
+4. **Spatiotemporal ReSTIR DI (`astral/restir.glsl`, `restir_di_temporal.comp`, `restir_di_spatial.comp`, `rt_lighting_pass.{hpp,cpp}`, `shader_store.{hpp,cpp}`, `ray_traced_path.{hpp,cpp}`, `renderer.{hpp,cpp}`):**
+   - Added `RenderSettings::restir_di` (default `true`, reflected), activating automatically when `point_lights + rect_lights > 2` (zero overhead for 0–2 local lights).
+   - 16-byte GPU `Reservoir` (`GpuReservoir`) ping-ponged via `reservoirs_[2]` (pre-spatial temporal history, eliminating spatial-temporal correlation lock-in) + `reservoir_temp_` (final shaded spatial output).
+   - Stratified $M_{\text{init}} = 24$ initial candidates + 1 initial visibility ray, temporal reuse ($M_{\max} = 20$, auto-invalidated on reset/resize/light-count change), and unbiased spatial reuse (3 disk neighbors, Algorithm 6 exact visibility-aware MIS $Z(y^*)$), preserving exact RectLight MIS with VNDF reflection rays and alpha-test RT variant support.

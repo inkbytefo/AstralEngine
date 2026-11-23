@@ -177,6 +177,8 @@ struct RenderSettings {
     /// Near-field ray-traced GI range: within it, one ray per pixel gathers the actual bounce light
     /// (contact shadows + colour bleeding); beyond it the probes take over. 0 = probes only.
     float near_gi_radius = 0.75f;
+    /// Spatiotemporal ReSTIR DI for multi-light scenes (> 2 local point/rect lights). False = single-frame RIS.
+    bool restir_di = true;
     DebugView debug_view = DebugView::None;
 };
 
@@ -276,4 +278,4 @@ ASTRAL_REFLECT(astral::MaterialDesc, base_color, roughness, metallic, emissive, 
 ASTRAL_REFLECT_ENUM(astral::DebugView, None, Albedo, Normals, DiffuseLight, Specular, Motion)
 ASTRAL_REFLECT(astral::GiSettings, probes_x, probes_y, probes_z, rays_per_probe, hysteresis, volume_min, volume_max)
 ASTRAL_REFLECT(astral::RenderSettings, shadow_map_size, ray_tracing, gi, denoise_iterations, max_history, taa_blend,
-               bloom_strength, max_ray_distance, near_gi_radius, debug_view)
+               bloom_strength, max_ray_distance, near_gi_radius, restir_di, debug_view)

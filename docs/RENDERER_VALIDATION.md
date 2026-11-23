@@ -9,10 +9,10 @@
 
 | Check / Suite | Result | Details |
 |---|---|---|
-| CMake Debug Build (`cmake --build --preset debug`) | **PASS** | Zero compiler warnings under MSVC `/WX`. |
-| SPIR-V Validation (`spirv-val --target-env vulkan1.3 --scalar-block-layout`) | **20 / 20 PASS** | Every compiled shader in `modules/render/shaders/` validated cleanly against Vulkan 1.3 + `scalarBlockLayout` (matching `device_init.cpp:246`). |
+| CMake Debug Build (`cmake --build --preset debug`) | **PASS** | All 166 targets build with zero compiler warnings under MSVC `/WX`. |
+| SPIR-V Validation (`spirv-val --target-env vulkan1.3 --scalar-block-layout`) | **22 / 22 PASS** | Every compiled shader in `modules/render/shaders/` (including `restir_di_temporal.comp` and `restir_di_spatial.comp`) validated cleanly against Vulkan 1.3 + `scalarBlockLayout`. |
 | Full Non-Golden CTest Suite (`ctest --preset debug -LE golden`) | **53 / 53 PASS** | Includes `shared_features_in_sync`, `code_size_check`, `layer_check`, `layer_check_self_test`, `astral_public_headers_clean`, `astral_core_tests`, `astral_shader_tests`, `astral_gpu_tests`, `astral_render_tests`, `astral_app_tests`, `astral_integration_tests`, `astral_benchmarks_smoke`, `astral_golden_tests`, and all example test/feature/script suites. |
-| `astral_render_tests` (with Vulkan Validation Layers via `TestDevice`) | **80 / 80 PASS** | Includes 11 new tests in `modules/render/tests/render_audit_test.cpp` (5 CPU math contract tests + 6 headless Vulkan GPU regression tests). Zero Vulkan validation errors. |
+| `astral_render_tests` (with Vulkan Validation Layers via `TestDevice`) | **86 / 86 PASS (2258 assertions)** | Includes 17 tests in `modules/render/tests/render_audit_test.cpp` (5 CPU math contract tests + 12 headless Vulkan GPU regression tests). Zero Vulkan validation errors. |
 | `golden-hw` Hardware Comparison (`ctest -L '^golden-hw$'`) | **5 / 12 PASS, 7 / 12 EXPECTED SHIFT** | Documented in Section 4 below (caused strictly by fixing Bloom's 6× DC energy bug and exact IEC sRGB encoding against pre-refactor lavapipe baselines; see ADR-0031). |
 
 ### New Audit Regression Tests (`modules/render/tests/render_audit_test.cpp`)
@@ -27,6 +27,12 @@
 9. `regression: alpha-tested .ashader lets ray-traced shadows pass through cut-out regions` — `UV.x > 0.5 ? 1.0 : 0.0` overhead card lets direct sun hit floor under cut-out half (`lit > shadowed + 40`).
 10. `regression: transparent forward PBR lighting matches opaque PBR units (no 1/PI darkening)` — `blend_mix` with `ALPHA = 1.0` matches opaque cube luminance within `<= 4/255`.
 11. `regression: RectLight MIS produces clean specular highlights on rough metals` — rough metallic floor (`r = 0.35, metallic = 1.0`) under `RectLight` produces clean specular highlight (`luma > 90`).
+12. `regression: render_mode unshaded opaque is lighting-invariant across raster and RT paths` — verifies opaque `unshaded` outputs identical `ALBEDO + EMISSION` under zero lights vs intense sun (`intensity = 12`) in both raster and RT paths (`diff <= 2/255`).
+13. `regression: render_mode unshaded + blend_mix forward surface is lighting-invariant` — verifies forward blended `unshaded` surface is lighting-invariant (`diff <= 1/255`).
+14. `regression: render_mode unshaded reflects its unlit ALBEDO in an RT mirror` — mirror floor in zero-light room reflects unshaded cyan quad cleanly (`G > 140, B > 150, R < 35`).
+15. `regression: custom sky shader respects SDF depth in both raster and RT paths` — bright magenta custom `shader_type sky` renders behind green SDF sphere without overwriting it in both raster and RT paths.
+16. `regression: ReSTIR DI matches unbiased RIS luminance and adapts to dynamic light changes` — 16 point + 3 rect lights verify unbiased luminance parity vs RIS and prompt red→green adaptation without `reset_history()`.
+17. `regression: virtual reflection-hit reprojection keeps moving mirror reflections sharp` — 16-frame strafing mirror reflection matches static ground truth (`RMSE < 15`) with zero ghosting trail.
 
 ---
 
@@ -34,18 +40,22 @@
 
 Measured with `bench/render_bench.cpp` (`astral-render-bench`, Vulkan hardware timestamps averaged over steady-state frames after warmup; shaders compiled with `glslc -O`):
 
-| Scene | Configuration | Baseline GPU (ms) | Refactored GPU (ms) | Speedup / Δ | Key Pass Deltas |
-|---|---|---:|---:|---:|---|
-| `cornell_area` | 560 DDGI probes, 3 SDF, 1 RectLight | 7.830 (127.7 FPS) | **6.851** (146.0 FPS) | **-12.5% (1.14×)** | `ddgi.update.distance`: 0.458 → **0.068 ms (6.7×)**; `ddgi.update.irradiance`: 0.081 → **0.030 ms (2.7×)**; `ddgi.trace`: 0.364 → **0.197 ms**; `denoise.atrous`: 1.994 → **1.621 ms** |
-| `material_grid` | 25 spheres (roughness×metallic), 216 probes | 2.845 (351.5 FPS) | **2.313** (432.3 FPS) | **-18.7% (1.23×)** | `ddgi.update.distance`: 0.052 → **0.018 ms (2.9×)**; `denoise.atrous`: 1.023 → **0.770 ms** |
-| `thin_wall` | Sealed thin-wall probe-leak stress, 288 probes | 5.092 (196.4 FPS) | **4.208** (237.6 FPS) | **-17.4% (1.21×)** | `rt.lighting`: 1.992 → **1.745 ms**; `ddgi.update.distance`: 0.121 → **0.043 ms (2.8×)** |
-| `high_lights` | 32 PointLights + 4 RectLights + 8 SDFs | 45.577 (21.9 FPS) | **14.825** (67.5 FPS) | **-67.5% (3.07×)** | `rt.lighting`: 39.595 → **11.339 ms (3.5×)**; `ddgi.trace`: 2.386 → **0.545 ms (4.4×)** |
-| `open_world_scale` | 2000 m terrain, 256 probes, `max_dist = 3000` | 2.171 (460.7 FPS) | 2.290 (436.7 FPS) | +5.5% (+0.119 ms) | `ddgi.update.distance`: 0.058 → **0.021 ms**; `denoise.atrous` +0.10 ms from plane-distance edge stop |
+| Scene | Configuration | Pre-Milestone GPU (ms) | Milestone 2 GPU (ms) | Key Pass Timings / Quality Notes |
+|---|---|---:|---:|---|
+| `cornell_area` | 560 DDGI probes, 3 SDF, 1 RectLight | 6.650 (150.4 FPS) | **6.652** (150.3 FPS) | ReSTIR skipped (`<=2` lights); `denoise.temporal`: 0.356 ms, `rt.lighting`: 3.544 ms. |
+| `material_grid` | 25 spheres (roughness×metallic), 216 probes | 2.319 (431.1 FPS) | **2.342** (427.0 FPS) | `denoise.temporal`: 0.155 ms, `rt.lighting`: 0.906 ms. |
+| `thin_wall` | Sealed thin-wall probe-leak stress, 288 probes | 4.284 (233.4 FPS) | **4.300** (232.6 FPS) | `denoise.temporal`: 0.329 ms, `rt.lighting`: 1.717 ms. |
+| `high_lights_ris` | 32 PointLights + 4 RectLights + 8 SDFs (`restir_di=false`) | 14.642 (68.3 FPS) | **13.229** (75.6 FPS) | Single-frame RIS baseline: `rt.lighting`: 9.799 ms. |
+| `high_lights` | 32 PointLights + 4 RectLights + 8 SDFs (`restir_di=true`) | — | **16.718** (59.8 FPS) | `restir.temporal`: 2.227 ms, `restir.spatial`: 3.277 ms, `rt.lighting`: 7.546 ms; unbiased mean parity vs RIS (`188.54` vs `188.34`, Δ `+0.20/255`). |
+| `many_lights_ris` | 128 PointLights + 4 RectLights + partition walls (`restir_di=false`) | — | **7.027** (142.3 FPS) | `rt.lighting`: 4.845 ms; 1-frame denoiser-off `RMSE_vs_ref = 33.300`. |
+| `many_lights_restir` | 128 PointLights + 4 RectLights + partition walls (`restir_di=true`) | — | **7.496** (133.4 FPS) | `restir.temporal`: 1.524 ms, `restir.spatial`: 1.085 ms, `rt.lighting`: 2.682 ms (-44.6%); 1-frame denoiser-off **`RMSE_vs_ref = 28.486` (-14.5% noise)**, unbiased mean parity (`172.69` vs `172.83`, Δ `-0.14/255`). |
+| `moving_mirror` | Mirror floor + sphere + emissive bars, strafing camera (`denoise_iter=0`, `taa_blend=1`) | — | **2.153** (464.5 FPS) | **`mirror_motion_rmse = 7.438`** vs static reference; visually razor-sharp with zero ghosting trail. |
+| `open_world_scale` | 2000 m terrain, 256 probes, `max_dist = 3000` | 2.270 (440.5 FPS) | **2.300** (434.9 FPS) | Rough-surface fast path in `denoise.temporal` (0.172 ms); zero ReSTIR overhead. |
 
 ### Temporal Stability Measurement (`moving_camera`, `denoise_iterations = 0`)
 - Measuring pure temporal accumulation during forward camera translation (spatial À-Trous disabled):
-  - Baseline high-frequency Laplacian noise: **`1.604`** (history rejected every frame due to `abs(pg.w - geo.w)` comparing previous vs current camera distances).
-  - Refactored high-frequency Laplacian noise: **`0.847`** (**-47.2% noise reduction**).
+  - Pre-audit baseline high-frequency Laplacian noise: **`1.604`**.
+  - Milestone 2 high-frequency Laplacian noise: **`0.846`** (**-47.3% noise reduction**).
 
 ---
 

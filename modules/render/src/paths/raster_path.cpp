@@ -36,7 +36,8 @@ GpuFrame build_raster_frame(const CameraData& camera, const RenderScene& scene, 
                    {},
                    view_projection,
                    {},
-                   {camera.position.x, camera.position.y, camera.position.z, 1}};
+                   {camera.position.x, camera.position.y, camera.position.z, 1},
+                   Mat4::identity()};
     frame.custom[0] = static_cast<std::uint32_t>(params_address);
     frame.custom[1] = static_cast<std::uint32_t>(params_address >> 32);
     std::memcpy(&frame.custom[2], &scene.time, sizeof(float));
@@ -97,7 +98,7 @@ void render_raster_path(RasterPathContext& ctx, gpu::CommandList& cmd, gpu::Text
     GBufferTextures gbuffer = ctx.passes.gbuffer.add(g, inputs, ctx.stats);
     ctx.passes.sdf.add(g, inputs, gbuffer);
     const RGTexture hdr = ctx.passes.lighting.add(g, inputs, gbuffer, shadow_map);
-    ctx.passes.sky.add(g, inputs, hdr, gbuffer.depth);
+    ctx.passes.sky.add(g, inputs, hdr, gbuffer);
 
     const std::span<const MaterialHandle> post_chain = ctx.passes.post.collect(scene, ctx.materials);
     const RGTexture scene_color =

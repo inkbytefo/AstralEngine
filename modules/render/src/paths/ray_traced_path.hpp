@@ -23,6 +23,9 @@ struct TemporalState {
     bool history_valid = false;
     Mat4 prev_view_projection = Mat4::identity();
     Vec3 prev_camera_position{};
+    std::uint32_t prev_point_lights = 0;
+    std::uint32_t prev_rect_lights = 0;
+    bool prev_restir_active = false;
 };
 
 struct RayTracedPathContext {

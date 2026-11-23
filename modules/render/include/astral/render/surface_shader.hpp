@@ -73,10 +73,13 @@ struct RtSurface {
 
 /// The ray-traced compute shaders with the custom surfaces compiled in (empty spirv + errors on failure).
 struct RtVariants {
-    std::vector<std::uint32_t> lighting, ddgi_trace;
+    std::vector<std::uint32_t> lighting, ddgi_trace, restir_temporal, restir_spatial;
     std::vector<ShaderError> errors;
     std::string log;
-    [[nodiscard]] bool ok() const noexcept { return errors.empty() && !lighting.empty() && !ddgi_trace.empty(); }
+    [[nodiscard]] bool ok() const noexcept {
+        return errors.empty() && !lighting.empty() && !ddgi_trace.empty() && !restir_temporal.empty() &&
+               !restir_spatial.empty();
+    }
 };
 [[nodiscard]] RtVariants compile_rt_variants(std::span<const RtSurface> surfaces);
 

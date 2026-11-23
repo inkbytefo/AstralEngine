@@ -85,6 +85,7 @@ struct Surface {
     float metallic;
     vec3 emissive;
     bool backface;  // the ray hit the back of a mesh triangle or inside of an SDF
+    bool unshaded;  // render_mode unshaded: bypass lighting and output albedo + emissive directly
 };
 
 // Custom (.ashader) surfaces, ADR-0022: the renderer compiles every shader's surface() into
@@ -150,6 +151,7 @@ Surface triangle_surface(Instances instances, Materials materials, uint instance
     }
     if (mat.textures.w != NO_TEXTURE) s.emissive *= textureLod(sampler2D(astral_textures[nonuniformEXT(mat.textures.w)], astral_samplers[ASTRAL_SAMPLER_LINEAR_REPEAT]), uv, lod).rgb;
     s.roughness = clamp(roughness, ASTRAL_MIN_ROUGHNESS, 1.0);
+    s.unshaded = false;
     if (mat.custom.y != 0u) astral_custom_surface(mat.custom.y - 1u, mat.custom.x, uv, -dir, s);
     return s;
 }
@@ -269,6 +271,7 @@ Surface sdf_surface(SdfShapes shapes, uint count, vec3 o, vec3 d, float t) {
     s.roughness = clamp(h.roughness, ASTRAL_MIN_ROUGHNESS, 1.0);
     s.metallic = h.metallic;
     s.emissive = vec3(0);
+    s.unshaded = false;
     return s;
 }
 
@@ -440,6 +443,7 @@ float rect_light_ris_weight(RectLight r, vec3 p, vec3 n) {
 
 // Effective probability that rect light `target_idx` was selected for light sampling on a primary hit.
 float rect_light_select_prob(Frame f, RectLights rects, uint target_idx, vec3 p, vec3 n) {
+    if ((f.counts.w & 1u) != 0u) return 1.0 / float(max(f.rt_counts.x, 1u));
     if (f.rt_counts.x <= 2u) return 1.0;
     float w_sum = 0.0;
     float w_target = 0.0;
@@ -551,6 +555,10 @@ void direct_light(Frame f, LightingInputs li, Surface s, vec3 v, bool primary_hi
         }
     }
 
+    // When spatiotemporal ReSTIR DI is active on primary hits, local point + rect lights are shaded
+    // from the finalized ReSTIR reservoir in rt_lighting.comp; secondary hits still evaluate directly.
+    if (primary_hit && (f.counts.w & 1u) != 0u) return;
+
     // Point lights: exact loop for small counts, unbiased RIS for large counts / secondary hits.
     uint pt_count = f.counts.x;
     uint pt_direct_limit = primary_hit ? 4u : 2u;
@@ -607,6 +615,7 @@ void direct_light(Frame f, LightingInputs li, Surface s, vec3 v, bool primary_hi
 // `use_ddgi` MUST be false on frame 0 / post-reset inside ddgi_trace so uninitialized atlases are never read.
 vec3 shade_secondary(Frame f, LightingInputs li, Surface s, vec3 v, uint irr_tex, uint dist_tex,
                      bool use_ddgi, inout uint seed) {
+    if (s.unshaded) return s.albedo + s.emissive;
     vec3 d, sp;
     direct_light(f, li, s, v, false, seed, d, sp);
     vec3 f0 = mix(vec3(0.04), s.albedo, s.metallic);

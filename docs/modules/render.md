@@ -32,8 +32,9 @@ renderer.set_settings(s);   // çalışma anında; teknik/GI değişirse geçmi�
 ## Ray-traced yol
 
 ```
-TLAS build ─► gbuffer ─► sdf ─► ddgi.trace ─► ddgi.update (×2) ─► rt.lighting ─► denoise.temporal
-          ─► denoise.atrous (×N) ─► composite ─► taa ─► bloom.down (×6) ─► bloom.up (×5) ─► tonemap
+TLAS build ─► gbuffer ─► sdf ─► ddgi.trace ─► ddgi.update (×2) ─► restir.temporal ─► restir.spatial (çoklu ışık)
+          ─► rt.lighting ─► denoise.temporal ─► denoise.atrous (×N) ─► composite ─► sky ─► taa
+          ─► bloom.down (×6) ─► bloom.up (×5) ─► tonemap
 ```
 
 | Pass | Ne yapar |
@@ -42,10 +43,12 @@ TLAS build ─► gbuffer ─► sdf ─► ddgi.trace ─► ddgi.update (×2) 
 | `gbuffer` / `sdf` | Raster ile aynı; projeksiyon TAA için her kare Halton(2,3) ile alt-piksel kaydırılır |
 | `ddgi.trace` | Her prob kare başına `rays_per_probe` ışın atar (Fibonacci küresi, her kare rastgele döner); vuruşlar doğrudan ışık + **önceki karenin probları** ile ışıklanır → sekmeler zamanla birikir |
 | `ddgi.update` | Işınlar oktahedral atlaslara (irradiance 8×8, mesafe momentleri 16×16, kenarlıklı) histerezisle karışır |
-| `rt.lighting` | Piksel başına: güneş (açısal yarıçaplı koni), nokta ışıklar (ampul yarıçapı), dikdörtgen alan ışıkları — her biri 1 örnek + gölge ışını; **yakın alan GI** (1 kosinüs ışını: `near_gi_radius` içinde vurursa o yüzeyin gerçek ışığı, yoksa DDGI); **yansıma** (GGX görünür-normal örneklemesi, pürüzsüzde tam ayna) |
-| `denoise.temporal` | Diffuse ve speküler sinyaller albedodan ayrılmış hâlde, dünya konumuyla reprojekte edilip geometri kontrolüyle birikir; parlaklık momentleri tutulur |
-| `denoise.atrous` | Kenar duyarlı dalgacık filtresi (normal × derinlik × varyansa göre parlaklık); ayna yüzeyler filtrelenmez |
-| `composite` | `albedo × diffuse + DFG × speküler + emisyon`; gökyüzü; alan ışıkları kameraya görünür |
+| `restir.temporal` / `restir.spatial` | 3+ yerel ışıkta (`RenderSettings::restir_di`) uzay-zamansal ReSTIR DI (Bitterli 2020): 24 aday + başlangıç görünürlük ışını, zamansal yeniden kullanım ($M \le 20$) ve yansız görünürlük-farkındalı MIS uzamsal yeniden kullanım |
+| `rt.lighting` | Piksel başına: güneş (açısal yarıçaplı koni), yerel ışıklar (ReSTIR rezervuarı ya da ≤2 ışıkta doğrudan), **yakın alan GI** (1 kosinüs ışını: `near_gi_radius` içinde vurursa o yüzeyin gerçek ışığı, yoksa DDGI); **yansıma** (GGX VNDF + RectLight MIS, `specular.a`'da sanal yansıma derinliği) |
+| `denoise.temporal` | Diffuse yüzey hareketiyle, speküler ise pürüzlülüğe göre harmanlanmış **sanal yansıma derinliği** ve 3×3 varyans kırpmasıyla bağımsız reprojekte edilip birikir; parlaklık momentleri tutulur |
+| `denoise.atrous` | Kenar duyarlı dalgacık filtresi (normal × düzlem mesafesi × varyansa göre parlaklık); ayna yüzeyler filtrelenmez |
+| `composite` | `albedo × diffuse + DFG × speküler + emisyon` (`render_mode unshaded` doğrudan `ALBEDO + EMISSION`); gökyüzü; alan ışıkları kameraya görünür |
+| `sky` | İsteğe bağlı özel `shader_type sky` geçişi (hem mesh derinliği hem SDF derinliği == 1.0 olan piksellerde) |
 | `taa` | Catmull-Rom geçmiş, YCoCg varyans kırpma, en yakın derinlikle reprojeksiyon |
 | `bloom` | CoD:AW / RDR2 yöntemi: 13 dokunuşlu aşağı örnekleme (ilk seviyede Karis ortalaması), tent filtreyle yukarı |
 
@@ -110,14 +113,9 @@ graph.add_pass("blur", [&](PassBuilder& b) { b.read(hdr); b.write_storage(blurre
 
 ### Ray-traced yol
 - SDF'lerin hareket vektörü yalnız kameradan türetilir (SDF'ler kareler arası durağan varsayılır).
-- Yansımaların reprojeksiyonu yüzey hareketine göre (sanal derinlik yok): hızlı kamera hareketinde ayna
-  yansımaları kısa süre bulanıklaşır.
-- Alan ışıklarının speküler parlaması doğrudan değil yansıma ışınıyla gelir; ikincil vuruşlarda alan ışığı
-  speküleri yok (ortam speküleri DDGI'dan yaklaşık).
-- Işık başına piksel başına 1 gölge ışını: çok sayıda ışıkta pahalı (ReSTIR DI sonraki adım).
+- İkincil vuruşlarda ortam speküleri DDGI'dan yaklaşık olarak gelir.
 - Şeffaflık/kırılma, saç, hacimsel sis/bulut (atmosfer fazı) yok. Prob taşıma (relocation) yok: duvar içinde
   kalan problar Chebyshev ve arka yüz testiyle bastırılır.
-- Bağımsız inceleme bu fazda yapılmadı.
 
 ### Raster yol
 
@@ -164,10 +162,9 @@ fonksiyonu eklenmiş hâliyle çalışma anında yeniden derlenir (`compile_rt_v
 önceden derlenmiş olanlar kullanılır. Parametre bloğunun adresi ve `TIME` `Frame::custom` içinde taşınır.
 
 **Bilinen sınırlar (M10):** şeffaf yüzeyler gölge düşürmez, gölge almaz, RT yansıma/GI'da yoktur ve kırılma
-(ekran görüntüsünü bükme) yok; sky shader'ı SDF şekillerinin üstünü de boyar (SDF derinliği ayrı); sky yalnız
-arka planı değiştirir (aydınlatma ve yansımalar `Environment` renklerini kullanır); post için HDR öncesi nokta
-yok; RT varyantında `vertex()`, türevler, alfa ve normal haritası yok; deforme mesh'ler için BLAS güncellemesi
-yok (RT'de deformasyon görünmez).
+(ekran görüntüsünü bükme) yok; sky yalnız arka planı değiştirir (aydınlatma ve yansımalar `Environment`
+renklerini kullanır); post için HDR öncesi nokta yok; RT varyantında `vertex()`, türevler ve normal haritası
+yok; deforme mesh'ler için BLAS güncellemesi yok (RT'de deformasyon görünmez).
 
 ## Dosya düzeni
 

@@ -89,8 +89,9 @@ struct GpuFrame {
     Mat4 unjittered_view_projection;
     std::uint32_t custom[4]; // xy: .ashader parameter block address, z: TIME (float bits), w: encode_srgb
     Vec4 prev_camera_position;
+    Mat4 inv_prev_view_projection;
 };
-static_assert(sizeof(GpuFrame) == 544);
+static_assert(sizeof(GpuFrame) == 608);
 static_assert(offsetof(GpuFrame, camera_position) == 192);
 static_assert(offsetof(GpuFrame, counts) == 272);
 static_assert(offsetof(GpuFrame, prev_view_projection) == 304);
@@ -98,6 +99,7 @@ static_assert(offsetof(GpuFrame, ddgi_origin) == 368);
 static_assert(offsetof(GpuFrame, unjittered_view_projection) == 448);
 static_assert(offsetof(GpuFrame, custom) == 512);
 static_assert(offsetof(GpuFrame, prev_camera_position) == 528);
+static_assert(offsetof(GpuFrame, inv_prev_view_projection) == 544);
 
 struct GpuPointLight {
     Vec4 position_radius;
@@ -132,6 +134,18 @@ static_assert(offsetof(GpuSdfShape, size) == 32);
 static_assert(offsetof(GpuSdfShape, albedo_roughness) == 48);
 static_assert(offsetof(GpuSdfShape, params) == 64);
 
+struct GpuReservoir {
+    std::uint32_t light_id;  // bit 31: is_rect, bits 0..30: light index; 0xFFFFFFFF = empty
+    std::uint32_t uv_packed; // packUnorm2x16(uv) in [0, 1]^2
+    float W;                 // unbiased contribution weight
+    std::uint32_t M;         // confidence / effective sample count
+};
+static_assert(sizeof(GpuReservoir) == 16);
+static_assert(alignof(GpuReservoir) == 4);
+static_assert(offsetof(GpuReservoir, uv_packed) == 4);
+static_assert(offsetof(GpuReservoir, W) == 8);
+static_assert(offsetof(GpuReservoir, M) == 12);
+
 // --- Push-constant blocks (scalar; mirror shader push_constant blocks) -------------------
 
 struct GBufferIds {
@@ -141,14 +155,29 @@ static_assert(sizeof(GBufferIds) == 36);
 
 struct RtLightingPush {
     std::uint64_t frame, tlas, instances, materials, lights, rects, shapes;
+    std::uint64_t reservoirs;
     GBufferIds g;
     std::uint32_t irr, dist, out_diffuse, out_specular, out_geometry;
     float near_gi_radius;
 };
 static_assert(sizeof(RtLightingPush) <= gpu::max_push_constant_size);
-static_assert(offsetof(RtLightingPush, g) == 56);
-static_assert(offsetof(RtLightingPush, irr) == 92);
-static_assert(offsetof(RtLightingPush, near_gi_radius) == 112);
+static_assert(offsetof(RtLightingPush, reservoirs) == 56);
+static_assert(offsetof(RtLightingPush, g) == 64);
+static_assert(offsetof(RtLightingPush, irr) == 100);
+static_assert(offsetof(RtLightingPush, near_gi_radius) == 120);
+
+struct RestirPush {
+    std::uint64_t frame, tlas, instances, materials, lights, rects, shapes;
+    std::uint64_t prev_reservoirs, out_reservoirs;
+    GBufferIds g;
+    std::uint32_t prev_geometry;
+    std::uint32_t pass_index;
+};
+static_assert(sizeof(RestirPush) <= gpu::max_push_constant_size);
+static_assert(offsetof(RestirPush, prev_reservoirs) == 56);
+static_assert(offsetof(RestirPush, g) == 72);
+static_assert(offsetof(RestirPush, prev_geometry) == 108);
+static_assert(offsetof(RestirPush, pass_index) == 112);
 
 struct DdgiTracePush {
     std::uint64_t frame, tlas, instances, materials, lights, rects, shapes, rays;

@@ -62,10 +62,13 @@ astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astr
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/color.glsl astral_color_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/brdf.glsl astral_brdf_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/rt.glsl astral_rt_glsl)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/restir.glsl astral_restir_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/primary.glsl astral_primary_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/sdf.glsl astral_sdf_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rt_lighting.comp astral_rt_lighting_comp)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/ddgi_trace.comp astral_ddgi_trace_comp)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/restir_di_temporal.comp astral_restir_di_temporal_comp)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/restir_di_spatial.comp astral_restir_di_spatial_comp)
 target_include_directories(astral_render SYSTEM PRIVATE $<BUILD_INTERFACE:${stb_SOURCE_DIR}>)
 
 astral_add_shaders(astral_render
@@ -74,6 +77,7 @@ astral_add_shaders(astral_render
         shaders/sdf.comp shaders/lighting.comp
         shaders/tonemap.vert shaders/tonemap.frag
         shaders/rt_lighting.comp shaders/ddgi_trace.comp shaders/ddgi_update.comp
+        shaders/restir_di_temporal.comp shaders/restir_di_spatial.comp
         shaders/denoise_temporal.comp shaders/denoise_atrous.comp shaders/composite.comp
         shaders/taa.comp shaders/bloom_down.comp shaders/bloom_up.comp
         shaders/debug_line.vert shaders/debug_line.frag shaders/ui.vert shaders/ui.frag

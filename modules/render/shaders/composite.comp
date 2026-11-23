@@ -21,18 +21,27 @@ void main() {
 
     vec3 color;
     if (surface) {
-        vec3 v = -dir;
-        float nv = max(dot(s.n, v), 1e-4);
-        vec3 f0 = mix(vec3(0.04), s.albedo, s.metallic);
-        vec3 dfg = env_brdf(f0, s.roughness, nv);
-        vec3 diffuse = fetch_texel(pc.diffuse, pixel).rgb;
-        vec3 specular = fetch_texel(pc.specular, pixel).rgb;
-        color = s.albedo * diffuse + dfg * specular + s.emissive;
-        if (pc.debug_view == 1u) color = s.albedo;
-        if (pc.debug_view == 2u) color = s.n * 0.5 + 0.5;
-        if (pc.debug_view == 3u) color = diffuse;
-        if (pc.debug_view == 4u) color = dfg * specular;
-        if (pc.debug_view == 5u) color = vec3(abs(primary_velocity(f, pc.g, pixel)) * 20.0, 0.0);
+        if (s.unshaded) {
+            color = s.emissive;
+            if (pc.debug_view == 1u) color = s.albedo;
+            if (pc.debug_view == 2u) color = s.n * 0.5 + 0.5;
+            if (pc.debug_view == 3u) color = vec3(0.0);
+            if (pc.debug_view == 4u) color = vec3(0.0);
+            if (pc.debug_view == 5u) color = vec3(abs(primary_velocity(f, pc.g, pixel)) * 20.0, 0.0);
+        } else {
+            vec3 v = -dir;
+            float nv = max(dot(s.n, v), 1e-4);
+            vec3 f0 = mix(vec3(0.04), s.albedo, s.metallic);
+            vec3 dfg = env_brdf(f0, s.roughness, nv);
+            vec3 diffuse = fetch_texel(pc.diffuse, pixel).rgb;
+            vec3 specular = fetch_texel(pc.specular, pixel).rgb;
+            color = s.albedo * diffuse + dfg * specular + s.emissive;
+            if (pc.debug_view == 1u) color = s.albedo;
+            if (pc.debug_view == 2u) color = s.n * 0.5 + 0.5;
+            if (pc.debug_view == 3u) color = diffuse;
+            if (pc.debug_view == 4u) color = dfg * specular;
+            if (pc.debug_view == 5u) color = vec3(abs(primary_velocity(f, pc.g, pixel)) * 20.0, 0.0);
+        }
     } else {
         color = sky_radiance(f, dir);
     }

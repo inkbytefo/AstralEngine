@@ -1,0 +1,127 @@
+#version 460
+#include <astral/primary.glsl>
+#include <astral/restir.glsl>
+// ReSTIR DI Pass 2: unbiased spatial reservoir reuse (Bitterli et al. 2020 Algorithm 6).
+// Combines the center pixel's temporal reservoir with disk neighbors passing normal, plane-distance,
+// and roughness similarity, then computes the exact visibility-aware MIS denominator Z(y*) over
+// the participating neighborhood (eliminating darkened contact shadows and bright occlusion halos).
+layout(push_constant, scalar) uniform Push {
+    FrameRef frame; uint64_t tlas; Instances instances; Materials materials;
+    PointLights lights; RectLights rects; SdfShapes shapes;
+    Reservoirs prev_reservoirs; Reservoirs out_reservoirs;
+    GBufferIds g; uint prev_geometry; uint pass_index;
+} pc;
+layout(local_size_x = 8, local_size_y = 8) in;
+
+const int SPATIAL_NEIGHBORS = 3;
+const float SPATIAL_RADIUS = 24.0;
+
+void main() {
+    Frame f = pc.frame.f;
+    astral_rt_begin(f, pc.instances, pc.materials);
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size_i = ivec2(f.screen.xy);
+    if (pixel.x >= size_i.x || pixel.y >= size_i.y) return;
+    uint center_idx = uint(pixel.y) * uint(size_i.x) + uint(pixel.x);
+
+    Surface s;
+    float depth;
+    if (!load_primary(f, pc.g, pixel, s, depth) || s.unshaded) {
+        pc.out_reservoirs.data[center_idx] = Reservoir(RESTIR_EMPTY_LIGHT, 0u, 0.0, 0u);
+        return;
+    }
+    vec3 v = normalize(f.camera_position.xyz - s.p);
+    if (dot(s.n, v) < 0.0) s.n = normalize(s.n - v * (dot(s.n, v) * 1.01));
+    s.ng = s.n;
+    float cam_dist = length(f.camera_position.xyz - s.p);
+
+    Reservoir rc = pc.prev_reservoirs.data[center_idx];
+    float phat_c = rc.W > 0.0 ? restir_target_pdf(f, pc.lights, pc.rects, s, v, rc.light_id, rc.uv_packed) : 0.0;
+
+    uint win_id = rc.light_id;
+    uint win_uv = rc.uv_packed;
+    float win_phat = phat_c;
+    float w_sum = float(rc.M) * phat_c * rc.W;
+    int win_src = 0; // 0 = center, 1..n_count = neighbor
+    uint m_total = rc.M;
+
+    uint seed = make_seed(uvec2(pixel), f.rt_counts.y, 41u + pc.pass_index * 17u);
+    LightingInputs li = LightingInputs(pc.tlas, pc.shapes, f.counts.y, pc.lights, pc.rects);
+
+    // Store only neighbor coordinates and M (avoids spilling full Surface structs to local memory).
+    ivec2 n_px[SPATIAL_NEIGHBORS];
+    uint n_M[SPATIAL_NEIGHBORS];
+    int n_count = 0;
+
+    for (int k = 0; k < SPATIAL_NEIGHBORS; ++k) {
+        float ang = 2.0 * PI * rnd(seed);
+        float rad = SPATIAL_RADIUS * sqrt(rnd(seed));
+        ivec2 q = pixel + ivec2(round(vec2(cos(ang), sin(ang)) * rad));
+        if (q == pixel || any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, size_i))) continue;
+
+        Surface qs;
+        float qd;
+        if (!load_primary(f, pc.g, q, qs, qd) || qs.unshaded) continue;
+        vec3 qv = normalize(f.camera_position.xyz - qs.p);
+        if (dot(qs.n, qv) < 0.0) qs.n = normalize(qs.n - qv * (dot(qs.n, qv) * 1.01));
+
+        // Strict geometric + roughness similarity guards against light leaking across edges/materials.
+        if (dot(qs.n, s.n) < 0.9) continue;
+        if (abs(dot(qs.p - s.p, s.n)) > 0.05 * cam_dist + 0.02) continue;
+        if (abs(qs.roughness - s.roughness) > 0.25) continue;
+
+        Reservoir rn = pc.prev_reservoirs.data[uint(q.y) * uint(size_i.x) + uint(q.x)];
+        if (rn.M == 0u) continue;
+
+        int slot = n_count++;
+        n_px[slot] = q;
+        n_M[slot] = rn.M;
+        m_total += rn.M;
+
+        if (rn.W > 0.0) {
+            float phat_n = restir_target_pdf(f, pc.lights, pc.rects, s, v, rn.light_id, rn.uv_packed);
+            float wn = float(rn.M) * phat_n * rn.W;
+            w_sum += wn;
+            if (wn > 0.0 && rnd(seed) * w_sum < wn) {
+                win_id = rn.light_id;
+                win_uv = rn.uv_packed;
+                win_phat = phat_n;
+                win_src = slot + 1;
+            }
+        }
+    }
+
+    uint out_M = min(m_total, RESTIR_MAX_SPATIAL_M);
+    if (w_sum <= 0.0 || win_phat <= 0.0 || win_id == RESTIR_EMPTY_LIGHT) {
+        pc.out_reservoirs.data[center_idx] = Reservoir(RESTIR_EMPTY_LIGHT, 0u, 0.0, out_M);
+        return;
+    }
+
+    // Validate current-frame center visibility unconditionally (catches dynamic occluders / moving lights immediately).
+    if (!restir_visible(f, li, s, win_id, win_uv)) {
+        pc.out_reservoirs.data[center_idx] = Reservoir(RESTIR_EMPTY_LIGHT, 0u, 0.0, out_M);
+        return;
+    }
+
+    // Exact unbiased visibility-aware MIS denominator Z(y*) over the participating neighborhood.
+    uint Z = rc.M;
+    for (int i = 0; i < n_count; ++i) {
+        if (win_src == i + 1) {
+            Z += n_M[i];
+        } else {
+            Surface qs;
+            float qd;
+            if (load_primary(f, pc.g, n_px[i], qs, qd)) {
+                vec3 qv = normalize(f.camera_position.xyz - qs.p);
+                if (dot(qs.n, qv) < 0.0) qs.n = normalize(qs.n - qv * (dot(qs.n, qv) * 1.01));
+                qs.ng = qs.n;
+                float phat_i = restir_target_pdf(f, pc.lights, pc.rects, qs, qv, win_id, win_uv);
+                if (phat_i > 0.0 && restir_visible(f, li, qs, win_id, win_uv)) {
+                    Z += n_M[i];
+                }
+            }
+        }
+    }
+    float out_W = restir_sanitize_weight(w_sum / (float(max(Z, 1u)) * win_phat));
+    pc.out_reservoirs.data[center_idx] = Reservoir(win_id, win_uv, out_W, out_M);
+}

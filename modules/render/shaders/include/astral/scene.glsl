@@ -28,7 +28,7 @@ struct Frame {
     vec4 sun_color;       // rgb * intensity
     vec4 sky_color;       // rgb, a: ambient strength
     vec4 ground_color;    // rgb, a: exposure
-    uvec4 counts;         // x: point lights, y: sdf shapes, z: shadow map bindless index (or ~0u), w: unused
+    uvec4 counts;         // x: point lights, y: sdf shapes, z: shadow map bindless index (or ~0u), w: restir flags (bit0=active, bit1=history)
     vec4 screen;          // width, height, 1/width, 1/height
     // --- ray-traced path ---
     mat4 prev_view_projection; // previous frame, unjittered (reprojection)
@@ -40,6 +40,7 @@ struct Frame {
     mat4 unjittered_view_projection; // this frame without TAA jitter (motion vectors)
     uvec4 custom;         // xy: .ashader parameter block address, z: TIME (float bits), w: encode_srgb
     vec4 prev_camera_position; // previous frame world camera position (reprojection depth validation)
+    mat4 inv_prev_view_projection; // inverse of prev_view_projection (exact prev-frame world reconstruction)
 };
 struct PointLight { vec4 position_radius; vec4 color_intensity; vec4 source; /* x source radius */ };
 struct SdfShape {
@@ -89,6 +90,12 @@ vec2 compute_velocity(vec4 clip_now, vec4 clip_prev) {
 vec3 reconstruct_world(Frame f, vec2 uv, float depth) {
     vec4 ndc = vec4(uv * 2.0 - 1.0, depth, 1.0);
     vec4 world = f.inv_view_projection * ndc;
+    return world.xyz / world.w;
+}
+
+vec3 reconstruct_prev_world(Frame f, vec2 uv, float depth) {
+    vec4 ndc = vec4(uv * 2.0 - 1.0, depth, 1.0);
+    vec4 world = f.inv_prev_view_projection * ndc;
     return world.xyz / world.w;
 }
 

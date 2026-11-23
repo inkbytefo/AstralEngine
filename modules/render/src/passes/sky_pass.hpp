@@ -6,9 +6,9 @@
 
 namespace astral {
 
-/// Draws the optional custom `shader_type sky` background where depth is still at the far plane.
+/// Draws the optional custom `shader_type sky` background where neither mesh nor SDF geometry was hit.
 struct SkyPass {
-    void add(RenderGraph& graph, const FrameInputs& inputs, RGTexture hdr, RGTexture depth) const;
+    void add(RenderGraph& graph, const FrameInputs& inputs, RGTexture hdr, const GBufferTextures& gbuffer) const;
 };
 
 } // namespace astral

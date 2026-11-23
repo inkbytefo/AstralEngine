@@ -267,7 +267,150 @@ void scene_high_lights(BenchContext& b, int warmup, int measure) {
     RenderScene sc{.meshes = meshes, .sdf = sdfs, .lights = lights, .rect_lights = rects,
                    .sun = {.direction = {-0.3f, -1.0f, -0.4f}, .intensity = 1.5f},
                    .environment = {.sky = {0.06f, 0.08f, 0.12f}, .ground = {0.02f, 0.02f, 0.02f}}};
-    b.run_scene("high_lights", s, b.make_camera({0, 8.5f, 14.0f}, {0, 0.5f, 0}, 45.0f), sc, warmup, measure);
+    const CameraData cam = b.make_camera({0, 8.5f, 14.0f}, {0, 0.5f, 0}, 45.0f);
+    s.restir_di = false;
+    b.run_scene("high_lights_ris", s, cam, sc, warmup, measure);
+    s.restir_di = true;
+    b.run_scene("high_lights", s, cam, sc, warmup, measure);
+}
+
+void scene_many_lights(BenchContext& b, int warmup, int measure) {
+    MaterialHandle floor_mat = b.renderer->create_material({.base_color = {0.65f, 0.65f, 0.68f, 1}, .roughness = 0.45f});
+    MaterialHandle metal = b.renderer->create_material({.base_color = {0.9f, 0.9f, 0.92f, 1}, .roughness = 0.25f, .metallic = 1.0f});
+    std::vector<MeshInstance> meshes = {{b.plane, floor_mat, scale({40, 1, 40})}};
+    for (int i = 0; i < 25; ++i) {
+        const float x = static_cast<float>(i % 5 - 2) * 3.5f;
+        const float z = static_cast<float>(i / 5 - 2) * 3.5f;
+        meshes.push_back({b.cube, (i & 1) ? metal : floor_mat, translate({x, 1.4f, z}) * scale({1.5f, 2.8f, 1.5f})});
+    }
+    // Interior partition walls create heavy light occlusion (where visibility-aware ReSTIR shines over single-frame RIS).
+    meshes.push_back({b.cube, floor_mat, box_tf({-5.0f, 1.6f, 0.0f}, {0.35f, 3.2f, 12.0f})});
+    meshes.push_back({b.cube, floor_mat, box_tf({5.0f, 1.6f, 0.0f}, {0.35f, 3.2f, 12.0f})});
+    std::vector<PointLight> lights;
+    for (int i = 0; i < 128; ++i) {
+        const float a = static_cast<float>(i) * 0.3927f;
+        const float r = 2.0f + static_cast<float>(i % 8) * 1.6f;
+        lights.push_back({.position = {std::cos(a) * r, 1.4f + static_cast<float>(i % 3) * 0.7f, std::sin(a) * r},
+                          .color = {0.5f + 0.5f * std::sin(a * 1.1f), 0.5f + 0.5f * std::cos(a * 1.7f),
+                                    0.5f + 0.5f * std::sin(a * 2.3f)},
+                          .intensity = 4.0f, .radius = 9.0f});
+    }
+    std::vector<RectLight> rects = {
+        {.position = {-6, 6, -6}, .right = {1.2f, 0, 0}, .up = {0, 0, 1.2f}, .intensity = 6.0f},
+        {.position = {6, 6, -6}, .right = {1.2f, 0, 0}, .up = {0, 0, 1.2f}, .intensity = 6.0f},
+        {.position = {-6, 6, 6}, .right = {1.2f, 0, 0}, .up = {0, 0, 1.2f}, .intensity = 6.0f},
+        {.position = {6, 6, 6}, .right = {1.2f, 0, 0}, .up = {0, 0, 1.2f}, .intensity = 6.0f},
+    };
+    RenderSettings s;
+    s.gi = {.probes_x = 8, .probes_y = 6, .probes_z = 8, .rays_per_probe = 64};
+    RenderScene sc{.meshes = meshes, .lights = lights, .rect_lights = rects,
+                   .sun = {.intensity = 0.0f},
+                   .environment = {.sky = {0.03f, 0.04f, 0.06f}, .ground = {0.01f, 0.01f, 0.01f}}};
+    const CameraData cam = b.make_camera({0, 10.0f, 16.0f}, {0, 0.5f, 0}, 45.0f);
+    // Measure raw direct-light noise (denoise_iterations = 0, max_history = 1 for pure spatial+ReSTIR comparison,
+    // and max_history = 16 for temporal accumulation) against a 64-frame converged RIS reference.
+    auto eval_raw = [&](bool restir, float max_hist, int frames) {
+        RenderSettings sr = s;
+        sr.denoise_iterations = 0;
+        sr.taa_blend = 1.0f;
+        sr.max_history = max_hist;
+        sr.restir_di = restir;
+        b.renderer->set_settings(sr);
+        b.renderer->reset_history();
+        for (int i = 0; i < frames; ++i) {
+            auto cmd = b.device->begin_commands();
+            b.renderer->render(cmd, b.target, cam, sc);
+            b.device->wait(b.device->submit(cmd));
+        }
+        return b.capture_target();
+    };
+    s.restir_di = false;
+    b.run_scene("many_lights_ris", s, cam, sc, warmup, measure);
+    s.restir_di = true;
+    b.run_scene("many_lights_restir", s, cam, sc, warmup, measure);
+    const auto ref = eval_raw(false, 64.0f, 64);
+    const auto raw_ris = eval_raw(false, 1.0f, 16);
+    const auto raw_restir = eval_raw(true, 1.0f, 16);
+    auto stats_vs_ref = [&](const std::vector<std::uint8_t>& img, const char* tag) {
+        double sq = 0.0, mean = 0.0, ref_m = 0.0;
+        int n = 0;
+        for (std::uint32_t y = b.height / 4; y < 7 * b.height / 8; ++y) {
+            for (std::uint32_t x = b.width / 6; x < 5 * b.width / 6; ++x) {
+                const std::size_t i = (std::size_t{y} * b.width + x) * 4;
+                for (int c = 0; c < 3; ++c) {
+                    const double d = static_cast<double>(img[i + c]) - static_cast<double>(ref[i + c]);
+                    sq += d * d;
+                    mean += img[i + c];
+                    ref_m += ref[i + c];
+                }
+                ++n;
+            }
+        }
+        std::printf("  [%s 1-frame denoiser off] mean=%.2f (ref=%.2f) | RMSE_vs_ref=%.3f\n",
+                    tag, mean / (3.0 * n), ref_m / (3.0 * n), std::sqrt(sq / (3.0 * n)));
+    };
+    stats_vs_ref(raw_ris, "many_lights_ris");
+    stats_vs_ref(raw_restir, "many_lights_restir");
+}
+
+void scene_moving_mirror(BenchContext& b) {
+    MaterialHandle mirror = b.renderer->create_material({.base_color = {0.98f, 0.98f, 0.98f, 1}, .roughness = 0.02f, .metallic = 1.0f});
+    MaterialHandle dark = b.renderer->create_material({.base_color = {0.06f, 0.06f, 0.08f, 1}, .roughness = 0.8f});
+    MaterialHandle glow_a = b.renderer->create_material({.base_color = {0, 0, 0, 1}, .emissive = {12.0f, 2.0f, 1.0f}});
+    MaterialHandle glow_b = b.renderer->create_material({.base_color = {0, 0, 0, 1}, .emissive = {1.0f, 8.0f, 12.0f}});
+    std::vector<MeshInstance> meshes = {
+        {b.plane, mirror, scale({30, 1, 30})},
+        {b.sphere, mirror, translate({0, 1.2f, -1.0f}) * scale({1.6f, 1.6f, 1.6f})},
+        {b.cube, dark, box_tf({0, 3.0f, -6.0f}, {16, 6, 0.4f})},
+        {b.cube, glow_a, box_tf({-2.4f, 2.6f, -5.5f}, {0.45f, 3.6f, 0.3f})},
+        {b.cube, glow_b, box_tf({0.0f, 2.6f, -5.5f}, {0.45f, 3.6f, 0.3f})},
+        {b.cube, glow_a, box_tf({2.4f, 2.6f, -5.5f}, {0.45f, 3.6f, 0.3f})},
+    };
+    RectLight panel{.position = {0, 5.2f, -2.5f}, .right = {1.6f, 0, 0}, .up = {0, 0, 0.6f}, .intensity = 16.0f};
+    RenderSettings s;
+    s.gi = {.probes_x = 6, .probes_y = 5, .probes_z = 6, .rays_per_probe = 64};
+    s.denoise_iterations = 0;
+    s.taa_blend = 1.0f;
+    RenderScene sc{.meshes = meshes, .rect_lights = std::span(&panel, 1),
+                   .sun = {.intensity = 0.0f}, .environment = {.sky = {0.02f, 0.02f, 0.03f}, .ground = {0.01f, 0.01f, 0.01f}}};
+    b.renderer->set_settings(s);
+    b.renderer->reset_history();
+    CameraData last_cam{};
+    double gpu_sum = 0.0;
+    int gpu_n = 0;
+    for (int f = 0; f < 16; ++f) {
+        const float x = -3.0f + static_cast<float>(f) * 0.4f;
+        last_cam = b.make_camera({x, 2.2f, 6.0f}, {0, 0.8f, -2.0f}, 45.0f);
+        auto cmd = b.device->begin_commands();
+        b.renderer->render(cmd, b.target, last_cam, sc);
+        b.device->wait(b.device->submit(cmd));
+        if (f >= 8 && b.renderer->gpu_frame_ms() > 0.0f) { gpu_sum += b.renderer->gpu_frame_ms(); ++gpu_n; }
+    }
+    const auto moving_img = b.capture_target();
+    if (!b.out_dir.empty()) write_ppm(b.out_dir + "/moving_mirror.ppm", moving_img, b.width, b.height);
+    // Render 16 stationary frames at the final camera pose so both frames share the exact same Halton(2,3) jitter phase.
+    b.renderer->reset_history();
+    for (int f = 0; f < 16; ++f) {
+        auto cmd = b.device->begin_commands();
+        b.renderer->render(cmd, b.target, last_cam, sc);
+        b.device->wait(b.device->submit(cmd));
+    }
+    const auto ref_img = b.capture_target();
+    if (!b.out_dir.empty()) write_ppm(b.out_dir + "/moving_mirror_ref.ppm", ref_img, b.width, b.height);
+    double sq = 0.0;
+    int cnt = 0;
+    for (std::uint32_t y = b.height / 2; y < b.height - 16; ++y) {
+        for (std::uint32_t x = b.width / 6; x < 5 * b.width / 6; ++x) {
+            const std::size_t i = (std::size_t{y} * b.width + x) * 4;
+            for (int c = 0; c < 3; ++c) {
+                const double d = static_cast<double>(moving_img[i + c]) - static_cast<double>(ref_img[i + c]);
+                sq += d * d;
+            }
+            ++cnt;
+        }
+    }
+    std::printf("\n[scene: moving_mirror] gpu_frame_ms=%.3f ms | mirror_motion_rmse=%.3f (lower = sharper, less ghosting)\n",
+                gpu_n > 0 ? gpu_sum / gpu_n : 0.0, std::sqrt(sq / (3.0 * cnt)));
 }
 
 void scene_moving_camera_stability(BenchContext& b) {
@@ -371,7 +514,9 @@ int main(int argc, char** argv) {
     scene_material_grid(b, warmup, measure);
     scene_thin_wall(b, warmup, measure);
     scene_high_lights(b, warmup, measure);
+    scene_many_lights(b, warmup, measure);
     scene_moving_camera_stability(b);
+    scene_moving_mirror(b);
     scene_open_world_scale(b, warmup, measure);
     return 0;
 }

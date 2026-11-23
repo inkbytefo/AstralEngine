@@ -114,7 +114,8 @@ void Renderer::set_settings(const RenderSettings& settings) {
     }
     const GiSettings &a = old.gi, &b = settings.gi;
     if (a.probes_x != b.probes_x || a.probes_y != b.probes_y || a.probes_z != b.probes_z ||
-        a.rays_per_probe != b.rays_per_probe || old.denoise_iterations != settings.denoise_iterations) {
+        a.rays_per_probe != b.rays_per_probe || old.denoise_iterations != settings.denoise_iterations ||
+        old.restir_di != settings.restir_di) {
         reset_history();
     }
     if (old.shadow_map_size != settings.shadow_map_size && settings.shadow_map_size > 0) {

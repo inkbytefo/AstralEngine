@@ -14,14 +14,14 @@ bool load_primary(Frame f, GBufferIds g, ivec2 pixel, out Surface s, out float d
     depth = fetch_texel(g.depth, pixel).r;
     vec4 albedo_r = fetch_texel(g.albedo, pixel);
     vec4 normal_m = fetch_texel(g.normal, pixel);
-    vec3 emissive = fetch_texel(g.emissive, pixel).rgb;
+    vec4 emissive_u = fetch_texel(g.emissive, pixel);
     if (f.counts.y > 0u) {
         float sd = fetch_texel(g.sdf_depth, pixel).r;
         if (sd < depth) {
             depth = sd;
             albedo_r = fetch_texel(g.sdf_albedo, pixel);
             normal_m = fetch_texel(g.sdf_normal, pixel);
-            emissive = vec3(0);
+            emissive_u = vec4(0.0, 0.0, 0.0, 1.0);
         }
     }
     if (depth >= 1.0) return false;
@@ -33,8 +33,9 @@ bool load_primary(Frame f, GBufferIds g, ivec2 pixel, out Surface s, out float d
     s.albedo = albedo_r.rgb;
     s.roughness = clamp(albedo_r.a, ASTRAL_MIN_ROUGHNESS, 1.0);
     s.metallic = normal_m.w;
-    s.emissive = emissive;
+    s.emissive = emissive_u.rgb;
     s.backface = false;
+    s.unshaded = emissive_u.a > 1.5;
     return true;
 }
 

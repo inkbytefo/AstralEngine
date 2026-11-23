@@ -17,6 +17,8 @@ namespace astral {
 struct RtPipelines {
     gpu::PipelineHandle rt_lighting;
     gpu::PipelineHandle ddgi_trace;
+    gpu::PipelineHandle restir_temporal;
+    gpu::PipelineHandle restir_spatial;
 };
 
 class ShaderStore {

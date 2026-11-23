@@ -15,6 +15,8 @@ extern const std::uint8_t astral_brdf_glsl[];
 extern const std::size_t astral_brdf_glsl_size;
 extern const std::uint8_t astral_rt_glsl[];
 extern const std::size_t astral_rt_glsl_size;
+extern const std::uint8_t astral_restir_glsl[];
+extern const std::size_t astral_restir_glsl_size;
 extern const std::uint8_t astral_primary_glsl[];
 extern const std::size_t astral_primary_glsl_size;
 extern const std::uint8_t astral_sdf_glsl[];
@@ -23,6 +25,10 @@ extern const std::uint8_t astral_rt_lighting_comp[];
 extern const std::size_t astral_rt_lighting_comp_size;
 extern const std::uint8_t astral_ddgi_trace_comp[];
 extern const std::size_t astral_ddgi_trace_comp_size;
+extern const std::uint8_t astral_restir_di_temporal_comp[];
+extern const std::size_t astral_restir_di_temporal_comp_size;
+extern const std::uint8_t astral_restir_di_spatial_comp[];
+extern const std::size_t astral_restir_di_spatial_comp_size;
 } // namespace astral::embedded
 
 namespace astral {
@@ -171,6 +177,36 @@ constexpr const char* forward_lighting = R"(vec3 astral_lit(vec3 N, vec3 V, vec3
 }
 )";
 
+std::string fragment_output(Mode mode, bool unshaded) {
+    if (mode == Mode::Forward) {
+        std::string s = unshaded ? "    vec3 lit = ALBEDO + EMISSION;\n"
+                                 : R"(    vec3 n = NORMAL;
+    if (NORMAL_MAP != vec3(0.5, 0.5, 1.0)) n = astral_perturb(n, NORMAL_MAP * 2.0 - 1.0, NORMAL_MAP_DEPTH);
+    vec3 lit = astral_lit(n, VIEW_DIR, WORLD_POSITION, ALBEDO * AO, ROUGHNESS, METALLIC) + EMISSION;
+)";
+        s += R"(    vec3 c = astral_aces_tonemap(lit * f.ground_color.a);
+    if (f.custom.w != 0u) c = astral_linear_to_srgb(c); // UNORM targets: exact sRGB encode here
+    astral_out_color = vec4(c, clamp(ALPHA, 0.0, 1.0));
+)";
+        return s;
+    }
+    if (mode != Mode::GBuffer) return {};
+    if (unshaded) {
+        return R"(    astral_out_albedo = vec4(ALBEDO, 1.0);
+    astral_out_normal = vec4(NORMAL, 0.0);
+    astral_out_emissive = vec4(ALBEDO + EMISSION, 2.0);
+    astral_out_velocity = compute_velocity(astral_in_clip_now, astral_in_clip_prev);
+)";
+    }
+    return R"(    vec3 n = NORMAL;
+    if (NORMAL_MAP != vec3(0.5, 0.5, 1.0)) n = astral_perturb(n, NORMAL_MAP * 2.0 - 1.0, NORMAL_MAP_DEPTH);
+    astral_out_albedo = vec4(ALBEDO * AO, clamp(ROUGHNESS, ASTRAL_MIN_ROUGHNESS, 1.0));
+    astral_out_normal = vec4(n, clamp(METALLIC, 0.0, 1.0));
+    astral_out_emissive = vec4(EMISSION, 1.0);
+    astral_out_velocity = compute_velocity(astral_in_clip_now, astral_in_clip_prev);
+)";
+}
+
 std::string fragment_stage(const ShaderSource& source, const UniformLayout& layout, Mode mode) {
     std::string s = prelude(source, layout);
     s += R"(layout(location = 0) in vec3 astral_in_normal;
@@ -196,7 +232,8 @@ layout(location = 3) out vec2 astral_out_velocity;
 vec3 ALBEDO; float ROUGHNESS; float METALLIC; vec3 EMISSION; float ALPHA; float ALPHA_SCISSOR;
 vec3 NORMAL_MAP; float NORMAL_MAP_DEPTH; float AO;
 )";
-    if (mode == Mode::Forward) s += forward_lighting;
+    const bool unshaded = source.has_render_mode("unshaded");
+    if (mode == Mode::Forward && !unshaded) s += forward_lighting;
     s += wrap_body(source, layout, source.body_without("vertex"));
     s += R"(vec3 astral_perturb(vec3 n, vec3 map, float scale) {
     vec3 dp1 = dFdx(astral_in_world), dp2 = dFdy(astral_in_world);
@@ -225,23 +262,7 @@ void main() {
 )";
     if (source.has_function("surface")) s += "    surface();\n";
     if (source.has_render_mode("alpha_test")) s += "    if (ALPHA < ALPHA_SCISSOR) discard;\n";
-    if (mode == Mode::Forward) {
-        s += R"(    vec3 n = NORMAL;
-    if (NORMAL_MAP != vec3(0.5, 0.5, 1.0)) n = astral_perturb(n, NORMAL_MAP * 2.0 - 1.0, NORMAL_MAP_DEPTH);
-    vec3 lit = astral_lit(n, VIEW_DIR, WORLD_POSITION, ALBEDO * AO, ROUGHNESS, METALLIC) + EMISSION;
-    vec3 c = astral_aces_tonemap(lit * f.ground_color.a);
-    if (f.custom.w != 0u) c = astral_linear_to_srgb(c); // UNORM targets: exact sRGB encode here
-    astral_out_color = vec4(c, clamp(ALPHA, 0.0, 1.0));
-)";
-    } else if (mode == Mode::GBuffer) {
-        s += R"(    vec3 n = NORMAL;
-    if (NORMAL_MAP != vec3(0.5, 0.5, 1.0)) n = astral_perturb(n, NORMAL_MAP * 2.0 - 1.0, NORMAL_MAP_DEPTH);
-    astral_out_albedo = vec4(ALBEDO * AO, clamp(ROUGHNESS, ASTRAL_MIN_ROUGHNESS, 1.0));
-    astral_out_normal = vec4(n, clamp(METALLIC, 0.0, 1.0));
-    astral_out_emissive = vec4(EMISSION, 1.0);
-    astral_out_velocity = compute_velocity(astral_in_clip_now, astral_in_clip_prev);
-)";
-    }
+    s += fragment_output(mode, unshaded);
     s += "}\n";
     return s;
 }
@@ -261,12 +282,24 @@ std::string rt_chunk(const ShaderSource& source, const UniformLayout& layout) {
     ALBEDO = vec3(1.0); ROUGHNESS = 0.6; METALLIC = 0.0; EMISSION = vec3(0.0); ALPHA = 1.0; ALPHA_SCISSOR = 0.5;
     NORMAL_MAP = vec3(0.5, 0.5, 1.0); NORMAL_MAP_DEPTH = 1.0; AO = 1.0;
     surface();
-    s.albedo = ALBEDO * AO;
+)";
+    if (source.has_render_mode("unshaded")) {
+        s += R"(    s.albedo = ALBEDO;
+    s.roughness = 1.0;
+    s.metallic = 0.0;
+    s.emissive = EMISSION;
+    s.unshaded = true;
+}
+)";
+    } else {
+        s += R"(    s.albedo = ALBEDO * AO;
     s.roughness = clamp(ROUGHNESS, ASTRAL_MIN_ROUGHNESS, 1.0);
     s.metallic = clamp(METALLIC, 0.0, 1.0);
     s.emissive = EMISSION;
+    s.unshaded = false;
 }
 )";
+    }
     if (source.has_render_mode("alpha_test")) {
         s += R"(bool astral_alpha_@ID@(uint base, vec2 uv, vec3 p, vec3 n, vec3 view_dir, bool backface) {
     astral_base = base;
@@ -399,6 +432,7 @@ RtVariants compile_rt_variants(std::span<const RtSurface> surfaces) {
     RtVariants out;
     std::vector<GlslInclude> includes = engine_includes();
     includes.push_back({"astral/rt.glsl", embedded_text(embedded::astral_rt_glsl, embedded::astral_rt_glsl_size)});
+    includes.push_back({"astral/restir.glsl", embedded_text(embedded::astral_restir_glsl, embedded::astral_restir_glsl_size)});
     includes.push_back({"astral/primary.glsl", embedded_text(embedded::astral_primary_glsl, embedded::astral_primary_glsl_size)});
     includes.push_back({"astral/sdf.glsl", embedded_text(embedded::astral_sdf_glsl, embedded::astral_sdf_glsl_size)});
     includes.push_back({"astral/rt_custom.glsl", compose_rt_surfaces(surfaces)});
@@ -423,6 +457,10 @@ RtVariants compile_rt_variants(std::span<const RtSurface> surfaces) {
     };
     build(embedded::astral_rt_lighting_comp, embedded::astral_rt_lighting_comp_size, out.lighting, "rt_lighting");
     build(embedded::astral_ddgi_trace_comp, embedded::astral_ddgi_trace_comp_size, out.ddgi_trace, "ddgi_trace");
+    build(embedded::astral_restir_di_temporal_comp, embedded::astral_restir_di_temporal_comp_size, out.restir_temporal,
+          "restir_di_temporal");
+    build(embedded::astral_restir_di_spatial_comp, embedded::astral_restir_di_spatial_comp_size, out.restir_spatial,
+          "restir_di_spatial");
     return out;
 }
 
@@ -466,7 +504,12 @@ layout(location = 0) out vec4 astral_out_color;
     astral_base = pc.materials.data[pc.material].custom.x;
 )";
     if (sky) {
-        s += R"(    vec2 uv = gl_FragCoord.xy * f.screen.zw;
+        s += R"(    if (f.counts.y > 0u && pc.scene != NO_TEXTURE) {
+        float sd = texelFetch(sampler2D(astral_textures[pc.scene], astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]),
+                              ivec2(gl_FragCoord.xy), 0).r;
+        if (sd < 1.0) discard;
+    }
+    vec2 uv = gl_FragCoord.xy * f.screen.zw;
     EYEDIR = normalize(reconstruct_world(f, uv, 1.0) - f.camera_position.xyz);
     SUN_DIR = -normalize(f.sun_direction.xyz);
     SUN_COLOR = f.sun_color.rgb;

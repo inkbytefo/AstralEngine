@@ -48,6 +48,12 @@ GpuFrame build_rt_frame(const CameraData& camera, const RenderScene& scene, cons
     frame.counts[0] = static_cast<std::uint32_t>(instances.lights.size());
     frame.counts[1] = static_cast<std::uint32_t>(instances.shapes.size());
     frame.counts[2] = no_shadow;
+    const bool restir_active = settings.restir_di && (instances.lights.size() + instances.rects.size()) > 2;
+    const bool restir_history_valid =
+        restir_active && temporal.history_valid && temporal.prev_restir_active &&
+        temporal.prev_point_lights == static_cast<std::uint32_t>(instances.lights.size()) &&
+        temporal.prev_rect_lights == static_cast<std::uint32_t>(instances.rects.size());
+    frame.counts[3] = (restir_active ? 1u : 0u) | (restir_history_valid ? 2u : 0u);
     frame.screen = {static_cast<float>(extent.width), static_cast<float>(extent.height),
                     1.0f / static_cast<float>(extent.width), 1.0f / static_cast<float>(extent.height)};
     frame.prev_view_projection = temporal.history_valid ? temporal.prev_view_projection : unjittered;
@@ -69,6 +75,7 @@ GpuFrame build_rt_frame(const CameraData& camera, const RenderScene& scene, cons
     frame.custom[3] = is_srgb(target_format) ? 0u : 1u;
     const Vec3 prev_cam = temporal.history_valid ? temporal.prev_camera_position : camera.position;
     frame.prev_camera_position = {prev_cam.x, prev_cam.y, prev_cam.z, 1};
+    frame.inv_prev_view_projection = inverse(frame.prev_view_projection);
     return frame;
 }
 
@@ -93,10 +100,10 @@ void record_rt_graph(RayTracedPathContext& ctx, const FrameInputs& inputs, gpu::
     GBufferTextures gbuffer = ctx.passes.gbuffer.add(g, inputs, ctx.stats);
     ctx.passes.sdf.add(g, inputs, gbuffer);
     const DdgiOutput ddgi = ctx.passes.ddgi.add(g, inputs, rt_pipes.ddgi_trace);
-    const RtLightingOutput rt = ctx.passes.rt_lighting.add(g, inputs, gbuffer, ddgi, rt_pipes.rt_lighting);
+    const RtLightingOutput rt = ctx.passes.rt_lighting.add(g, inputs, gbuffer, ddgi, rt_pipes);
     const DenoiseOutput denoised = ctx.passes.denoise.add(g, inputs, gbuffer, rt);
     const RGTexture hdr = ctx.passes.composite.add(g, inputs, gbuffer, denoised);
-    ctx.passes.sky.add(g, inputs, hdr, gbuffer.depth);
+    ctx.passes.sky.add(g, inputs, hdr, gbuffer);
     const RGTexture taa_out = ctx.passes.taa.add(g, inputs, gbuffer, hdr);
     const RGTexture bloom = ctx.passes.bloom.add(g, inputs, taa_out);
 
@@ -158,6 +165,10 @@ void render_ray_traced_path(RayTracedPathContext& ctx, gpu::CommandList& cmd, gp
 
     ctx.temporal.prev_view_projection = unjittered;
     ctx.temporal.prev_camera_position = camera.position;
+    ctx.temporal.prev_point_lights = static_cast<std::uint32_t>(ctx.frame_instances.lights.size());
+    ctx.temporal.prev_rect_lights = static_cast<std::uint32_t>(ctx.frame_instances.rects.size());
+    ctx.temporal.prev_restir_active =
+        ctx.settings.restir_di && (ctx.frame_instances.lights.size() + ctx.frame_instances.rects.size()) > 2;
     ctx.temporal.history_valid = true;
     ++ctx.temporal.frame_index;
     ctx.passes.ddgi.mark_valid();

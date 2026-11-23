@@ -165,6 +165,24 @@ struct AuditFixture {
         const auto iy = static_cast<std::uint32_t>(std::clamp(y, 0.0f, kSize - 1.0f));
         return px[iy * kSize + ix];
     }
+    ShaderHandle make_surface(const char* src, const char* name) {
+        const ShaderParse p = parse_ashader(src);
+        REQUIRE(p.errors.empty());
+        const SurfaceShaderBuild build = compile_surface_shader(p.source, name);
+        REQUIRE(build.ok());
+        const ShaderHandle sh = renderer->create_shader(build, name);
+        REQUIRE(sh.valid());
+        return sh;
+    }
+    ShaderHandle make_screen(const char* src, const char* name) {
+        const ShaderParse p = parse_ashader(src);
+        REQUIRE(p.errors.empty());
+        const ScreenShaderBuild build = compile_screen_shader(p.source, name);
+        REQUIRE(build.ok());
+        const ShaderHandle sh = renderer->create_shader(build, name);
+        REQUIRE(sh.valid());
+        return sh;
+    }
 };
 
 RenderSettings small_rt() {
@@ -429,4 +447,199 @@ TEST_CASE("regression: RectLight MIS produces clean specular highlights on rough
                                 .environment = {.sky = {}, .ground = {}}}, 12);
     // Specular reflection of the panel on the rough metallic floor around the origin must be clearly bright.
     CHECK(AuditFixture::luma(f.at(pixels, {0, 0, 0})) > 90);
+}
+
+TEST_CASE("regression: render_mode unshaded opaque is lighting-invariant across raster and RT paths") {
+    const char* code = R"(shader_type surface;
+render_mode unshaded;
+void surface() { ALBEDO = vec3(0.25, 0.65, 0.35); EMISSION = vec3(0.05, 0.0, 0.1); }
+)";
+    for (bool rt : {false, true}) {
+        RenderSettings s = small_rt();
+        s.ray_tracing = rt;
+        s.bloom_strength = 0.0f;
+        AuditFixture f(s);
+        if (!f.device || (rt && !f.renderer->ray_tracing())) continue;
+        const ShaderHandle sh = f.make_surface(code, "unshaded_opaque");
+        const MeshHandle cube = f.renderer->create_mesh(make_cube());
+        const MaterialHandle mat = f.renderer->create_material({.shader = sh});
+        const MeshInstance inst[] = {{cube, mat, scale({2, 2, 2})}};
+        const auto dark = f.draw({.meshes = inst, .sun = {.intensity = 0.0f},
+                                  .environment = {.sky = {}, .ground = {}, .ambient = 0.0f}}, rt ? 4 : 1);
+        const auto bright = f.draw({.meshes = inst, .sun = {.direction = {0, 0, -1}, .intensity = 12.0f},
+                                    .environment = {.sky = {3, 3, 3}, .ground = {2, 2, 2}, .ambient = 1.0f}}, rt ? 4 : 1);
+        const auto c_dark = AuditFixture::rgb(dark[32 * AuditFixture::kSize + 32]);
+        const auto c_bright = AuditFixture::rgb(bright[32 * AuditFixture::kSize + 32]);
+        CHECK(c_dark[1] > 140); // non-black pure ALBEDO+EMISSION even under zero lights
+        for (int i = 0; i < 3; ++i) CHECK(std::abs(c_dark[i] - c_bright[i]) <= 2);
+        f.renderer->destroy(sh);
+    }
+}
+
+TEST_CASE("regression: render_mode unshaded + blend_mix forward surface is lighting-invariant") {
+    AuditFixture f({.shadow_map_size = 256, .ray_tracing = false});
+    if (!f.device) return;
+    const ShaderHandle sh = f.make_surface(R"(shader_type surface;
+render_mode unshaded, blend_mix;
+void surface() { ALBEDO = vec3(0.7, 0.2, 0.4); ALPHA = 1.0; }
+)", "unshaded_blend");
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const MaterialHandle mat = f.renderer->create_material({.shader = sh});
+    const MeshInstance inst[] = {{cube, mat, scale({2, 2, 2})}};
+    const auto dark = f.draw({.meshes = inst, .sun = {.intensity = 0.0f},
+                              .environment = {.sky = {}, .ground = {}, .ambient = 0.0f}});
+    const auto bright = f.draw({.meshes = inst, .sun = {.direction = {0, 0, -1}, .intensity = 10.0f},
+                                .environment = {.sky = {2, 2, 2}, .ground = {2, 2, 2}, .ambient = 1.0f}});
+    const auto a = AuditFixture::rgb(dark[32 * AuditFixture::kSize + 32]);
+    const auto b = AuditFixture::rgb(bright[32 * AuditFixture::kSize + 32]);
+    CHECK(a[0] > 140);
+    for (int i = 0; i < 3; ++i) CHECK(std::abs(a[i] - b[i]) <= 1);
+    f.renderer->destroy(sh);
+}
+
+TEST_CASE("regression: render_mode unshaded reflects its unlit ALBEDO in an RT mirror") {
+    RenderSettings s = small_rt();
+    s.bloom_strength = 0.0f;
+    AuditFixture f(s);
+    if (!f.device || !f.renderer->ray_tracing()) return;
+    const ShaderHandle sh = f.make_surface(R"(shader_type surface;
+render_mode unshaded, cull_disabled;
+void surface() { ALBEDO = vec3(0.0, 0.85, 0.95); }
+)", "unshaded_mirror_target");
+    const MeshHandle plane = f.renderer->create_mesh(make_plane(1.0f));
+    const MaterialHandle mirror =
+        f.renderer->create_material({.base_color = {0.98f, 0.98f, 0.98f, 1}, .roughness = 0.02f, .metallic = 1.0f});
+    const MaterialHandle card = f.renderer->create_material({.shader = sh});
+    const std::array items = {
+        MeshInstance{plane, mirror, scale({12, 1, 12})},
+        MeshInstance{plane, card, translate({0, 3.0f, -3.0f}) * rotate(Quat::from_axis_angle({1, 0, 0}, radians(90.0f))) * scale({6, 1, 6})},
+    };
+    f.look_from({0, 2.0f, 3.5f}, {0, 0, 0});
+    const auto px = f.draw({.meshes = items, .sun = {.intensity = 0.0f},
+                            .environment = {.sky = {}, .ground = {}}}, 6);
+    const auto c = AuditFixture::rgb(f.at(px, {0, 0, 0}));
+    CHECK(c[1] > 140);
+    CHECK(c[2] > 150);
+    CHECK(c[0] < 35);
+    f.renderer->destroy(sh);
+}
+
+TEST_CASE("regression: custom sky shader respects SDF depth in both raster and RT paths") {
+    const char* sky_code = R"(shader_type sky;
+void sky() { COLOR = vec3(1.0, 0.0, 1.0); }
+)";
+    for (bool rt : {false, true}) {
+        RenderSettings s = small_rt();
+        s.ray_tracing = rt;
+        s.bloom_strength = 0.0f;
+        AuditFixture f(s);
+        if (!f.device || (rt && !f.renderer->ray_tracing())) continue;
+        const ShaderHandle sky_sh = f.make_screen(sky_code, "magenta_sky");
+        const MaterialHandle sky_mat = f.renderer->create_material({.shader = sky_sh});
+        const SdfShape sphere{.primitive = SdfPrimitive::Sphere, .operation = SdfOperation::Union,
+                              .position = {0, 0, 0}, .size = {1.1f, 0, 0, 0},
+                              .color = {0.1f, 0.9f, 0.1f, 1}, .roughness = 0.7f};
+        f.look_from({0, 0, 4.5f}, {0, 0, 0});
+        const auto px = f.draw({.sdf = std::span(&sphere, 1),
+                                .sun = {.direction = {0, -0.3f, -1.0f}, .intensity = 3.0f},
+                                .environment = {.sky = {0.2f, 0.2f, 0.2f}, .ground = {0.1f, 0.1f, 0.1f}},
+                                .sky = sky_mat}, rt ? 4 : 1);
+        const auto corner = AuditFixture::rgb(px[2 * AuditFixture::kSize + 2]);
+        const auto center = AuditFixture::rgb(px[32 * AuditFixture::kSize + 32]);
+        CHECK(corner[0] > 170);
+        CHECK(corner[2] > 170);
+        CHECK(corner[1] < 30);
+        CHECK(center[1] > center[0] + 40);
+        CHECK(center[1] > center[2] + 40);
+        f.renderer->destroy(sky_sh);
+    }
+}
+
+TEST_CASE("regression: ReSTIR DI matches unbiased RIS luminance and adapts to dynamic light changes") {
+    RenderSettings s = small_rt();
+    s.bloom_strength = 0.0f;
+    s.max_history = 6.0f;
+    s.restir_di = false;
+    AuditFixture f(s);
+    if (!f.device || !f.renderer->ray_tracing()) return;
+    const MeshHandle plane = f.renderer->create_mesh(make_plane(1.0f));
+    const MaterialHandle matte = f.renderer->create_material({.base_color = {0.75f, 0.75f, 0.75f, 1}, .roughness = 0.85f});
+    const MeshInstance floor[] = {{plane, matte, scale({20, 1, 20})}};
+    std::vector<PointLight> lights;
+    for (int i = 0; i < 16; ++i) {
+        const float a = static_cast<float>(i) * (2.0f * kPi / 16.0f);
+        lights.push_back({.position = {std::cos(a) * 3.0f, 2.2f, std::sin(a) * 3.0f},
+                          .color = {1.0f, 0.08f, 0.05f}, .intensity = 2.5f, .radius = 9.0f});
+    }
+    std::array<RectLight, 3> rects = {{
+        {.position = {-2, 4, 0}, .right = {0.5f, 0, 0}, .up = {0, 0, 0.5f}, .color = {1.0f, 0.1f, 0.08f}, .intensity = 3.0f},
+        {.position = {2, 4, 0}, .right = {0.5f, 0, 0}, .up = {0, 0, 0.5f}, .color = {1.0f, 0.1f, 0.08f}, .intensity = 3.0f},
+        {.position = {0, 4, -2}, .right = {0.5f, 0, 0}, .up = {0, 0, 0.5f}, .color = {1.0f, 0.1f, 0.08f}, .intensity = 3.0f},
+    }};
+    f.look_from({0, 5.0f, 6.0f}, {0, 0, 0});
+    RenderScene sc{.meshes = floor, .lights = lights, .rect_lights = rects,
+                   .sun = {.intensity = 0.0f}, .environment = {.sky = {}, .ground = {}}};
+    auto mean_center = [](const std::vector<std::uint32_t>& px) {
+        double sum = 0.0;
+        for (int y = 24; y < 40; ++y)
+            for (int x = 24; x < 40; ++x) sum += AuditFixture::luma(px[static_cast<std::size_t>(y) * AuditFixture::kSize + x]);
+        return sum / 256.0;
+    };
+    const double ris_mean = mean_center(f.draw(sc, 24));
+    s.restir_di = true;
+    f.renderer->set_settings(s);
+    const double restir_mean = mean_center(f.draw(sc, 24));
+    CHECK(ris_mean > 45.0);
+    CHECK(std::abs(restir_mean - ris_mean) <= ris_mean * 0.12 + 4.0);
+
+    // Dynamic light shift (red -> green, same light topology) WITHOUT reset_history(): M clamp prevents stale lock-in.
+    for (PointLight& l : lights) l.color = {0.04f, 1.0f, 0.08f};
+    for (RectLight& r : rects) r.color = {0.04f, 1.0f, 0.08f};
+    const auto adapted = f.draw(sc, 20);
+    const auto c = AuditFixture::rgb(adapted[32 * AuditFixture::kSize + 32]);
+    CHECK(c[1] > c[0] + 60);
+}
+
+TEST_CASE("regression: virtual reflection-hit reprojection keeps moving mirror reflections sharp") {
+    RenderSettings s = small_rt();
+    s.denoise_iterations = 0;
+    s.taa_blend = 1.0f;
+    s.bloom_strength = 0.0f;
+    AuditFixture f(s);
+    if (!f.device || !f.renderer->ray_tracing()) return;
+    const MeshHandle plane = f.renderer->create_mesh(make_plane(1.0f));
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const MaterialHandle mirror =
+        f.renderer->create_material({.base_color = {0.98f, 0.98f, 0.98f, 1}, .roughness = 0.02f, .metallic = 1.0f});
+    const MaterialHandle glow = f.renderer->create_material({.base_color = {0, 0, 0, 1}, .emissive = {8.0f, 8.0f, 8.0f}});
+    const std::array items = {
+        MeshInstance{plane, mirror, scale({20, 1, 20})},
+        MeshInstance{cube, glow, translate({0, 2.2f, -3.5f}) * scale({0.6f, 2.0f, 0.4f})},
+    };
+    const RenderScene sc{.meshes = items, .sun = {.intensity = 0.0f}, .environment = {.sky = {}, .ground = {}}};
+    // Strafe camera across 16 frames (full Halton cycle) so the reflected bar sweeps across the mirror floor.
+    std::vector<std::uint32_t> moving;
+    for (int i = 0; i < 16; ++i) {
+        const float x = -2.25f + static_cast<float>(i) * 0.30f;
+        f.look_from({x, 2.2f, 4.0f}, {0, 0.0f, -1.0f});
+        moving = f.draw(sc, 1);
+    }
+    // Render 16 stationary frames so the final reference frame shares the exact same Halton(2,3) jitter phase.
+    f.renderer->reset_history();
+    const auto ref = f.draw(sc, 16);
+    double sq_err = 0.0;
+    int count = 0;
+    for (std::uint32_t y = 36; y < 58; ++y) {
+        for (std::uint32_t x = 8; x < 56; ++x) {
+            const auto a = AuditFixture::rgb(moving[y * AuditFixture::kSize + x]);
+            const auto b = AuditFixture::rgb(ref[y * AuditFixture::kSize + x]);
+            for (int c = 0; c < 3; ++c) {
+                const double d = static_cast<double>(a[c] - b[c]);
+                sq_err += d * d;
+            }
+            ++count;
+        }
+    }
+    const double rmse = std::sqrt(sq_err / (3.0 * count));
+    CHECK(rmse < 15.0); // sharp virtual-hit reflection without ghosting trail
 }

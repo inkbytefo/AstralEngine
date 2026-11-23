@@ -1,6 +1,8 @@
 #include "stores/shader_store.hpp"
 
 #include <shaders/ddgi_trace.comp.hpp>
+#include <shaders/restir_di_spatial.comp.hpp>
+#include <shaders/restir_di_temporal.comp.hpp>
 #include <shaders/rt_lighting.comp.hpp>
 
 #include <span>
@@ -110,12 +112,20 @@ const GpuShader* ShaderStore::find_by_key(std::uint32_t key) noexcept {
 }
 
 bool ShaderStore::ensure_rt_pipelines() {
-    if (rt_.rt_lighting.valid() && rt_.ddgi_trace.valid()) return true;
+    if (rt_.rt_lighting.valid() && rt_.ddgi_trace.valid() && rt_.restir_temporal.valid() &&
+        rt_.restir_spatial.valid()) {
+        return true;
+    }
     rt_.rt_lighting =
         device_.create_compute_pipeline({.shader = {shaders::rt_lighting_comp}, .debug_name = "astral.rt_lighting"});
     rt_.ddgi_trace =
         device_.create_compute_pipeline({.shader = {shaders::ddgi_trace_comp}, .debug_name = "astral.ddgi_trace"});
-    if (!rt_.rt_lighting.valid() || !rt_.ddgi_trace.valid()) {
+    rt_.restir_temporal = device_.create_compute_pipeline(
+        {.shader = {shaders::restir_di_temporal_comp}, .debug_name = "astral.restir_di_temporal"});
+    rt_.restir_spatial = device_.create_compute_pipeline(
+        {.shader = {shaders::restir_di_spatial_comp}, .debug_name = "astral.restir_di_spatial"});
+    if (!rt_.rt_lighting.valid() || !rt_.ddgi_trace.valid() || !rt_.restir_temporal.valid() ||
+        !rt_.restir_spatial.valid()) {
         destroy_rt_pipelines(); // fall back to the raster path
         return false;
     }
@@ -125,8 +135,9 @@ bool ShaderStore::ensure_rt_pipelines() {
 void ShaderStore::destroy_rt_pipelines() {
     device_.destroy(rt_.rt_lighting);
     device_.destroy(rt_.ddgi_trace);
-    rt_.rt_lighting = {};
-    rt_.ddgi_trace = {};
+    device_.destroy(rt_.restir_temporal);
+    device_.destroy(rt_.restir_spatial);
+    rt_ = {};
 }
 
 /// Compiles the ray-traced compute shaders with every live custom surface() in; with none (or if the
@@ -138,31 +149,44 @@ void ShaderStore::rebuild_rt_surfaces_if_dirty() {
     shaders_.for_each([&](ShaderHandle h, GpuShader& s) {
         if (!s.rt_chunk.empty()) surfaces.push_back({h.index, s.rt_chunk, s.alpha_test});
     });
-    gpu::PipelineHandle lit, trace;
+    RtPipelines next{};
     rt_surface_error_.clear();
     if (!surfaces.empty()) {
         const RtVariants variants = compile_rt_variants(surfaces);
         if (variants.ok()) {
-            lit = device_.create_compute_pipeline({.shader = {variants.lighting}, .debug_name = "astral.rt_lighting.custom"});
-            trace = device_.create_compute_pipeline({.shader = {variants.ddgi_trace}, .debug_name = "astral.ddgi_trace.custom"});
+            next.rt_lighting =
+                device_.create_compute_pipeline({.shader = {variants.lighting}, .debug_name = "astral.rt_lighting.custom"});
+            next.ddgi_trace =
+                device_.create_compute_pipeline({.shader = {variants.ddgi_trace}, .debug_name = "astral.ddgi_trace.custom"});
+            next.restir_temporal = device_.create_compute_pipeline(
+                {.shader = {variants.restir_temporal}, .debug_name = "astral.restir_di_temporal.custom"});
+            next.restir_spatial = device_.create_compute_pipeline(
+                {.shader = {variants.restir_spatial}, .debug_name = "astral.restir_di_spatial.custom"});
         } else {
             for (const ShaderError& e : variants.errors) {
                 rt_surface_error_ += "line " + std::to_string(e.line) + ": " + e.message + "\n";
             }
         }
     }
-    const bool custom = lit.valid() && trace.valid();
+    const bool custom = next.rt_lighting.valid() && next.ddgi_trace.valid() && next.restir_temporal.valid() &&
+                        next.restir_spatial.valid();
     if (!custom) {
-        device_.destroy(lit);
-        device_.destroy(trace);
+        device_.destroy(next.rt_lighting);
+        device_.destroy(next.ddgi_trace);
+        device_.destroy(next.restir_temporal);
+        device_.destroy(next.restir_spatial);
         if (!rt_custom_active_ && rt_.rt_lighting.valid()) return; // already the precompiled ones
-        lit = device_.create_compute_pipeline({.shader = {shaders::rt_lighting_comp}, .debug_name = "astral.rt_lighting"});
-        trace = device_.create_compute_pipeline({.shader = {shaders::ddgi_trace_comp}, .debug_name = "astral.ddgi_trace"});
+        next.rt_lighting =
+            device_.create_compute_pipeline({.shader = {shaders::rt_lighting_comp}, .debug_name = "astral.rt_lighting"});
+        next.ddgi_trace =
+            device_.create_compute_pipeline({.shader = {shaders::ddgi_trace_comp}, .debug_name = "astral.ddgi_trace"});
+        next.restir_temporal = device_.create_compute_pipeline(
+            {.shader = {shaders::restir_di_temporal_comp}, .debug_name = "astral.restir_di_temporal"});
+        next.restir_spatial = device_.create_compute_pipeline(
+            {.shader = {shaders::restir_di_spatial_comp}, .debug_name = "astral.restir_di_spatial"});
     }
-    device_.destroy(rt_.rt_lighting);
-    device_.destroy(rt_.ddgi_trace);
-    rt_.rt_lighting = lit;
-    rt_.ddgi_trace = trace;
+    destroy_rt_pipelines();
+    rt_ = next;
     rt_custom_active_ = custom;
 }
 
