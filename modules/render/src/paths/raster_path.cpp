@@ -104,6 +104,7 @@ void render_raster_path(RasterPathContext& ctx, gpu::CommandList& cmd, gpu::Text
     const std::span<const MaterialHandle> post_chain = ctx.passes.post.collect(scene, ctx.materials);
     const RGTexture scene_color =
         post_chain.empty() ? output : g.create("scene.ldr", {extent.width, extent.height, ctx.target_format});
+    ctx.passes.sdf.merge_depth(g, inputs, gbuffer);
     ctx.passes.transparent.add(g, inputs, hdr, gbuffer.depth, ctx.stats);
     ctx.passes.tonemap.add(g, inputs, hdr, {}, scene_color);
     ctx.passes.post.add(g, inputs, scene_color, output, post_chain);

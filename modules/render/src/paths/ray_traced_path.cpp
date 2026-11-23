@@ -184,6 +184,7 @@ void record_rt_graph(RayTracedPathContext& ctx, const FrameInputs& inputs, gpu::
     const RGTexture hdr = ctx.passes.composite.add(g, inputs, gbuffer, denoised);
     ctx.passes.sky.add(g, inputs, hdr, gbuffer);
     const RGTexture taa_out = ctx.passes.taa.add(g, inputs, gbuffer, hdr);
+    ctx.passes.sdf.merge_depth(g, inputs, gbuffer);
     ctx.passes.transparent.add(g, inputs, taa_out, gbuffer.depth, ctx.stats);
     const RGTexture bloom = ctx.passes.bloom.add(g, inputs, taa_out);
 
@@ -211,6 +212,7 @@ void record_path_tracer_graph(RayTracedPathContext& ctx, const FrameInputs& inpu
     }
     const RGTexture hdr = ctx.passes.path_tracer.add(g, inputs, rt_pipes.path_tracer);
     if (need_depth) ctx.passes.sky.add(g, inputs, hdr, gbuffer);
+    ctx.passes.sdf.merge_depth(g, inputs, gbuffer);
     if (need_depth) ctx.passes.transparent.add(g, inputs, hdr, gbuffer.depth, ctx.stats);
     const RGTexture bloom = ctx.passes.bloom.add(g, inputs, hdr);
     const std::span<const MaterialHandle> post_chain = ctx.passes.post.collect(inputs.scene, ctx.materials);

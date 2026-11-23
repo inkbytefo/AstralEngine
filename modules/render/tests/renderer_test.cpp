@@ -981,6 +981,23 @@ TEST_CASE("transparent surfaces are sorted back to front and hidden behind opaqu
     f.renderer->destroy(shader);
 }
 
+TEST_CASE("SDF depth occludes transparent geometry behind it without hiding glass in front") {
+    Fixture f;
+    if (!f.device) return;
+    const ShaderHandle shader = make_shader(f, glass_shader, "sdf_glass");
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const MaterialHandle glass = f.renderer->create_material({.shader = shader, .params = {0, 1, 0, 0.9f}});
+    const SdfShape sdf{.size = {1, 0, 0, 0}, .color = {1, 0, 0, 1}};
+    MeshInstance pane{.mesh = cube, .material = glass, .transform = translate({0, 0, -2}) * scale({1, 1, 0.1f})};
+    RenderScene scene{.sdf = std::span(&sdf, 1), .sun = front_sun};
+    const auto opaque = Fixture::center(f.draw(scene));
+    scene.meshes = std::span(&pane, 1);
+    CHECK(Fixture::center(f.draw(scene)) == opaque);
+    pane.transform = translate({0, 0, 2}) * scale({1, 1, 0.1f});
+    const Rgb foreground = rgb(Fixture::center(f.draw(scene)));
+    CHECK(foreground.g > rgb(opaque).g + 10);
+}
+
 TEST_CASE("a sky shader replaces the background and leaves geometry alone") {
     Fixture f;
     if (!f.device) return;
@@ -1076,13 +1093,13 @@ TEST_CASE("characterization: RenderStats and pass list for raster and ray-traced
         CHECK(s.point_lights == 1);
         CHECK(s.rect_lights == 0);
         CHECK(s.gi_probes == 0);
-        CHECK(s.passes == 7);
+        CHECK(s.passes == 8);
 
         if (!f.device->supports(gpu::Feature::Timestamps)) {
             MESSAGE("no GPU timestamps — skipping raster pass list assertion");
         } else {
             const std::vector<std::string> expected{
-                "shadow", "gbuffer", "sdf", "lighting", "transparent", "tonemap", "debug.lines",
+                "shadow", "gbuffer", "sdf", "lighting", "sdf.depth_merge", "transparent", "tonemap", "debug.lines",
             };
             CHECK(pass_names(*f.renderer) == expected);
         }
@@ -1133,7 +1150,7 @@ TEST_CASE("characterization: RenderStats and pass list for raster and ray-traced
         CHECK(s.point_lights == 1);
         CHECK(s.rect_lights == 1);
         CHECK(s.gi_probes == 64);
-        CHECK(s.passes == 26);
+        CHECK(s.passes == 27);
 
         if (!f.device->supports(gpu::Feature::Timestamps)) {
             MESSAGE("no GPU timestamps — skipping ray-traced pass list assertion");
@@ -1141,7 +1158,7 @@ TEST_CASE("characterization: RenderStats and pass list for raster and ray-traced
             const std::vector<std::string> expected{
                 "gbuffer", "sdf", "ddgi.trace", "ddgi.update.irradiance", "ddgi.update.distance",
                 "rt.lighting", "denoise.temporal", "denoise.atrous", "denoise.atrous", "denoise.atrous",
-                "composite", "taa", "transparent",
+                "composite", "taa", "sdf.depth_merge", "transparent",
                 "bloom.down", "bloom.down", "bloom.down", "bloom.down", "bloom.down", "bloom.down",
                 "bloom.up", "bloom.up", "bloom.up", "bloom.up", "bloom.up",
                 "tonemap", "debug.lines",
