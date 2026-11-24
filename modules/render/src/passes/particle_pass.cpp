@@ -102,24 +102,32 @@ void ParticlePass::simulate(RenderGraph& graph, const FrameInputs& in, const GBu
 }
 
 void ParticlePass::add(RenderGraph& graph, const FrameInputs& in, RGTexture target, const GBufferTextures& gb,
-                       RGTexture fog) {
+                       RGTexture fog, DdgiOutput ddgi) {
     auto draws = collect(in.settings.debug_view == DebugView::None ? in.scene.particles : std::span<const ParticleBurst>{});
     if (draws.empty() || !pipeline_.valid()) return;
     simulate(graph, in, gb, draws);
-    graph.add_pass("GPU particles", [target, gb, fog](PassBuilder& b) {
+    const bool use_probes = ddgi.irradiance.valid() && ddgi.distance.valid() &&
+        std::ranges::any_of(draws, [](const Draw& d) { return d.burst.lighting > 0.0f; });
+    graph.add_pass("GPU particles", [target, gb, fog, ddgi, use_probes](PassBuilder& b) {
         b.color(target, gpu::LoadOp::Load);
         b.depth_read(gb.depth);
         if (gb.has_sdf) b.read(gb.sdf_depth);
         if (fog.valid()) b.read(fog);
-    }, [pipeline = pipeline_, &in, gb, fog, draws = std::move(draws)](PassContext& c) {
+        if (use_probes) {
+            b.read(ddgi.irradiance);
+            b.read(ddgi.distance);
+        }
+    }, [pipeline = pipeline_, &in, gb, fog, ddgi, use_probes, draws = std::move(draws)](PassContext& c) {
         struct Push {
             std::uint64_t frame;
             Vec4 position_age, drift_duration, color_size;
             std::uint32_t seed, fog, sdf_depth, material, mesh_depth;
             float soft_distance_m;
             std::uint64_t states;
+            std::uint32_t irradiance, distance;
+            float lighting;
         };
-        static_assert(sizeof(Push) == 88);
+        static_assert(offsetof(Push, lighting) == 96);
         constexpr std::uint32_t none = 0xFFFFFFFFu;
         gpu::PipelineHandle bound{};
         for (const auto& draw : draws) {
@@ -137,7 +145,9 @@ void ParticlePass::add(RenderGraph& graph, const FrameInputs& in, RGTexture targ
                 {emitter.color.x, emitter.color.y, emitter.color.z, emitter.size_m},
                 emitter.seed, fog.valid() ? c.bindless(fog) : none,
                 gb.has_sdf ? c.bindless(gb.sdf_depth) : none, in.materials.resolve_index(emitter.material),
-                c.bindless(gb.depth), emitter.soft_distance_m, draw.address};
+                c.bindless(gb.depth), emitter.soft_distance_m, draw.address,
+                use_probes ? c.bindless(ddgi.irradiance) : none, use_probes ? c.bindless(ddgi.distance) : none,
+                std::isfinite(emitter.lighting) ? std::clamp(emitter.lighting, 0.0f, 1.0f) : 0.0f};
             c.cmd.push_constants(&push, sizeof(push));
             c.cmd.draw(6, draw.count);
         }

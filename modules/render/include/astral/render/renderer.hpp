@@ -220,6 +220,7 @@ struct ParticleBurst {
     float soft_distance_m = 0; ///< Fade as the billboard approaches the nearest solid surface.
     std::uint64_t simulation_id = 0; ///< Stable nonzero ID enables persistent GPU simulation. Unique per scene.
     float restitution = 0.45f; ///< 0 stops normal motion, 1 preserves it at a depth collision.
+    float lighting = 0.0f; ///< Amount of ambient/DDGI modulation. Zero keeps the authored emissive color.
 };
 
 /// Everything to draw in one frame. Spans must stay valid until render() returns.

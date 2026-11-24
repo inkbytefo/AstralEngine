@@ -88,7 +88,7 @@ Partiküller varsayılan olarak additive karışır. Alfa karışımı için `re
 
 `volume` track’i için hacim materyali zorunludur. `size`, 17³ hücreli küpün kenar uzunluğunu metre cinsinden, `strength` ise sönüm ve ışıma ölçeğini ayarlar. `flame.material` ile avluda örnek bir prosedürel alev oluşturulur. Bu track yalnızca renderer’a veri gönderir. Çevre geometrisini de aydınlatmak için zaman çizelgesine bir `light` track’i eklenebilir.
 
-Derinlik çarpışması kameranın gördüğü ilk yüzeyi kullanır. `motion()` simülasyon sonucuna yalnızca çizim katmanında müdahale eder. C++ renderer çağrısında benzersiz `ParticleBurst::simulation_id` verilirse durum saklanır, sıfır değeri analitik çizimi seçer. Aynı anda en fazla 64 emitter durum saklayabilir.
+Derinlik çarpışması kameranın gördüğü ilk yüzeyi kullanır. `motion()` simülasyon sonucuna yalnızca çizim katmanında müdahale eder. C++ renderer çağrısında benzersiz `ParticleBurst::simulation_id` verilirse durum saklanır, sıfır değeri analitik çizimi seçer. Aynı anda en fazla 64 emitter durum saklayabilir. `lighting` 0–1 arasında ortam ışığının parçacık rengini etkileme oranıdır. Hibrit RT’de DDGI, diğer yollarda gökyüzü ışığı kullanılır. Kıvılcım gibi kendi ışığını yayan efektler için varsayılan değer sıfırdır.
 
 GPU görselleştirme, 8³ hücrelik sayfalardan oluşan ortak materyal ve güneş geçirgenliği atlaslarını kullanır. Gameplay dumanında yalnızca dolu hücre içeren sayfalar yer alır. Prosedürel `volume` track’i kendi ızgarasını doldurur. Kare bütçesi 512 sayfadır. Bütçeyi aşan gameplay hacmi doluluğunu ve temel sis görünümünü korur. Bütçeyi aşan prosedürel hacim atlanır. `--profile` yerleşen sayfa ve bütçeyi aşan hacim sayısını gösterir.
 

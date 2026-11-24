@@ -1,5 +1,6 @@
 #pragma once
 
+#include "passes/ddgi_pass.hpp"
 #include "passes/frame_inputs.hpp"
 
 #include <unordered_map>
@@ -13,7 +14,7 @@ public:
     ParticlePass& operator=(const ParticlePass&) = delete;
 
     void add(RenderGraph& graph, const FrameInputs& inputs, RGTexture target, const GBufferTextures& gb,
-             RGTexture fog = {});
+             RGTexture fog = {}, DdgiOutput ddgi = {});
 
 private:
     struct EmitterState {

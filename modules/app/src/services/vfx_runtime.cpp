@@ -19,7 +19,7 @@ struct Track {
     TrackKind kind;
     float start, duration;
     Vec3 offset{}, color{1, 0.6f, 0.3f};
-    float size = 0, strength = 0, soft_distance_m = 0, restitution = 0.45f;
+    float size = 0, strength = 0, soft_distance_m = 0, restitution = 0.45f, lighting = 0;
     std::uint32_t count;
     std::string sound, material;
 };
@@ -80,6 +80,7 @@ std::optional<Playback> parse_vfx(const Json& json) {
             !read_scalar(node, "strength", t.strength, 1, 0, 100) ||
             (*kind == TrackKind::Particles && !read_scalar(node, "soft_distance_m", t.soft_distance_m, 0, 0, 20)) ||
             (*kind == TrackKind::Particles && !read_scalar(node, "restitution", t.restitution, 0.45, 0, 1)) ||
+            (*kind == TrackKind::Particles && !read_scalar(node, "lighting", t.lighting, 0, 0, 1)) ||
             !read_scalar(node, "count", count, 64, 1, 1024) || count != std::floor(count) ||
             !read_xyz(node, "offset", t.offset, -1000, 1000) || !read_xyz(node, "color", t.color, 0, 100)) return {};
         t.count = static_cast<std::uint32_t>(count);
@@ -126,7 +127,7 @@ void spawn_track(Context& ctx, Entity owner, Vec3 position, const Track& t, floa
             .age = age - t.start, .drift = ctx.fields.wind_at(transform.position, ctx.time.elapsed),
             .duration = t.duration, .color = t.color * t.strength, .size_m = t.size,
             .count = t.count, .seed = owner.index * 37u + sequence, .material = material,
-            .soft_distance_m = t.soft_distance_m, .restitution = t.restitution}});
+            .soft_distance_m = t.soft_distance_m, .restitution = t.restitution, .lighting = t.lighting}});
         break;
     case TrackKind::Light:
         ctx.world.create(transform, child, PointLight{.color = t.color, .intensity = t.strength, .radius = t.size});

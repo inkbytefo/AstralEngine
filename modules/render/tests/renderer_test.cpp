@@ -1407,7 +1407,7 @@ TEST_CASE("GPU particle state bounces off scene depth and does not advance twice
     CHECK(visible(bounced) > visible(f.draw(scene)) + 10);
 }
 
-TEST_CASE("hybrid fog receives coloured indirect light from DDGI") {
+TEST_CASE("hybrid fog and lit particles receive coloured indirect light from DDGI") {
     RenderSettings settings{.shadow_map_size = 512, .ray_tracing = true,
                             .gi = {.probes_x = 3, .probes_y = 3, .probes_z = 3, .rays_per_probe = 64,
                                    .volume_min = {-2, -2, -2}, .volume_max = {2, 2, 4}},
@@ -1419,9 +1419,9 @@ TEST_CASE("hybrid fog receives coloured indirect light from DDGI") {
     const auto material = f.renderer->create_material({.base_color = {0, 0, 0, 1}, .emissive = {0, 2, 0}});
     const MeshInstance emitter{.mesh = slab, .material = material,
                                .transform = translate({-1.5f, 0, 1}) * scale({0.25f, 5, 8})};
-    const RenderScene scene{.meshes = std::span(&emitter, 1), .sun = {.intensity = 0, .shadows = false},
-                            .environment = {.sky = {}, .ground = {}, .ambient = 0,
-                                            .fog_extinction = 0.55f, .fog_range_m = 14}};
+    RenderScene scene{.meshes = std::span(&emitter, 1), .sun = {.intensity = 0, .shadows = false},
+                      .environment = {.sky = {}, .ground = {}, .ambient = 0,
+                                      .fog_extinction = 0.55f, .fog_range_m = 14}};
     const auto lit = rgb(Fixture::center(f.draw(scene)));
     settings.fog_ddgi = false;
     f.renderer->set_settings(settings);
@@ -1429,4 +1429,12 @@ TEST_CASE("hybrid fog receives coloured indirect light from DDGI") {
     CHECK(clear.g == 0);
     CHECK(lit.g > clear.g + 15);
     CHECK(lit.r == 0);
+
+    const ParticleBurst burst{.position = {0, 0, 1}, .age = 0.05f, .color = {3, 3, 3},
+                              .size_m = 0.26f, .lighting = 1};
+    scene.environment.fog_extinction = 0;
+    scene.particles = std::span(&burst, 1);
+    const auto particle = rgb(Fixture::center(f.draw(scene)));
+    CHECK(particle.g > 10);
+    CHECK(particle.r == 0);
 }

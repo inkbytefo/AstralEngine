@@ -1,12 +1,17 @@
 #version 460
 #include <astral/scene.glsl>
 #include <astral/color.glsl>
+#include <astral/brdf.glsl>
+#include <astral/ddgi_layout.glsl>
 layout(push_constant, scalar) uniform Push {
     FrameRef frame;
     vec4 position_age, drift_duration, color_size;
     uint seed, fog, sdf_depth, material;
     uint mesh_depth;
     float soft_distance_m;
+    uint64_t states;
+    uint irradiance, distance;
+    float lighting;
 } pc;
 layout(location = 0) in vec2 corner_in;
 layout(location = 1) in float fade_in;
@@ -45,6 +50,13 @@ void main() {
             vec3 particle_position = reconstruct_world(f, screen_uv, gl_FragCoord.z);
             alpha *= smoothstep(0.0, pc.soft_distance_m, length(surface - particle_position));
         }
+    }
+    if (pc.lighting > 0.0) {
+        vec3 to_camera = normalize(f.camera_position.xyz - world_in);
+        vec3 ambient = sky_diffuse_ibl(f, to_camera) * f.sky_color.a;
+        if (pc.irradiance != NO_TEXTURE)
+            ambient = ddgi_irradiance(f, pc.irradiance, pc.distance, world_in, to_camera, to_camera);
+        radiance *= mix(vec3(1), ambient, pc.lighting);
     }
     vec3 light = radiance * aerial_transmittance(f, world_in) * tr;
     vec3 color = astral_aces_tonemap(light * f.ground_color.a);

@@ -22,7 +22,9 @@ std::vector<GlslInclude> engine_includes() {
             {"astral/smoke_atlas.glsl",
              embedded_text(embedded::astral_smoke_atlas_glsl, embedded::astral_smoke_atlas_glsl_size)},
             {"astral/sky_ibl.glsl",
-             embedded_text(embedded::astral_sky_ibl_glsl, embedded::astral_sky_ibl_glsl_size)}};
+             embedded_text(embedded::astral_sky_ibl_glsl, embedded::astral_sky_ibl_glsl_size)},
+            {"astral/ddgi_layout.glsl",
+             embedded_text(embedded::astral_ddgi_layout_glsl, embedded::astral_ddgi_layout_glsl_size)}};
 }
 
 std::string uniform_macros(const ShaderSource& source, const UniformLayout& layout) {
