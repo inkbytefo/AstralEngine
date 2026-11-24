@@ -66,3 +66,7 @@ Her ID için: **durum (open / in progress / verified fixed / deferred)**, kaynak
 ## Editor / AI — hedef mimari ve kapsam kararı
 
 Kullanıcı kararıyla mevcut Editor/AI üzerinde derin statik bug avı atlandı; [Studio & Intelligence hedef mimarisi](../editor/studio-intelligence-target-architecture.md) sonraki yeniden inşa için tasarım referansıdır. S2/S3 ve önceki A02–A08, A13–A14, R01–R03 açık kalır; replacement implementation için regresyon kabul kriterlerine eşlendi. Yeni kaynak kusuru/risk sayısı eklenmedi. Motor kodu ve mevcut E0–E2 implementasyonu değişmedi. GDX fazları korunur; refaktör ADR ve uygulama planı ayrıca hazırlanır.
+
+## Merkezi roadmap
+
+[Master Stabilization Roadmap](master-stabilization-roadmap.md) bu tarihsel backlog'un iş sırası ve kayıt izleme için genişletilmiş merkezi sürümüdür. 137 kayıt (75 kusur, 38 risk, 18 öneri, 5 borç, V01) tek primary pakete eşlenmiştir; bütün kayıtlar açık/ertelenmiş, fix yok. S0 kullanıcı bildirimiyle external-blocked; S2/S3 replacement kabul kapıları.
