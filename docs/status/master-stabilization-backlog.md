@@ -58,3 +58,7 @@ Her ID için: **durum (open / in progress / verified fixed / deferred)**, kaynak
 ## Ek denetim: Assets / Shader Compiler
 
 [Assets & Shader Compiler Deep Audit](assets-shader-deep-audit-2026-11-25.md): AS01–AS13 kaynak kusurları, ASR01–ASR06 koşullu riskler, ASP01–ASP03 öneriler. AS01, AS03–04, AS06, AS08–12 P1; S4 parser hardening, S1 GPU publish/lifetime ve E4/E9 asset/cook sözleşmeleriyle koordineli. Dependency graph, atomic asset/shader publication, cook output closure, typed ABI. Derleme ve runtime testleri kapsam dışı, tüm kayıtlar açık.
+
+## Ek denetim: App / Gameplay
+
+[App & Gameplay Deep Audit](app-gameplay-deep-audit-2026-11-25.md): AG01–AG13 kaynak kusurları, AGR01–AGR06 koşullu riskler, AGP01–AGP03 öneriler. AG01–03, AG06–07, AG09, AG12–13 P1. S5 runtime reliability, S2 transactional data, C/PH deterministic scheduling ile koordine. Save/load ve world switch veri bütünlüğü, named input edges/feature composition, Luau callbacks/reload/serialization öncelikli. Derleme ve runtime testleri kapsam dışı; tüm kayıtlar açık.
