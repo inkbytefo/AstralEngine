@@ -64,6 +64,7 @@ struct Frame {
     uint64_t scene_decals;
     uint decal_count;
     uint pt_params;       // bits 0..15: pt_sample_index, bits 16..23: max_bounces
+    vec4 aerial;          // x extinction per metre, y start distance in metres
 };
 struct PointLight { vec4 position_radius; vec4 color_intensity; vec4 source; /* x source radius */ };
 struct SdfShape {
@@ -109,6 +110,19 @@ vec2 compute_velocity(vec4 clip_now, vec4 clip_prev) {
     vec2 now = clip_now.xy / clip_now.w * 0.5 + 0.5;
     vec2 prev = clip_prev.xy / clip_prev.w * 0.5 + 0.5;
     return clamp(now - prev, vec2(-10.0), vec2(10.0));
+}
+
+// Analytic single-segment transport for distant surfaces. The sky itself is already atmospheric.
+vec3 aerial_transmittance(Frame f, vec3 world) {
+    if (f.aerial.x <= 0.0) return vec3(1.0);
+    float distance_m = max(0.0, length(world - f.camera_position.xyz) - f.aerial.y);
+    return exp(-distance_m * f.aerial.x * vec3(0.75, 0.95, 1.25));
+}
+
+vec3 aerial_surface(Frame f, vec3 radiance, vec3 world) {
+    if (f.aerial.x <= 0.0) return radiance;
+    vec3 visibility = aerial_transmittance(f, world);
+    return radiance * visibility + f.sky_color.rgb * (1.0 - visibility);
 }
 
 vec3 reconstruct_world(Frame f, vec2 uv, float depth) {

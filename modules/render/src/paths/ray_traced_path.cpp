@@ -54,6 +54,7 @@ GpuFrame build_rt_frame(const CameraData& camera, const RenderScene& scene, cons
     frame.inv_view_projection = inverse(jittered);
     frame.light_view_projection = Mat4::identity();
     frame.camera_position = {camera.position.x, camera.position.y, camera.position.z, 1};
+    frame.aerial = settings.debug_view == DebugView::None ? aerial_parameters(scene.environment) : Vec4{};
     frame.sun_direction = {sun.x, sun.y, sun.z, 0};
     frame.sun_color = {scene.sun.color.x * sun_on, scene.sun.color.y * sun_on, scene.sun.color.z * sun_on, 0};
     frame.sky_color = {scene.environment.sky.x, scene.environment.sky.y, scene.environment.sky.z,
@@ -125,7 +126,9 @@ void record_rt_graph(RayTracedPathContext& ctx, const FrameInputs& inputs, gpu::
     const DenoiseOutput denoised = ctx.passes.denoise.add(g, inputs, gbuffer, rt);
     const RGTexture hdr = ctx.passes.composite.add(g, inputs, gbuffer, denoised);
     ctx.passes.sky.add(g, inputs, hdr, gbuffer);
-    const RGTexture taa_out = ctx.passes.taa.add(g, inputs, gbuffer, hdr);
+    const RGTexture atmospheric_hdr = inputs.settings.debug_view == DebugView::None ?
+        ctx.passes.aerial.add(g, inputs, hdr, gbuffer) : hdr;
+    const RGTexture taa_out = ctx.passes.taa.add(g, inputs, gbuffer, atmospheric_hdr);
     const RGTexture bloom = ctx.passes.bloom.add(g, inputs, taa_out);
 
     const std::span<const MaterialHandle> post_chain = ctx.passes.post.collect(inputs.scene, ctx.materials);
@@ -145,7 +148,8 @@ void record_path_tracer_graph(RayTracedPathContext& ctx, const FrameInputs& inpu
     g.begin_frame();
     const RGTexture output = g.import(target, "output");
     const bool need_depth =
-        inputs.scene.sky.valid() || !inputs.instances.transparent_draws.empty() || !inputs.scene.debug_lines.empty();
+        inputs.scene.sky.valid() || aerial_parameters(inputs.scene.environment).x > 0.0f ||
+        !inputs.instances.transparent_draws.empty() || !inputs.scene.debug_lines.empty();
     GBufferTextures gbuffer{};
     if (need_depth) {
         gbuffer = ctx.passes.gbuffer.add(g, inputs, ctx.stats);
@@ -153,12 +157,13 @@ void record_path_tracer_graph(RayTracedPathContext& ctx, const FrameInputs& inpu
     }
     const RGTexture hdr = ctx.passes.path_tracer.add(g, inputs, rt_pipes.path_tracer);
     if (need_depth) ctx.passes.sky.add(g, inputs, hdr, gbuffer);
-    const RGTexture bloom = ctx.passes.bloom.add(g, inputs, hdr);
+    const RGTexture atmospheric_hdr = need_depth && inputs.settings.debug_view == DebugView::None ? ctx.passes.aerial.add(g, inputs, hdr, gbuffer) : hdr;
+    const RGTexture bloom = ctx.passes.bloom.add(g, inputs, atmospheric_hdr);
     const std::span<const MaterialHandle> post_chain = ctx.passes.post.collect(inputs.scene, ctx.materials);
     const RGTexture scene_color =
         post_chain.empty() ? output
                            : g.create("scene.ldr", {inputs.extent.width, inputs.extent.height, ctx.target_format});
-    ctx.passes.tonemap.add(g, inputs, hdr, bloom, scene_color);
+    ctx.passes.tonemap.add(g, inputs, atmospheric_hdr, bloom, scene_color);
     if (need_depth) ctx.passes.transparent.add(g, inputs, scene_color, gbuffer.depth, ctx.stats);
     ctx.passes.post.add(g, inputs, scene_color, output, post_chain);
     if (need_depth) ctx.passes.debug_lines.add(g, inputs, output, gbuffer.depth);

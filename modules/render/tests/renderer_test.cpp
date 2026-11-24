@@ -1119,3 +1119,28 @@ TEST_CASE("characterization: RenderStats and pass list for raster and ray-traced
         f.renderer->destroy(glass);
     }
 }
+
+TEST_CASE("aerial perspective tints distant opaque surfaces without changing clear foreground or sky") {
+    Fixture f;
+    if (!f.device) return;
+    const auto cube = f.renderer->create_mesh(make_cube());
+    const std::vector<Item> items{
+        {.mesh = cube, .transform = translate({-0.9f, 0, 0}), .color = {1, 0, 0, 1}, .emissive = 1},
+        {.mesh = cube, .transform = translate({8, 0, -32}) * scale({5, 5, 5}),
+         .color = {1, 0, 0, 1}, .emissive = 1},
+    };
+    RenderScene scene{.meshes = f.inst(items), .sun = front_sun};
+    scene.environment.sky = {0.05f, 0.22f, 0.65f};
+    const auto clear = f.draw(scene);
+    scene.environment.aerial_extinction = 0.15f;
+    scene.environment.aerial_start_m = 8.0f;
+    const auto hazy = f.draw(scene);
+    const Vec3 far_position{8, 0, -30};
+    const auto distant_clear = rgb(f.at(clear, far_position));
+    const auto distant_hazy = rgb(f.at(hazy, far_position));
+    CHECK(f.at(hazy, {-0.9f, 0, 0.5f}) == f.at(clear, {-0.9f, 0, 0.5f}));
+    CHECK(hazy[0] == clear[0]);
+    CHECK(distant_clear.r > distant_clear.b);
+    CHECK(distant_hazy.b > distant_hazy.r);
+    CHECK(distant_hazy.b > distant_clear.b);
+}

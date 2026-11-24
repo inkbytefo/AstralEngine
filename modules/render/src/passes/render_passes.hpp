@@ -1,5 +1,6 @@
 #pragma once
 
+#include "passes/aerial_pass.hpp"
 #include "passes/bloom_pass.hpp"
 #include "passes/composite_pass.hpp"
 #include "passes/ddgi_pass.hpp"
@@ -37,6 +38,7 @@ struct RenderPasses {
     DenoisePass denoise;
     CompositePass composite;
     SkyPass sky;
+    AerialPass aerial;
     TaaPass taa;
     BloomPass bloom;
     TonemapPass tonemap;
@@ -56,6 +58,7 @@ struct RenderPasses {
           path_tracer(device),
           denoise(device),
           composite(device),
+          aerial(device),
           taa(device),
           bloom(device),
           tonemap(device, target_format),

@@ -173,13 +173,15 @@ constexpr const char* forward_lighting = R"(vec3 astral_lit(vec3 N, vec3 V, vec3
 }
 )";
 
-std::string fragment_output(Mode mode, bool unshaded, ShadingModel shading_model) {
+std::string fragment_output(Mode mode, bool unshaded, bool additive, ShadingModel shading_model) {
     if (mode == Mode::Forward) {
         std::string s = unshaded ? "    vec3 lit = ALBEDO + EMISSION;\n"
                                  : R"(    vec3 n = NORMAL;
     if (NORMAL_MAP != vec3(0.5, 0.5, 1.0)) n = astral_perturb(n, NORMAL_MAP * 2.0 - 1.0, NORMAL_MAP_DEPTH);
     vec3 lit = astral_lit(n, VIEW_DIR, WORLD_POSITION, ALBEDO * AO, ROUGHNESS, METALLIC) + EMISSION;
 )";
+        s += additive ? "    lit *= aerial_transmittance(f, WORLD_POSITION);\n"
+                      : "    lit = aerial_surface(f, lit, WORLD_POSITION);\n";
         s += R"(    vec3 c = astral_aces_tonemap(lit * f.ground_color.a);
     if (f.custom.w != 0u) c = astral_linear_to_srgb(c);
     astral_out_color = vec4(c, clamp(ALPHA, 0.0, 1.0));
@@ -273,7 +275,7 @@ void main() {
     s += detail::kSurfaceBuiltinsInit;
     if (source.has_function("surface")) s += "    surface();\n";
     if (source.has_render_mode("alpha_test")) s += "    if (ALPHA < ALPHA_SCISSOR) discard;\n";
-    s += fragment_output(mode, unshaded, source.shading_model);
+    s += fragment_output(mode, unshaded, source.has_render_mode("blend_add"), source.shading_model);
     s += "}\n";
     return s;
 }

@@ -38,6 +38,7 @@ astral_add_module(NAME render
         src/passes/denoise_pass.cpp
         src/passes/composite_pass.cpp
         src/passes/sky_pass.cpp
+        src/passes/aerial_pass.cpp
         src/passes/taa_pass.cpp
         src/passes/bloom_pass.cpp
         src/passes/tonemap_pass.cpp
@@ -79,7 +80,7 @@ target_include_directories(astral_render SYSTEM PRIVATE $<BUILD_INTERFACE:${stb_
 astral_add_shaders(astral_render
     SOURCES
         shaders/gbuffer.vert shaders/gbuffer.frag shaders/shadow.vert
-        shaders/sdf.comp shaders/decal.comp shaders/lighting.comp
+        shaders/sdf.comp shaders/decal.comp shaders/lighting.comp shaders/aerial.comp
         shaders/tonemap.vert shaders/tonemap.frag
         shaders/rt_lighting.comp shaders/ddgi_trace.comp shaders/ddgi_update.comp
         shaders/restir_di_temporal.comp shaders/restir_di_spatial.comp

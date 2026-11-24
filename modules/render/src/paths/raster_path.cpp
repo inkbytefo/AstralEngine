@@ -18,6 +18,7 @@ GpuFrame build_raster_frame(const CameraData& camera, const RenderScene& scene, 
     frame.inv_view_projection = inverse(view_projection);
     frame.light_view_projection = shadow.light_view_projection;
     frame.camera_position = {camera.position.x, camera.position.y, camera.position.z, 1};
+    frame.aerial = aerial_parameters(scene.environment);
     frame.sun_direction = {sun.x, sun.y, sun.z, shadow.texel_world * 1.5f};
     frame.sun_color = {scene.sun.color.x * scene.sun.intensity, scene.sun.color.y * scene.sun.intensity,
                        scene.sun.color.z * scene.sun.intensity, 0};
@@ -100,11 +101,12 @@ void render_raster_path(RasterPathContext& ctx, gpu::CommandList& cmd, gpu::Text
     ctx.passes.decals.add(g, inputs, gbuffer);
     const RGTexture hdr = ctx.passes.lighting.add(g, inputs, gbuffer, shadow_map);
     ctx.passes.sky.add(g, inputs, hdr, gbuffer);
+    const RGTexture atmospheric_hdr = ctx.passes.aerial.add(g, inputs, hdr, gbuffer);
 
     const std::span<const MaterialHandle> post_chain = ctx.passes.post.collect(scene, ctx.materials);
     const RGTexture scene_color =
         post_chain.empty() ? output : g.create("scene.ldr", {extent.width, extent.height, ctx.target_format});
-    ctx.passes.tonemap.add(g, inputs, hdr, {}, scene_color);
+    ctx.passes.tonemap.add(g, inputs, atmospheric_hdr, {}, scene_color);
     ctx.passes.transparent.add(g, inputs, scene_color, gbuffer.depth, ctx.stats);
     ctx.passes.post.add(g, inputs, scene_color, output, post_chain);
     ctx.passes.debug_lines.add(g, inputs, output, gbuffer.depth);

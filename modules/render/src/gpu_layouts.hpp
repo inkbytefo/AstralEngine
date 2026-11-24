@@ -131,8 +131,10 @@ struct GpuFrame {
     GpuSceneAddresses scene;
     std::uint32_t decal_count;
     std::uint32_t pt_params; // bits 0..15: pt_sample_index, bits 16..23: max_bounces
+    Vec4 aerial; // x extinction per metre, y start distance in metres
 };
-static_assert(sizeof(GpuFrame) == 672);
+static_assert(sizeof(GpuFrame) == 688);
+static_assert(offsetof(GpuFrame, aerial) == 672);
 static_assert(alignof(GpuFrame) == 8);
 static_assert(offsetof(GpuFrame, camera_position) == 192);
 static_assert(offsetof(GpuFrame, counts) == 272);

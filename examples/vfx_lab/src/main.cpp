@@ -7,8 +7,8 @@
 namespace {
 class VfxLab final : public astral::Game {
 public:
-    VfxLab(float hour, float speed, bool baseline, bool profile)
-        : hour_(hour), speed_(speed), baseline_(baseline), profile_(profile) {}
+    VfxLab(float hour, float speed, bool baseline, bool profile, bool aerial)
+        : hour_(hour), speed_(speed), baseline_(baseline), profile_(profile), aerial_(aerial) {}
 
 private:
     void on_start(astral::Context& ctx) override {
@@ -17,6 +17,7 @@ private:
             ctx.quit();
             return;
         }
+        if (!aerial_ || baseline_) ctx.environment.aerial_extinction = 0.0f;
         ctx.world.each<astral::Atmosphere>([&](astral::Atmosphere& sky) {
             sky.hour = hour_;
             sky.hours_per_second = speed_;
@@ -38,6 +39,7 @@ private:
     float speed_;
     bool baseline_;
     bool profile_;
+    bool aerial_;
 };
 
 float number_or(std::string_view text, float fallback) {
@@ -53,7 +55,7 @@ int main(int argc, char** argv) {
     const bool rt = !options.has("--raster");
     VfxLab game(number_or(options.value("--hour", "12"), 12),
                 number_or(options.value("--hours-per-second", "0"), 0),
-                options.has("--baseline"), options.has("--profile"));
-    return astral::run_game(options, {.title = "Astral VFX Lab", .render = {.ray_tracing = rt},
+                options.has("--baseline"), options.has("--profile"), !options.has("--no-aerial"));
+    return astral::run_game(options, {.title = "Astral VFX Lab", .render = {.ray_tracing = rt, .path_tracer = options.has("--path-tracer")},
                                      .asset_root = ASTRAL_GAME_ASSETS, .pack = ASTRAL_GAME_PACK}, game, 8);
 }
