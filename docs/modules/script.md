@@ -59,7 +59,7 @@ astral.behaviour { on_start = function(self, ctx) end, on_update = function(self
 
 ## Fizik ve alanlar
 
-Bkz. yukarıdaki **Fizik ve alanlar** maddesi ve [physics.md](physics.md). Script'ten `RigidBody` oluşturulamaz (iç içe `BodyDesc` script'ten yazılmaz): gövdeyi C++ ya da sahne üretir, script kural koyar.
+Bkz. yukarıdaki **Fizik ve alanlar** maddesi ve [physics.md](physics.md). Özel `BodyDesc` ayarları sahne dosyasında veya C++ tarafında tanımlanır. Luau, `move_character` ile karakterin yatay hızını ve zıplama isteğini ayarlar, `character_state` ile tamamlanan sabit adımın hızını ve zemin temasını okur.
 
 ## Çalışma kuralları
 

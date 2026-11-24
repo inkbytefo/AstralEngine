@@ -81,6 +81,11 @@ constexpr ScriptSymbolDesc kScriptSymbols[] = {
     {"physics", "force", "(entity: Entity, force: vector) -> ()", "", ""},
     {"physics", "set_velocity", "(entity: Entity, velocity: vector) -> ()", "", ""},
     {"physics", "velocity", "(entity: Entity) -> vector", "", ""},
+    {"physics", "move_character", "(entity: Entity, velocity: vector, jump: boolean?) -> boolean",
+     "`astral.physics.move_character(entity, velocity, jump?)`",
+     "sets horizontal velocity in m/s until replaced; a jump request is consumed once at the next fixed step"},
+    {"physics", "character_state", "(entity: Entity) -> CharacterState?",
+     "`astral.physics.character_state(entity)`", "velocity and ground contact from the last completed fixed step"},
     {"physics", "teleport", "(entity: Entity, position: vector, rotation: Quat?) -> ()", "", ""},
     {"physics", "wake", "(entity: Entity) -> ()", "", ""},
     {"physics", "sleep", "(entity: Entity) -> ()", "", ""},
@@ -215,6 +220,7 @@ void write_luau_definitions(std::string& d, const ApiDiscoverySummary& api) {
          "    on_fixed_update: ((self: Entity, ctx: Ctx) -> ())?,\n}\n\n"
          "export type QueryOptions = {layers: (number | {number})?, ignore: Entity?}\n"
          "export type RayQuery = {origin: vector, direction: vector, max_distance: number?, options: QueryOptions?}\n"
+         "export type CharacterState = {velocity: vector, on_ground: boolean}\n"
          "export type Hit = {entity: Entity, position: vector, normal: vector, distance: number, surface: number}\n"
          "export type Water = {inside: boolean, surface: number, depth: number, flow: vector, density: number}\n"
          "export type StateDef = {\n    enter: ((from: string?) -> ())?,\n    update: ((dt: number) -> ())?,\n"
@@ -253,6 +259,14 @@ void write_markdown_reference(std::string& m, const ApiDiscoverySummary& api) {
         const std::string owner = t.owner.empty() ? std::string() : " (feature `" + t.owner + "`)";
         const std::string ver = t.schema_version > 1 ? " (schema v" + std::to_string(t.schema_version) + ")" : "";
         m += "### `" + t.name + "`" + owner + ver + (t.dynamic ? " (defined by a script)" : "") + "\n\n";
+        if (t.name == "astral::RigidBody" || t.name == "astral::CharacterController") {
+            m += "Scene setup is applied when the physics object is created. The entity Transform supplies the initial pose. "
+                 "Use the physics functions for runtime commands; native handles and simulation state are transient.\n\n";
+        }
+        if (t.name == "astral::JointMotor") {
+            m += "The next fixed step applies motor mode, targets, spring frequency (Hz), damping ratio, "
+                 "force limit (N), and torque limit (N·m). A nonpositive limit means unlimited.\n\n";
+        }
         if (t.fields.empty()) {
             m += "A tag: no fields.\n\n";
             continue;

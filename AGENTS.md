@@ -58,7 +58,9 @@ Fazlar: `PreUpdate`, `Update`, `FixedUpdate`, `PostUpdate`. Aynı fazda önce C+
 Yardımcılar: `astral.tween(s, step, {ease})`, `astral.state_machine{...}`, `astral.save(slot, {components})` / `astral.load(slot)`, `astral.quat.*`.
 Ortak özellikler `features/` altında (`fly_camera`): oyuna kopyalanır (`python3 tools/sync_features.py`), kopyayı elle düzenleme.
 
-Fizik: `RigidBody` C++'ta/sahnede oluşur; script `astral.physics.raycast/spherecast/overlap_*` ve `impulse/force/set_velocity/velocity` ile entity üstünde çalışır,
+Fizik: `RigidBody.desc` ve `CharacterController.desc` C++ veya sahne dosyasından gelir. Luau'da sabit adımda
+`astral.physics.move_character(entity, velocity, jump?)` çağır ve önceki adımı `astral.physics.character_state(entity)` ile oku.
+Script `astral.physics.raycast/spherecast/overlap_*` ve `impulse/force/set_velocity/velocity` ile entity üstünde çalışır,
 `astral.fields.wind/water` alanları okur, tetik ve temas olaylarını `astral.on("astral::TriggerEntered" | "astral::Contact", ...)` dinler. Gövdeye `AirDrag`/`Buoyant`/`Airfoil` ekleyince rüzgâr ve su kuvvetleri kendiliğinden uygulanır.
 
 ## Yapma

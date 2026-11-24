@@ -88,6 +88,23 @@ TEST_CASE("Slider position motor moves a piston to its target position") {
     CHECK(world.position(piston).x == doctest::Approx(1.5f).epsilon(0.08));
 }
 
+TEST_CASE("tuning an existing slider motor changes its force limit without replacing the joint") {
+    PhysicsWorld world;
+    const BodyHandle body = world.create_body({.mass = 10.0f, .gravity_factor = 0.0f});
+    const JointHandle joint = world.create_joint({
+        .type = JointType::Slider, .body_b = body, .axis = {1, 0, 0},
+        .motor = {.mode = JointMotorMode::Position, .frequency_hz = 2.0f, .damping = 1.0f,
+                  .max_force = 0.01f, .target_position = 1.0f}});
+    REQUIRE(joint.valid());
+
+    simulate(world, 30);
+    CHECK(world.position(body).x < 0.05f);
+    world.set_joint_motor_tuning(joint, 5.0f, 0.9f, 1000.0f, 0.0f);
+    simulate(world, 90);
+    CHECK(world.valid(joint));
+    CHECK(world.position(body).x == doctest::Approx(1.0f).epsilon(0.05));
+}
+
 TEST_CASE("SixDOF joint enforces linear & angular limits and supports angular velocity motor") {
     PhysicsWorld world;
     const BodyHandle body = world.create_body({.shape = ShapeDesc::box({0.4f, 0.2f, 0.2f}),

@@ -132,3 +132,143 @@ TEST_CASE("editing or removing a PrimitiveMesh updates the drawn mesh") {
     CHECK(game.had_renderer);
     CHECK(game.removed);
 }
+
+TEST_CASE("a scene creates static, dynamic and sensor bodies and saves their authored settings") {
+    const auto dir = test::temp_dir("app_physics_scene");
+    write_text(dir / "level.scene", R"({"format":"astral.scene","version":1,"entities":[
+      {"id":1,"components":{"astral::Transform":{"position":[0,-0.5,0]},
+        "astral::RigidBody":{"desc":{"motion":"Static","shape":{"type":"Box","half_extents":[5,0.5,5]},"surface":3}}}},
+      {"id":2,"components":{"astral::Transform":{"position":[0,3,0]},
+        "astral::RigidBody":{"desc":{"mass":2,"shape":{"type":"Sphere","radius":0.25}}}}},
+      {"id":3,"components":{"astral::Transform":{"position":[2,1,0]},
+        "astral::RigidBody":{"desc":{"motion":"Static","sensor":true,"layer":2}}}}
+    ]})");
+
+    struct SceneGame final : Game {
+        LoadResult loaded;
+        BodyHandle destroyed_body{};
+        int frames = 0;
+        void on_start(Context& ctx) override { loaded = ctx.scenes().load_scene("level.scene"); }
+        void on_update(Context& ctx) override {
+            if (++frames != 21 || loaded.entities.size() != 3) return;
+            const Entity ball = loaded.entities[1];
+            const auto* body = ctx.world.get<const RigidBody>(ball);
+            REQUIRE(body);
+            destroyed_body = body->handle;
+            REQUIRE(ctx.physics->valid(destroyed_body));
+            CHECK(ctx.world.get<const Transform>(ball)->position.y < 3.0f);
+            REQUIRE(ctx.scenes().save_scene("saved.scene"));
+            ctx.world.destroy(ball);
+        }
+    } game;
+    const std::string root = dir.string();
+    App app({.headless = true, .fixed_timestep = 1.0f / 60.0f, .asset_root = root, .hot_reload = false});
+    app.run_frames(game, 22);
+    REQUIRE(game.loaded.errors.empty());
+    REQUIRE(game.loaded.entities.size() == 3);
+    REQUIRE(app.context().physics);
+    const Entity floor = game.loaded.entities[0];
+    const Entity sensor = game.loaded.entities[2];
+    const auto* ground = app.world().get<const RigidBody>(floor);
+    const auto* trigger = app.world().get<const RigidBody>(sensor);
+    REQUIRE(ground);
+    REQUIRE(trigger);
+    CHECK(app.context().physics->valid(ground->handle));
+    CHECK(app.context().physics->valid(trigger->handle));
+    CHECK(ground->desc.motion == MotionType::Static);
+    CHECK(ground->desc.surface == 3);
+    CHECK(trigger->desc.sensor);
+    CHECK(trigger->desc.layer == 2);
+    auto saved = Json::parse(read_text(dir / "saved.scene"));
+    REQUIRE(saved);
+    const auto& body = (*saved)["entities"][1]["components"]["astral::RigidBody"];
+    CHECK(body["desc"]["mass"].as_number() == 2.0);
+    CHECK(body["desc"]["shape"]["type"].as_string() == "Sphere");
+    CHECK(body["desc"]["shape"]["radius"].as_number() == 0.25);
+    CHECK(body["handle"].is_null());
+    CHECK(body["desc"]["cooked_shape"].is_null());
+
+    REQUIRE(game.destroyed_body.valid());
+    CHECK_FALSE(app.context().physics->valid(game.destroyed_body));
+
+    struct ReloadGame final : Game {
+        void on_start(Context& ctx) override {
+            const auto loaded = ctx.scenes().load_scene("saved.scene");
+            REQUIRE(loaded.errors.empty());
+            REQUIRE(loaded.entities.size() == 3);
+            const auto* body = ctx.world.get<const RigidBody>(loaded.entities[1]);
+            REQUIRE(body);
+            CHECK_FALSE(body->handle.valid());
+            CHECK(body->desc.shape.type == ShapeType::Sphere);
+            CHECK(body->desc.shape.radius == doctest::Approx(0.25f));
+            CHECK(body->desc.mass == doctest::Approx(2.0f));
+        }
+    } reloaded;
+    App second({.headless = true, .fixed_timestep = 1.0f / 60.0f, .asset_root = root, .hot_reload = false});
+    second.run_frames(reloaded, 1);
+}
+
+TEST_CASE("a scene character responds to Luau at the same fixed steps at different frame rates") {
+    const auto dir = test::temp_dir("app_character_scene");
+    write_text(dir / "level.scene", R"({"format":"astral.scene","version":1,"entities":[
+      {"id":1,"components":{"astral::Transform":{"position":[0,-0.5,0]},
+        "astral::RigidBody":{"desc":{"motion":"Static","shape":{"half_extents":[20,0.5,20]}}}}},
+      {"id":2,"components":{"astral::Name":{"value":"player"},"astral::Transform":{"position":[0,0.1,0]},
+        "astral::CharacterController":{"desc":{"radius":0.35,"height":1.7},"jump_speed":5}}}
+    ]})");
+    write_text(dir / "move.luau", R"(
+        local tick = 0
+        local launched = false
+        local landed = false
+        astral.system {
+            phase = "FixedUpdate",
+            run = function()
+                tick += 1
+                local player = assert(astral.find("player"))
+                local state = assert(astral.physics.character_state(player))
+                if tick == 20 then assert(state.on_ground) end
+                if state.velocity.y > 1 then launched = true end
+                if launched and state.on_ground then landed = true end
+                if tick == 119 then assert(launched and landed) end
+                local speed = if tick < 40 then 2 else 0
+                assert(astral.physics.move_character(player, vector.create(speed, 0, 0), tick == 21))
+            end
+        }
+    )");
+
+    struct CharacterGame final : Game {
+        void on_start(Context& ctx) override {
+            REQUIRE(ctx.scenes().load_scene("level.scene").errors.empty());
+            REQUIRE(ctx.script_service().load_script("move.luau").empty());
+        }
+    };
+
+    const std::string root = dir.string();
+    const auto simulate = [&](float delta, unsigned frames) {
+        CharacterGame game;
+        App app({.headless = true, .fixed_timestep = delta, .asset_root = root, .hot_reload = false});
+        app.run_frames(game, frames);
+        CHECK(app.context().scripts->take_errors().empty());
+        CHECK(app.context().physics_service().query_state().step_index == 120);
+        const Entity entity = find_by_name(app.world(), "player");
+        const auto* controller = app.world().get<const CharacterController>(entity);
+        REQUIRE(controller);
+        CHECK(controller->desc.radius == doctest::Approx(0.35));
+        CHECK(controller->on_ground);
+        CHECK_FALSE(controller->jump);
+        REQUIRE(app.context().scenes().save_scene("character_saved.scene"));
+        const auto saved = Json::parse(read_text(dir / "character_saved.scene"));
+        REQUIRE(saved);
+        const auto& character = (*saved)["entities"][1]["components"]["astral::CharacterController"];
+        CHECK(character["jump_speed"].as_number() == 5.0);
+        CHECK(character["move"].is_null());
+        CHECK(character["on_ground"].is_null());
+        CHECK(character["handle"].is_null());
+        return app.world().get<const Transform>(entity)->position;
+    };
+    const Vec3 at_60hz = simulate(1.0f / 60.0f, 120);
+    const Vec3 at_30hz = simulate(1.0f / 30.0f, 60);
+    CHECK(at_60hz.x > 0.5f);
+    CHECK(at_60hz.x == doctest::Approx(at_30hz.x));
+    CHECK(at_60hz.y == doctest::Approx(at_30hz.y));
+}

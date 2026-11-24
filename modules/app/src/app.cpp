@@ -33,6 +33,8 @@ void register_app_types(Context& ctx) {
     types.add<Sdf>();
     types.add<ModelRef>();
     types.add<PrimitiveMesh>();
+    types.add<RigidBody>();
+    types.add<CharacterController>();
     types.add<AudioSource>();
     types.add<AudioListener>();
     types.add<StreamingSource>();

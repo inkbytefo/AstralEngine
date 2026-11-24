@@ -42,6 +42,15 @@ if (auto hit = physics.raycast(origin, direction, 100.0f)) { /* hit->body, posit
 
 ## Bilinen sınırlar
 
+- Sahne dosyası `RigidBody.desc` ile collider, hareket tipi, kütle, sensör ve yüzey ayarlarını,
+  `CharacterController.desc` ile kapsül geometrisi, eğim sınırı ve kütleyi tanımlar. Başlangıç konumu entity'nin
+  `Transform` bileşeninden okunur. Native handle, karakter komutu ve simülasyon durumu kayda yazılmaz.
+  Koddan verilmiş bir `cooked_shape` handle'ı sahneye taşınmaz. Kaydedilecek gövde için `desc.shape` de tanımlanmalıdır.
+- Luau'da `astral.physics.move_character(entity, velocity, jump?)` yatay hızı m/s cinsinden ayarlar.
+  Zıplama isteği sıradaki sabit adımda bir kez tüketilir. `astral.physics.character_state(entity)` son tamamlanan
+  adımın hızını ve zemin temasını verir.
+- `JointMotor` modu, hedefleri, yay frekansı (Hz), sönüm oranı ve kuvvet/tork limitleri bir sonraki sabit adımda
+  mevcut ekleme uygulanır. Eklemin geometrisi ve bağlantıları oluşturma ayarlarıdır.
 - `RigidBody` yalnızca kök entity'lerde (Parent'sız); `desc` oluşturulurken okunur; statik gövde taşımak için `set_body_transform` / `set_transform` kullan.
 - Mesh ve heightfield dinamik olamaz ve sorgularda süpürülemez (convex hull / compound kullan).
 - Su: kutu hacmi + dalga formülü; gerçek dalga/akış simülasyonu M16/M18.

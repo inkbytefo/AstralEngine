@@ -8,6 +8,7 @@
 #include <doctest/doctest.h>
 
 #include <cmath>
+#include <filesystem>
 #include <vector>
 
 using namespace astral;
@@ -50,6 +51,47 @@ TEST_CASE("physics_lab runs motorized joints, breaks fragile joint, combines mat
     CHECK(broken >= 1);
     CHECK(hits == 3);
     CHECK(motors >= 80);
+}
+
+TEST_CASE("physics_lab authored physics components behave the same from loose assets and the package") {
+    const auto run = [](bool packed) {
+        AppDesc desc = lab_app_desc();
+        if (packed) {
+            desc.asset_root = {};
+            desc.pack = ASTRAL_LAB_TEST_PACK;
+            REQUIRE(std::filesystem::is_regular_file(desc.pack));
+        }
+        App app(desc);
+        physics_lab::PhysicsLabGame game;
+        app.run_frames(game, 180);
+        CHECK(app.context().scripts->take_errors().empty());
+        World& world = app.world();
+        const Entity character = find_by_name(world, "scene_character");
+        const Entity crate = find_by_name(world, "scene_crate");
+        const Entity sensor = find_by_name(world, "scene_sensor");
+        const Entity joint = find_by_name(world, "scene_joint");
+        const auto* controller = world.get<const CharacterController>(character);
+        const auto* crate_body = world.get<const RigidBody>(crate);
+        const auto* sensor_body = world.get<const RigidBody>(sensor);
+        const auto* slider = world.get<const Joint>(joint);
+        REQUIRE(controller);
+        REQUIRE(crate_body);
+        REQUIRE(sensor_body);
+        REQUIRE(slider);
+        CHECK(controller->on_ground);
+        CHECK(app.context().physics->valid(crate_body->handle));
+        CHECK(app.context().physics->valid(sensor_body->handle));
+        CHECK(sensor_body->desc.sensor);
+        CHECK(app.context().physics->valid(slider->handle));
+        const Vec3 feet = world.get<const Transform>(character)->position;
+        CHECK(feet.x > 0.8f);
+        return feet;
+    };
+    const Vec3 loose = run(false);
+    const Vec3 packed = run(true);
+    CHECK(loose.x == doctest::Approx(packed.x));
+    CHECK(loose.y == doctest::Approx(packed.y));
+    CHECK(loose.z == doctest::Approx(packed.z));
 }
 
 TEST_CASE("physics_lab fixed-step replay produces identical transforms across runs") {
