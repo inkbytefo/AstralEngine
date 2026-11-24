@@ -7,8 +7,8 @@
 namespace {
 class VfxLab final : public astral::Game {
 public:
-    VfxLab(float hour, float speed, bool baseline, bool profile, bool aerial, float fog, bool smoke)
-        : hour_(hour), speed_(speed), baseline_(baseline), profile_(profile), aerial_(aerial), fog_(fog), smoke_(smoke) {}
+    VfxLab(float hour, float speed, bool baseline, bool profile, bool aerial, float fog, bool smoke, bool vfx)
+        : hour_(hour), speed_(speed), baseline_(baseline), profile_(profile), aerial_(aerial), fog_(fog), smoke_(smoke), vfx_(vfx) {}
 
 private:
     void on_start(astral::Context& ctx) override {
@@ -24,7 +24,7 @@ private:
             sky.hours_per_second = speed_;
             sky.enabled = !baseline_;
         });
-        if (smoke_) {
+        if (smoke_ || vfx_) {
             std::vector<std::pair<astral::Entity, astral::Vec3>> colliders;
             ctx.world.each<const astral::PrimitiveMesh, const astral::Transform>(
                 [&](astral::Entity e, const astral::PrimitiveMesh& mesh, const astral::Transform& t) {
@@ -34,7 +34,8 @@ private:
                 ctx.world.add(e, astral::RigidBody{.desc = {.shape = astral::ShapeDesc::box(half),
                                                           .motion = astral::MotionType::Static}});
             }
-            ctx.world.create(astral::Transform{.position = {-2.8f, 1.05f, -2.4f}},
+            if (vfx_) astral::play_vfx(ctx, "courtyard.vfx", {-2.8f, 1.05f, -2.4f});
+            else ctx.world.create(astral::Transform{.position = {-2.8f, 1.05f, -2.4f}},
                 astral::GameplaySmoke({.radius_cells = 5, .cell_size_m = 0.4f, .extinction_per_m = 1.7f,
                                        .spread_interval_steps = 1}));
         }
@@ -57,6 +58,7 @@ private:
     bool aerial_;
     float fog_;
     bool smoke_;
+    bool vfx_;
 };
 
 float number_or(std::string_view text, float fallback) {
@@ -72,7 +74,7 @@ int main(int argc, char** argv) {
     const bool rt = !options.has("--raster");
     VfxLab game(number_or(options.value("--hour", "12"), 12),
                 number_or(options.value("--hours-per-second", "0"), 0),
-                options.has("--baseline"), options.has("--profile"), !options.has("--no-aerial"), number_or(options.value("--fog", "0"), 0), options.has("--smoke"));
+                options.has("--baseline"), options.has("--profile"), !options.has("--no-aerial"), number_or(options.value("--fog", "0"), 0), options.has("--smoke"), options.has("--vfx"));
     return astral::run_game(options, {.title = "Astral VFX Lab", .render = {.ray_tracing = rt, .path_tracer = options.has("--path-tracer")},
                                      .asset_root = ASTRAL_GAME_ASSETS, .pack = ASTRAL_GAME_PACK}, game, 8);
 }

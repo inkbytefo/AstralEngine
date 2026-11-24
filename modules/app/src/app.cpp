@@ -3,6 +3,7 @@
 #include "services/audio_bridge.hpp"
 #include "services/dev_tools.hpp"
 #include "services/frame_loop.hpp"
+#include "services/vfx_runtime.hpp"
 #include "services/physics_bridge.hpp"
 #include "services/render_bridge.hpp"
 #include "services/script_bridge.hpp"
@@ -29,6 +30,7 @@ void register_app_types(Context& ctx) {
     register_world_types(types);
     types.add<Camera>();
     types.add<Atmosphere>();
+    register_vfx_types(types, ctx.events);
     types.add<PointLight>();
     types.add<RectLight>();
     types.add<Sdf>();

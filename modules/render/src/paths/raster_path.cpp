@@ -112,6 +112,7 @@ void render_raster_path(RasterPathContext& ctx, gpu::CommandList& cmd, gpu::Text
         post_chain.empty() ? output : g.create("scene.ldr", {extent.width, extent.height, ctx.target_format});
     ctx.passes.tonemap.add(g, inputs, fogged, {}, scene_color);
     ctx.passes.transparent.add(g, inputs, scene_color, gbuffer.depth, ctx.stats, fog);
+    ctx.passes.particles.add(g, inputs, scene_color, gbuffer, fog);
     ctx.passes.post.add(g, inputs, scene_color, output, post_chain);
     ctx.passes.debug_lines.add(g, inputs, output, gbuffer.depth);
     ctx.passes.ui.add(g, inputs, output);

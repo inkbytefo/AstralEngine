@@ -11,6 +11,7 @@
 #include "passes/gbuffer_pass.hpp"
 #include "passes/lighting_pass.hpp"
 #include "passes/path_tracer_pass.hpp"
+#include "passes/particle_pass.hpp"
 #include "passes/post_pass.hpp"
 #include "passes/rt_lighting_pass.hpp"
 #include "passes/sdf_pass.hpp"
@@ -45,6 +46,7 @@ struct RenderPasses {
     BloomPass bloom;
     TonemapPass tonemap;
     TransparentPass transparent;
+    ParticlePass particles;
     PostPass post;
     DebugLinesPass debug_lines;
     UiPass ui;
@@ -66,6 +68,7 @@ struct RenderPasses {
           bloom(device),
           tonemap(device, target_format),
           transparent(device),
+          particles(device, target_format),
           debug_lines(device, target_format),
           ui(device, target_format) {}
 

@@ -6,6 +6,7 @@
 #include "render_bridge.hpp"
 #include "script_bridge.hpp"
 #include "world_bridge.hpp"
+#include "vfx_runtime.hpp"
 
 #include <astral/app/gameplay_smoke.hpp>
 #include <astral/assets/asset_manager.hpp>
@@ -128,6 +129,7 @@ void FrameLoop::run_fixed_update() {
     ASTRAL_PROFILE_SCOPE(&dev_tools_.profiler(), "FixedUpdate");
     run_phase_(systems_[static_cast<std::size_t>(Phase::FixedUpdate)], context_);
     script_bridge_.run(ScriptPhase::FixedUpdate);
+    vfx_.update(context_, time_.fixed_delta);
     world_.each<GameplaySmoke, const Transform>([&](Entity entity, GameplaySmoke& smoke, const Transform& transform) {
         if (!world_.has<Parent>(entity)) smoke.step(physics_bridge_, transform.position);
     });

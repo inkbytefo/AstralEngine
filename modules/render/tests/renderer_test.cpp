@@ -1208,3 +1208,21 @@ TEST_CASE("local smoke uses packed occupancy without requiring global fog") {
     occupied[13] = 0;
     CHECK(f.draw(scene) == clear);
 }
+
+TEST_CASE("GPU particle burst draws and obeys scene depth") {
+    Fixture f;
+    if (!f.device) return;
+    ParticleBurst burst{.position = {0, 0, 0}, .age = 0.1f, .duration = 0.8f,
+                        .color = {3, 0.4f, 0.1f}, .size_m = 0.25f};
+    RenderScene scene{.sun = {.intensity = 0, .shadows = false}, .environment = {.sky = {}, .ground = {}, .ambient = 0}};
+    const auto clear = f.draw(scene);
+    scene.particles = std::span(&burst, 1);
+    const auto lit = f.draw(scene);
+    CHECK(lit != clear);
+    const auto cube = f.renderer->create_mesh(make_cube());
+    const std::vector<Item> items{{.mesh = cube, .transform = translate({0, 0, 1}) * scale({4, 4, 0.2f})}};
+    scene.meshes = f.inst(items);
+    const auto behind = f.draw(scene);
+    scene.particles = {};
+    CHECK(f.draw(scene) == behind);
+}

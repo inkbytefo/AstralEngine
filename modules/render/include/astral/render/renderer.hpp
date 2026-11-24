@@ -204,6 +204,18 @@ struct SmokeVolumeView {
     std::span<const std::uint8_t> occupancy{};
 };
 
+/// An analytic burst evaluated per particle on the GPU.
+struct ParticleBurst {
+    Vec3 position{};
+    float age = 0;
+    Vec3 drift{};
+    float duration = 1;
+    Vec3 color{1, 0.55f, 0.2f};
+    float size_m = 0.04f;
+    std::uint32_t count = 64;
+    std::uint32_t seed = 1;
+};
+
 /// Everything to draw in one frame. Spans must stay valid until render() returns.
 struct RenderScene {
     std::span<const MeshInstance> meshes = {};
@@ -223,6 +235,7 @@ struct RenderScene {
     /// Materials with shader_type post shaders, applied in order after tonemapping (before debug lines and UI).
     std::span<const MaterialHandle> post = {};
     std::span<const SmokeVolumeView> smoke = {};
+    std::span<const ParticleBurst> particles = {};
 };
 
 /// Dynamic diffuse global illumination: a grid of probes that trace rays every frame.

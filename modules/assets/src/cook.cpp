@@ -30,7 +30,7 @@ Kind kind_of(const std::filesystem::path& p) {
     if (ext == ".world") return Kind::World;
     if (ext == ".ashader") return Kind::Shader;
     if (ext == ".luau") return Kind::Script;
-    if (ext == ".scene" || ext == ".prefab" || ext == ".json" || ext == ".material") return Kind::Document;
+    if (ext == ".scene" || ext == ".prefab" || ext == ".json" || ext == ".material" || ext == ".vfx") return Kind::Document;
     return Kind::Copy;
 }
 

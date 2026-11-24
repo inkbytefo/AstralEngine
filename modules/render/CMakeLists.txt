@@ -40,6 +40,7 @@ astral_add_module(NAME render
         src/passes/sky_pass.cpp
         src/passes/aerial_pass.cpp
         src/passes/fog_pass.cpp
+        src/passes/particle_pass.cpp
         src/passes/taa_pass.cpp
         src/passes/bloom_pass.cpp
         src/passes/tonemap_pass.cpp
@@ -82,7 +83,7 @@ astral_add_shaders(astral_render
     SOURCES
         shaders/gbuffer.vert shaders/gbuffer.frag shaders/shadow.vert
         shaders/sdf.comp shaders/decal.comp shaders/lighting.comp shaders/aerial.comp
-        shaders/fog_integrate.comp shaders/fog_composite.comp
+        shaders/fog_integrate.comp shaders/fog_composite.comp shaders/particle.vert shaders/particle.frag
         shaders/tonemap.vert shaders/tonemap.frag
         shaders/rt_lighting.comp shaders/ddgi_trace.comp shaders/ddgi_update.comp
         shaders/restir_di_temporal.comp shaders/restir_di_spatial.comp

@@ -1,5 +1,6 @@
 #include <astral/app/gameplay_smoke.hpp>
 #include "render_bridge.hpp"
+#include "vfx_runtime.hpp"
 
 #include "../material_library.hpp"
 
@@ -338,6 +339,18 @@ void RenderBridge::extract_lights(World& w) {
     });
 }
 
+namespace {
+std::vector<ParticleBurst> extract_particles(World& world) {
+    std::vector<ParticleBurst> bursts;
+    world.each<const VfxEmitter, const Transform>([&](const VfxEmitter& emitter, const Transform& transform) {
+        auto burst = emitter.burst;
+        burst.position = transform.position;
+        bursts.push_back(burst);
+    });
+    return bursts;
+}
+} // namespace
+
 void RenderBridge::render_frame(const RenderFrameInput& input) {
     const bool offscreen = offscreen_target_.valid();
     if (!renderer_ || (!offscreen && (!swapchain_ || (window_ && window_->minimized())))) return;
@@ -360,6 +373,7 @@ void RenderBridge::render_frame(const RenderFrameInput& input) {
         }
     });
 
+    const auto particles = extract_particles(active_world);
     auto cmd = device_->begin_commands();
     const gpu::TextureHandle vp_native = viewport_.target.valid() ? renderer_->native_target(viewport_.target) : gpu::TextureHandle{};
     if (vp_native.valid()) {
@@ -379,7 +393,7 @@ void RenderBridge::render_frame(const RenderFrameInput& input) {
                            .ui = {},
                            .time = input.time,
                            .sky = input.sky,
-                           .post = input.post, .smoke = smoke});
+                           .post = input.post, .smoke = smoke, .particles = particles});
         cmd.transition(vp_native, gpu::ResourceState::ShaderRead);
         renderer_->render_ui(cmd, image, input.ui_layers, viewport_.clear_color);
     } else {
@@ -398,7 +412,7 @@ void RenderBridge::render_frame(const RenderFrameInput& input) {
                            .ui = input.ui_layers,
                            .time = input.time,
                            .sky = input.sky,
-                           .post = input.post, .smoke = smoke});
+                           .post = input.post, .smoke = smoke, .particles = particles});
     }
     if (offscreen) {
         cmd.transition(image, gpu::ResourceState::TransferSrc);

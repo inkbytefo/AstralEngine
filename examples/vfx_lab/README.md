@@ -45,3 +45,20 @@ Konumlar aynı yerel dünya koordinatlarında verilmelidir. `optical_depth` segm
 cmake --build --preset debug --target astral_app_tests
 build/debug/modules/app/astral_app_tests '--test-case=gameplay smoke*'
 ```
+
+## Yerel duman ve VFX zaman çizelgesi
+
+`--smoke` CPU duman ızgarasını froxel atlasına taşır. GPU, dolu hücrelerin içinden geçen görüş segmentini entegre eder. Global sis kapalıyken de çalışır. Bir karede en fazla 16 duman ızgarası yüklenir.
+
+`--vfx`, `courtyard.vfx` paketli örneğini başlatır. Sürümlü JSON dosyası `smoke`, `particles`, `light`, `decal` ve `sound` track’leri destekler. Her track saniye cinsinden `start` ve `duration` kullanır. Partiküller GPU’da analitik olarak ilerler, spawn anındaki rüzgârı kullanır ve mesh/SDF derinliğiyle örtülür. Partikül bütçesi burst başına 1.024 ve kare başına 8.192’dir. C++’ta `play_vfx` ve `stop_vfx` kullanılır. Luau olayları sabit adımda işlenir:
+
+```lua
+astral.send("astral::PlayVfx", {asset = "courtyard.vfx", position = vector.create(0, 1, 0), tag = "courtyard"})
+astral.send("astral::StopVfx", {tag = "courtyard"})
+```
+
+```sh
+build/debug/packages/vfx_lab/vfx_lab --vfx --raster --hour 17 --frames 25 --width 640 --height 360 --capture vfx.ppm --profile
+```
+
+Bu sürümde yerel hacim mevcut froxel atlasına entegre edilir. Özel `volume`/`particle` shader derleme hattı, seyrek hacim atlası ve partiküllerin derinlikle fiziksel çarpışması ayrıca ele alınır.

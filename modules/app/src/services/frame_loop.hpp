@@ -2,6 +2,7 @@
 // Internal to Astral::App: owns the ordered frame pipeline, system phase storage, and frame clock.
 
 #include "atmosphere.hpp"
+#include "vfx_runtime.hpp"
 
 #include <astral/app/app.hpp>
 #include <astral/core/clock.hpp>
@@ -87,6 +88,7 @@ private:
     WorldBridge& world_bridge_;
     RenderBridge& render_bridge_;
     AtmosphereController atmosphere_;
+    VfxRuntime vfx_;
     PhysicsBridge& physics_bridge_;
     AudioBridge& audio_bridge_;
     ScriptBridge& script_bridge_;

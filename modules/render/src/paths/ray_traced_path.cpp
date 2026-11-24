@@ -150,6 +150,7 @@ void record_rt_graph(RayTracedPathContext& ctx, const FrameInputs& inputs, gpu::
                            : g.create("scene.ldr", {inputs.extent.width, inputs.extent.height, ctx.target_format});
     ctx.passes.tonemap.add(g, inputs, fogged, bloom, scene_color);
     ctx.passes.transparent.add(g, inputs, scene_color, gbuffer.depth, ctx.stats, fog);
+    ctx.passes.particles.add(g, inputs, scene_color, gbuffer, fog);
     ctx.passes.post.add(g, inputs, scene_color, output, post_chain);
     ctx.passes.debug_lines.add(g, inputs, output, gbuffer.depth);
     ctx.passes.ui.add(g, inputs, output);
@@ -162,7 +163,7 @@ void record_path_tracer_graph(RayTracedPathContext& ctx, const FrameInputs& inpu
     const RGTexture output = g.import(target, "output");
     const bool need_depth =
         inputs.scene.sky.valid() || aerial_parameters(inputs.scene.environment).x > 0.0f ||
-        !inputs.instances.transparent_draws.empty() || !inputs.scene.debug_lines.empty();
+        !inputs.instances.transparent_draws.empty() || !inputs.scene.debug_lines.empty() || !inputs.scene.particles.empty();
     GBufferTextures gbuffer{};
     if (need_depth) {
         gbuffer = ctx.passes.gbuffer.add(g, inputs, ctx.stats);
@@ -177,7 +178,10 @@ void record_path_tracer_graph(RayTracedPathContext& ctx, const FrameInputs& inpu
         post_chain.empty() ? output
                            : g.create("scene.ldr", {inputs.extent.width, inputs.extent.height, ctx.target_format});
     ctx.passes.tonemap.add(g, inputs, atmospheric_hdr, bloom, scene_color);
-    if (need_depth) ctx.passes.transparent.add(g, inputs, scene_color, gbuffer.depth, ctx.stats);
+    if (need_depth) {
+        ctx.passes.transparent.add(g, inputs, scene_color, gbuffer.depth, ctx.stats);
+        ctx.passes.particles.add(g, inputs, scene_color, gbuffer);
+    }
     ctx.passes.post.add(g, inputs, scene_color, output, post_chain);
     if (need_depth) ctx.passes.debug_lines.add(g, inputs, output, gbuffer.depth);
     ctx.passes.ui.add(g, inputs, output);
