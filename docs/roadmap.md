@@ -8,6 +8,8 @@
 
 AstralEngine, C++20 kütüphaneleri ve isteğe bağlı App katmanıyla açık dünya, fizik tabanlı karakterler, deformasyonlu araçlar ve çok oyunculu oyunlar için ortak altyapı sunmayı hedefler. Editörde ajanlar değişiklik önerir, kullanıcı farkı ve önizlemeyi inceleyip kayda onay verir.
 
+**Tamamlayıcı ürün yol haritası:** [Game Development Experience (GDX, E3–E10)](game-development-experience-roadmap.md). Motor fazlarının sırası ve durumları ayrı tutulur; GDX proje/editör/AI/oyun üretim deneyimini kapsar.
+
 ## Neredeyiz
 
 | Faz | Kapsam | Durum |
