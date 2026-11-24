@@ -61,6 +61,7 @@ public:
     [[nodiscard]] MaterialLibrary* material_library() noexcept { return material_library_.get(); }
     [[nodiscard]] gpu::Extent2D extent() const;
     [[nodiscard]] Vec2 screen_size() const;
+    [[nodiscard]] Vec3 camera_position() const;
     [[nodiscard]] bool read_frame(std::vector<std::uint8_t>& rgba) const;
 
     MeshHandle create_mesh(const MeshData& data) override;

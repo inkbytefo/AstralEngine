@@ -139,6 +139,7 @@ void FrameLoop::run_physics(float delta) {
 void FrameLoop::update_transforms_and_primitives() {
     ASTRAL_PROFILE_SCOPE(&dev_tools_.profiler(), "transforms");
     update_transforms(world_, &context_.jobs);
+    terrain_bridge_.update_lod();
     render_bridge_.sync_primitives();
 }
 
