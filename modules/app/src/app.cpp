@@ -3,6 +3,7 @@
 #include "services/audio_bridge.hpp"
 #include "services/dev_tools.hpp"
 #include "services/frame_loop.hpp"
+#include "services/terrain_bridge.hpp"
 #include "services/physics_bridge.hpp"
 #include "services/render_bridge.hpp"
 #include "services/script_bridge.hpp"
@@ -33,6 +34,8 @@ void register_app_types(Context& ctx) {
     types.add<Sdf>();
     types.add<ModelRef>();
     types.add<PrimitiveMesh>();
+    types.add<TerrainRef>();
+    types.exclude<TerrainTileDraw>();
     types.add<RigidBody>();
     types.add<CharacterController>();
     types.add<AudioSource>();

@@ -1,6 +1,8 @@
 #pragma once
 // Internal to Astral::App: owns the ordered frame pipeline, system phase storage, and frame clock.
 
+#include "terrain_bridge.hpp"
+
 #include <astral/app/app.hpp>
 #include <astral/core/clock.hpp>
 
@@ -84,6 +86,7 @@ private:
     WorldBridge& world_bridge_;
     RenderBridge& render_bridge_;
     PhysicsBridge& physics_bridge_;
+    TerrainBridge terrain_bridge_;
     AudioBridge& audio_bridge_;
     ScriptBridge& script_bridge_;
     PhaseRunner run_phase_;

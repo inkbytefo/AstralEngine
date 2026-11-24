@@ -20,6 +20,7 @@ class JobSystem;
 class Logger;
 class Profiler;
 class ScriptPhysics;
+class TerrainBridge;
 class World;
 
 std::unique_ptr<ScriptPhysics> make_app_script_physics(World& world, PhysicsService& service,
@@ -73,7 +74,7 @@ public:
     void break_joint(Entity joint, std::uint64_t order_key = 0) override;
     [[nodiscard]] std::size_t pending_command_count() const noexcept override;
 
-    void step(float delta, FixedStepCallback on_fixed_update = nullptr, void* user = nullptr);
+    void step(float delta, FixedStepCallback on_fixed_update = nullptr, void* user = nullptr, const TerrainBridge* terrain = nullptr);
     void shift_origin(Vec3 offset);
 
 private:
@@ -132,7 +133,7 @@ private:
     void collect_broken_joints();
     void update_fields();
     void move_kinematics(float alpha, float fixed);
-    void update_characters(float fixed);
+    void update_characters(float fixed, const TerrainBridge* terrain);
     void snapshot_interpolation();
     void apply_field_forces(float dt);
     void emit_contact_events();

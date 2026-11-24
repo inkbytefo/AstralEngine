@@ -29,3 +29,5 @@ add_subdirectory(shader_showcase)
 add_subdirectory(pong)
 add_subdirectory(open_world)
 add_subdirectory(world_editor)
+
+add_subdirectory(terrain_lab)

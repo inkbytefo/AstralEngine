@@ -53,6 +53,11 @@ CameraData find_camera(World& world, float aspect) {
 
 } // namespace
 
+Vec3 RenderBridge::camera_position() const {
+    if (viewport_.has_camera_override) return viewport_.camera_override.position;
+    return find_camera(world_, 1.0f).position;
+}
+
 void RenderBridge::register_types(TypeRegistry& types) { types.exclude<ModelPiece>(); }
 
 RenderBridge::RenderBridge(World& world, AssetManager& assets, Logger& log, gpu::Device* device, gpu::Swapchain* swapchain,

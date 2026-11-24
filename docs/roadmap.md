@@ -52,7 +52,7 @@ M14–M23 kimlikleri korunur. A0, M20'nin teslim planı, S1 M21'in teslim planı
 | E2 | AI-First Native Editör UX, Offscreen Viewport & Asenkron AI İnceleme ([ADR-0037](decisions/0037-ai-first-native-editor-v2.md)) | E0, E1 | ✅ |
 | P0 | Physics API v2 ([ADR-0038](decisions/0038-physics-api-v2.md)) | F1, M12 | ✅ |
 | M14 | Atmosfer, hacimsel VFX ve GPU partikülleri | F1, M10, M12–M13 | 🔜 |
-| M15 | Heightfield arazi ve streaming | F1, M9–M10, M12 | ⬜ |
+| M15 | Heightfield arazi ve streaming | F1, M9–M10, M12 | Temel ✅ · katmanlar ve düzenleme ⬜ |
 | M16 | Okyanus ve göller | M14–M15, P0 su örnekleme sözleşmesi | ⬜ |
 | M17 | Bulutlar ve hava durumu | M13–M14 | ⬜ |
 | M18 | Etkileşimli su ve nehir | M16 | ⬜ |
@@ -117,7 +117,7 @@ F0/F1 sonrasında M14 ve M15, E0 ile paralel ilerleyebilir. A0, P0 ve V0 prototi
 | Faz | Uygulama | Kabul |
 |---|---|---|
 | M14 | Fiziksel gökyüzü, gün döngüsü, aerial perspective, IBL/DDGI, froxel sis. Hacim ve partikül shader türleri, `.vfx`, GPU partikülleri ve M13 decal pass üzerinden izler. Gameplay dumanı CPU görüş ızgarası ve fizik sorgusuyla, GPU seyrek hacmi ortak alan girdisiyle çalışır. Parametreler E0 Inspector'a açılır. [ADR-0024](decisions/0024-volumetric-vfx.md) | Koridoru dolduran ve engellerden yön değiştiren duman, görüş sorgusu, rüzgârlı toz ve gün döngüsü |
-| M15 | `.aterrain` bölgeleri, hücre streaming, GPU clipmap, kaba RT BLAS, 32 materyal katmanı, heightfield ve delikler. Sculpt/boyama ve yerleştirme E1 üzerinden. [ADR-0018](decisions/0018-terrain-and-sdf-world.md) | 2×2 km arazide fırça değişikliği, fizik/karakter uyumu ve stream ölçümü |
+| M15 | `.aterrain` tile’ları, CPU mesh LOD, heightfield collision ve streaming. Sonraki adımlar materyal katmanları, delikler, E1 araçları ve ölçüme göre GPU clipmap. [ADR-0039](decisions/0039-terrain-foundation.md) | Dört tile geçişi, paket eşliği ve 2×2 km streaming ölçümü |
 | M16 | FFT okyanus, göller, kırılma, RT yansıma, emilim, köpük, su altı ve araziyle kıyı. P0 ile sabit tick'te örneklenen dalga ve kaldırma sözleşmesi. | Dalgalı kıyıda tekne ve yüzen kasalar, CPU/GPU örnekleme hatası ve fizik kararlılığı |
 | M17 | Hacimsel bulutlar, bulut gölgeleri, yağış, sis, birikinti ve M13 ıslaklık. FieldWorld ile rüzgâr, ileri aerodinamik, balistik ve kanat kaldırma. S2 rüzgâr girdisini paylaşır. | Açık havadan fırtınaya geçiş ve ıslanan arazi, alan ve GPU bütçesi |
 | M18 | GPU sığ su, iz, sıçrama ve nehirler. Gameplay için CPU akış/yüzdürme örneği. S2/V0 su tepkisi aynı sözleşmeyi tüketir. | Nesne suya düşünce dalga ve nehirde sürüklenme, tick/çözünürlük profili |

@@ -38,3 +38,4 @@ ADR eskisini "yerini aldı" diye işaretler.
 | [0031](0031-hardware-independent-golden-tests.md) | Donanımdan bağımsız görüntü testleri: `golden` (lavapipe) / `golden-hw` (SSIM + güçlü piksel sınırı), cihaz kimliği, paralel kilit | Kabul |
 | [0032](0032-scalable-runtime-and-parallel-scheduler.md) | Ölçeklenebilir çalışma zamanı: erişim bildiren sistemler, paralel zamanlayıcı, paralel transform ve G/Ç ayrımı (M13.6) | Kabul |
 | [0033](0033-advanced-pbr-and-path-tracer.md) | Gelişmiş PBR (multi-scattering GGX, clearcoat, sheen, anizotropi, transmission, SSS, ıslaklık, POM, decal), `.ashader` `shading_model` ve Path Tracer referans modu (M13) | Kabul |
+| [0039](0039-terrain-foundation.md) | Terrain temeli — tile heightfield, CPU mesh LOD, Jolt ve streaming | Kabul |

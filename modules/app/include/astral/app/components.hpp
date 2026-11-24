@@ -32,6 +32,15 @@ struct PrimitiveMesh {
     std::string material_file{};
 };
 
+/// A terrain instance backed by an .aterrain asset. The entity Transform provides translation.
+struct TerrainRef {
+    std::string asset;
+    std::string material_file;
+    float render_radius_m = 0.0f;   ///< Zero keeps all render tiles resident.
+    float collision_radius_m = 0.0f; ///< Zero keeps all colliders resident; otherwise at least the render radius.
+    bool operator==(const TerrainRef&) const = default;
+};
+
 /// A signed-distance-field shape at the entity's WorldTransform (position and rotation; use
 /// `shape.size` for dimensions). Shapes combine in ascending `order` (ties: any order), so a
 /// SmoothUnion melts into earlier shapes and a Subtract carves them.
@@ -262,6 +271,7 @@ ASTRAL_REFLECT(astral::CharacterDesc, radius, height, max_slope, mass)
 ASTRAL_REFLECT(astral::CharacterController, desc, jump_speed)
 ASTRAL_REFLECT_ENUM(astral::Primitive, Cube, Sphere, Plane)
 ASTRAL_REFLECT(astral::PrimitiveMesh, shape, material, material_file)
+ASTRAL_REFLECT(astral::TerrainRef, asset, material_file, render_radius_m, collision_radius_m)
 ASTRAL_REFLECT(astral::Sdf, shape, order)
 ASTRAL_REFLECT(astral::StreamingSource, active)
 ASTRAL_REFLECT(astral::Camera, fov_y, near_plane, far_plane, active)
