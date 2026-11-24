@@ -63,3 +63,98 @@ TEST_CASE("pieces follow the owner: removing the ModelRef or destroying the owne
     CHECK(game.counts[7] == 0); // b's pieces removed
 }
 
+TEST_CASE("a saved model slot override is scoped to its owner and can be cleared") {
+    const auto dir = test::temp_dir("app_model_material_override");
+    test::write_glb(dir, "quad");
+    const std::string asset = R"({"format":"astral.material","version":1,"type":"pbr","values":{"base_color":[0,0,1,1]}})";
+    test::write_bytes(dir / "blue.material", std::vector<std::uint8_t>(asset.begin(), asset.end()));
+    const std::string root = dir.string();
+    App app({.width = 80, .height = 60, .render = {.ray_tracing = false}, .asset_root = root,
+             .hot_reload = false, .offscreen = true});
+    if (!app.context().renderer) return;
+
+    struct G final : Game {
+        Entity a, b;
+        MaterialHandle blue, original;
+        void on_start(Context& ctx) override {
+            const ModelRef source{"quad.glb", {{"painted", "blue.material"}}};
+            const Json saved = to_json(source, {});
+            ModelRef loaded;
+            REQUIRE(from_json(saved, loaded, {}));
+            REQUIRE(loaded.material_overrides == source.material_overrides);
+            a = ctx.world.create(Name{"Overridden"}, Transform{}, loaded);
+            b = ctx.world.create(Name{"Original"}, Transform{}, ModelRef{"quad.glb"});
+            blue = ctx.materials().load_material("blue.material");
+            REQUIRE(blue.valid());
+        }
+        MaterialHandle root_material(Context& ctx, Entity owner) {
+            MaterialHandle handle{};
+            ctx.world.each<const Parent, const MeshRenderer>([&](const Parent& parent, const MeshRenderer& mesh) {
+                if (parent.entity == owner) handle = mesh.material;
+            });
+            return handle;
+        }
+        void on_update(Context& ctx) override {
+            if (ctx.time.frame == 0) ctx.assets->wait_all();
+            if (ctx.time.frame == 3) {
+                original = root_material(ctx, b);
+                REQUIRE(original.valid());
+                CHECK(original != blue);
+                CHECK(root_material(ctx, a) == blue);
+                REQUIRE(ctx.scenes().save_scene("roundtrip.scene"));
+                REQUIRE(ctx.scenes().load_scene("roundtrip.scene").errors.empty());
+                ctx.world.each<const Name, const ModelRef>([&](Entity entity, const Name& name, const ModelRef&) {
+                    if (name.value == "Overridden") a = entity;
+                    if (name.value == "Original") b = entity;
+                });
+            }
+            if (ctx.time.frame == 5) {
+                CHECK(root_material(ctx, a) == blue);
+                CHECK(root_material(ctx, b) == original);
+                ctx.world.get<ModelRef>(a)->material_overrides.clear();
+            }
+            if (ctx.time.frame == 7) CHECK(root_material(ctx, a) == original);
+        }
+    } game;
+    app.run_frames(game, 8);
+}
+
+TEST_CASE("glTF masked and blended materials build Vulkan shader variants") {
+    const auto dir = test::temp_dir("app_gltf_surface_features");
+    test::write_glb(dir, "mask", {.child_node = false, .alpha_mode = "MASK", .alpha = 0.2f,
+                                .gltf_sampler = true, .double_sided = true});
+    test::write_glb(dir, "blend", {.child_node = false, .alpha_mode = "BLEND", .alpha = 0.5f});
+    const std::string root = dir.string();
+
+    struct G final : Game {
+        void on_start(Context& ctx) override {
+            for (const char* filename : {"mask.glb", "blend.glb"}) {
+                const AssetId id = ctx.assets->load_model(filename);
+                ctx.assets->wait_all();
+                const auto* model = ctx.assets->model(id);
+                REQUIRE(model);
+                const auto* material = ctx.renderer->material(model->nodes[0].pieces[0].material);
+                REQUIRE(material);
+                CHECK(material->shader.valid());
+                ctx.world.create(Transform{}, ModelRef{filename});
+            }
+            ctx.world.create(Transform{.position = {0, 1, 3}}, Camera{});
+        }
+    };
+    for (int mode = 0; mode < 3; ++mode) {
+        CAPTURE(mode);
+        App app({.width = 80, .height = 60,
+                 .render = {.ray_tracing = mode != 0, .gi = {.probes_x = 4, .probes_y = 4, .probes_z = 4},
+                            .path_tracer = mode == 2},
+                 .asset_root = root, .hot_reload = false, .offscreen = true});
+        if (!app.context().renderer) return;
+        if (mode != 0 && !app.context().renderer->ray_tracing()) continue;
+        G game;
+        app.run_frames(game, 4);
+        const auto error = app.context().renderer->shader_error();
+        CHECK_MESSAGE(error.empty(), error);
+        std::vector<std::uint8_t> rgba;
+        CHECK(app.read_frame(rgba));
+        if (mode == 2) CHECK(app.context().renderer->stats().path_tracer_samples > 0);
+    }
+}

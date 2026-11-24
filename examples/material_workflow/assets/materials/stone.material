@@ -1,0 +1,15 @@
+{
+  "format": "astral.material",
+  "version": 1,
+  "type": "pbr",
+  "values": {
+    "base_color": [
+      0.8,
+      0.76,
+      0.7,
+      1
+    ],
+    "roughness": 0.89,
+    "base_color_texture": "textures/stone.png"
+  }
+}

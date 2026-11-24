@@ -3,6 +3,7 @@
 #include <astral/assets/asset_manager.hpp>
 #include <astral/assets/model.hpp>
 #include <astral/core/log.hpp>
+#include <astral/world/serialize.hpp>
 
 #include <algorithm>
 #include <system_error>
@@ -15,6 +16,7 @@ MaterialLibrary::MaterialLibrary(Renderer& renderer, AssetManager& assets, std::
 MaterialLibrary::~MaterialLibrary() {
     for (auto& m : materials_) renderer_.destroy(m->handle);
     for (auto& s : shaders_) renderer_.destroy(s->handle);
+    for (auto& [key, tex] : textures_) renderer_.destroy(tex.handle);
 }
 
 void MaterialLibrary::log_error(const std::string& what, const std::string& message) {
@@ -34,17 +36,60 @@ std::optional<Json> MaterialLibrary::read_document(std::string_view path, std::s
     return Json::parse(std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()), error);
 }
 
+bool MaterialLibrary::reload_texture(Texture& tex) {
+    std::string error;
+    if (auto bytes = assets_.read(tex.path, &error)) {
+        if (auto image = decode_image(*bytes, tex.srgb, &error)) {
+            if (tex.handle.valid()) {
+                if (renderer_.update_texture(tex.handle, *image)) return true;
+            } else {
+                tex.handle = renderer_.create_texture(*image);
+                if (tex.handle.valid()) return true;
+            }
+        }
+    }
+    log_error("texture " + tex.path, error.empty() ? "cannot upload texture" : error);
+    return false;
+}
+
 TextureHandle MaterialLibrary::texture(const std::string& path, bool srgb) {
     const std::string key = path + (srgb ? "#srgb" : "#linear");
-    if (auto it = textures_.find(key); it != textures_.end()) return it->second;
-    TextureHandle handle;
-    std::string error;
-    if (auto bytes = assets_.read(path, &error)) {
-        if (auto image = decode_image(*bytes, srgb, &error)) handle = renderer_.create_texture(*image);
+    auto [entry, inserted] = textures_.try_emplace(key, Texture{path, srgb, {}, time_of(path)});
+    if (inserted) reload_texture(entry->second);
+    return entry->second.handle;
+}
+
+void MaterialLibrary::update_textures() {
+    bool recovered = false;
+    for (auto& [key, tex] : textures_) {
+        const auto time = time_of(tex.path);
+        if (tex.time == time) continue;
+        tex.time = time;
+        const bool missing = !tex.handle.valid();
+        if (reload_texture(tex) && missing) recovered = true;
     }
-    if (!handle.valid()) log_error("texture " + path, error.empty() ? "cannot create texture" : error);
-    textures_.emplace(key, handle); // failures are remembered: logged once
-    return handle;
+    if (!recovered) return;
+
+    for (auto& material : materials_) {
+        if (material->file.standard_pbr) {
+            std::vector<std::string> errors;
+            MaterialDesc updated;
+            if (build_pbr(material->file, updated, errors) && renderer_.update_material(material->handle, updated)) {
+                material->desc = std::move(updated);
+            }
+            continue;
+        }
+        bool changed = false;
+        for (std::size_t i = 0; i < material->texture_sources.size(); ++i) {
+            const auto& source = material->texture_sources[i];
+            auto& bound = material->desc.textures[i].texture;
+            const TextureHandle handle = texture(source.path, source.srgb);
+            if (bound == handle) continue;
+            bound = handle;
+            changed = true;
+        }
+        if (changed) renderer_.update_material(material->handle, material->desc);
+    }
 }
 
 /// Compiles a .ashader. With `reload`, an existing entry gets its new pipelines only if the compile
@@ -112,6 +157,34 @@ MaterialLibrary::Shader* MaterialLibrary::load_shader(const std::string& path, b
     return shaders_.back().get();
 }
 
+bool MaterialLibrary::build_pbr(const MaterialFile& file, MaterialDesc& desc, std::vector<std::string>& errors) {
+    struct TextureSlot { std::string_view name; TextureHandle& handle; bool srgb; };
+    TextureSlot slots[] = {
+        {"base_color_texture", desc.base_color_texture, true},
+        {"metallic_roughness_texture", desc.metallic_roughness_texture, false},
+        {"normal_texture", desc.normal_texture, false},
+        {"emissive_texture", desc.emissive_texture, true},
+        {"detail_albedo_texture", desc.detail.albedo_texture, true},
+        {"detail_normal_texture", desc.detail.normal_texture, false},
+        {"detail_height_texture", desc.detail.height_texture, false},
+    };
+    Json factors = Json::object();
+    for (const auto& [name, value] : file.values) {
+        const auto slot = std::find_if(std::begin(slots), std::end(slots), [&](const auto& s) { return s.name == name; });
+        if (slot != std::end(slots)) {
+            if (!value.is_string()) errors.push_back(name + ": expected an asset path");
+            else if (!value.as_string().empty()) slot->handle = texture(value.as_string(), slot->srgb);
+            continue;
+        }
+        bool known = false;
+        for_each_field<MaterialDesc>([&](auto field) { known |= field.name == name; });
+        if (!known) errors.push_back(name + ": unknown PBR parameter");
+        else factors[name] = value;
+    }
+    const bool parsed = from_json(factors, desc, {.resolve = {}, .errors = &errors, .path = "values"});
+    return parsed && errors.empty();
+}
+
 /// (Re)builds a material from its files. On failure nothing changes (false).
 bool MaterialLibrary::build(Material& material, bool create) {
     const MaterialReader reader = [this](std::string_view path, std::string* error) { return read_document(path, error); };
@@ -120,24 +193,34 @@ bool MaterialLibrary::build(Material& material, bool create) {
         for (const std::string& e : file.errors) log_error("material " + material.path, e);
         return false;
     }
-    const Shader* shader = load_shader(file.shader, false);
-    if (!shader) return false;
-    const UniformValues values = evaluate_uniforms(shader->source, shader->layout, file);
-    for (const std::string& w : values.warnings) log_.log(LogLevel::Warn, "material " + material.path + ": " + w);
-
+    const Shader* shader = nullptr;
+    UniformValues values;
     MaterialDesc desc;
-    desc.shader = shader->handle;
-    desc.params = values.params;
-    for (const UniformValues::Texture& t : values.textures) {
-        desc.textures.push_back({t.offset, texture(t.path, t.srgb), t.normal});
+    if (file.standard_pbr) {
+        std::vector<std::string> errors;
+        if (!build_pbr(file, desc, errors)) {
+            for (const auto& error : errors) log_error("material " + material.path, error);
+            return false;
+        }
+    } else {
+        shader = load_shader(file.shader, false);
+        if (!shader) return false;
+        values = evaluate_uniforms(shader->source, shader->layout, file);
+        for (const auto& warning : values.warnings) log_.log(LogLevel::Warn, "material " + material.path + ": " + warning);
+        desc.shader = shader->handle;
+        desc.params = values.params;
+        for (const auto& source : values.textures) {
+            desc.textures.push_back({source.offset, texture(source.path, source.srgb), source.normal});
+        }
     }
     if (create) material.handle = renderer_.create_material(desc);
-    else renderer_.update_material(material.handle, desc);
+    else if (!renderer_.update_material(material.handle, desc)) return false;
     if (!material.handle.valid()) return false;
     material.file = std::move(file);
     material.shader = shader;
     material.desc = std::move(desc);
     material.values = material.desc.params;
+    material.texture_sources = values.textures;
     material.watched.clear();
     for (const std::string& dep : material.file.dependencies) material.watched.emplace_back(dep, time_of(dep));
     return true;
@@ -157,6 +240,7 @@ MaterialHandle MaterialLibrary::get(std::string_view path) {
 void MaterialLibrary::update(double now) {
     if (!watch_ || now < next_check_) return;
     next_check_ = now + 0.25;
+    update_textures();
     // Shaders first: a new pipeline set is made, then every material using it is pointed at it.
     for (auto& s : shaders_) {
         if (time_of(s->path) == s->time) continue;

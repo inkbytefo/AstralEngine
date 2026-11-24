@@ -60,6 +60,10 @@ struct GltfOptions {
     float quad_size = 1.0f;
     bool child_node = true;
     bool normals = true;
+    std::string_view alpha_mode{};
+    float alpha = 1.0f;
+    bool gltf_sampler = false;
+    bool double_sided = false;
 };
 
 /// Geometry buffer: positions, (normals), uvs, uint16 indices of one quad in the XY plane.
@@ -137,10 +141,29 @@ inline Json quad_json(const GltfOptions& o, std::size_t buf_len, std::size_t pos
     mat["normalTexture"]["scale"] = 0.8;
     mat["emissiveFactor"] = Json::array({1, 0.5, 0});
     mat["extensions"]["KHR_materials_emissive_strength"]["emissiveStrength"] = 4;
+    if (!o.alpha_mode.empty()) {
+        mat["alphaMode"] = o.alpha_mode;
+        mat["alphaCutoff"] = 0.6;
+        mat["pbrMetallicRoughness"]["baseColorFactor"] = Json::array({1, 1, 1, o.alpha});
+    }
+    if (o.double_sided) mat["doubleSided"] = true;
+    if (o.gltf_sampler) {
+        mat["occlusionTexture"]["index"] = 0;
+        mat["occlusionTexture"]["strength"] = 0.75;
+    }
     doc["materials"] = Json::array({mat});
     Json t0 = Json::object(), t1 = Json::object();
     t0["source"] = 0;
     t1["source"] = 1;
+    if (o.gltf_sampler) {
+        t0["sampler"] = 0;
+        Json sampler = Json::object();
+        sampler["wrapS"] = 33071;
+        sampler["wrapT"] = 33648;
+        sampler["minFilter"] = 9986;
+        sampler["magFilter"] = 9728;
+        doc["samplers"] = Json::array({sampler});
+    }
     doc["textures"] = Json::array({t0, t1});
     Json imgs = Json::array();
     for (const Json& i : images) imgs.push_back(i);

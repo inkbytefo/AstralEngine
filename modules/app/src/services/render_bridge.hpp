@@ -106,7 +106,8 @@ private:
 
     void ensure_viewport_target();
     void sync_primitives_in(World& w, bool incremental);
-    void spawn_model(Entity owner, const Model& model);
+    void spawn_model(Entity owner, const Model& model, const ModelRef& ref);
+    std::vector<MaterialHandle> resolve_model_overrides(const Model& model, const ModelRef& ref);
     void extract_meshes(World& w);
     void extract_sdfs(World& w);
     void extract_lights(World& w);

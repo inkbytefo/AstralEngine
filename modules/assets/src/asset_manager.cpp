@@ -4,6 +4,8 @@
 #include <astral/render/renderer.hpp>
 
 #include "file_util.hpp"
+#include "imported_material.hpp"
+#include <astral/render/surface_shader.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -70,6 +72,13 @@ struct AssetManager::Impl {
     std::vector<std::unique_ptr<Pending>> pending;
     std::uint32_t reload_count = 0;
     std::chrono::steady_clock::time_point last_poll = std::chrono::steady_clock::now();
+
+    struct ImportedShader {
+        ShaderHandle handle;
+        ShaderSource source;
+        UniformLayout layout;
+    };
+    std::unordered_map<unsigned, ImportedShader> imported_shaders;
 
     std::unique_ptr<Pack> pack;
 
@@ -174,12 +183,52 @@ struct AssetManager::Impl {
         e.textures.clear();
     }
 
-    static bool same_structure(const Model& m, const ModelData& d) {
-        if (m.nodes.size() != d.nodes.size() || m.roots != d.roots) return false;
-        for (std::size_t i = 0; i < m.nodes.size(); ++i) {
-            if (m.nodes[i].children != d.nodes[i].children || m.nodes[i].pieces.size() != d.nodes[i].primitives.size()) return false;
+    static bool same_bindings(const Model& before, const Model& after) {
+        if (before.nodes.size() != after.nodes.size() || before.roots != after.roots ||
+            before.material_slots != after.material_slots) return false;
+        for (std::size_t i = 0; i < before.nodes.size(); ++i) {
+            const Model::Node& a = before.nodes[i];
+            const Model::Node& b = after.nodes[i];
+            if (a.name != b.name || a.translation != b.translation || a.rotation != b.rotation ||
+                a.scale != b.scale || a.children != b.children || a.pieces != b.pieces) return false;
         }
         return true;
+    }
+
+    void apply_imported_shader(const ModelMaterial& source, const std::vector<TextureHandle>& textures, MaterialDesc& desc_m) {
+        const auto key = detail::imported_surface_key(source);
+        if (!key) return;
+        auto [it, inserted] = imported_shaders.try_emplace(key);
+        ImportedShader& shader = it->second;
+        if (inserted) {
+            auto parsed = parse_ashader(detail::imported_surface_source(source));
+            if (parsed.errors.empty()) {
+                const auto build = compile_surface_shader(parsed.source, "glTF surface");
+                if (build.ok()) {
+                    shader.handle = desc.renderer->create_shader(build, "gltf.surface");
+                    shader.layout = build.layout;
+                    shader.source = std::move(parsed.source);
+                } else {
+                    for (const auto& error : build.errors) log_error("glTF surface shader: " + error.message);
+                }
+            } else {
+                for (const auto& error : parsed.errors) log_error("glTF surface shader: " + error.message);
+            }
+            if (!shader.handle.valid()) log_error("cannot create glTF surface shader");
+        }
+        if (!shader.handle.valid()) return;
+        desc_m.shader = shader.handle;
+        const auto values = detail::imported_surface_values(source);
+        desc_m.params = evaluate_uniforms(shader.source, shader.layout, values).params;
+        const auto images = detail::imported_surface_images(source);
+        for (std::size_t i = 0; i < shader.source.uniforms.size(); ++i) {
+            for (const auto& [name, index] : images) {
+                if (name != shader.source.uniforms[i].name || index < 0 ||
+                    static_cast<std::size_t>(index) >= textures.size()) continue;
+                desc_m.textures.push_back({shader.layout.offsets[i], textures[static_cast<std::size_t>(index)],
+                                           name == "normal_texture"});
+            }
+        }
     }
 
     /// Main thread: data -> renderer resources -> Model. Reuses handles when the shapes allow it.
@@ -211,11 +260,12 @@ struct AssetManager::Impl {
             auto tex = [&](int i) { return i >= 0 && static_cast<std::size_t>(i) < textures.size() ? textures[static_cast<std::size_t>(i)] : TextureHandle{}; };
             for (std::size_t i = 0; i < data.materials.size(); ++i) {
                 const ModelMaterial& m = data.materials[i];
-                const MaterialDesc desc_m{.base_color = m.base_color, .roughness = m.roughness, .metallic = m.metallic,
+                MaterialDesc desc_m{.base_color = m.base_color, .roughness = m.roughness, .metallic = m.metallic,
                                           .emissive = m.emissive, .base_color_texture = tex(m.base_color_image),
                                           .metallic_roughness_texture = tex(m.metallic_roughness_image),
                                           .normal_texture = tex(m.normal_image), .emissive_texture = tex(m.emissive_image),
                                           .normal_scale = m.normal_scale};
+                apply_imported_shader(m, textures, desc_m);
                 if (keep_materials && r->update_material(e.materials[i], desc_m)) materials.push_back(e.materials[i]);
                 else materials.push_back(r->create_material(desc_m));
             }
@@ -234,20 +284,18 @@ struct AssetManager::Impl {
 
         auto model = std::make_unique<Model>();
         model->roots = data.roots;
+        for (const ModelMaterial& material : data.materials) model->material_slots.push_back(material.name);
         for (const ModelNode& n : data.nodes) {
             Model::Node node{n.name, n.translation, n.rotation, n.scale, {}, n.children};
             for (std::uint32_t p : n.primitives) {
                 const int mat = data.primitives[p].material;
                 node.pieces.push_back({r ? e.meshes[p] : MeshHandle{},
-                                       r && mat >= 0 ? e.materials[static_cast<std::size_t>(mat)] : MaterialHandle{}});
+                                       r && mat >= 0 ? e.materials[static_cast<std::size_t>(mat)] : MaterialHandle{}, mat, p});
             }
             model->nodes.push_back(std::move(node));
         }
         if (reload) {
-            // Spawned entities hold mesh/material handles: they go stale if the tree changed or if
-            // those handles had to be recreated.
-            const bool handles_changed = r && (!keep_meshes || !keep_materials);
-            model->version = same_structure(*e.model, data) && !handles_changed ? e.model->version : e.model->version + 1;
+            model->version = e.model->version + (same_bindings(*e.model, *model) ? 0u : 1u);
             ++reload_count;
         }
         e.model = std::move(model);
@@ -316,6 +364,9 @@ AssetManager::~AssetManager() {
         if (m.desc.jobs) m.desc.jobs->wait(p->counter);
     }
     for (auto& [key, e] : m.entries) m.destroy_resources(e);
+    if (m.desc.renderer) {
+        for (auto& [key, shader] : m.imported_shaders) m.desc.renderer->destroy(shader.handle);
+    }
 }
 
 AssetId AssetManager::load_model(std::string_view relative_path) {

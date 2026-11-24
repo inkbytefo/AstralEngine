@@ -1,5 +1,9 @@
 #include "editor_state.hpp"
 
+#include <astral/assets/asset_manager.hpp>
+#include <astral/assets/material_export.hpp>
+#include <astral/core/log.hpp>
+
 #include <imgui.h>
 
 #include <algorithm>
@@ -96,6 +100,70 @@ void draw_add_component_combo(EditorPanelContext& ec, EditorSession& s, Document
     ImGui::EndCombo();
 }
 
+void set_model_material(EditorPanelContext& ec, EditorSession& session, DocumentEntityId target,
+                        ModelRef ref, const std::string& slot, std::string path) {
+    std::erase_if(ref.material_overrides, [&](const auto& value) { return value.slot == slot; });
+    if (!path.empty()) ref.material_overrides.push_back({slot, std::move(path)});
+    Transaction tx;
+    tx.summary = "Set material slot " + slot;
+    tx.expected_revision = session.document().revision;
+    tx.commands.push_back({.kind = CommandKind::SetComponentField, .target = target, .component = "astral::ModelRef",
+                           .field = "material_overrides", .value = to_json(ref.material_overrides, {})});
+    if (session.apply(tx).ok) sync_scene_to_world_live(ec);
+}
+
+void draw_model_materials(EditorPanelContext& ec, EditorSession& session, DocumentEntityId target, const Json& component) {
+    ModelRef ref;
+    if (!from_json(component, ref, {}) || ref.path.empty() || !ec.app.assets) return;
+    const Model* model = ec.app.assets->model(AssetId::from_path(ref.path));
+    if (!model) {
+        ImGui::TextDisabled("Model material slots appear after the model loads.");
+        return;
+    }
+    for (std::size_t i = 0; i < model->material_slots.size(); ++i) {
+        const auto& slot = model->material_slots[i];
+        ImGui::PushID(static_cast<int>(i));
+        ImGui::TextUnformatted(slot.empty() ? "Unnamed material slot" : slot.c_str());
+        const auto current = std::find_if(ref.material_overrides.begin(), ref.material_overrides.end(),
+                                          [&](const auto& value) { return value.slot == slot; });
+        const bool assignable = !slot.empty() && std::count(model->material_slots.begin(), model->material_slots.end(), slot) == 1;
+        if (assignable) {
+            const char* preview = current == ref.material_overrides.end() ? "Imported default" : current->material_file.c_str();
+            if (ImGui::BeginCombo("Material asset", preview)) {
+                if (ImGui::Selectable("Imported default", current == ref.material_overrides.end())) {
+                    set_model_material(ec, session, target, ref, slot, {});
+                }
+                for (const auto& file : ec.state.ui.asset_files) {
+                    if (file.extension() != ".material") continue;
+                    std::string path = file.lexically_relative(ec.state.desc.asset_root).generic_string();
+                    if (path.empty() || path.starts_with("..")) continue;
+                    if (ImGui::Selectable(path.c_str(), current != ref.material_overrides.end() && current->material_file == path)) {
+                        set_model_material(ec, session, target, ref, slot, std::move(path));
+                    }
+                }
+                ImGui::EndCombo();
+            }
+        } else {
+            ImGui::TextDisabled("Give this slot a unique material name in the source model to override it.");
+        }
+        if (ImGui::SmallButton("Extract imported material")) {
+            const std::filesystem::path source(ref.path);
+            const auto folder = std::filesystem::path("materials/imported") / source.parent_path() /
+                                (source.filename().string() + "_slot_" + std::to_string(i));
+            std::string error;
+            auto path = export_model_material(ec.state.desc.asset_root, source, i, folder, &error);
+            if (path) {
+                ec.state.ui.asset_files.push_back(ec.state.desc.asset_root / *path);
+                std::sort(ec.state.ui.asset_files.begin(), ec.state.ui.asset_files.end());
+                if (assignable) set_model_material(ec, session, target, ref, slot, std::move(*path));
+            } else {
+                ec.app.log.log(LogLevel::Error, "material extraction: " + error);
+            }
+        }
+        ImGui::PopID();
+    }
+}
+
 class InspectorPanel final : public EditorPanel {
 public:
     [[nodiscard]] std::string_view id() const noexcept override { return "inspector"; }
@@ -141,6 +209,7 @@ public:
                 if (ImGui::SmallButton("x")) comp_to_remove = comp_name;
                 if (open) {
                     for (const FieldInfo& f : entry->fields) {
+                        if (comp_name == "astral::ModelRef" && f.name == "material_overrides") continue;
                         const Json* cur = comp_json.find(f.name);
                         if (!cur) continue;
                         Json edited = *cur;
@@ -155,6 +224,7 @@ public:
                             if (s->apply(tx).ok) sync_scene_to_world_live(ec);
                         }
                     }
+                    if (comp_name == "astral::ModelRef") draw_model_materials(ec, *s, target, comp_json);
                 }
                 ImGui::PopID();
             }

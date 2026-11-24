@@ -66,6 +66,8 @@ struct Loader {
     ModelData model;
     std::string error;
     std::vector<int> image_srgb; // -1 unused, 0 linear, 1 srgb
+    std::vector<int> alternate_image;
+    std::size_t image_count = 0;
 
     bool fail(std::string message) {
         if (error.empty()) error = std::move(message);
@@ -169,12 +171,31 @@ struct Loader {
         if (texture_info["texCoord"].as_number(0) != 0) model.warnings.push_back("only TEXCOORD_0 is supported");
         const int image = static_cast<int>(tex["source"].as_number(-1));
         if (image < 0 || static_cast<std::size_t>(image) >= image_srgb.size()) return -1;
-        if (image_srgb[static_cast<std::size_t>(image)] < 0) image_srgb[static_cast<std::size_t>(image)] = srgb ? 1 : 0;
-        return image;
+        auto& color = image_srgb[static_cast<std::size_t>(image)];
+        const int requested = srgb ? 1 : 0;
+        if (color < 0) color = requested;
+        if (color == requested) return image;
+        auto& alternate = alternate_image[static_cast<std::size_t>(image)];
+        if (alternate < 0) alternate = static_cast<int>(image_count++);
+        return alternate;
+    }
+
+    ModelSampler texture_sampler(const Json& info) const {
+        const Json& texture = doc["textures"][static_cast<std::size_t>(info["index"].as_number(-1))];
+        const Json& sampler = doc["samplers"][static_cast<std::size_t>(texture["sampler"].as_number(-1))];
+        const auto wrap = [](double value) -> std::uint8_t {
+            return value == 33071 ? 0u : value == 33648 ? 2u : 1u;
+        };
+        const auto min = sampler["minFilter"].as_number(9987);
+        const auto filter = min == 9728 ? 0 : min == 9729 ? 1 : min == 9984 ? 2 : min == 9985 ? 3 : min == 9986 ? 4 : 5;
+        return {wrap(sampler["wrapS"].as_number()), wrap(sampler["wrapT"].as_number()),
+                static_cast<std::uint8_t>(filter), sampler["magFilter"].as_number(9729) != 9728};
     }
 
     void load_materials() {
-        image_srgb.assign(doc["images"].size(), -1);
+        image_count = doc["images"].size();
+        image_srgb.assign(image_count, -1);
+        alternate_image.assign(image_count, -1);
         for (const Json& m : doc["materials"].as_array()) {
             ModelMaterial mat;
             mat.name = m["name"].as_string();
@@ -197,13 +218,23 @@ struct Loader {
                 mat.emissive = Vec3{static_cast<float>(e[0].as_number()), static_cast<float>(e[1].as_number()),
                                     static_cast<float>(e[2].as_number())} * strength;
             }
-            if (m["alphaMode"].as_string() == "BLEND") model.warnings.push_back("alpha blending is not supported (" + mat.name + ")");
+            const auto alpha = m["alphaMode"].as_string();
+            if (alpha == "MASK") mat.alpha_mode = ModelAlphaMode::Mask;
+            else if (alpha == "BLEND") mat.alpha_mode = ModelAlphaMode::Blend;
+            mat.alpha_cutoff = static_cast<float>(m["alphaCutoff"].as_number(0.5));
+            mat.double_sided = m["doubleSided"].as_bool();
+            mat.occlusion_image = texture_image(m["occlusionTexture"], false);
+            mat.occlusion_strength = static_cast<float>(m["occlusionTexture"]["strength"].as_number(1.0));
+            mat.samplers = {texture_sampler(pbr["baseColorTexture"]), texture_sampler(pbr["metallicRoughnessTexture"]),
+                            texture_sampler(m["normalTexture"]), texture_sampler(m["emissiveTexture"]),
+                            texture_sampler(m["occlusionTexture"])};
             model.materials.push_back(std::move(mat));
         }
     }
 
     bool load_images() {
         const Json& list = doc["images"];
+        model.images.resize(image_count);
         for (std::size_t i = 0; i < list.size(); ++i) {
             const Json& img = list[i];
             const bool srgb = image_srgb[i] != 0;
@@ -224,7 +255,12 @@ struct Loader {
             auto decoded = image_srgb[i] < 0 ? std::optional<ImageData>(ImageData{}) // unused: skip decoding
                                              : decode_image(*bytes, srgb, &err);
             if (!decoded) return fail("image " + source + ": " + err);
-            model.images.push_back({std::move(*decoded), source});
+            if (alternate_image[i] >= 0) {
+                ImageData alternate = *decoded;
+                alternate.srgb = !srgb;
+                model.images[static_cast<std::size_t>(alternate_image[i])] = {std::move(alternate), source};
+            }
+            model.images[i] = {std::move(*decoded), source};
         }
         return true;
     }

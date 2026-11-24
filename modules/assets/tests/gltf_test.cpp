@@ -2,6 +2,8 @@
 #include "gltf_writer.hpp"
 
 #include <astral/assets/model.hpp>
+#include <astral/assets/material_export.hpp>
+#include <astral/assets/cook.hpp>
 #include <doctest/doctest.h>
 
 using namespace astral;
@@ -57,6 +59,30 @@ TEST_CASE("a .glb with embedded images loads the same model") {
     CHECK(m->files.size() == 1);
 }
 
+TEST_CASE("one glTF image can be both color and linear data") {
+    const auto dir = test::temp_dir("gltf_image_roles");
+    const auto path = test::write_gltf(dir, "quad");
+    std::ifstream stream(path);
+    auto doc = Json::parse(std::string(std::istreambuf_iterator<char>(stream), {}));
+    REQUIRE(doc);
+    Json material = (*doc)["materials"][0];
+    material["normalTexture"]["index"] = 0;
+    (*doc)["materials"] = Json::array({material});
+    const auto text = doc->dump();
+    test::write_bytes(path, std::vector<std::uint8_t>(text.begin(), text.end()));
+    const auto model = load_gltf(path);
+    REQUIRE(model);
+    const auto& mat = model->materials[0];
+    REQUIRE(mat.base_color_image != mat.normal_image);
+    CHECK(model->images[mat.base_color_image].image.srgb);
+    CHECK_FALSE(model->images[mat.normal_image].image.srgb);
+    CHECK(model->images[mat.base_color_image].image.rgba == model->images[mat.normal_image].image.rgba);
+    const auto cooked = read_cooked_model(write_cooked_model(*model));
+    REQUIRE(cooked);
+    CHECK(cooked->images[mat.base_color_image].image.srgb);
+    CHECK_FALSE(cooked->images[mat.normal_image].image.srgb);
+}
+
 TEST_CASE("missing normals are generated") {
     const auto dir = test::temp_dir("gltf_normals");
     const auto m = load_gltf(test::write_gltf(dir, "quad", {.normals = false}));
@@ -94,4 +120,39 @@ TEST_CASE("images decode from memory; garbage is refused") {
     std::string error;
     CHECK_FALSE(decode_image(junk, true, &error).has_value());
     CHECK_FALSE(error.empty());
+}
+
+TEST_CASE("embedded glTF material extraction writes reusable PBR assets without replacing files") {
+    const auto root = test::temp_dir("gltf_material_export");
+    test::write_glb(root, "quad");
+    std::string error;
+    const auto material = export_model_material(root, "quad.glb", 0, "materials/painted", &error);
+    REQUIRE_MESSAGE(material, error);
+    CHECK(*material == "materials/painted/surface.material");
+    std::ifstream stream(root / *material);
+    const auto doc = Json::parse(std::string(std::istreambuf_iterator<char>(stream), {}));
+    REQUIRE(doc);
+    CHECK((*doc)["type"].as_string() == "pbr");
+    const std::string image_path = (*doc)["values"]["base_color_texture"].as_string();
+    const auto image = load_image(root / image_path, true, &error);
+    REQUIRE_MESSAGE(image, error);
+    CHECK(image->rgba[0] == 200);
+    CHECK_FALSE(export_model_material(root, "quad.glb", 0, "materials/painted", &error));
+}
+
+TEST_CASE("glTF alpha sidedness occlusion and samplers survive cooking") {
+    const auto dir = test::temp_dir("gltf_surface_features");
+    const auto model = load_gltf(test::write_glb(dir, "mask", {.alpha_mode = "MASK", .alpha = 0.2f,
+                                                             .gltf_sampler = true, .double_sided = true}));
+    REQUIRE(model);
+    const auto cooked = read_cooked_model(write_cooked_model(*model));
+    REQUIRE(cooked);
+    const auto& mat = cooked->materials[0];
+    CHECK(mat.alpha_mode == ModelAlphaMode::Mask);
+    CHECK(mat.alpha_cutoff == doctest::Approx(0.6));
+    CHECK(mat.double_sided);
+    REQUIRE(mat.occlusion_image >= 0);
+    CHECK(mat.occlusion_strength == doctest::Approx(0.75));
+    CHECK(mat.samplers[0] == ModelSampler{0, 2, 4, false});
+    CHECK_FALSE(cooked->images[static_cast<std::size_t>(mat.occlusion_image)].image.srgb);
 }

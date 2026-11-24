@@ -42,6 +42,7 @@ astral_add_module(NAME assets
     SOURCES
         src/image.cpp
         src/gltf.cpp
+        src/material_export.cpp
         src/asset_manager.cpp
         src/texture_codec.cpp
         src/cooked_model.cpp

@@ -8,7 +8,7 @@ namespace astral {
 namespace {
 
 constexpr std::uint8_t magic[4] = {'A', 'M', 'D', 'L'};
-constexpr std::uint32_t format_version = 1;
+constexpr std::uint32_t format_version = 2;
 /// Counts read from a file are checked against this before allocating (a damaged count must not
 /// make us allocate gigabytes); real models are far below it.
 constexpr std::uint64_t max_count = 1u << 28;
@@ -57,7 +57,7 @@ const char* read_primitives(ByteReader& r, std::vector<ModelPrimitive>& primitiv
     return nullptr;
 }
 
-const char* read_materials(ByteReader& r, std::vector<ModelMaterial>& materials) {
+const char* read_materials(ByteReader& r, std::vector<ModelMaterial>& materials, std::uint32_t version) {
     const std::uint64_t n = r.varint();
     if (n > max_count) return "damaged material count";
     materials.resize(static_cast<std::size_t>(n));
@@ -72,6 +72,19 @@ const char* read_materials(ByteReader& r, std::vector<ModelMaterial>& materials)
         mat.metallic_roughness_image = index(r);
         mat.normal_image = index(r);
         mat.emissive_image = index(r);
+        if (version >= 2) {
+            mat.occlusion_image = index(r);
+            const auto mode = r.u8();
+            if (mode > static_cast<std::uint8_t>(ModelAlphaMode::Blend)) return "invalid alpha mode";
+            mat.alpha_mode = static_cast<ModelAlphaMode>(mode);
+            mat.alpha_cutoff = r.f32();
+            mat.occlusion_strength = r.f32();
+            mat.double_sided = r.u8() != 0;
+            for (auto& sampler : mat.samplers) {
+                sampler = {r.u8(), r.u8(), r.u8(), r.u8() != 0};
+                if (sampler.wrap_u > 2 || sampler.wrap_v > 2 || sampler.min_filter > 5) return "invalid material sampler";
+            }
+        }
     }
     return nullptr;
 }
@@ -163,6 +176,17 @@ std::vector<std::uint8_t> write_cooked_model(const ModelData& m) {
         for (int i : {mat.base_color_image, mat.metallic_roughness_image, mat.normal_image, mat.emissive_image}) {
             w.u32(static_cast<std::uint32_t>(i));
         }
+        w.u32(static_cast<std::uint32_t>(mat.occlusion_image));
+        w.u8(static_cast<std::uint8_t>(mat.alpha_mode));
+        w.f32(mat.alpha_cutoff);
+        w.f32(mat.occlusion_strength);
+        w.u8(mat.double_sided ? 1 : 0);
+        for (const auto& sampler : mat.samplers) {
+            w.u8(sampler.wrap_u);
+            w.u8(sampler.wrap_v);
+            w.u8(sampler.min_filter);
+            w.u8(sampler.mag_linear ? 1 : 0);
+        }
     }
 
     w.varint(m.images.size());
@@ -210,11 +234,12 @@ std::optional<ModelData> read_cooked_model(std::span<const std::uint8_t> data, s
     };
     if (!is_cooked_model(data)) return fail("not a cooked model (no AMDL header)");
     ByteReader r(data.subspan(4));
-    if (r.u32() != format_version) return fail("unsupported version (cook again)");
+    const auto version = r.u32();
+    if (version < 1 || version > format_version) return fail("unsupported version (cook again)");
     ModelData m;
 
     if (const char* err = read_primitives(r, m.primitives)) return fail(err);
-    if (const char* err = read_materials(r, m.materials)) return fail(err);
+    if (const char* err = read_materials(r, m.materials, version)) return fail(err);
     if (const char* err = read_images(r, m.images)) return fail(err);
     if (const char* err = read_nodes(r, m)) return fail(err);
 

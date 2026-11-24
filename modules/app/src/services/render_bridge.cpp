@@ -25,6 +25,7 @@ struct RenderHistory {
 struct SpawnedModel {
     AssetId id;
     std::uint32_t version = 0;
+    std::vector<ModelMaterialOverride> material_overrides;
 };
 /// Internal: an entity generated from a model; destroyed with its owner, never saved.
 struct ModelPiece {
@@ -218,7 +219,36 @@ void RenderBridge::sync_primitives_in(World& w, bool incremental) {
     }
 }
 
-void RenderBridge::spawn_model(Entity owner, const Model& model) {
+std::vector<MaterialHandle> RenderBridge::resolve_model_overrides(const Model& model, const ModelRef& ref) {
+    std::vector<MaterialHandle> overrides(model.material_slots.size());
+    if (!material_library_) return overrides;
+    for (const auto& value : ref.material_overrides) {
+        if (value.material_file.empty()) continue;
+        const auto warn = [&](std::string message) { log_.log(LogLevel::Warn, ref.path + ": " + message); };
+        if (value.slot.empty() || std::count(model.material_slots.begin(), model.material_slots.end(), value.slot) != 1) {
+            warn("no unique material slot named '" + value.slot + "'");
+            continue;
+        }
+        if (std::count_if(ref.material_overrides.begin(), ref.material_overrides.end(),
+                          [&](const auto& entry) { return entry.slot == value.slot; }) != 1) {
+            warn("multiple overrides for material slot '" + value.slot + "'");
+            continue;
+        }
+        const auto slot = std::find(model.material_slots.begin(), model.material_slots.end(), value.slot);
+        overrides[static_cast<std::size_t>(slot - model.material_slots.begin())] = material_library_->get(value.material_file);
+    }
+    return overrides;
+}
+
+void RenderBridge::spawn_model(Entity owner, const Model& model, const ModelRef& ref) {
+    const auto overrides = resolve_model_overrides(model, ref);
+    const auto material_for = [&](const Model::Piece& piece) {
+        if (piece.material_index >= 0 && static_cast<std::size_t>(piece.material_index) < overrides.size()) {
+            const auto override = overrides[static_cast<std::size_t>(piece.material_index)];
+            if (override.valid()) return override;
+        }
+        return piece.material;
+    };
     // Depth-first over the node tree; each node is an entity parented to its parent node (roots to
     // the owner). A node with one piece draws it itself; several pieces get one child each.
     struct Item {
@@ -233,10 +263,10 @@ void RenderBridge::spawn_model(Entity owner, const Model& model) {
         const Model::Node& n = model.nodes[item.node];
         const Entity e = world_.create(Transform{n.translation, n.rotation, n.scale}, Parent{item.parent}, ModelPiece{owner});
         if (n.pieces.size() == 1) {
-            world_.add(e, MeshRenderer{n.pieces[0].mesh, n.pieces[0].material});
+            world_.add(e, MeshRenderer{n.pieces[0].mesh, material_for(n.pieces[0])});
         } else {
             for (const Model::Piece& p : n.pieces) {
-                world_.create(Transform{}, Parent{e}, ModelPiece{owner}, MeshRenderer{p.mesh, p.material});
+                world_.create(Transform{}, Parent{e}, ModelPiece{owner}, MeshRenderer{p.mesh, material_for(p)});
             }
         }
         for (auto c = n.children.rbegin(); c != n.children.rend(); ++c) stack.push_back({*c, e});
@@ -255,7 +285,7 @@ void RenderBridge::sync_models() {
         const AssetId id = assets_.load_model(ref.path); // idempotent
         const Model* model = assets_.model(id);
         const SpawnedModel* s = world_.get<const SpawnedModel>(e);
-        if (model && (!s || s->id != id || s->version != model->version)) todo.emplace_back(e, id);
+        if (model && (!s || s->id != id || s->version != model->version || s->material_overrides != ref.material_overrides)) todo.emplace_back(e, id);
     });
     // Owners whose ModelRef was removed keep a SpawnedModel marker: drop it (their pieces are stale above).
     std::vector<Entity> orphans;
@@ -271,8 +301,9 @@ void RenderBridge::sync_models() {
     for (Entity e : stale) world_.destroy(e);
     for (const auto& [owner, id] : todo) {
         const Model* model = assets_.model(id);
-        spawn_model(owner, *model);
-        world_.add(owner, SpawnedModel{id, model->version});
+        const ModelRef ref = *world_.get<const ModelRef>(owner);
+        spawn_model(owner, *model, ref);
+        world_.add(owner, SpawnedModel{id, model->version, ref.material_overrides});
     }
 }
 

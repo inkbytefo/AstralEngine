@@ -6,6 +6,7 @@
 #include <astral/render/image.hpp>
 #include <astral/render/mesh.hpp>
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -20,6 +21,15 @@ std::optional<ImageData> decode_image(std::span<const std::uint8_t> bytes, bool 
 std::optional<ImageData> load_image(const std::filesystem::path& path, bool srgb, std::string* error = nullptr);
 
 /// A glTF material, with texture slots as indices into ModelData::images (-1 = none).
+enum class ModelAlphaMode : std::uint8_t { Opaque, Mask, Blend };
+
+struct ModelSampler {
+    std::uint8_t wrap_u = 1, wrap_v = 1; // Clamp, repeat, mirrored repeat.
+    std::uint8_t min_filter = 5; // Nearest/linear, then the four mipmapped glTF modes.
+    bool mag_linear = true;
+    bool operator==(const ModelSampler&) const = default;
+};
+
 struct ModelMaterial {
     std::string name;
     Vec4 base_color{1, 1, 1, 1};
@@ -31,6 +41,12 @@ struct ModelMaterial {
     int metallic_roughness_image = -1;
     int normal_image = -1;
     int emissive_image = -1;
+    int occlusion_image = -1;
+    ModelAlphaMode alpha_mode = ModelAlphaMode::Opaque;
+    float alpha_cutoff = 0.5f;
+    float occlusion_strength = 1.0f;
+    bool double_sided = false;
+    std::array<ModelSampler, 5> samplers{}; // Color, metallic-roughness, normal, emissive, occlusion.
 };
 
 /// One drawable piece: geometry + material index (-1 = default material).
