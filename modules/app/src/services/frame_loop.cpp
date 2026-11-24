@@ -29,6 +29,7 @@ FrameLoop::FrameLoop(const Services& s)
       world_bridge_(s.world_bridge),
       render_bridge_(s.render_bridge),
       physics_bridge_(s.physics_bridge),
+      terrain_bridge_(s.world, s.assets, s.log, s.render_bridge, s.context.renderer, *s.physics_bridge.world()),
       audio_bridge_(s.audio_bridge),
       script_bridge_(s.script_bridge),
       run_phase_(s.run_phase),
@@ -73,6 +74,7 @@ void FrameLoop::run_frame(Game& game, float delta) {
     run_scripted_phase(Phase::PreUpdate, ScriptPhase::PreUpdate, "PreUpdate");
     run_game_update(game);
     run_scripted_phase(Phase::Update, ScriptPhase::Update, "Update");
+    terrain_bridge_.sync();
     run_physics(delta);
     run_scripted_phase(Phase::PostUpdate, ScriptPhase::PostUpdate, "PostUpdate");
     update_transforms_and_primitives();

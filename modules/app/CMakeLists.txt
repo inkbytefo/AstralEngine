@@ -25,6 +25,7 @@ astral_add_module(NAME app
         src/services/physics_bridge.cpp
         src/services/script_physics.cpp
         src/services/render_bridge.cpp
+        src/services/terrain_bridge.cpp
         src/services/script_bridge.cpp
         src/services/world_bridge.cpp
         src/input_actions.cpp
@@ -70,6 +71,7 @@ astral_add_tests(MODULE app
         tests/ecs_app_test.cpp
         tests/assets_app_test.cpp
         tests/scene_app_test.cpp
+        tests/terrain_app_test.cpp
         tests/pack_app_test.cpp
         tests/devtools_app_test.cpp
         tests/audio_app_test.cpp
