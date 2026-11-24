@@ -201,8 +201,9 @@ struct SmokeVolumeView {
     float cell_size_m = 0.25f;
     float extinction_per_m = 0.0f;
     std::uint32_t side = 0;
-    std::span<const std::uint8_t> occupancy{};
+    std::span<const std::uint8_t> occupancy{}; ///< Empty with a volume material lets the shader fill the entire grid.
     MaterialHandle material{};
+    float age = 0;
 };
 
 /// An analytic burst evaluated per particle on the GPU.

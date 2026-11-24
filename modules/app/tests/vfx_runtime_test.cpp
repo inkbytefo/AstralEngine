@@ -16,6 +16,7 @@ TEST_CASE("VFX timelines play and clean up identically from source and pack") {
     std::ofstream(dir / "source/burst.vfx") << R"({
         "format":"astral.vfx","version":1,"tracks":[
             {"type":"particles","duration":0.3,"count":16},
+            {"type":"volume","start":0.02,"duration":0.25,"material":"flame.material"},
             {"type":"light","start":0.05,"duration":0.12},
             {"type":"smoke","start":0.1,"duration":0.2},
             {"type":"decal","start":0.15,"duration":0.2}
@@ -36,7 +37,8 @@ TEST_CASE("VFX timelines play and clean up identically from source and pack") {
         }
         void on_update(Context& ctx) override {
             const unsigned state = (ctx.world.count<VfxEmitter>() ? 1u : 0u) | (ctx.world.count<PointLight>() ? 2u : 0u) |
-                (ctx.world.count<GameplaySmoke>() ? 4u : 0u) | (ctx.world.count<Decal>() ? 8u : 0u);
+                (ctx.world.count<GameplaySmoke>() ? 4u : 0u) | (ctx.world.count<Decal>() ? 8u : 0u) |
+                (ctx.world.count<VfxVolume>() ? 16u : 0u);
             states.push_back(state);
             if (++frame == 14) stop_vfx(ctx, effect);
         }
@@ -57,7 +59,8 @@ TEST_CASE("VFX timelines play and clean up identically from source and pack") {
     CHECK(loose == run(true));
     REQUIRE(loose.size() == 30);
     CHECK(loose[1] == 1);
-    CHECK((loose[11] & 13u) == 13u);
+    CHECK((loose[4] & 20u) == 16u);
+    CHECK((loose[11] & 29u) == 29u);
     CHECK(loose[14] == 0);
 }
 

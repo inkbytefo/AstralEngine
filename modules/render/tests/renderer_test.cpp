@@ -1215,6 +1215,20 @@ TEST_CASE("local smoke uses packed occupancy without requiring global fog") {
     CHECK(f.draw(scene) == smoky);
     occupied[13] = 0;
     CHECK(f.draw(scene) == clear);
+
+    // A visual-only volume can emit light even with zero extinction and no occupied CPU cells.
+    const auto emission = make_shader(f, "shader_type volume;\n"
+                                         "void volume() { DENSITY = 0.0; EMISSION = vec3(0.0, AGE, 0.0); }\n",
+                                      "volume_emission");
+    REQUIRE(emission.valid());
+    smoke.occupancy = {};
+    smoke.material = {};
+    CHECK(f.draw(scene) == clear);
+    smoke.material = f.renderer->create_material({.shader = emission});
+    CHECK(f.draw(scene) == clear);
+    smoke.age = 3.0f;
+    const auto glowing = rgb(Fixture::center(f.draw(scene)));
+    CHECK(glowing.g > glowing.r);
 }
 
 TEST_CASE("GPU particle burst draws and obeys scene depth") {

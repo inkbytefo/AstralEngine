@@ -27,17 +27,19 @@ RGTexture record_volume_shader(RenderGraph& g, const FrameInputs& in, const Smok
     const auto* shader = in.materials.shader_of(smoke.material);
     if (!shader || shader->kind != GpuShader::Kind::Volume) return {};
     const auto side = smoke.side;
-    const auto target = g.create("smoke.modulation", {side, side * side, gpu::Format::RGBA16Float});
+    // Two stacked planes hold density/tint and RGB emission for each cell.
+    const auto target = g.create("volume.material", {side, 2 * side * side, gpu::Format::RGBA16Float});
     g.add_pass("volume material", [target](PassBuilder& builder) {
         builder.write_storage(target);
     }, [pipeline = shader->forward, target, side, frame = in.addresses.frame, corner, cell = smoke.cell_size_m,
-        material = in.materials.resolve_index(smoke.material)](PassContext& c) {
+        material = in.materials.resolve_index(smoke.material), age = smoke.age](PassContext& c) {
         struct Push {
             std::uint64_t frame;
             Vec4 corner_cell;
-            std::uint32_t side, target, material, padding;
+            std::uint32_t side, target, material;
+            float age;
         };
-        const Push push{frame, {corner.x, corner.y, corner.z, cell}, side, c.bindless(target), material, 0};
+        const Push push{frame, {corner.x, corner.y, corner.z, cell}, side, c.bindless(target), material, age};
         c.cmd.bind_pipeline(pipeline);
         c.cmd.push_constants(&push, sizeof(push));
         c.cmd.dispatch((side + 7) / 8, (side * side + 7) / 8);
@@ -52,21 +54,25 @@ SmokeBatch prepare_smoke(RenderGraph& g, gpu::Device& device, const FrameInputs&
     std::vector<std::uint32_t> words;
     for (const auto& smoke : in.scene.smoke) {
         if (volumes.size() == max_volumes) break;
-        if (smoke.side == 0 || smoke.side > 25 || smoke.occupancy.size() != smoke.side * smoke.side * smoke.side ||
+        if (smoke.side == 0 || smoke.side > 25 ||
+            (!smoke.occupancy.empty() && smoke.occupancy.size() != smoke.side * smoke.side * smoke.side) ||
             !std::isfinite(smoke.extinction_per_m) || smoke.extinction_per_m <= 0 ||
             !std::isfinite(smoke.cell_size_m) || smoke.cell_size_m <= 0 ||
             !std::isfinite(smoke.centre.x) || !std::isfinite(smoke.centre.y) || !std::isfinite(smoke.centre.z)) continue;
         const float half = static_cast<float>(smoke.side) * smoke.cell_size_m * 0.5f;
         if (!std::isfinite(half)) continue;
+        const Vec3 corner = smoke.centre - Vec3{half, half, half};
+        const auto modulation = record_volume_shader(g, in, smoke, corner);
+        if (smoke.occupancy.empty() && !modulation.valid()) continue;
         const auto first = words.size();
-        words.resize(first + (smoke.occupancy.size() + 31) / 32);
+        const auto cell_count = smoke.side * smoke.side * smoke.side;
+        words.resize(first + (cell_count + 31) / 32, smoke.occupancy.empty() ? 0xFFFFFFFFu : 0u);
         for (std::size_t i = 0; i < smoke.occupancy.size(); ++i) {
             if (smoke.occupancy[i]) words[first + i / 32] |= 1u << (i % 32);
         }
-        const Vec3 corner = smoke.centre - Vec3{half, half, half};
         volumes.push_back({corner, smoke.cell_size_m, smoke.extinction_per_m,
                            smoke.side, static_cast<std::uint32_t>(first), 0xFFFFFFFFu});
-        batch.modulation.push_back(record_volume_shader(g, in, smoke, corner));
+        batch.modulation.push_back(modulation);
     }
     if (!volumes.empty()) in.slot.fog_density.write(device, words.data(), words.size() * sizeof(std::uint32_t));
     return batch;

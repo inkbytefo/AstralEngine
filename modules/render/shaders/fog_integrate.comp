@@ -17,7 +17,8 @@ layout(push_constant, scalar) uniform Push {
     uint atlas, shadow, width, height, count;
 } pc;
 
-vec4 occupied_length(SmokeVolume v, vec3 eye, vec3 ray, float enter, float exit) {
+vec4 occupied_length(SmokeVolume v, vec3 eye, vec3 ray, float enter, float exit, out vec3 emitted) {
+    emitted = vec3(0.0);
     vec3 origin = (eye - v.corner) / v.cell_size;
     vec3 dir = ray / v.cell_size;
     for (int a = 0; a < 3; ++a) {
@@ -46,10 +47,17 @@ vec4 occupied_length(SmokeVolume v, vec3 eye, vec3 ray, float enter, float exit)
         uint index = (uint(cell.z) * v.side + uint(cell.y)) * v.side + uint(cell.x);
         uint word = pc.words.data[v.first_word + index / 32u];
         if ((word & (1u << (index % 32u))) != 0u) {
-            vec4 material = v.modulation == NO_TEXTURE ? vec4(1) :
-                texelFetch(sampler2D(astral_textures[nonuniformEXT(v.modulation)], astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]),
-                           ivec2(cell.x, cell.y + cell.z * int(v.side)), 0);
-            filled += vec4(material.rgb, 1) * (material.a * max(0.0, next - enter));
+            vec4 material = vec4(1.0);
+            float distance_m = max(0.0, next - enter);
+            if (v.modulation != NO_TEXTURE) {
+                ivec2 p = ivec2(cell.x, cell.y + cell.z * int(v.side));
+                material = texelFetch(sampler2D(astral_textures[nonuniformEXT(v.modulation)],
+                                               astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]), p, 0);
+                emitted += distance_m * texelFetch(sampler2D(astral_textures[nonuniformEXT(v.modulation)],
+                                                  astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]),
+                                                  p + ivec2(0, v.side * v.side), 0).rgb;
+            }
+            filled += vec4(material.rgb, 1) * (material.a * distance_m);
         }
         if (next >= exit) break;
         for (int a = 0; a < 3; ++a) {
@@ -93,14 +101,18 @@ void main() {
         vec3 p = f.camera_position.xyz + ray * ((previous + distance_m) * 0.5);
         float optical_depth = f.fog.x * (distance_m - previous);
         vec3 tinted_depth = vec3(optical_depth);
+        vec3 emitted_depth = vec3(0.0);
         for (uint v = 0u; v < pc.count; ++v) {
             SmokeVolume volume = pc.volumes.data[v];
-            vec4 local = volume.extinction * occupied_length(volume, f.camera_position.xyz, ray, previous, distance_m);
+            vec3 emitted;
+            vec4 local = volume.extinction * occupied_length(volume, f.camera_position.xyz, ray, previous, distance_m, emitted);
             optical_depth += local.a;
             tinted_depth += local.rgb;
+            emitted_depth += emitted * volume.extinction;
         }
         float segment = exp(-optical_depth);
-        scatter += visibility * (1.0 - segment) * (ambient + sun * sun_visibility(f, p)) * (tinted_depth / max(optical_depth, 1e-8));
+        float integral = optical_depth < 1e-4 ? 1.0 - 0.5 * optical_depth : (1.0 - segment) / optical_depth;
+        scatter += visibility * integral * ((ambient + sun * sun_visibility(f, p)) * tinted_depth + emitted_depth);
         visibility *= segment;
         imageStore(astral_storage_images[pc.atlas], ivec2(xy.x, xy.y + i * pc.height), vec4(scatter, visibility));
         previous = distance_m;

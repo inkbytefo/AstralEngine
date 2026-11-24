@@ -50,7 +50,7 @@ build/debug/modules/app/astral_app_tests '--test-case=gameplay smoke*'
 
 `--smoke` CPU duman ızgarasını froxel atlasına taşır. GPU, dolu hücrelerin içinden geçen görüş segmentini entegre eder. Global sis kapalıyken de çalışır. Bir karede en fazla 16 duman ızgarası yüklenir.
 
-`--vfx`, `courtyard.vfx` paketli örneğini başlatır. Sürümlü JSON dosyası `smoke`, `particles`, `light`, `decal` ve `sound` track’leri destekler. Her track saniye cinsinden `start` ve `duration` kullanır. Partiküller GPU’da analitik olarak ilerler, spawn anındaki rüzgârı kullanır ve mesh/SDF derinliğiyle örtülür. Partikül bütçesi burst başına 1.024 ve kare başına 8.192’dir. C++’ta `play_vfx` ve `stop_vfx` kullanılır. Luau olayları sabit adımda işlenir:
+`--vfx`, `courtyard.vfx` paketli örneğini başlatır. Sürümlü JSON dosyası `smoke`, `volume`, `particles`, `light`, `decal` ve `sound` track’leri destekler. Her track saniye cinsinden `start` ve `duration` kullanır. Partiküller GPU’da analitik olarak ilerler, spawn anındaki rüzgârı kullanır ve mesh/SDF derinliğiyle örtülür. Partikül bütçesi burst başına 1.024 ve kare başına 8.192’dir. C++’ta `play_vfx` ve `stop_vfx` kullanılır. Luau olayları sabit adımda işlenir:
 
 ```lua
 astral.send("astral::PlayVfx", {asset = "courtyard.vfx", position = vector.create(0, 1, 0), tag = "courtyard"})
@@ -61,14 +61,16 @@ astral.send("astral::StopVfx", {tag = "courtyard"})
 build/debug/packages/vfx_lab/vfx_lab --vfx --raster --hour 17 --frames 25 --width 640 --height 360 --capture vfx.ppm --profile
 ```
 
-Bir `particles` veya `smoke` track’ine `"material": "assets/effect.material"` ekleyerek VFX görünümünü ayrı bir varlık olarak düzenleyebilirsiniz. Yol, asset köküne göredir. `.material` dosyası bir `.ashader` seçer ve uniform değerlerini ayarlar. `sparks.material` ve `smoke.material` çalışan örneklerdir. Cooker bu shader’ları da doğrular.
+Bir `particles` veya `smoke` track’ine `"material": "effect.material"` ekleyerek VFX görünümünü ayrı bir varlık olarak düzenleyebilirsiniz. Yol, asset köküne göredir. `.material` dosyası bir `.ashader` seçer ve uniform değerlerini ayarlar. Cooker bu shader’ları da doğrular.
 
 | Shader | Girdiler | Yazılabilir değerler |
 | --- | --- | --- |
 | `particle()` | `UV`, `WORLD_POSITION`, `AGE` (burst zamanında saniye) | `COLOR`, `ALPHA` |
 | `motion()` (isteğe bağlı) | `AGE` (parçacık yaşı), `LIFETIME`, `ORIGIN`, `WIND`, `RANDOM` | `WORLD_POSITION`, `SIZE` (metre) |
-| `volume()` | `UVW`, `WORLD_POSITION`, `TIME` (saniye) | `TINT`, `DENSITY` |
+| `volume()` | `UVW`, `WORLD_POSITION`, `TIME` (saniye), `AGE` (görsel hacmin yaşı) | `TINT`, `DENSITY`, `EMISSION` |
 
 Partiküller varsayılan olarak additive karışır. Alfa karışımı için `render_mode blend_mix;` kullanılır. Hacim shader’ı her hücre merkezinde GPU’da çalışır. `DENSITY` 0 ile 1 arasında görsel yoğunluk çarpanıdır, `TINT` saçılma rengini çarpar. Oyun sorguları CPU doluluk ızgarasını kullanır. Her iki shader türü de materyal uniform’larını ve `sampler2D` destekler.
+
+`volume` track’i için hacim materyali zorunludur. `size`, 17³ hücreli küpün kenar uzunluğunu metre cinsinden, `strength` ise sönüm ve ışıma ölçeğini ayarlar. `flame.material` ile avluda örnek bir prosedürel alev oluşturulur. Bu track yalnızca renderer’a veri gönderir. Çevre geometrisini de aydınlatmak için zaman çizelgesine bir `light` track’i eklenebilir.
 
 Seyrek GPU hacim atlası ve partikül fizik çarpışması M14’ün açık işleridir.

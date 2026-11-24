@@ -28,9 +28,10 @@ layout(push_constant, scalar) uniform Push {
     FrameRef frame;
     vec4 corner_cell;
     uint side, target, material;
+    float age;
 } pc;
-vec3 UVW, WORLD_POSITION, TINT;
-float DENSITY, TIME;
+vec3 UVW, WORLD_POSITION, TINT, EMISSION;
+float DENSITY, TIME, AGE;
 )";
     s += screen_params;
     s += detail::wrap_body(source, layout, source.body);
@@ -45,10 +46,14 @@ float DENSITY, TIME;
     UVW = sample_cell / float(side);
     WORLD_POSITION = pc.corner_cell.xyz + pc.corner_cell.w * sample_cell;
     TIME = uintBitsToFloat(f.custom.z);
+    AGE = pc.age;
     TINT = vec3(1.0);
     DENSITY = 1.0;
+    EMISSION = vec3(0.0);
     volume();
     imageStore(astral_storage_images[pc.target], ivec2(p), vec4(clamp(TINT, 0.0, 8.0), clamp(DENSITY, 0.0, 1.0)));
+    imageStore(astral_storage_images[pc.target], ivec2(p) + ivec2(0, side * side),
+               vec4(clamp(EMISSION, 0.0, 64.0), 0.0));
 }
 )";
     return s;

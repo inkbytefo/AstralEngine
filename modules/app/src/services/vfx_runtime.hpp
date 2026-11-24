@@ -9,6 +9,13 @@ class TypeRegistry;
 class EventRegistry;
 struct VfxChild;
 struct SmokeAppearance { MaterialHandle material; };
+struct VfxVolume {
+    float cell_size_m;
+    float strength;
+    float age;
+    MaterialHandle material;
+    static constexpr std::uint32_t side = 17;
+};
 struct VfxEmitter {
     ParticleBurst burst;
 };

@@ -14,7 +14,7 @@
 namespace astral {
 namespace {
 
-enum class TrackKind { Smoke, Particles, Light, Decal, Sound };
+enum class TrackKind { Smoke, Volume, Particles, Light, Decal, Sound };
 struct Track {
     TrackKind kind;
     float start, duration;
@@ -32,6 +32,7 @@ struct Playback {
 
 std::optional<TrackKind> track_kind(std::string_view name) {
     if (name == "smoke") return TrackKind::Smoke;
+    if (name == "volume") return TrackKind::Volume;
     if (name == "particles") return TrackKind::Particles;
     if (name == "light") return TrackKind::Light;
     if (name == "decal") return TrackKind::Decal;
@@ -84,6 +85,7 @@ std::optional<Playback> parse_vfx(const Json& json) {
             if (!material->is_string()) return {};
             t.material = material->as_string();
         }
+        if (*kind == TrackKind::Volume && t.material.empty()) return {};
         if (*kind == TrackKind::Sound) {
             t.sound = node["asset"].as_string();
             if (t.sound.empty()) return {};
@@ -113,6 +115,9 @@ void spawn_track(Context& ctx, Entity owner, Vec3 position, const Track& t, floa
             .cell_size_m = t.size / 17.0f, .extinction_per_m = t.strength, .spread_interval_steps = 1,
             .spread_steps = static_cast<unsigned>(t.duration * 0.75f / ctx.time.fixed_delta),
             .fade_steps = static_cast<unsigned>(t.duration * 0.25f / ctx.time.fixed_delta)}));
+        break;
+    case TrackKind::Volume:
+        ctx.world.create(transform, child, VfxVolume{t.size / VfxVolume::side, t.strength, age - t.start, material});
         break;
     case TrackKind::Particles:
         ctx.world.create(transform, child, VfxEmitter{{
@@ -156,6 +161,7 @@ void register_vfx_types(TypeRegistry& types, EventRegistry& events) {
     events.add<StopVfx>();
     types.exclude<Playback>();
     types.exclude<VfxChild>();
+    types.exclude<VfxVolume>();
 }
 
 void VfxRuntime::update(Context& ctx, float delta) {
@@ -193,6 +199,8 @@ void VfxRuntime::update(Context& ctx, float delta) {
             expired.push_back(e);
         } else if (auto* emitter = world.get<VfxEmitter>(e)) {
             emitter->burst.age = playback->age - delta - child.start;
+        } else if (auto* volume = world.get<VfxVolume>(e)) {
+            volume->age = playback->age - delta - child.start;
         }
     });
     for (const auto& start : starts) {
