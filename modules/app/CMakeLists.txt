@@ -20,6 +20,7 @@ astral_add_module(NAME app
     SOURCES
         src/app.cpp
         src/services/audio_bridge.cpp
+        src/services/atmosphere.cpp
         src/services/dev_tools.cpp
         src/services/frame_loop.cpp
         src/services/physics_bridge.cpp
@@ -64,6 +65,7 @@ astral_add_tests(MODULE app
         tests/context_services_test.cpp
         tests/debug_panels_test.cpp
         tests/frame_order_test.cpp
+        tests/atmosphere_test.cpp
         tests/services_test.cpp
         tests/physics_app_test.cpp
         tests/physics_step_contract_test.cpp

@@ -1,0 +1,15 @@
+{
+  "format": "astral.scene",
+  "version": 1,
+  "entities": [
+    {"id": 1, "components": {"astral::Atmosphere": {"hour": 12, "heading_deg": 75, "sky_material": "atmosphere.material"}}},
+    {"id": 2, "components": {"astral::Transform": {"position": [0, -0.25, -5], "scale": [64, 0.5, 70]}, "astral::PrimitiveMesh": {"shape": "Cube", "material": {"base_color": [0.29, 0.27, 0.22, 1], "roughness": 0.85}}}},
+    {"id": 3, "components": {"astral::Transform": {"position": [-5, 1.5, -4], "scale": [0.35, 3, 8]}, "astral::PrimitiveMesh": {"shape": "Cube", "material": {"base_color": [0.46, 0.43, 0.38, 1], "roughness": 0.85}}}},
+    {"id": 4, "components": {"astral::Transform": {"position": [-1.55, 1.5, -2], "scale": [0.35, 3, 5]}, "astral::PrimitiveMesh": {"shape": "Cube", "material": {"base_color": [0.46, 0.43, 0.38, 1], "roughness": 0.85}}}},
+    {"id": 5, "components": {"astral::Transform": {"position": [-3.45, 1.5, -7.8], "scale": [3.5, 3, 0.35]}, "astral::PrimitiveMesh": {"shape": "Cube", "material": {"base_color": [0.46, 0.43, 0.38, 1], "roughness": 0.85}}}},
+    {"id": 6, "components": {"astral::Transform": {"position": [2.7, 1.5, -4.6], "scale": [1.4, 3, 1.4]}, "astral::PrimitiveMesh": {"shape": "Cube", "material": {"base_color": [0.56, 0.43, 0.27, 1], "roughness": 0.85}}}},
+    {"id": 7, "components": {"astral::Transform": {"position": [6.1, 0.7, -7.5], "scale": [1.75, 1.4, 1.75]}, "astral::PrimitiveMesh": {"shape": "Cube", "material": {"base_color": [0.28, 0.35, 0.42, 1], "roughness": 0.85}}}},
+    {"id": 8, "components": {"astral::Transform": {"position": [-9, 2, -17], "scale": [8, 4, 2]}, "astral::PrimitiveMesh": {"shape": "Cube", "material": {"base_color": [0.38, 0.34, 0.29, 1], "roughness": 0.85}}}},
+    {"id": 9, "components": {"astral::Transform": {"position": [15, 1.6, -20], "scale": [5, 3.2, 4]}, "astral::PrimitiveMesh": {"shape": "Cube", "material": {"base_color": [0.36, 0.34, 0.31, 1], "roughness": 0.85}}}}
+  ]
+}

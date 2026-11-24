@@ -75,6 +75,7 @@ void FrameLoop::run_frame(Game& game, float delta) {
     run_scripted_phase(Phase::Update, ScriptPhase::Update, "Update");
     run_physics(delta);
     run_scripted_phase(Phase::PostUpdate, ScriptPhase::PostUpdate, "PostUpdate");
+    atmosphere_.update(context_, render_bridge_, delta);
     update_transforms_and_primitives();
     update_audio();
     render_frame(game, delta);

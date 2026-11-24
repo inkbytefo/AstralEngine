@@ -32,6 +32,17 @@ struct PrimitiveMesh {
     std::string material_file{};
 };
 
+/// Opt-in day cycle. The first enabled Atmosphere drives the scene's sun and ambient sky.
+struct Atmosphere {
+    float hour = 12.0f;              ///< Local solar time, wrapped to [0, 24).
+    float hours_per_second = 0.0f;  ///< Zero keeps the authored time fixed.
+    float orbit_tilt_deg = 25.0f;    ///< Tilt away from zenith at noon.
+    float heading_deg = 0.0f;       ///< Rotates the solar path around +Y.
+    float sun_intensity = 3.0f;      ///< Unattenuated intensity in renderer units.
+    std::string sky_material;
+    bool enabled = true;
+};
+
 /// A signed-distance-field shape at the entity's WorldTransform (position and rotation; use
 /// `shape.size` for dimensions). Shapes combine in ascending `order` (ties: any order), so a
 /// SmoothUnion melts into earlier shapes and a Subtract carves them.
@@ -251,6 +262,7 @@ struct StreamingSource {
 
 ASTRAL_REFLECT_ENUM(astral::Primitive, Cube, Sphere, Plane)
 ASTRAL_REFLECT(astral::PrimitiveMesh, shape, material, material_file)
+ASTRAL_REFLECT(astral::Atmosphere, hour, hours_per_second, orbit_tilt_deg, heading_deg, sun_intensity, sky_material, enabled)
 ASTRAL_REFLECT(astral::Sdf, shape, order)
 ASTRAL_REFLECT(astral::StreamingSource, active)
 ASTRAL_REFLECT(astral::Camera, fov_y, near_plane, far_plane, active)
