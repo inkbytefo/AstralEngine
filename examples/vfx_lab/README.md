@@ -28,3 +28,20 @@ build/debug/packages/vfx_lab/vfx_lab --hour 17 --fog 0.035 --capture fog-rt.ppm 
 ```
 
 Kamera hacmi 16 derinlik dilimidir. Compute pass, birikimli Beer–Lambert geçirgenliği ve saçılmayı üretir. Raster ve hibrit RT, güneş için gölge haritasını kullanır. HDR kompozisyon en yakın mesh/SDF derinliğini, forward yüzeyler kendi derinliğini örnekler. Sis atlası her kare yeniden oluşturulur. Hibrit RT’de sis TAA’dan sonra birleştirilir. Bu sürümde ortam ışığı sahnenin gökyüzü renginden gelir. Yerel yoğunluk hacimleri, DDGI’dan hacimsel örnekleme ve path tracer’da hacim simülasyonu sonraki işlerdir.
+
+## Gameplay dumanı
+
+`GameplaySmoke`, C++ oyun kodunun kök bir entity üzerinde `Transform` ile oluşturduğu çalışma zamanı component’idir. App, component’i her fizik adımında tamamlanmış son fizik sorgu görünümüyle ilerletir. `obstacle_layers` ile dumanı durduran collision katmanları seçilir. Yayılım altı komşuya gerçekleşir ve açık kenarlar bir sonraki yayılma turunda yeniden sorgulanır. Bir engel kapandığında mevcut yoğunluk korunur ve engel yeni yayılımı durdurur. Yoğunluk, ayarlanan sürenin ardından sıfıra iner.
+
+```cpp
+const auto cloud = ctx.world.create(astral::Transform{.position = centre}, astral::GameplaySmoke{});
+const auto* smoke = ctx.world.get<const astral::GameplaySmoke>(cloud);
+const float visible = smoke->transmittance(centre, eye, target);
+```
+
+Konumlar aynı yerel dünya koordinatlarında verilmelidir. `optical_depth` segmentin dolu hücrelerde katettiği mesafeyi entegre eder. Oyun, görüş eşiğini kendi kurallarında belirler. Uygulama kaba bir hücre modelidir ve hücreden küçük engeller için alt-hücre doluluğu hesaplamaz. Görsel GPU dumanı ve Luau bağlayıcısı sonraki çalışmadır.
+
+```sh
+cmake --build --preset debug --target astral_app_tests
+build/debug/modules/app/astral_app_tests '--test-case=gameplay smoke*'
+```

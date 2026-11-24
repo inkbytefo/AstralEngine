@@ -7,6 +7,7 @@
 #include "script_bridge.hpp"
 #include "world_bridge.hpp"
 
+#include <astral/app/gameplay_smoke.hpp>
 #include <astral/assets/asset_manager.hpp>
 #include <astral/core/log.hpp>
 #include <astral/core/profiler.hpp>
@@ -127,6 +128,9 @@ void FrameLoop::run_fixed_update() {
     ASTRAL_PROFILE_SCOPE(&dev_tools_.profiler(), "FixedUpdate");
     run_phase_(systems_[static_cast<std::size_t>(Phase::FixedUpdate)], context_);
     script_bridge_.run(ScriptPhase::FixedUpdate);
+    world_.each<GameplaySmoke, const Transform>([&](Entity entity, GameplaySmoke& smoke, const Transform& transform) {
+        if (!world_.has<Parent>(entity)) smoke.step(physics_bridge_, transform.position);
+    });
 }
 
 void FrameLoop::run_physics(float delta) {
