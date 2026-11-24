@@ -1186,3 +1186,25 @@ TEST_CASE("froxel fog attenuates an additive surface at its own depth") {
     CHECK(fogged.r > 0);
     CHECK(fogged.g == 0);
 }
+
+TEST_CASE("local smoke uses packed occupancy without requiring global fog") {
+    Fixture f;
+    if (!f.device) return;
+    const auto cube = f.renderer->create_mesh(make_cube());
+    const auto material = f.renderer->create_material({.base_color = {0, 0, 0, 1}, .emissive = {1, 1, 1}});
+    const MeshInstance wall{.mesh = cube, .material = material,
+                            .transform = translate({0, 0, -1}) * scale({6, 5, 0.2f})};
+    std::array<std::uint8_t, 27> occupied{};
+    occupied[13] = 1;
+    SmokeVolumeView smoke{.centre = {0, 0, 1}, .cell_size_m = 1, .extinction_per_m = 2,
+                          .side = 3, .occupancy = occupied};
+    RenderScene scene{.meshes = std::span(&wall, 1), .sun = {.intensity = 0, .shadows = false},
+                      .environment = {.ambient = 0, .fog_range_m = 16}};
+    const auto clear = f.draw(scene);
+    scene.smoke = std::span(&smoke, 1);
+    const auto smoky = f.draw(scene);
+    CHECK(rgb(Fixture::center(clear)).r > rgb(Fixture::center(smoky)).r + 60);
+    CHECK(f.at(clear, {2, 0, -0.9f}) == f.at(smoky, {2, 0, -0.9f}));
+    occupied[13] = 0;
+    CHECK(f.draw(scene) == clear);
+}

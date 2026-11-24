@@ -1,3 +1,4 @@
+#include <astral/app/gameplay_smoke.hpp>
 #include "render_bridge.hpp"
 
 #include "../material_library.hpp"
@@ -352,6 +353,12 @@ void RenderBridge::render_frame(const RenderFrameInput& input) {
     extract_meshes(active_world);
     extract_sdfs(active_world);
     extract_lights(active_world);
+    std::vector<SmokeVolumeView> smoke;
+    active_world.each<const GameplaySmoke, const Transform>([&](Entity e, const GameplaySmoke& cloud, const Transform& t) {
+        if (!active_world.has<Parent>(e) && cloud.extinction_per_m() > 0) {
+            smoke.push_back({t.position, cloud.cell_size_m(), cloud.extinction_per_m(), cloud.side(), cloud.occupancy()});
+        }
+    });
 
     auto cmd = device_->begin_commands();
     const gpu::TextureHandle vp_native = viewport_.target.valid() ? renderer_->native_target(viewport_.target) : gpu::TextureHandle{};
@@ -372,7 +379,7 @@ void RenderBridge::render_frame(const RenderFrameInput& input) {
                            .ui = {},
                            .time = input.time,
                            .sky = input.sky,
-                           .post = input.post});
+                           .post = input.post, .smoke = smoke});
         cmd.transition(vp_native, gpu::ResourceState::ShaderRead);
         renderer_->render_ui(cmd, image, input.ui_layers, viewport_.clear_color);
     } else {
@@ -391,7 +398,7 @@ void RenderBridge::render_frame(const RenderFrameInput& input) {
                            .ui = input.ui_layers,
                            .time = input.time,
                            .sky = input.sky,
-                           .post = input.post});
+                           .post = input.post, .smoke = smoke});
     }
     if (offscreen) {
         cmd.transition(image, gpu::ResourceState::TransferSrc);

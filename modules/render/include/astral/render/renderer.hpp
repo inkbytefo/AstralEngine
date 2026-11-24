@@ -195,6 +195,15 @@ struct Environment {
     float fog_range_m = 100.0f;    ///< Maximum fog integration distance.
 };
 
+/// A local participating medium. Occupancy is binary, laid out as (z * side + y) * side + x.
+struct SmokeVolumeView {
+    Vec3 centre{};
+    float cell_size_m = 0.25f;
+    float extinction_per_m = 0.0f;
+    std::uint32_t side = 0;
+    std::span<const std::uint8_t> occupancy{};
+};
+
 /// Everything to draw in one frame. Spans must stay valid until render() returns.
 struct RenderScene {
     std::span<const MeshInstance> meshes = {};
@@ -213,6 +222,7 @@ struct RenderScene {
     MaterialHandle sky{};
     /// Materials with shader_type post shaders, applied in order after tonemapping (before debug lines and UI).
     std::span<const MaterialHandle> post = {};
+    std::span<const SmokeVolumeView> smoke = {};
 };
 
 /// Dynamic diffuse global illumination: a grid of probes that trace rays every frame.

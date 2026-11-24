@@ -1,10 +1,62 @@
 #version 460
 #include <astral/scene.glsl>
 layout(local_size_x = 8, local_size_y = 8) in;
+struct SmokeVolume {
+    vec3 corner;
+    float cell_size;
+    float extinction;
+    uint side, first_word, padding;
+};
+ASTRAL_BUFFER(SmokeVolumes, SmokeVolume);
+ASTRAL_BUFFER(SmokeWords, uint);
+
 layout(push_constant, scalar) uniform Push {
     FrameRef frame;
-    uint atlas, shadow, width, height;
+    SmokeVolumes volumes;
+    SmokeWords words;
+    uint atlas, shadow, width, height, count;
 } pc;
+
+float occupied_length(SmokeVolume v, vec3 eye, vec3 ray, float enter, float exit) {
+    vec3 origin = (eye - v.corner) / v.cell_size;
+    vec3 dir = ray / v.cell_size;
+    for (int a = 0; a < 3; ++a) {
+        if (abs(dir[a]) < 1e-8) {
+            if (origin[a] < 0.0 || origin[a] >= float(v.side)) return 0.0;
+        } else {
+            float t0 = -origin[a] / dir[a];
+            float t1 = (float(v.side) - origin[a]) / dir[a];
+            enter = max(enter, min(t0, t1));
+            exit = min(exit, max(t0, t1));
+        }
+    }
+    if (enter >= exit) return 0.0;
+
+    vec3 p = clamp(origin + dir * enter, vec3(0), vec3(v.side));
+    ivec3 step_dir = ivec3(greaterThanEqual(dir, vec3(0))) * 2 - 1;
+    ivec3 cell = clamp(ivec3(mix(ceil(p) - 1.0, floor(p), greaterThanEqual(dir, vec3(0)))),
+                       ivec3(0), ivec3(v.side - 1u));
+    vec3 edge = vec3(1e30);
+    for (int a = 0; a < 3; ++a) {
+        if (abs(dir[a]) >= 1e-8) edge[a] = (float(cell[a] + (step_dir[a] > 0 ? 1 : 0)) - origin[a]) / dir[a];
+    }
+    float filled = 0.0;
+    for (uint i = 0u; i < v.side * 3u && enter < exit; ++i) {
+        float next = min(exit, min(edge.x, min(edge.y, edge.z)));
+        uint index = (uint(cell.z) * v.side + uint(cell.y)) * v.side + uint(cell.x);
+        uint word = pc.words.data[v.first_word + index / 32u];
+        if ((word & (1u << (index % 32u))) != 0u) filled += max(0.0, next - enter);
+        if (next >= exit) break;
+        for (int a = 0; a < 3; ++a) {
+            if (edge[a] > next) continue;
+            cell[a] += step_dir[a];
+            if (cell[a] < 0 || cell[a] >= int(v.side)) return filled;
+            edge[a] += 1.0 / abs(dir[a]);
+        }
+        enter = next;
+    }
+    return filled;
+}
 
 float sun_visibility(Frame f, vec3 p) {
     if (pc.shadow == NO_TEXTURE) return 1.0;
@@ -34,7 +86,12 @@ void main() {
         float t = float(i + 1u) / float(FOG_SLICES);
         float distance_m = f.fog.y * t * t;
         vec3 p = f.camera_position.xyz + ray * ((previous + distance_m) * 0.5);
-        float segment = exp(-f.fog.x * (distance_m - previous));
+        float optical_depth = f.fog.x * (distance_m - previous);
+        for (uint v = 0u; v < pc.count; ++v) {
+            SmokeVolume volume = pc.volumes.data[v];
+            optical_depth += volume.extinction * occupied_length(volume, f.camera_position.xyz, ray, previous, distance_m);
+        }
+        float segment = exp(-optical_depth);
         scatter += visibility * (1.0 - segment) * (ambient + sun * sun_visibility(f, p));
         visibility *= segment;
         imageStore(astral_storage_images[pc.atlas], ivec2(xy.x, xy.y + i * pc.height), vec4(scatter, visibility));

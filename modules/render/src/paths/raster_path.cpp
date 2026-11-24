@@ -18,7 +18,7 @@ GpuFrame build_raster_frame(const CameraData& camera, const RenderScene& scene, 
     frame.inv_view_projection = inverse(view_projection);
     frame.light_view_projection = shadow.light_view_projection;
     frame.camera_position = {camera.position.x, camera.position.y, camera.position.z, 1};
-    frame.fog = fog_parameters(scene.environment);
+    frame.fog = fog_parameters(scene);
     frame.aerial = aerial_parameters(scene.environment);
     frame.sun_direction = {sun.x, sun.y, sun.z, shadow.texel_world * 1.5f};
     frame.sun_color = {scene.sun.color.x * scene.sun.intensity, scene.sun.color.y * scene.sun.intensity,

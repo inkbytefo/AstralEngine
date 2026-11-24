@@ -115,8 +115,8 @@ FrameAddresses collect_rt_addresses(gpu::Device& device, const FrameSlot& slot, 
 
 ShadowFrame prepare_fog_shadow(RayTracedPathContext& ctx, const RenderScene& scene, GpuFrame& frame) {
     if (ctx.settings.path_tracer || ctx.settings.debug_view != DebugView::None) return {};
-    frame.fog = fog_parameters(scene.environment);
-    if (frame.fog.x == 0) return {};
+    frame.fog = fog_parameters(scene);
+    if (frame.fog.x == 0 && scene.smoke.empty()) return {};
     const auto shadow = ctx.passes.shadow.prepare(scene, ctx.meshes);
     frame.light_view_projection = shadow.light_view_projection;
     return shadow;

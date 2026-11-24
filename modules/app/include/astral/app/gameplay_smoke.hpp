@@ -31,6 +31,7 @@ public:
     [[nodiscard]] float optical_depth(Vec3 centre, Vec3 from, Vec3 to) const noexcept;
     [[nodiscard]] float transmittance(Vec3 centre, Vec3 from, Vec3 to) const noexcept;
     [[nodiscard]] float density_scale() const noexcept;
+    [[nodiscard]] float extinction_per_m() const noexcept { return desc_.extinction_per_m * density_scale(); }
     [[nodiscard]] unsigned side() const noexcept { return side_; }
     [[nodiscard]] float cell_size_m() const noexcept { return desc_.cell_size_m; }
     [[nodiscard]] std::span<const std::uint8_t> occupancy() const noexcept { return occupied_; }

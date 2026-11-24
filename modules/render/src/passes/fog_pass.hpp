@@ -4,7 +4,7 @@
 
 namespace astral {
 
-Vec4 fog_parameters(const Environment& environment) noexcept;
+Vec4 fog_parameters(const RenderScene& scene) noexcept;
 
 class FogPass {
 public:
