@@ -7,6 +7,8 @@ kurallar [process.md](process.md)'de.
 |---|---|
 | [architecture.md](architecture.md) | Katmanlar, SOLID kuralları, bağımlılık yönü, klasör yapısı |
 | [roadmap.md](roadmap.md) | Fazlar, her fazın durumu ve bitiş kriterleri |
+| [status/master-code-audit-2026-11-25.md](status/master-code-audit-2026-11-25.md) | Master teknik denetimi: kaynak bulguları, CI, riskler ve kanıt sınırları |
+| [status/master-stabilization-backlog.md](status/master-stabilization-backlog.md) | Denetim bulgularının öncelikli düzeltme ve test planı |
 | [game-development-experience-roadmap.md](game-development-experience-roadmap.md) | **GDX (E3–E10)** — proje oluşturma, editör, AI, gerçek Play, export ve bitmiş referans oyun |
 | [process.md](process.md) | Geliştirme akışı ve "faz bitti" tanımı |
 | [../templates/blank/](../templates/blank/README.md) | **Boş oyun şablonu** — yeni oyun için klasörü kopyala |
