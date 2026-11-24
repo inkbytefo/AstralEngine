@@ -62,3 +62,7 @@ Her ID için: **durum (open / in progress / verified fixed / deferred)**, kaynak
 ## Ek denetim: App / Gameplay
 
 [App & Gameplay Deep Audit](app-gameplay-deep-audit-2026-11-25.md): AG01–AG13 kaynak kusurları, AGR01–AGR06 koşullu riskler, AGP01–AGP03 öneriler. AG01–03, AG06–07, AG09, AG12–13 P1. S5 runtime reliability, S2 transactional data, C/PH deterministic scheduling ile koordine. Save/load ve world switch veri bütünlüğü, named input edges/feature composition, Luau callbacks/reload/serialization öncelikli. Derleme ve runtime testleri kapsam dışı; tüm kayıtlar açık.
+
+## Editor / AI — hedef mimari ve kapsam kararı
+
+Kullanıcı kararıyla mevcut Editor/AI üzerinde derin statik bug avı atlandı; [Studio & Intelligence hedef mimarisi](../editor/studio-intelligence-target-architecture.md) sonraki yeniden inşa için tasarım referansıdır. S2/S3 ve önceki A02–A08, A13–A14, R01–R03 açık kalır; replacement implementation için regresyon kabul kriterlerine eşlendi. Yeni kaynak kusuru/risk sayısı eklenmedi. Motor kodu ve mevcut E0–E2 implementasyonu değişmedi. GDX fazları korunur; refaktör ADR ve uygulama planı ayrıca hazırlanır.
