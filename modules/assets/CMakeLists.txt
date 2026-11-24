@@ -41,6 +41,7 @@ endif()
 astral_add_module(NAME assets
     SOURCES
         src/image.cpp
+        src/terrain.cpp
         src/gltf.cpp
         src/asset_manager.cpp
         src/texture_codec.cpp
@@ -64,7 +65,8 @@ astral_add_tests(MODULE assets
         tests/gltf_test.cpp
         tests/model_header_test.cpp
         tests/asset_manager_test.cpp
-        tests/cook_test.cpp)
+        tests/cook_test.cpp
+        tests/terrain_test.cpp)
 if(TARGET astral_assets_tests)
     target_include_directories(astral_assets_tests SYSTEM PRIVATE ${stb_SOURCE_DIR})
 endif()

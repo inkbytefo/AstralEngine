@@ -1,4 +1,5 @@
 #include <astral/assets/cook.hpp>
+#include <astral/assets/terrain.hpp>
 #include <astral/core/json.hpp>
 #include <astral/render/surface_shader.hpp>
 #include <astral/world/level_instance.hpp>
@@ -8,6 +9,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <map>
 #include <mutex>
 #include <set>
 #include <unordered_map>
@@ -21,13 +23,14 @@ constexpr int cache_version = 1;
 /// Bump when cooked formats or the cook's decisions change: everything is cooked again.
 constexpr std::string_view cook_version = "astral-cook 2";
 
-enum class Kind { Model, World, Shader, Document, Script, Copy };
+enum class Kind { Model, World, Terrain, Shader, Document, Script, Copy };
 
 Kind kind_of(const std::filesystem::path& p) {
     std::string ext = p.extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (ext == ".gltf" || ext == ".glb") return Kind::Model;
     if (ext == ".world") return Kind::World;
+    if (ext == ".aterrain") return Kind::Terrain;
     if (ext == ".ashader") return Kind::Shader;
     if (ext == ".luau") return Kind::Script;
     if (ext == ".scene" || ext == ".prefab" || ext == ".json" || ext == ".material") return Kind::Document;
@@ -38,6 +41,7 @@ const char* kind_name(Kind k) {
     switch (k) {
     case Kind::Model: return "model";
     case Kind::World: return "world";
+    case Kind::Terrain: return "terrain";
     case Kind::Shader: return "shader";
     case Kind::Document: return "document";
     case Kind::Script: return "script";
@@ -274,10 +278,105 @@ bool validate_shader(CookSession& s, const std::string& rel, const std::vector<s
     return problems.empty();
 }
 
+std::string terrain_tile_path(const std::string& manifest, const TerrainTileSource& tile) {
+    return manifest + ".tiles/" + std::to_string(tile.x) + "_" + std::to_string(tile.z) + ".aheight";
+}
+
+using TileAddress = std::pair<std::int64_t, std::int64_t>;
+using TerrainSamples = std::map<TileAddress, std::vector<std::uint16_t>>;
+
+bool terrain_edges_match(const TerrainSamples& tiles, std::size_t n) {
+    const std::size_t edge = n - 1;
+    for (const auto& [address, tile] : tiles) {
+        const auto [x, z] = address;
+        const auto east = tiles.find({x + 1, z});
+        const auto south = tiles.find({x, z + 1});
+        const auto southeast = tiles.find({x + 1, z + 1});
+        const auto southwest = tiles.find({x - 1, z + 1});
+        if (southeast != tiles.end() && tile.back() != southeast->second.front()) return false;
+        if (southwest != tiles.end() && tile[edge * n] != southwest->second[edge]) return false;
+        for (std::size_t row = 0; row < n; ++row) {
+            if (east != tiles.end() && tile[row * n + edge] != east->second[row * n]) return false;
+            if (south != tiles.end() && tile[edge * n + row] != south->second[row]) return false;
+        }
+    }
+    return true;
+}
+
+void cook_one_terrain(CookSession& s, const std::string& rel) {
+    std::string error;
+    const auto bytes = detail::read_file(s.o.source / rel, &error);
+    if (!bytes) return s.error(error);
+    const auto manifest = read_terrain_manifest(*bytes, &error);
+    if (!manifest) return s.error(rel + ": " + error);
+
+    const std::string folder = rel + ".tiles";
+    if (std::filesystem::exists(s.o.source / folder)) return s.error(rel + ": reserved cooked tile folder exists in source");
+    std::uint64_t hash = 0;
+    if (s.up_to_date(rel, Kind::Terrain, &hash) &&
+        std::all_of(manifest->tiles.begin(), manifest->tiles.end(), [&](const TerrainTileSource& tile) {
+            return std::filesystem::is_regular_file(s.o.output / terrain_tile_path(rel, tile));
+        })) {
+        ++s.report.up_to_date;
+        s.cache[rel] = s.old_cache[rel];
+        return;
+    }
+
+    TerrainSamples samples;
+    std::set<std::string> dependencies;
+    for (const auto& tile : manifest->tiles) {
+        const auto image = detail::read_file(s.o.source / tile.file, &error);
+        if (!image) return s.error(rel + ": " + error);
+        auto heights = read_terrain_tile(*image, manifest->samples, &error);
+        if (!heights) return s.error(rel + ": " + tile.file + ": " + error);
+        samples.emplace(TileAddress{tile.x, tile.z}, std::move(*heights));
+        dependencies.insert(tile.file);
+    }
+    if (!terrain_edges_match(samples, manifest->samples)) return s.error(rel + ": terrain tiles disagree at a shared boundary");
+
+    CacheEntry entry{kind_name(Kind::Terrain), {}, {dependencies.begin(), dependencies.end()}};
+    const auto input_hash = content_hash(s.o.source, rel, entry.deps, s.seed);
+    if (!input_hash) return s.error(rel + ": could not hash terrain dependencies");
+    entry.hash = hex(*input_hash);
+
+    Json doc = Json::object();
+    doc["format"] = "astral.terrain";
+    doc["version"] = 1;
+    doc["samples"] = manifest->samples;
+    doc["spacing_m"] = manifest->spacing_m;
+    doc["min_height_m"] = manifest->min_height_m;
+    doc["max_height_m"] = manifest->max_height_m;
+    doc["tiles"] = Json::array();
+    std::error_code ec;
+    std::filesystem::remove_all(s.o.output / folder, ec);
+    if (ec) return s.error(rel + ": " + ec.message());
+    for (const auto& tile : manifest->tiles) {
+        const std::string output = terrain_tile_path(rel, tile);
+        const auto encoded = write_terrain_tile(samples.at({tile.x, tile.z}));
+        if (!detail::write_file(s.o.output / output, encoded, &error)) {
+            s.error(error);
+            std::filesystem::remove_all(s.o.output / folder, ec);
+            return;
+        }
+        Json item = Json::object();
+        item["x"] = tile.x;
+        item["z"] = tile.z;
+        item["file"] = output;
+        doc["tiles"].push_back(std::move(item));
+    }
+    if (!detail::write_file(s.o.output / rel, doc.to_binary(), &error)) {
+        s.error(error);
+        std::filesystem::remove_all(s.o.output / folder, ec);
+        return;
+    }
+    ++s.report.cooked;
+    s.cache[rel] = std::move(entry);
+}
+
 void cook_remaining_files(CookSession& s) {
     for (const std::string& rel : s.sources) {
         const Kind kind = kind_of(rel);
-        if (kind == Kind::Model || kind == Kind::World || s.deps.count(rel)) continue;
+        if (kind == Kind::Model || kind == Kind::World || kind == Kind::Terrain || s.deps.count(rel)) continue;
         std::uint64_t h = 0;
         if (s.up_to_date(rel, kind, &h)) {
             ++s.report.up_to_date;
@@ -372,6 +471,7 @@ CookReport cook_directory(const CookOptions& o) {
     cook_models(s);
     for (const std::string& rel : s.sources) {
         if (kind_of(rel) == Kind::World) cook_one_world(s, rel);
+        if (kind_of(rel) == Kind::Terrain) cook_one_terrain(s, rel);
     }
     cook_remaining_files(s);
 
@@ -380,6 +480,7 @@ CookReport cook_directory(const CookOptions& o) {
         if (s.cache.count(rel)) continue;
         if (std::filesystem::remove(o.output / rel, ec)) ++report.removed;
         if (entry.kind == kind_name(Kind::World)) std::filesystem::remove_all(o.output / (world_stem(rel) + ".cells"), ec);
+        if (entry.kind == kind_name(Kind::Terrain)) std::filesystem::remove_all(o.output / (rel + ".tiles"), ec);
     }
     write_cook_cache(s);
     if (o.logger) {

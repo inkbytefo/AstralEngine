@@ -10,6 +10,25 @@
 
 `.aterrain` sürümlü bir manifesttir. Örnek aralığı, tile başına örnek sayısı, yükseklik aralığı ve tile adresleri manifestte bulunur. Tile adresi işaretli tam sayı XZ koordinatıdır. Her Y değeri metre cinsindendir. Örnekler X yönünde artarak, satırlar +Z yönünde artarak dizilir. Başlangıç profili 65 × 65 örnek ve 1 m örnek aralığıdır. 64 aralık, 64 × 64 m tile verir. Cooker, 16 bit gri tonlu kaynak heightmap’i belirtilen yükseklik aralığına dönüştürür ve tile başına sürümlü bir veri kaydı üretir. Komşular ortak sınır örneklerini aynı kaynak değerinden alır. Cook sırasında boyut, biçim, sonlu değer, yinelenmiş adres ve ortak kenar tutarlılığı doğrulanır.
 
+Kaynak manifest örneği:
+
+```json
+{
+  "format": "astral.terrain",
+  "version": 1,
+  "samples": 65,
+  "spacing_m": 1,
+  "min_height_m": -10,
+  "max_height_m": 90,
+  "tiles": [
+    {"x": -1, "z": 0, "file": "height/west.png"},
+    {"x": 0, "z": 0, "file": "height/east.png"}
+  ]
+}
+```
+
+Dosya yolları asset köküne göredir. Kenar başına örnek sayısı 5 ile 1025 arasında, ikinin kuvveti artı bir olmalıdır. Cook edilmiş tile, `ATH1` imzasından sonra little-endian 16 bit örnekler taşır. Kaynak ve paket okuyucuları aynı metre dönüşümünü kullanır. Cooker, binary manifestteki dosya yollarını `<manifest>.tiles/<x>_<z>.aheight` olarak yazar.
+
 `TerrainRef` asset yolunu tutar. `Transform` ilk sürümde ötelemeyi belirler. Döndürülmüş, ölçeklenmiş veya parent’lı terrain için açık doğrulama hatası verilir. Tile adresi ve örnek koordinatı floating origin kaymalarında sabit kalır. Sahneye mesh ve collider handle’ları yazılmaz.
 
 ## Runtime
