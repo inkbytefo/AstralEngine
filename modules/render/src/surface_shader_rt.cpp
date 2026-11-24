@@ -19,6 +19,86 @@ float astral_pf(uint o) { return uintBitsToFloat(astral_params.data[astral_base 
 uint astral_pu(uint o) { return astral_params.data[astral_base + o]; }
 )";
 
+std::string volume_compute(const ShaderSource& source, const UniformLayout& layout) {
+    std::string s = R"(#version 460
+#extension GL_GOOGLE_include_directive : require
+#include <astral/scene.glsl>
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(push_constant, scalar) uniform Push {
+    FrameRef frame;
+    vec4 corner_cell;
+    uint side, target, material;
+} pc;
+vec3 UVW, WORLD_POSITION, TINT;
+float DENSITY, TIME;
+)";
+    s += screen_params;
+    s += detail::wrap_body(source, layout, source.body);
+    s += R"(void main() {
+    uvec2 p = gl_GlobalInvocationID.xy;
+    uint side = pc.side;
+    if (p.x >= side || p.y >= side * side) return;
+    Frame f = pc.frame.f;
+    astral_params = AstralParams(uint64_t(f.custom.x) | (uint64_t(f.custom.y) << 32));
+    astral_base = Materials(f.scene_materials).data[pc.material].custom.x;
+    vec3 sample_cell = vec3(p.x, p.y % side, p.y / side) + 0.5;
+    UVW = sample_cell / float(side);
+    WORLD_POSITION = pc.corner_cell.xyz + pc.corner_cell.w * sample_cell;
+    TIME = uintBitsToFloat(f.custom.z);
+    TINT = vec3(1.0);
+    DENSITY = 1.0;
+    volume();
+    imageStore(astral_storage_images[pc.target], ivec2(p), vec4(clamp(TINT, 0.0, 8.0), clamp(DENSITY, 0.0, 1.0)));
+}
+)";
+    return s;
+}
+
+ScreenShaderBuild compile_effect_shader(const ShaderSource& source, std::string_view name) {
+    ScreenShaderBuild out;
+    out.type = source.type;
+    const bool particle = source.type == ShaderType::Particle;
+    const char* entry = particle ? "particle" : "volume";
+    if (!source.has_function(entry) || !source.varyings.empty()) {
+        out.errors.push_back({1, std::string("expected ") + entry + "() with no custom varyings"});
+        return out;
+    }
+    out.layout = layout_uniforms(source);
+    out.additive = !source.has_render_mode("blend_mix");
+    for (std::size_t i = 0; i < source.uniforms.size(); ++i) {
+        if (source.uniforms[i].type == UniformType::Sampler2D)
+            out.samplers.push_back({out.layout.offsets[i], source.uniforms[i].hints.hint_normal});
+    }
+    std::string code;
+    if (particle) {
+        code = detail::embedded_text(embedded::astral_particle_frag, embedded::astral_particle_frag_size);
+        code.insert(code.find('\n') + 1, "#extension GL_GOOGLE_include_directive : require\n");
+        std::string body = "#define ASTRAL_CUSTOM_PARTICLE\n";
+        body += screen_params;
+        body += "vec2 UV; vec3 WORLD_POSITION, COLOR; float AGE, ALPHA;\n";
+        body += detail::wrap_body(source, out.layout, source.body_without("motion"));
+        replace_all(code, "// ASTRAL_PARTICLE_BODY", body);
+        if (source.has_function("motion")) {
+            auto vertex = detail::embedded_text(embedded::astral_particle_vert, embedded::astral_particle_vert_size);
+            vertex.insert(vertex.find('\n') + 1, "#extension GL_GOOGLE_include_directive : require\n");
+            std::string motion = "#define ASTRAL_PARTICLE_MOTION\n";
+            motion += screen_params;
+            motion += "vec3 WORLD_POSITION, ORIGIN, WIND; float AGE, LIFETIME, RANDOM, SIZE;\n";
+            motion += detail::wrap_body(source, out.layout, source.body_without("particle"));
+            replace_all(vertex, "// ASTRAL_PARTICLE_BODY", motion);
+            auto compiled = compile_glsl(vertex, ShaderStage::Vertex, detail::engine_includes(), name);
+            detail::collect_errors(compiled, out.errors, "motion");
+            out.vertex = std::move(compiled.spirv);
+        }
+    } else {
+        code = volume_compute(source, out.layout);
+    }
+    auto compiled = compile_glsl(code, particle ? ShaderStage::Fragment : ShaderStage::Compute, detail::engine_includes(), name);
+    detail::collect_errors(compiled, out.errors, entry);
+    (particle ? out.fragment : out.compute) = std::move(compiled.spirv);
+    return out;
+}
+
 std::string screen_vertex(bool sky) {
     std::string s = R"(#version 460
 layout(location = 0) out vec2 astral_uv;
@@ -141,6 +221,7 @@ RtVariants compile_rt_variants(std::span<const RtSurface> surfaces) {
 }
 
 ScreenShaderBuild compile_screen_shader(const ShaderSource& source, std::string_view name) {
+    if (source.type == ShaderType::Particle || source.type == ShaderType::Volume) return compile_effect_shader(source, name);
     ScreenShaderBuild out;
     out.type = source.type;
     if (source.type != ShaderType::Post && source.type != ShaderType::Sky) {

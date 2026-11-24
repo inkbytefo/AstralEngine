@@ -8,6 +8,7 @@ struct Context;
 class TypeRegistry;
 class EventRegistry;
 struct VfxChild;
+struct SmokeAppearance { MaterialHandle material; };
 struct VfxEmitter {
     ParticleBurst burst;
 };

@@ -6,6 +6,7 @@
 
 #include <shaders/fields_probe.comp.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 

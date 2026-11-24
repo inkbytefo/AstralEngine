@@ -36,6 +36,10 @@ extern const std::uint8_t astral_restir_di_temporal_comp[];
 extern const std::size_t astral_restir_di_temporal_comp_size;
 extern const std::uint8_t astral_restir_di_spatial_comp[];
 extern const std::size_t astral_restir_di_spatial_comp_size;
+extern const std::uint8_t astral_particle_frag[];
+extern const std::size_t astral_particle_frag_size;
+extern const std::uint8_t astral_particle_vert[];
+extern const std::size_t astral_particle_vert_size;
 extern const std::uint8_t astral_path_tracer_comp[];
 extern const std::size_t astral_path_tracer_comp_size;
 } // namespace astral::embedded

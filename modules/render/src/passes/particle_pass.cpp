@@ -28,23 +28,30 @@ void ParticlePass::add(RenderGraph& graph, const FrameInputs& in, RGTexture targ
         struct Push {
             std::uint64_t frame;
             Vec4 position_age, drift_duration, color_size;
-            std::uint32_t seed, fog, sdf_depth, padding;
+            std::uint32_t seed, fog, sdf_depth, material;
         };
         static_assert(sizeof(Push) == 72);
         constexpr std::uint32_t none = 0xFFFFFFFFu;
         std::uint32_t remaining = 8192;
-        c.cmd.bind_pipeline(pipeline);
+        gpu::PipelineHandle bound{};
         for (const auto& emitter : in.scene.particles) {
             if (remaining == 0) break;
             if (!std::isfinite(emitter.age) || !std::isfinite(emitter.duration) || !std::isfinite(emitter.size_m) ||
                 emitter.age < 0 || emitter.age >= emitter.duration || emitter.size_m <= 0 || emitter.count == 0) continue;
             const auto count = std::min(remaining, std::min(emitter.count, 1024u));
+            const auto* shader = in.materials.shader_of(emitter.material);
+            const bool custom = shader && shader->kind == GpuShader::Kind::Particle;
+            const auto current = custom ? shader->forward : pipeline;
+            if (bound != current) {
+                c.cmd.bind_pipeline(current);
+                bound = current;
+            }
             const Push push{in.addresses.frame,
                 {emitter.position.x, emitter.position.y, emitter.position.z, emitter.age},
                 {emitter.drift.x, emitter.drift.y, emitter.drift.z, emitter.duration},
                 {emitter.color.x, emitter.color.y, emitter.color.z, emitter.size_m},
                 emitter.seed, fog.valid() ? c.bindless(fog) : none,
-                gb.has_sdf ? c.bindless(gb.sdf_depth) : none, 0};
+                gb.has_sdf ? c.bindless(gb.sdf_depth) : none, in.materials.resolve_index(emitter.material)};
             c.cmd.push_constants(&push, sizeof(push));
             c.cmd.draw(6, count);
             remaining -= count;

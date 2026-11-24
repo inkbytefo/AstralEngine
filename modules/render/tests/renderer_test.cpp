@@ -1205,6 +1205,14 @@ TEST_CASE("local smoke uses packed occupancy without requiring global fog") {
     const auto smoky = f.draw(scene);
     CHECK(rgb(Fixture::center(clear)).r > rgb(Fixture::center(smoky)).r + 60);
     CHECK(f.at(clear, {2, 0, -0.9f}) == f.at(smoky, {2, 0, -0.9f}));
+    const auto shader = make_shader(f, "shader_type volume;\nuniform float mask = 1.0;\n"
+                                       "void volume() { DENSITY *= mask; }\n", "smoke_mask");
+    REQUIRE(shader.valid());
+    smoke.material = f.renderer->create_material({.shader = shader, .params = {0.0f}});
+    CHECK(f.draw(scene) == clear);
+    CHECK(occupied[13] == 1);
+    smoke.material = f.renderer->create_material({.shader = shader, .params = {1.0f}});
+    CHECK(f.draw(scene) == smoky);
     occupied[13] = 0;
     CHECK(f.draw(scene) == clear);
 }
@@ -1219,6 +1227,20 @@ TEST_CASE("GPU particle burst draws and obeys scene depth") {
     scene.particles = std::span(&burst, 1);
     const auto lit = f.draw(scene);
     CHECK(lit != clear);
+    const auto shader = make_shader(f, "shader_type particle;\nuniform float opacity = 1.0;\n"
+                                       "uniform float offset = 0.0;\nvoid motion() { WORLD_POSITION.x += offset; }\n"
+                                       "void particle() { COLOR = vec3(0.0, 5.0, 0.0); ALPHA *= opacity; }\n",
+                                    "spark_color");
+    REQUIRE(shader.valid());
+    burst.material = f.renderer->create_material({.shader = shader, .params = {0.0f, 0.0f}});
+    CHECK(f.draw(scene) == clear);
+    burst.material = f.renderer->create_material({.shader = shader, .params = {1.0f, 100.0f}});
+    CHECK(f.draw(scene) == clear);
+    burst.material = f.renderer->create_material({.shader = shader, .params = {1.0f, 0.0f}});
+    const auto green = f.draw(scene);
+    CHECK(green != clear);
+    CHECK(std::equal(green.begin(), green.end(), clear.begin(),
+                     [](auto effect, auto baseline) { return rgb(effect).r == rgb(baseline).r; }));
     const auto cube = f.renderer->create_mesh(make_cube());
     const std::vector<Item> items{{.mesh = cube, .transform = translate({0, 0, 1}) * scale({4, 4, 0.2f})}};
     scene.meshes = f.inst(items);

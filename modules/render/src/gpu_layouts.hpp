@@ -27,7 +27,7 @@ struct GpuTexture {
 };
 
 struct GpuShader {
-    enum class Kind : std::uint8_t { Surface, Post, Sky } kind = Kind::Surface;
+    enum class Kind : std::uint8_t { Surface, Post, Sky, Particle, Volume } kind = Kind::Surface;
     gpu::PipelineHandle gbuffer, shadow;
     gpu::PipelineHandle forward; ///< Blended surfaces (kind Surface, blend) and the post / sky pipelines.
     bool blend = false;

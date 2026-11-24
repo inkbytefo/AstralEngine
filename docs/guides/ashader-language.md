@@ -123,8 +123,8 @@ shader_type <tür>;
 | `surface` | **Aktif (Derlenir)** | 3B mesh yüzeyleri (opak, alfa kesimli veya şeffaf PBR/Unshaded yüzeyler). | `surface()` ve/veya `vertex()` |
 | `sky` | **Aktif (Derlenir)** | Tam ekran prosedürel veya dokulu HDR gökyüzü / arka plan. | `sky()` |
 | `post` | **Aktif (Derlenir)** | Tonemap sonrası tam ekran görüntü işleme (post-processing) zinciri. | `post()` |
-| `particle` | *Ayrıştırılır (Rezerve)* | GPU parçacık simülasyonu ve çizimi (M14 VFX fazı için ayrıldı). | — |
-| `volume` | *Ayrıştırılır (Rezerve)* | Hacimsel sis, duman, ateş raymarching shader'ları (M14 VFX fazı için ayrıldı). | — |
+| `particle` | **Aktif (Derlenir)** | GPU billboard parçacıklarının renk ve opaklığı. | `particle()` |
+| `volume` | **Aktif (Derlenir)** | Yerel duman hücrelerinin görsel yoğunluğu ve saçılma rengi. | `volume()` |
 | `ui` | *Ayrıştırılır (Rezerve)* | 2B arayüz katmanı özel efektleri. | — |
 
 ---
@@ -545,7 +545,6 @@ if (parsed.source.type == astral::ShaderType::Surface) {
 `.ashader` mimarisi ve ayrıştırıcısı, motorun gelecek fazlarıyla (M14–M18) doğrudan genişleyecek şekilde kurgulanmıştır:
 
 1. **Aktif Edilecek Yeni `shader_type` Türleri:**
-   - **`shader_type particle;` ve `shader_type volume;` (M14 — Volumetric VFX):** Ayrıştırıcıda şimdiden tanımlı olan bu türler, GPU compute parçacık simülasyonuna ve hacimsel raymarching geçişine (`density()`, `emission()`) bağlanacak.
    - **`shader_type ui;`:** 2B `UiCanvas` / HUD elemanları üzerinde SDF efektleri ve özel arayüz animasyonları için derlenecek.
 2. **HDR Öncesi Son İşlem (`render_mode before_tonemap`):**
    - `shader_type post;` için şu anki `after_tonemap` noktasına ek olarak doğrusal HDR tamponu üzerinde (Bloom/Tonemap öncesinde) çalışan `before_tonemap` kancası eklenecek.

@@ -77,6 +77,8 @@ astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/ddgi_trace.c
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/restir_di_temporal.comp astral_restir_di_temporal_comp)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/restir_di_spatial.comp astral_restir_di_spatial_comp)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/path_tracer.comp astral_path_tracer_comp)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle.frag astral_particle_frag)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle.vert astral_particle_vert)
 target_include_directories(astral_render SYSTEM PRIVATE $<BUILD_INTERFACE:${stb_SOURCE_DIR}>)
 
 astral_add_shaders(astral_render

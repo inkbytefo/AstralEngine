@@ -14,13 +14,41 @@ struct GpuSmokeVolume {
     Vec3 corner;
     float cell_size;
     float extinction;
-    std::uint32_t side, first_word, padding;
+    std::uint32_t side, first_word, modulation;
 };
 static_assert(sizeof(GpuSmokeVolume) == 32);
 
-std::uint32_t upload_smoke(gpu::Device& device, const FrameInputs& in) {
-    constexpr std::size_t max_volumes = 16;
+struct SmokeBatch {
     std::vector<GpuSmokeVolume> volumes;
+    std::vector<RGTexture> modulation;
+};
+
+RGTexture record_volume_shader(RenderGraph& g, const FrameInputs& in, const SmokeVolumeView& smoke, Vec3 corner) {
+    const auto* shader = in.materials.shader_of(smoke.material);
+    if (!shader || shader->kind != GpuShader::Kind::Volume) return {};
+    const auto side = smoke.side;
+    const auto target = g.create("smoke.modulation", {side, side * side, gpu::Format::RGBA16Float});
+    g.add_pass("volume material", [target](PassBuilder& builder) {
+        builder.write_storage(target);
+    }, [pipeline = shader->forward, target, side, frame = in.addresses.frame, corner, cell = smoke.cell_size_m,
+        material = in.materials.resolve_index(smoke.material)](PassContext& c) {
+        struct Push {
+            std::uint64_t frame;
+            Vec4 corner_cell;
+            std::uint32_t side, target, material, padding;
+        };
+        const Push push{frame, {corner.x, corner.y, corner.z, cell}, side, c.bindless(target), material, 0};
+        c.cmd.bind_pipeline(pipeline);
+        c.cmd.push_constants(&push, sizeof(push));
+        c.cmd.dispatch((side + 7) / 8, (side * side + 7) / 8);
+    });
+    return target;
+}
+
+SmokeBatch prepare_smoke(RenderGraph& g, gpu::Device& device, const FrameInputs& in) {
+    constexpr std::size_t max_volumes = 16;
+    SmokeBatch batch;
+    auto& volumes = batch.volumes;
     std::vector<std::uint32_t> words;
     for (const auto& smoke : in.scene.smoke) {
         if (volumes.size() == max_volumes) break;
@@ -35,13 +63,13 @@ std::uint32_t upload_smoke(gpu::Device& device, const FrameInputs& in) {
         for (std::size_t i = 0; i < smoke.occupancy.size(); ++i) {
             if (smoke.occupancy[i]) words[first + i / 32] |= 1u << (i % 32);
         }
-        volumes.push_back({smoke.centre - Vec3{half, half, half}, smoke.cell_size_m, smoke.extinction_per_m,
-                           smoke.side, static_cast<std::uint32_t>(first), 0});
+        const Vec3 corner = smoke.centre - Vec3{half, half, half};
+        volumes.push_back({corner, smoke.cell_size_m, smoke.extinction_per_m,
+                           smoke.side, static_cast<std::uint32_t>(first), 0xFFFFFFFFu});
+        batch.modulation.push_back(record_volume_shader(g, in, smoke, corner));
     }
-    if (volumes.empty()) return 0;
-    in.slot.fog_volumes.write(device, volumes.data(), volumes.size() * sizeof(GpuSmokeVolume));
-    in.slot.fog_density.write(device, words.data(), words.size() * sizeof(std::uint32_t));
-    return static_cast<std::uint32_t>(volumes.size());
+    if (!volumes.empty()) in.slot.fog_density.write(device, words.data(), words.size() * sizeof(std::uint32_t));
+    return batch;
 }
 
 } // namespace
@@ -67,18 +95,29 @@ FogPass::~FogPass() {
 RGTexture FogPass::integrate(RenderGraph& g, const FrameInputs& in, RGTexture shadow) const {
     if ((fog_parameters(in.scene).x == 0 && in.scene.smoke.empty()) || !integrate_.valid() || !composite_.valid() ||
         in.settings.debug_view != DebugView::None) return {};
-    const auto count = upload_smoke(device_, in);
+    auto batch = prepare_smoke(g, device_, in);
+    const auto count = static_cast<std::uint32_t>(batch.volumes.size());
     if (count == 0 && fog_parameters(in.scene).x == 0) return {};
-    const auto volumes = count ? device_.buffer_address(in.slot.fog_volumes.buffer) : 0;
     const auto density = count ? device_.buffer_address(in.slot.fog_density.buffer) : 0;
     constexpr std::uint32_t slices = 16;
     const auto w = std::min((in.extent.width + 7) / 8, 240u);
     const auto h = std::min((in.extent.height + 7) / 8, 135u);
     const RGTexture atlas = g.create("fog.atlas", {w, h * slices, gpu::Format::RGBA16Float});
-    g.add_pass("froxel integrate", [atlas, shadow](PassBuilder& b) {
+    const auto textures = batch.modulation;
+    g.add_pass("froxel integrate", [atlas, shadow, textures](PassBuilder& b) {
         if (shadow.valid()) b.read(shadow);
+        for (auto texture : textures) if (texture.valid()) b.read(texture);
         b.write_storage(atlas);
-    }, [pipeline = integrate_, atlas, shadow, frame = in.addresses.frame, w, h, count, volumes, density](PassContext& c) {
+    }, [pipeline = integrate_, atlas, shadow, frame = in.addresses.frame, w, h, count, density, this, &slot = in.slot,
+        batch = std::move(batch)](PassContext& c) mutable {
+        std::uint64_t volumes = 0;
+        if (count) {
+            for (std::size_t i = 0; i < count; ++i) {
+                if (batch.modulation[i].valid()) batch.volumes[i].modulation = c.bindless(batch.modulation[i]);
+            }
+            slot.fog_volumes.write(device_, batch.volumes.data(), count * sizeof(GpuSmokeVolume));
+            volumes = device_.buffer_address(slot.fog_volumes.buffer);
+        }
         struct Push {
             std::uint64_t frame, volumes, density;
             std::uint32_t atlas, shadow, w, h, count, padding;

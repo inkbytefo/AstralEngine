@@ -1,0 +1,7 @@
+shader_type volume;
+uniform vec3 smoke_tint = vec3(0.63, 0.71, 0.84);
+void volume() {
+    TINT = smoke_tint;
+    float drift = sin(dot(WORLD_POSITION, vec3(2.7, 5.1, 3.8)) + TIME * 2.0);
+    DENSITY = 0.68 + 0.22 * drift;
+}

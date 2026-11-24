@@ -267,7 +267,8 @@ bool validate_shader(CookSession& s, const std::string& rel, const std::vector<s
     const ShaderParse parsed = parse_ashader(std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()));
     std::vector<ShaderError> problems = parsed.errors;
     if (problems.empty() && parsed.source.type == ShaderType::Surface) problems = compile_surface_shader(parsed.source, rel).errors;
-    else if (problems.empty() && (parsed.source.type == ShaderType::Post || parsed.source.type == ShaderType::Sky)) {
+    else if (problems.empty() && (parsed.source.type == ShaderType::Post || parsed.source.type == ShaderType::Sky ||
+               parsed.source.type == ShaderType::Volume || parsed.source.type == ShaderType::Particle)) {
         problems = compile_screen_shader(parsed.source, rel).errors;
     }
     for (const ShaderError& e : problems) s.error(rel + ":" + std::to_string(e.line) + ": " + e.message);

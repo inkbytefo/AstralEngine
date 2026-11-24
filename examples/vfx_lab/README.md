@@ -1,6 +1,6 @@
-# VFX Lab — M14 atmosfer başlangıcı
+# VFX Lab — M14 atmosfer ve efekt sahnesi
 
-Avlu ve koridor, atmosfer ile ileride eklenecek hacim efektleri için sabit kamera test sahnesidir. `Atmosphere` component'i sahnenin güneş yönünü, doğrudan güneş ışığının renk/geçirgenliğini ve ortam gökyüzü rengini aynı saatten üretir. `atmosphere.ashader`, küresel atmosfer kabuğunda Rayleigh ve Mie tek saçılmasını örnekler. Ortam rengi renderer'ın mevcut yaklaşık aydınlatmasına girer. Gökyüzü LUT'u, tam sky IBL ve aerial perspective bu örneğin sonraki işleridir.
+Avlu ve koridor, atmosfer ve hacim efektleri için sabit kamera test sahnesidir. `Atmosphere` component'i sahnenin güneş yönünü, doğrudan güneş ışığının renk/geçirgenliğini ve ortam gökyüzü rengini aynı saatten üretir. `atmosphere.ashader`, küresel atmosfer kabuğunda Rayleigh ve Mie tek saçılmasını örnekler. Ortam rengi renderer'ın mevcut yaklaşık aydınlatmasına girer.
 
 ```sh
 cmake --build --preset debug --target vfx_lab_package
@@ -16,7 +16,7 @@ build/debug/examples/vfx_lab/vfx_lab --hours-per-second 0.5
 
 Sahnenin `environment.aerial_extinction` alanı metre başına sönümü, `aerial_start_m` ise kamera önündeki temiz mesafeyi ayarlar. Varsayılan sönüm sıfırdır. `--no-aerial` aynı saati ve gökyüzünü koruyarak sadece uzaklık etkisini kapatır. Örnek uzak silüetleri, ön plan ve gökyüzüyle aynı karede kıyaslar.
 
-Etki HDR aşamasında en yakın mesh veya SDF yüzey derinliğine uygulanır. Saydam yüzeyler kendi konumlarından geçirgenliği hesaplar. Additive yüzeyler uzaklıkla sönümlenir. `--path-tracer` ana görüş segmentine aynı HDR yaklaşımı uygular. Işın sekmeleri atmosferin içinde simüle edilmez. Froxel sis ve yerel duman hacimleri sonraki iş paketidir.
+Etki HDR aşamasında en yakın mesh veya SDF yüzey derinliğine uygulanır. Saydam yüzeyler kendi konumlarından geçirgenliği hesaplar. Additive yüzeyler uzaklıkla sönümlenir. `--path-tracer` ana görüş segmentine aynı HDR yaklaşımı uygular.
 
 ## Froxel sis
 
@@ -27,7 +27,7 @@ build/debug/packages/vfx_lab/vfx_lab --raster --hour 17 --fog 0.035 --capture fo
 build/debug/packages/vfx_lab/vfx_lab --hour 17 --fog 0.035 --capture fog-rt.ppm --profile
 ```
 
-Kamera hacmi 16 derinlik dilimidir. Compute pass, birikimli Beer–Lambert geçirgenliği ve saçılmayı üretir. Raster ve hibrit RT, güneş için gölge haritasını kullanır. HDR kompozisyon en yakın mesh/SDF derinliğini, forward yüzeyler kendi derinliğini örnekler. Sis atlası her kare yeniden oluşturulur. Hibrit RT’de sis TAA’dan sonra birleştirilir. Bu sürümde ortam ışığı sahnenin gökyüzü renginden gelir. Yerel yoğunluk hacimleri, DDGI’dan hacimsel örnekleme ve path tracer’da hacim simülasyonu sonraki işlerdir.
+Kamera hacmi 16 derinlik dilimidir. Compute pass, birikimli Beer–Lambert geçirgenliği ve saçılmayı üretir. Raster ve hibrit RT, güneş için gölge haritasını kullanır. HDR kompozisyon en yakın mesh/SDF derinliğini, forward yüzeyler kendi derinliğini örnekler. Sis atlası her kare yeniden oluşturulur. Hibrit RT’de sis TAA’dan sonra birleştirilir. Hacimsel ortam ışığı sahnenin gökyüzü renginden gelir.
 
 ## Gameplay dumanı
 
@@ -39,7 +39,7 @@ const auto* smoke = ctx.world.get<const astral::GameplaySmoke>(cloud);
 const float visible = smoke->transmittance(centre, eye, target);
 ```
 
-Konumlar aynı yerel dünya koordinatlarında verilmelidir. `optical_depth` segmentin dolu hücrelerde katettiği mesafeyi entegre eder. Oyun, görüş eşiğini kendi kurallarında belirler. Uygulama kaba bir hücre modelidir ve hücreden küçük engeller için alt-hücre doluluğu hesaplamaz. Görsel GPU dumanı ve Luau bağlayıcısı sonraki çalışmadır.
+Konumlar aynı yerel dünya koordinatlarında verilmelidir. `optical_depth` segmentin dolu hücrelerde katettiği mesafeyi entegre eder. Oyun, görüş eşiğini kendi kurallarında belirler. En küçük doluluk birimi bir hücredir.
 
 ```sh
 cmake --build --preset debug --target astral_app_tests
@@ -61,4 +61,14 @@ astral.send("astral::StopVfx", {tag = "courtyard"})
 build/debug/packages/vfx_lab/vfx_lab --vfx --raster --hour 17 --frames 25 --width 640 --height 360 --capture vfx.ppm --profile
 ```
 
-Bu sürümde yerel hacim mevcut froxel atlasına entegre edilir. Özel `volume`/`particle` shader derleme hattı, seyrek hacim atlası ve partiküllerin derinlikle fiziksel çarpışması ayrıca ele alınır.
+Bir `particles` veya `smoke` track’ine `"material": "assets/effect.material"` ekleyerek VFX görünümünü ayrı bir varlık olarak düzenleyebilirsiniz. Yol, asset köküne göredir. `.material` dosyası bir `.ashader` seçer ve uniform değerlerini ayarlar. `sparks.material` ve `smoke.material` çalışan örneklerdir. Cooker bu shader’ları da doğrular.
+
+| Shader | Girdiler | Yazılabilir değerler |
+| --- | --- | --- |
+| `particle()` | `UV`, `WORLD_POSITION`, `AGE` (burst zamanında saniye) | `COLOR`, `ALPHA` |
+| `motion()` (isteğe bağlı) | `AGE` (parçacık yaşı), `LIFETIME`, `ORIGIN`, `WIND`, `RANDOM` | `WORLD_POSITION`, `SIZE` (metre) |
+| `volume()` | `UVW`, `WORLD_POSITION`, `TIME` (saniye) | `TINT`, `DENSITY` |
+
+Partiküller varsayılan olarak additive karışır. Alfa karışımı için `render_mode blend_mix;` kullanılır. Hacim shader’ı her hücre merkezinde GPU’da çalışır. `DENSITY` 0 ile 1 arasında görsel yoğunluk çarpanıdır, `TINT` saçılma rengini çarpar. Oyun sorguları CPU doluluk ızgarasını kullanır. Her iki shader türü de materyal uniform’larını ve `sampler2D` destekler.
+
+Seyrek GPU hacim atlası ve partikül fizik çarpışması M14’ün açık işleridir.

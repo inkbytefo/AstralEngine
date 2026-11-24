@@ -21,7 +21,7 @@ struct Track {
     Vec3 offset{}, color{1, 0.6f, 0.3f};
     float size, strength;
     std::uint32_t count;
-    std::string sound;
+    std::string sound, material;
 };
 struct Playback {
     std::vector<Track> tracks;
@@ -71,7 +71,7 @@ std::optional<Playback> parse_vfx(const Json& json) {
     for (const auto& node : tracks.as_array()) {
         const auto kind = track_kind(node["type"].as_string());
         if (!kind) return {};
-        Track t{.kind = *kind, .start = 0, .duration = 0, .size = 0, .strength = 0, .count = 0, .sound = {}};
+        Track t{.kind = *kind, .start = 0, .duration = 0, .size = 0, .strength = 0, .count = 0, .sound = {}, .material = {}};
         float count;
         if (!read_scalar(node, "start", t.start, 0, 0, 60) ||
             !read_scalar(node, "duration", t.duration, 1, 0.05, 60) ||
@@ -80,6 +80,10 @@ std::optional<Playback> parse_vfx(const Json& json) {
             !read_scalar(node, "count", count, 64, 1, 1024) || count != std::floor(count) ||
             !read_xyz(node, "offset", t.offset, -1000, 1000) || !read_xyz(node, "color", t.color, 0, 100)) return {};
         t.count = static_cast<std::uint32_t>(count);
+        if (const auto* material = node.find("material")) {
+            if (!material->is_string()) return {};
+            t.material = material->as_string();
+        }
         if (*kind == TrackKind::Sound) {
             t.sound = node["asset"].as_string();
             if (t.sound.empty()) return {};
@@ -102,9 +106,10 @@ namespace {
 void spawn_track(Context& ctx, Entity owner, Vec3 position, const Track& t, float age, std::uint32_t sequence) {
     const VfxChild child{owner, t.start, t.start + t.duration};
     Transform transform{.position = position + t.offset};
+    const auto material = t.material.empty() ? MaterialHandle{} : ctx.materials().load_material(t.material);
     switch (t.kind) {
     case TrackKind::Smoke:
-        ctx.world.create(transform, child, GameplaySmoke({
+        ctx.world.create(transform, child, SmokeAppearance{material}, GameplaySmoke({
             .cell_size_m = t.size / 17.0f, .extinction_per_m = t.strength, .spread_interval_steps = 1,
             .spread_steps = static_cast<unsigned>(t.duration * 0.75f / ctx.time.fixed_delta),
             .fade_steps = static_cast<unsigned>(t.duration * 0.25f / ctx.time.fixed_delta)}));
@@ -113,7 +118,7 @@ void spawn_track(Context& ctx, Entity owner, Vec3 position, const Track& t, floa
         ctx.world.create(transform, child, VfxEmitter{{
             .age = age - t.start, .drift = ctx.fields.wind_at(transform.position, ctx.time.elapsed),
             .duration = t.duration, .color = t.color * t.strength, .size_m = t.size,
-            .count = t.count, .seed = owner.index * 37u + sequence}});
+            .count = t.count, .seed = owner.index * 37u + sequence, .material = material}});
         break;
     case TrackKind::Light:
         ctx.world.create(transform, child, PointLight{.color = t.color, .intensity = t.strength, .radius = t.size});

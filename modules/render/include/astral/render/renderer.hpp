@@ -202,6 +202,7 @@ struct SmokeVolumeView {
     float extinction_per_m = 0.0f;
     std::uint32_t side = 0;
     std::span<const std::uint8_t> occupancy{};
+    MaterialHandle material{};
 };
 
 /// An analytic burst evaluated per particle on the GPU.
@@ -214,6 +215,7 @@ struct ParticleBurst {
     float size_m = 0.04f;
     std::uint32_t count = 64;
     std::uint32_t seed = 1;
+    MaterialHandle material{};
 };
 
 /// Everything to draw in one frame. Spans must stay valid until render() returns.

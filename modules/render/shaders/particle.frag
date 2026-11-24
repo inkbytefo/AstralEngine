@@ -4,12 +4,13 @@
 layout(push_constant, scalar) uniform Push {
     FrameRef frame;
     vec4 position_age, drift_duration, color_size;
-    uint seed, fog, sdf_depth;
+    uint seed, fog, sdf_depth, material;
 } pc;
 layout(location = 0) in vec2 corner_in;
 layout(location = 1) in float fade_in;
 layout(location = 2) in vec3 world_in;
 layout(location = 0) out vec4 color_out;
+// ASTRAL_PARTICLE_BODY
 void main() {
     if (pc.sdf_depth != NO_TEXTURE) {
         float sdf_depth = texelFetch(sampler2D(astral_textures[pc.sdf_depth], astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]),
@@ -19,7 +20,20 @@ void main() {
     Frame f = pc.frame.f;
     float alpha = (1.0 - smoothstep(0.05, 1.0, dot(corner_in, corner_in))) * fade_in;
     float tr = fog_sample(f, pc.fog, gl_FragCoord.xy * f.screen.zw, length(world_in - f.camera_position.xyz)).a;
-    vec3 light = pc.color_size.rgb * aerial_transmittance(f, world_in) * tr;
+    vec3 radiance = pc.color_size.rgb;
+#ifdef ASTRAL_CUSTOM_PARTICLE
+    astral_params = AstralParams(uint64_t(f.custom.x) | (uint64_t(f.custom.y) << 32));
+    astral_base = Materials(f.scene_materials).data[pc.material].custom.x;
+    UV = corner_in * 0.5 + 0.5;
+    WORLD_POSITION = world_in;
+    AGE = pc.position_age.w;
+    COLOR = radiance;
+    ALPHA = alpha;
+    particle();
+    radiance = max(COLOR, vec3(0));
+    alpha = clamp(ALPHA, 0.0, 1.0);
+#endif
+    vec3 light = radiance * aerial_transmittance(f, world_in) * tr;
     vec3 color = astral_aces_tonemap(light * f.ground_color.a);
     if (f.custom.w != 0u) color = astral_linear_to_srgb(color);
     color_out = vec4(color, alpha);

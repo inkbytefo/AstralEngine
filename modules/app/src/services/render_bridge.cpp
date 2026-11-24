@@ -369,7 +369,9 @@ void RenderBridge::render_frame(const RenderFrameInput& input) {
     std::vector<SmokeVolumeView> smoke;
     active_world.each<const GameplaySmoke, const Transform>([&](Entity e, const GameplaySmoke& cloud, const Transform& t) {
         if (!active_world.has<Parent>(e) && cloud.extinction_per_m() > 0) {
-            smoke.push_back({t.position, cloud.cell_size_m(), cloud.extinction_per_m(), cloud.side(), cloud.occupancy()});
+            const auto* appearance = active_world.get<const SmokeAppearance>(e);
+            smoke.push_back({t.position, cloud.cell_size_m(), cloud.extinction_per_m(), cloud.side(), cloud.occupancy(),
+                             appearance ? appearance->material : MaterialHandle{}});
         }
     });
 
