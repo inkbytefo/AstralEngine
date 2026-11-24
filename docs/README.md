@@ -7,6 +7,7 @@ kurallar [process.md](process.md)'de.
 |---|---|
 | [architecture.md](architecture.md) | Katmanlar, SOLID kuralları, bağımlılık yönü, klasör yapısı |
 | [roadmap.md](roadmap.md) | Fazlar, her fazın durumu ve bitiş kriterleri |
+| [status/assets-shader-deep-audit-2026-11-25.md](status/assets-shader-deep-audit-2026-11-25.md) | Assets/Shader statik denetimi: glTF, cook, dependency graph, hot reload ve ABI |
 | [status/physics-jolt-deep-audit-2026-11-25.md](status/physics-jolt-deep-audit-2026-11-25.md) | Physics/Jolt statik denetimi: contact identity, fixed step, origin, joints ve shape validation |
 | [status/rendering-deep-audit-2026-11-25.md](status/rendering-deep-audit-2026-11-25.md) | Rendering statik denetimi: RenderGraph, history, assets, M14 VFX |
 | [status/gpu-rhi-deep-audit-2026-11-25.md](status/gpu-rhi-deep-audit-2026-11-25.md) | GPU/Vulkan RHI statik denetimi: lifetime, WSI, RT, descriptor ve bounds |
