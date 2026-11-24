@@ -38,3 +38,7 @@ Her ID için: **durum (open / in progress / verified fixed / deferred)**, kaynak
 3. Vulkan validation, swapchain resize/minimize/device lost, RT vs raster, M14 particles/volume/weather-related capability boundaries, lavapipe golden ve donanım görsel doğrulama.
 4. Terrain/world streaming pressure, cell failure recovery, asset reload, ECS parallel scheduler and transform ownership; profiling p50/p95/p99, memory, GPU; leak/long-session soak.
 5. Editor workflow: dirty project switch, fault injection, save/recovery, AI selected review/cancel, Play/Stop 20 cycle; clean package outside source tree.
+
+## Ek denetim: Core / ECS
+
+[Core & ECS Deep Audit](core-ecs-deep-audit-2026-11-25.md): C01–C06 kaynak kusurları, CR01–CR06 riskler, CP01–CP03 öneriler. C01–C05 yüksek öncelikli çalışma kuyruğuna alınır; mevcut S0–S6 paketleri korunur. CI durumu kullanıcı tarafından altyapı engeli olarak bildirilmiştir; bağımsız kök neden logu yoktur. Yerel derleme bu inceleme kapsamı dışındadır.
