@@ -56,9 +56,10 @@ bool meets_requirements(VkPhysicalDevice device) {
     VkPhysicalDeviceVulkan12Features f12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, &f13};
     VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f12};
     vkGetPhysicalDeviceFeatures2(device, &f2);
-    return f13.dynamicRendering && f13.synchronization2 && f12.timelineSemaphore &&
-           f12.bufferDeviceAddress && f12.descriptorIndexing && f12.runtimeDescriptorArray &&
-           f12.descriptorBindingPartiallyBound && f12.shaderSampledImageArrayNonUniformIndexing &&
+    return f13.dynamicRendering && f13.synchronization2 && f13.shaderDemoteToHelperInvocation &&
+           f12.timelineSemaphore && f12.bufferDeviceAddress && f12.descriptorIndexing &&
+           f12.runtimeDescriptorArray && f12.descriptorBindingPartiallyBound &&
+           f12.shaderSampledImageArrayNonUniformIndexing &&
            f12.descriptorBindingSampledImageUpdateAfterBind &&
            f12.descriptorBindingStorageImageUpdateAfterBind && f12.scalarBlockLayout && f12.hostQueryReset &&
            f2.features.shaderInt64 && f2.features.shaderStorageImageWriteWithoutFormat;
@@ -234,6 +235,7 @@ bool create_logical_device(Device::Impl& s) {
     VkPhysicalDeviceVulkan13Features f13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
     f13.dynamicRendering = VK_TRUE;
     f13.synchronization2 = VK_TRUE;
+    f13.shaderDemoteToHelperInvocation = VK_TRUE;
     VkPhysicalDeviceVulkan12Features f12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, &f13};
     f12.timelineSemaphore = VK_TRUE;
     f12.bufferDeviceAddress = VK_TRUE;

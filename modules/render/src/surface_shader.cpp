@@ -16,7 +16,15 @@ std::vector<GlslInclude> engine_includes() {
             {"astral/scene.glsl", embedded_text(embedded::astral_scene_glsl, embedded::astral_scene_glsl_size)},
             {"astral/color.glsl", embedded_text(embedded::astral_color_glsl, embedded::astral_color_glsl_size)},
             {"astral/brdf.glsl", embedded_text(embedded::astral_brdf_glsl, embedded::astral_brdf_glsl_size)},
-            {"astral/bsdf.glsl", embedded_text(embedded::astral_bsdf_glsl, embedded::astral_bsdf_glsl_size)}};
+            {"astral/bsdf.glsl", embedded_text(embedded::astral_bsdf_glsl, embedded::astral_bsdf_glsl_size)},
+            {"astral/particle_state.glsl",
+             embedded_text(embedded::astral_particle_state_glsl, embedded::astral_particle_state_glsl_size)},
+            {"astral/smoke_atlas.glsl",
+             embedded_text(embedded::astral_smoke_atlas_glsl, embedded::astral_smoke_atlas_glsl_size)},
+            {"astral/sky_ibl.glsl",
+             embedded_text(embedded::astral_sky_ibl_glsl, embedded::astral_sky_ibl_glsl_size)},
+            {"astral/ddgi_layout.glsl",
+             embedded_text(embedded::astral_ddgi_layout_glsl, embedded::astral_ddgi_layout_glsl_size)}};
 }
 
 std::string uniform_macros(const ShaderSource& source, const UniformLayout& layout) {
@@ -85,7 +93,7 @@ std::string prelude() {
 #include <astral/bsdf.glsl>
 layout(push_constant, scalar) uniform Push {
     Vertices vertices; Instances instances; FrameRef frame; Materials materials; uint first_instance;
-    uint64_t params; float time; PointLights lights;
+    uint64_t params; float time; uint fog_atlas; PointLights lights;
 } pc;
 ASTRAL_BUFFER(AstralParams, uint);
 AstralParams astral_params;
@@ -174,20 +182,26 @@ constexpr const char* forward_lighting = R"(vec3 astral_lit(vec3 N, vec3 V, vec3
     float nv = max(dot(N, V), 1e-4);
     vec3 f0 = mix(vec3(0.04), albedo, metallic);
     vec3 dfg = env_brdf(f0, r, nv);
-    vec3 diffuse_ambient = mix(f.ground_color.rgb, f.sky_color.rgb, N.y * 0.5 + 0.5) * albedo * (1.0 - metallic);
-    vec3 reflected = sky_radiance(f, reflect(-V, N));
-    vec3 specular_ambient = mix(reflected, mix(f.ground_color.rgb, f.sky_color.rgb, 0.5), r) * dfg;
+    vec3 diffuse_ambient = sky_diffuse_ibl(f, N) * albedo * (1.0 - metallic);
+    vec3 specular_ambient = sky_specular_ibl(f, reflect(-V, N), r) * dfg;
     return c + (diffuse_ambient * (1.0 - dfg) + specular_ambient) * f.sky_color.a;
 }
 )";
 
-std::string fragment_output(Mode mode, bool unshaded, ShadingModel shading_model) {
+std::string fragment_output(Mode mode, bool unshaded, bool additive, ShadingModel shading_model) {
     if (mode == Mode::Forward) {
         std::string s = unshaded ? "    vec3 lit = ALBEDO + EMISSION;\n"
                                  : R"(    vec3 n = NORMAL;
     if (NORMAL_MAP != vec3(0.5, 0.5, 1.0)) n = astral_perturb(n, NORMAL_MAP * 2.0 - 1.0, NORMAL_MAP_DEPTH);
     vec3 lit = astral_lit(n, VIEW_DIR, WORLD_POSITION, ALBEDO * AO, ROUGHNESS, METALLIC) + EMISSION;
 )";
+        s += additive ? "    lit *= aerial_transmittance(f, WORLD_POSITION);\n"
+                      : "    lit = aerial_surface(f, lit, WORLD_POSITION);\n";
+        s += R"(    vec4 medium = fog_sample(f, pc.fog_atlas, gl_FragCoord.xy * f.screen.zw,
+                                    length(WORLD_POSITION - f.camera_position.xyz));
+    lit *= medium.a;
+)";
+        if (!additive) s += "    lit += medium.rgb;\n";
         s += R"(    astral_out_color = vec4(lit, clamp(ALPHA, 0.0, 1.0));
 )";
         return s;
@@ -280,7 +294,7 @@ void main() {
     s += detail::kSurfaceBuiltinsInit;
     if (source.has_function("surface")) s += "    surface();\n";
     if (source.has_render_mode("alpha_test")) s += "    if (ALPHA < ALPHA_SCISSOR) discard;\n";
-    s += fragment_output(mode, unshaded, source.shading_model);
+    s += fragment_output(mode, unshaded, source.has_render_mode("blend_add"), source.shading_model);
     s += "}\n";
     return s;
 }

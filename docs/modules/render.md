@@ -121,8 +121,8 @@ graph.add_pass("blur", [&](PassBuilder& b) { b.read(hdr); b.write_storage(blurre
 ### Ray-traced yol
 - SDF'lerin hareket vektörü yalnız kameradan türetilir (SDF'ler kareler arası durağan varsayılır).
 - İkincil vuruşlarda ortam speküleri DDGI'dan yaklaşık olarak gelir.
-- Şeffaflık/kırılma, saç, hacimsel sis/bulut (atmosfer fazı) yok. Prob taşıma (relocation) yok: duvar içinde
-  kalan problar Chebyshev ve arka yüz testiyle bastırılır.
+- Prob taşıma (relocation) yok. Duvar içinde kalan probların etkisini mesafe momentleri ve yüzeylerde arka yüz testi azaltır.
+- Hacimsel sis ve duman hibrit RT’de froxel geçişinde DDGI aydınlatması alır. Yerel güneş gölgesi aynı hacimle sınırlıdır. Hacimler arası gölge, bulut ve path tracer’da hacim ışığı açık işlerdir.
 
 ### Raster yol
 

@@ -102,7 +102,7 @@ GBufferTextures GBufferPass::add(RenderGraph& graph, const FrameInputs& inputs, 
                 }
                 const MeshPush push{device_.buffer_address(mesh->vertices), inputs.addresses.instances,
                                     inputs.addresses.frame, inputs.addresses.materials, start,
-                                    inputs.addresses.params, inputs.scene.time, inputs.addresses.lights};
+                                    inputs.addresses.params, inputs.scene.time, 0xFFFFFFFFu, inputs.addresses.lights};
                 ctx.cmd.push_constants(&push, sizeof(push));
                 ctx.cmd.bind_index_buffer(mesh->indices, gpu::IndexType::Uint32);
                 ctx.cmd.draw_indexed(mesh->index_count, end - start);

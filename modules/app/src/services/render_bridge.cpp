@@ -1,4 +1,6 @@
+#include <astral/app/gameplay_smoke.hpp>
 #include "render_bridge.hpp"
+#include "vfx_runtime.hpp"
 
 #include "../material_library.hpp"
 
@@ -373,6 +375,37 @@ void RenderBridge::extract_lights(World& w) {
     });
 }
 
+namespace {
+std::vector<ParticleBurst> extract_particles(World& world) {
+    std::vector<ParticleBurst> bursts;
+    world.each<const VfxEmitter, const Transform>([&](Entity entity, const VfxEmitter& emitter, const Transform& transform) {
+        auto burst = emitter.burst;
+        burst.position = transform.position;
+        burst.simulation_id = (std::uint64_t{entity.generation} << 32) | entity.index;
+        bursts.push_back(burst);
+    });
+    return bursts;
+}
+
+std::vector<SmokeVolumeView> extract_volumes(World& world) {
+    std::vector<SmokeVolumeView> volumes;
+    world.each<const GameplaySmoke, const Transform>([&](Entity e, const GameplaySmoke& cloud, const Transform& t) {
+        if (!world.has<Parent>(e) && cloud.extinction_per_m() > 0) {
+            const auto* appearance = world.get<const SmokeAppearance>(e);
+            volumes.push_back({t.position, cloud.cell_size_m(), cloud.extinction_per_m(), cloud.side(), cloud.occupancy(),
+                               appearance ? appearance->material : MaterialHandle{}});
+        }
+    });
+    world.each<const VfxVolume, const Transform>([&](const VfxVolume& volume, const Transform& t) {
+        if (volume.material.valid()) {
+            volumes.push_back({t.position, volume.cell_size_m, volume.strength, VfxVolume::side, {},
+                               volume.material, volume.age});
+        }
+    });
+    return volumes;
+}
+} // namespace
+
 void RenderBridge::render_frame(const RenderFrameInput& input) {
     const bool offscreen = offscreen_target_.valid();
     if (!renderer_ || (!offscreen && (!swapchain_ || (window_ && window_->minimized())))) return;
@@ -388,7 +421,8 @@ void RenderBridge::render_frame(const RenderFrameInput& input) {
     extract_meshes(active_world);
     extract_sdfs(active_world);
     extract_lights(active_world);
-
+    const auto smoke = extract_volumes(active_world);
+    const auto particles = extract_particles(active_world);
     auto cmd = device_->begin_commands();
     const gpu::TextureHandle vp_native = viewport_.target.valid() ? renderer_->native_target(viewport_.target) : gpu::TextureHandle{};
     if (vp_native.valid()) {
@@ -409,7 +443,9 @@ void RenderBridge::render_frame(const RenderFrameInput& input) {
                            .time = input.time,
                            .sky = input.sky,
                            .post = input.post,
-                           .world_origin = input.world_origin});
+                           .world_origin = input.world_origin,
+                           .smoke = smoke,
+                           .particles = particles});
         cmd.transition(vp_native, gpu::ResourceState::ShaderRead);
         renderer_->render_ui(cmd, image, input.ui_layers, viewport_.clear_color);
     } else {
@@ -429,7 +465,9 @@ void RenderBridge::render_frame(const RenderFrameInput& input) {
                            .time = input.time,
                            .sky = input.sky,
                            .post = input.post,
-                           .world_origin = input.world_origin});
+                           .world_origin = input.world_origin,
+                           .smoke = smoke,
+                           .particles = particles});
     }
     if (offscreen) {
         cmd.transition(image, gpu::ResourceState::TransferSrc);

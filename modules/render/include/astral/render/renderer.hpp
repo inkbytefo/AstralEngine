@@ -203,6 +203,38 @@ struct Environment {
     Vec3 ground{0.18f, 0.16f, 0.14f};
     float ambient = 0.35f; ///< Strength of the sky/ground light on surfaces.
     float exposure = 1.0f;
+    float aerial_extinction = 0.0f; ///< Horizontal extinction per metre; zero disables perspective.
+    float aerial_start_m = 0.0f;   ///< Clear distance before aerial perspective begins.
+    float fog_extinction = 0.0f;   ///< Froxel fog extinction per metre; zero disables fog.
+    float fog_range_m = 100.0f;    ///< Maximum fog integration distance.
+};
+
+/// A local participating medium. Occupancy is binary, laid out as (z * side + y) * side + x.
+struct SmokeVolumeView {
+    Vec3 centre{};
+    float cell_size_m = 0.25f;
+    float extinction_per_m = 0.0f;
+    std::uint32_t side = 0;
+    std::span<const std::uint8_t> occupancy{}; ///< Empty with a volume material lets the shader fill the entire grid.
+    MaterialHandle material{};
+    float age = 0;
+};
+
+/// An analytic burst evaluated per particle on the GPU.
+struct ParticleBurst {
+    Vec3 position{};
+    float age = 0;
+    Vec3 drift{};
+    float duration = 1;
+    Vec3 color{1, 0.55f, 0.2f};
+    float size_m = 0.04f;
+    std::uint32_t count = 64;
+    std::uint32_t seed = 1;
+    MaterialHandle material{};
+    float soft_distance_m = 0; ///< Fade as the billboard approaches the nearest solid surface.
+    std::uint64_t simulation_id = 0; ///< Stable nonzero ID enables persistent GPU simulation. Unique per scene.
+    float restitution = 0.45f; ///< 0 stops normal motion, 1 preserves it at a depth collision.
+    float lighting = 0.0f; ///< Amount of ambient/DDGI modulation. Zero keeps the authored emissive color.
 };
 
 /// Everything to draw in one frame. Spans must stay valid until render() returns.
@@ -224,6 +256,8 @@ struct RenderScene {
     /// Materials with shader_type post shaders, applied in order after tonemapping (before debug lines and UI).
     std::span<const MaterialHandle> post = {};
     std::array<double, 3> world_origin{}; ///< Absolute offset of the current floating render origin, in meters.
+    std::span<const SmokeVolumeView> smoke = {};
+    std::span<const ParticleBurst> particles = {};
 };
 
 /// Dynamic diffuse global illumination: a grid of probes that trace rays every frame.
@@ -259,6 +293,9 @@ struct RenderSettings {
     bool path_tracer = false;
     std::uint32_t path_tracer_max_bounces = 6;
     DebugView debug_view = DebugView::None;
+    bool fog_self_shadows = true; ///< Local media attenuate direct sun light within their own volume.
+    bool fog_ddgi = true; ///< Sample diffuse probe lighting in fog on the hybrid path.
+    bool sky_ibl = false; ///< Use the active sky material as the HDR lighting environment.
 };
 
 struct RenderStats {
@@ -274,6 +311,8 @@ struct RenderStats {
     std::uint32_t decals = 0;
     std::uint32_t path_tracer_samples = 0;
     bool temporal_history_used = false; ///< Hybrid RT history was available to the temporal passes.
+    std::uint32_t volume_bricks = 0; ///< Resident 8-cube pages in the shared volume atlas.
+    std::uint32_t volume_brick_fallbacks = 0; ///< Volumes that exceeded the page budget.
 };
 
 /// Hybrid deferred renderer built on RenderGraph.
@@ -366,7 +405,7 @@ ASTRAL_REFLECT(astral::SdfShape, primitive, operation, position, rotation, size,
 ASTRAL_REFLECT(astral::PointLight, position, color, intensity, radius, source_radius)
 ASTRAL_REFLECT(astral::RectLight, position, right, up, color, intensity, two_sided)
 ASTRAL_REFLECT(astral::DirectionalLight, direction, color, intensity, shadows, angular_radius)
-ASTRAL_REFLECT(astral::Environment, sky, ground, ambient, exposure)
+ASTRAL_REFLECT(astral::Environment, sky, ground, ambient, exposure, aerial_extinction, aerial_start_m, fog_extinction, fog_range_m)
 ASTRAL_REFLECT_ENUM(astral::ShadingModel, Standard, Clearcoat, Sheen, Anisotropic, Transmission, Subsurface)
 ASTRAL_REFLECT(astral::ClearcoatDesc, strength, roughness)
 ASTRAL_REFLECT(astral::SheenDesc, color, roughness)
@@ -383,4 +422,4 @@ ASTRAL_REFLECT_ENUM(astral::DebugView, None, Albedo, Normals, DiffuseLight, Spec
 ASTRAL_REFLECT(astral::GiSettings, probes_x, probes_y, probes_z, rays_per_probe, hysteresis, volume_min, volume_max)
 ASTRAL_REFLECT(astral::RenderSettings, shadow_map_size, ray_tracing, gi, denoise_iterations, max_history, taa_blend,
                bloom_strength, max_ray_distance, near_gi_radius, restir_di, path_tracer, path_tracer_max_bounces,
-               debug_view)
+               debug_view, fog_self_shadows, fog_ddgi, sky_ibl)

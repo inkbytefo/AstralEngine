@@ -1,0 +1,23 @@
+#version 460
+#include <astral/ddgi_layout.glsl>
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(push_constant, scalar) uniform Push {
+    FrameRef frame;
+    uint irradiance, target;
+} pc;
+
+void main() {
+    uvec2 xy = gl_GlobalInvocationID.xy;
+    Frame f = pc.frame.f;
+    uint columns = f.ddgi_counts.x * f.ddgi_counts.y;
+    if (xy.x >= columns || xy.y >= f.ddgi_counts.z) return;
+    uint index = xy.y * columns + xy.x;
+    const vec3 axes[6] = vec3[](vec3(1, 0, 0), vec3(-1, 0, 0), vec3(0, 1, 0),
+                               vec3(0, -1, 0), vec3(0, 0, 1), vec3(0, 0, -1));
+    vec3 radiance = vec3(0);
+    for (int i = 0; i < 6; ++i) {
+        vec2 uv = ddgi_uv(f, index, axes[i], DDGI_IRR);
+        radiance += astral_sample(pc.irradiance, ASTRAL_SAMPLER_LINEAR_CLAMP, uv).rgb;
+    }
+    imageStore(astral_storage_images[pc.target], ivec2(xy), vec4(radiance / 6.0, 1.0));
+}

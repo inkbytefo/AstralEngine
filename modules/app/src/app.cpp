@@ -4,6 +4,7 @@
 #include "services/dev_tools.hpp"
 #include "services/frame_loop.hpp"
 #include "services/terrain_bridge.hpp"
+#include "services/vfx_runtime.hpp"
 #include "services/physics_bridge.hpp"
 #include "services/render_bridge.hpp"
 #include "services/script_bridge.hpp"
@@ -29,6 +30,8 @@ void register_app_types(Context& ctx) {
     TypeRegistry& types = ctx.types;
     register_world_types(types);
     types.add<Camera>();
+    types.add<Atmosphere>();
+    register_vfx_types(types, ctx.events);
     types.add<PointLight>();
     types.add<RectLight>();
     types.add<Sdf>();
@@ -118,18 +121,30 @@ struct GraphicsBackend {
 struct ContextServices {
     class Scenes final : public SceneService {
     public:
-        Scenes(WorldBridge& bridge, DirectionalLight& sun, Environment& environment)
-            : bridge_(bridge), sun_(sun), environment_(environment) {}
-        LoadResult load_scene(std::string_view path) override { return bridge_.load_scene(path, sun_, environment_); }
-        bool save_scene(std::string_view path) override { return bridge_.save_scene(path, sun_, environment_); }
+        Scenes(WorldBridge& bridge, AtmosphereController& atmosphere, Context& ctx)
+            : bridge_(bridge), atmosphere_(atmosphere), ctx_(ctx) {}
+        LoadResult load_scene(std::string_view path) override {
+            DirectionalLight sun;
+            Environment environment;
+            atmosphere_.authored_lighting(ctx_, sun, environment);
+            auto result = bridge_.load_scene(path, sun, environment);
+            if (result.errors.empty() || !result.entities.empty()) atmosphere_.set_authored_lighting(ctx_, sun, environment);
+            return result;
+        }
+        bool save_scene(std::string_view path) override {
+            DirectionalLight sun;
+            Environment environment;
+            atmosphere_.authored_lighting(ctx_, sun, environment);
+            return bridge_.save_scene(path, sun, environment);
+        }
         Entity spawn_prefab(std::string_view path, const Transform& transform) override {
             return bridge_.spawn_prefab(path, transform);
         }
 
     private:
         WorldBridge& bridge_;
-        DirectionalLight& sun_;
-        Environment& environment_;
+        AtmosphereController& atmosphere_;
+        Context& ctx_;
     };
 
     class Maps final : public MapService {
@@ -162,7 +177,7 @@ struct ContextServices {
     };
 
     ContextServices(WorldBridge& world_bridge, FrameLoop& frame_loop, ScriptBridge& script_bridge, Context& ctx)
-        : scenes(world_bridge, ctx.sun, ctx.environment),
+        : scenes(world_bridge, frame_loop.atmosphere(), ctx),
           maps(world_bridge, frame_loop),
           scripts(script_bridge, ctx.api_owners) {}
 

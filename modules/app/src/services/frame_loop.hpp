@@ -1,7 +1,9 @@
 #pragma once
 // Internal to Astral::App: owns the ordered frame pipeline, system phase storage, and frame clock.
 
+#include "atmosphere.hpp"
 #include "terrain_bridge.hpp"
+#include "vfx_runtime.hpp"
 
 #include <astral/app/app.hpp>
 #include <astral/core/clock.hpp>
@@ -60,6 +62,7 @@ public:
     [[nodiscard]] float next_delta();
     void run_frame(Game& game, float delta);
     void finish_world_loading();
+    AtmosphereController& atmosphere() noexcept { return atmosphere_; }
 
 private:
     static void run_fixed_update_cb(void* user);
@@ -85,6 +88,8 @@ private:
     DevTools& dev_tools_;
     WorldBridge& world_bridge_;
     RenderBridge& render_bridge_;
+    AtmosphereController atmosphere_;
+    VfxRuntime vfx_;
     PhysicsBridge& physics_bridge_;
     TerrainBridge terrain_bridge_;
     AudioBridge& audio_bridge_;

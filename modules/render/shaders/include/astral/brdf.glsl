@@ -133,9 +133,27 @@ vec3 eval_direct_pbr(vec3 n, vec3 v, vec3 l, vec3 albedo, float roughness, float
     return (diffuse + specular) * nl * PI;
 }
 
-// Procedural hemisphere sky/ground radiance.
+#include <astral/sky_ibl.glsl>
+
 vec3 sky_radiance(Frame f, vec3 dir) {
+    if (f.ibl.z != 0u) return sky_environment_sample(f.ibl.x, dir);
     return mix(f.ground_color.rgb, f.sky_color.rgb, smoothstep(-0.2, 0.4, dir.y));
+}
+
+vec3 sky_diffuse_ibl(Frame f, vec3 n) {
+    if (f.ibl.z != 0u) return sky_filtered_sample(f.ibl.y, n, SKY_SPECULAR_LEVELS);
+    return mix(f.ground_color.rgb, f.sky_color.rgb, n.y * 0.5 + 0.5);
+}
+
+vec3 sky_specular_ibl(Frame f, vec3 direction, float roughness) {
+    if (f.ibl.z == 0u) {
+        return mix(sky_radiance(f, direction), mix(f.ground_color.rgb, f.sky_color.rgb, 0.5), roughness);
+    }
+    if (roughness < 0.025) return sky_radiance(f, direction);
+    float level = clamp(roughness, 0.0, 1.0) * float(SKY_SPECULAR_LEVELS - 1u);
+    uint lower = uint(level), upper = min(lower + 1u, SKY_SPECULAR_LEVELS - 1u);
+    return mix(sky_filtered_sample(f.ibl.y, direction, lower),
+               sky_filtered_sample(f.ibl.y, direction, upper), fract(level));
 }
 
 #endif

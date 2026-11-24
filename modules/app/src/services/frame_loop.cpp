@@ -6,7 +6,9 @@
 #include "render_bridge.hpp"
 #include "script_bridge.hpp"
 #include "world_bridge.hpp"
+#include "vfx_runtime.hpp"
 
+#include <astral/app/gameplay_smoke.hpp>
 #include <astral/assets/asset_manager.hpp>
 #include <astral/core/log.hpp>
 #include <astral/core/profiler.hpp>
@@ -82,6 +84,7 @@ void FrameLoop::run_frame(Game& game, float delta) {
     else terrain_bridge_.sync({});
     run_physics(delta);
     run_scripted_phase(Phase::PostUpdate, ScriptPhase::PostUpdate, "PostUpdate");
+    atmosphere_.update(context_, render_bridge_, delta);
     update_transforms_and_primitives();
     update_audio();
     render_frame(game, delta);
@@ -133,6 +136,11 @@ void FrameLoop::run_fixed_update() {
     ASTRAL_PROFILE_SCOPE(&dev_tools_.profiler(), "FixedUpdate");
     run_phase_(systems_[static_cast<std::size_t>(Phase::FixedUpdate)], context_);
     script_bridge_.run(ScriptPhase::FixedUpdate);
+    vfx_.update(context_, time_.fixed_delta);
+    world_.each<GameplaySmoke, const Transform>([&](Entity entity, GameplaySmoke& smoke, const Transform& transform) {
+        if (!world_.has<Parent>(entity)) smoke.step(physics_bridge_, transform.position);
+    });
+    vfx_.apply_smoke_events(world_);
 }
 
 void FrameLoop::run_physics(float delta) {

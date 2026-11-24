@@ -1,0 +1,30 @@
+#version 460
+#include <astral/scene.glsl>
+
+layout(push_constant, scalar) uniform Push {
+    FrameRef frame;
+    uint hdr;
+    uint depth;
+    uint sdf_depth;
+    uint result;
+} pc;
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+vec4 fetch_aerial(uint index, ivec2 p) {
+    return texelFetch(sampler2D(astral_textures[index], astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]), p, 0);
+}
+
+void main() {
+    Frame f = pc.frame.f;
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(pixel, ivec2(f.screen.xy)))) return;
+    float depth = fetch_aerial(pc.depth, pixel).r;
+    if (pc.sdf_depth != NO_TEXTURE) depth = min(depth, fetch_aerial(pc.sdf_depth, pixel).r);
+    vec4 color = fetch_aerial(pc.hdr, pixel);
+    if (depth < 1.0) {
+        vec2 uv = (vec2(pixel) + 0.5) * f.screen.zw;
+        color.rgb = aerial_surface(f, color.rgb, reconstruct_world(f, uv, depth));
+    }
+    imageStore(astral_storage_images[pc.result], pixel, color);
+}

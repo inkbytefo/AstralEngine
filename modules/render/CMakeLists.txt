@@ -38,6 +38,9 @@ astral_add_module(NAME render
         src/passes/denoise_pass.cpp
         src/passes/composite_pass.cpp
         src/passes/sky_pass.cpp
+        src/passes/aerial_pass.cpp
+        src/passes/fog_pass.cpp
+        src/passes/particle_pass.cpp
         src/passes/taa_pass.cpp
         src/passes/bloom_pass.cpp
         src/passes/tonemap_pass.cpp
@@ -67,6 +70,7 @@ astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astr
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/bsdf.glsl astral_bsdf_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/rt.glsl astral_rt_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/projection.glsl astral_projection_glsl)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/ddgi_layout.glsl astral_ddgi_layout_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/restir.glsl astral_restir_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/primary.glsl astral_primary_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/sdf.glsl astral_sdf_glsl)
@@ -75,12 +79,20 @@ astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/ddgi_trace.c
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/restir_di_temporal.comp astral_restir_di_temporal_comp)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/restir_di_spatial.comp astral_restir_di_spatial_comp)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/path_tracer.comp astral_path_tracer_comp)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle.frag astral_particle_frag)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle.vert astral_particle_vert)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/particle_state.glsl astral_particle_state_glsl)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/smoke_atlas.glsl astral_smoke_atlas_glsl)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/sky_ibl.glsl astral_sky_ibl_glsl)
 target_include_directories(astral_render SYSTEM PRIVATE $<BUILD_INTERFACE:${stb_SOURCE_DIR}>)
 
 astral_add_shaders(astral_render
     SOURCES
         shaders/gbuffer.vert shaders/gbuffer.frag shaders/shadow.vert
-        shaders/sdf.comp shaders/sdf_depth.frag shaders/decal.comp shaders/lighting.comp
+        shaders/sdf.comp shaders/sdf_depth.frag shaders/decal.comp shaders/lighting.comp shaders/aerial.comp
+        shaders/fog_integrate.comp shaders/fog_composite.comp shaders/fog_volume_shadow.comp shaders/fog_ddgi_reduce.comp
+        shaders/particle.vert shaders/particle.frag shaders/particle_simulate.comp
+        shaders/sky_ibl_filter.comp
         shaders/tonemap.vert shaders/tonemap.frag
         shaders/rt_lighting.comp shaders/ddgi_trace.comp shaders/ddgi_update.comp
         shaders/restir_di_temporal.comp shaders/restir_di_spatial.comp
@@ -107,5 +119,5 @@ if(TARGET astral_render_tests)
     target_include_directories(astral_render_tests PRIVATE
         ${CMAKE_SOURCE_DIR}/modules/gpu/tests
         ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    set_tests_properties(astral_render_tests PROPERTIES TIMEOUT 300)
+    set_tests_properties(astral_render_tests PROPERTIES TIMEOUT 420)
 endif()

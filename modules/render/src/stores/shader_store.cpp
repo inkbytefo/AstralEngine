@@ -2,6 +2,7 @@
 
 #include <shaders/ddgi_trace.comp.hpp>
 #include <shaders/path_tracer.comp.hpp>
+#include <shaders/particle.vert.hpp>
 #include <shaders/restir_di_spatial.comp.hpp>
 #include <shaders/restir_di_temporal.comp.hpp>
 #include <shaders/rt_lighting.comp.hpp>
@@ -40,6 +41,7 @@ ShaderStore::~ShaderStore() {
         device_.destroy(shader.forward);
         device_.destroy(shader.gbuffer);
         device_.destroy(shader.shadow);
+        device_.destroy(shader.sky_capture);
     });
     destroy_rt_pipelines();
 }
@@ -101,6 +103,24 @@ ShaderHandle ShaderStore::create(const SurfaceShaderBuild& build, std::string_vi
 ShaderHandle ShaderStore::create(const ScreenShaderBuild& build, std::string_view debug_name) {
     if (!build.ok()) return {};
     const std::string name = debug_name.empty() ? std::string("astral.screen") : std::string(debug_name);
+    if (build.type == ShaderType::Volume || build.type == ShaderType::Particle) {
+        GpuShader effect;
+        effect.samplers = build.samplers;
+        if (build.type == ShaderType::Volume) {
+            effect.kind = GpuShader::Kind::Volume;
+            effect.forward = device_.create_compute_pipeline({.shader = {build.compute}, .debug_name = name});
+        } else {
+            effect.kind = GpuShader::Kind::Particle;
+            const auto vertex = build.vertex.empty() ? std::span<const std::uint32_t>(shaders::particle_vert)
+                                                     : std::span<const std::uint32_t>(build.vertex);
+            effect.forward = device_.create_graphics_pipeline({
+                .vertex = {vertex}, .fragment = {build.fragment}, .color_formats = {target_format_},
+                .depth = {.format = gpu::Format::D32Float, .test = true, .write = false},
+                .alpha_blend = !build.additive, .additive_blend = build.additive, .debug_name = name,
+            });
+        }
+        return effect.forward.valid() ? shaders_.create(effect) : ShaderHandle{};
+    }
     const bool sky = build.type == ShaderType::Sky;
     GpuShader shader;
     shader.kind = sky ? GpuShader::Kind::Sky : GpuShader::Kind::Post;
@@ -115,6 +135,13 @@ ShaderHandle ShaderStore::create(const ScreenShaderBuild& build, std::string_vie
         .debug_name = name + (sky ? ".sky" : ".post"),
     });
     if (!shader.forward.valid()) return {};
+    if (sky && !build.sky_capture.empty()) {
+        shader.sky_capture = device_.create_graphics_pipeline({
+            .vertex = {build.vertex}, .fragment = {build.sky_capture}, .color_formats = {gpu::Format::RGBA16Float},
+            .depth = {.test = false, .write = false}, .debug_name = name + ".ibl",
+        });
+        shader.sky_uses_time = build.sky_uses_time;
+    }
     return shaders_.create(shader);
 }
 
@@ -123,6 +150,7 @@ void ShaderStore::destroy(ShaderHandle handle) {
         device_.destroy(s->forward);
         device_.destroy(s->gbuffer); // deferred by the device until the GPU is done with it
         device_.destroy(s->shadow);
+        device_.destroy(s->sky_capture);
         shaders_.destroy(handle);
         rt_surfaces_dirty_ = true;
     }

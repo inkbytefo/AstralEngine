@@ -44,6 +44,8 @@ public:
     void color(RGTexture texture, gpu::LoadOp load = gpu::LoadOp::Clear,
                std::array<float, 4> clear = {0, 0, 0, 1});
     void depth(RGTexture texture, gpu::LoadOp load = gpu::LoadOp::Clear, float clear = 1.0f);
+    /// Depth test and sample the same texture. The pipeline must leave depth writes disabled.
+    void depth_read(RGTexture texture);
     void copy_src(RGTexture texture);
     void copy_dst(RGTexture texture);
     /// Keep this pass even if nothing reads its outputs (debug output, readbacks, ...).

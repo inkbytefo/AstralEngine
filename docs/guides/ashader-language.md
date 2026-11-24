@@ -123,8 +123,8 @@ shader_type <tür>;
 | `surface` | **Aktif (Derlenir)** | 3B mesh yüzeyleri (opak, alfa kesimli veya şeffaf PBR/Unshaded yüzeyler). | `surface()` ve/veya `vertex()` |
 | `sky` | **Aktif (Derlenir)** | Tam ekran prosedürel veya dokulu HDR gökyüzü / arka plan. | `sky()` |
 | `post` | **Aktif (Derlenir)** | Tonemap sonrası tam ekran görüntü işleme (post-processing) zinciri. | `post()` |
-| `particle` | *Ayrıştırılır (Rezerve)* | GPU parçacık simülasyonu ve çizimi (M14 VFX fazı için ayrıldı). | — |
-| `volume` | *Ayrıştırılır (Rezerve)* | Hacimsel sis, duman, ateş raymarching shader'ları (M14 VFX fazı için ayrıldı). | — |
+| `particle` | **Aktif (Derlenir)** | GPU billboard parçacıklarının renk ve opaklığı. | `particle()` |
+| `volume` | **Aktif (Derlenir)** | Yerel duman hücrelerinin görsel yoğunluğu ve saçılma rengi. | `volume()` |
 | `ui` | *Ayrıştırılır (Rezerve)* | 2B arayüz katmanı özel efektleri. | — |
 
 ---
@@ -531,7 +531,7 @@ if (parsed.source.type == astral::ShaderType::Surface) {
    - RT ikincil ışınlarında `vertex()` deformasyonu, `ALPHA` / `alpha_test` kesimi, `NORMAL_MAP` ve ekran türevleri (`dFdx`/`dFdy`) çalıştırılmaz; BLAS mesh oluşturulurken orijinal köşe konumlarıyla bir kez kurulur.
    - İki farklı `surface` shader'ında fonksiyon dışında aynı adla global sabit (`const float k = 1.0;`) tanımlanırsa birleşik RT shader derlemesi hata verir (bu durumda raster çalışmaya devam eder, `Renderer::shader_error()` hatayı bildirir). Sabitleri fonksiyon içinde tanımlayın veya benzersiz ön ek verin.
 3. **Gökyüzü (`sky`) ve Aydınlatma İlişkisi:**
-   - `shader_type sky` görsel arka planı (HDR) çizer; ancak ortam aydınlatması ve raster gökyüzü yansıması sahnedeki `astral::Environment` (`sky_color`, `ground_color`) bileşeninden okunur.
+   - `shader_type sky` HDR arka planı çizer. `RenderSettings::sky_ibl` etkinse aynı `sky()` fonksiyonu yüzeyler, yansımalar ve RT ortam ışınları için HDR ışık haritası da üretir. `IBL_CAPTURE` yalnız ışık haritası üretilirken doğrudur. Ayar kapalıyken motor `astral::Environment` gökyüzü ve zemin renklerini kullanır.
    - SDF şekilleri ayrı bir derinlik tamponu kullandığı için özel `sky` shader'ı SDF primitiflerinin üzerine yazabilir (mesh'lerde bu sorun yoktur).
 4. **Doku Tipleri:**
    - Yalnızca 2B dokular (`sampler2D`) uniform olarak tanımlanabilir; `sampler3D`, `samplerCube` veya `sampler2DArray` henüz `.ashader` başlığında açılmamıştır.
@@ -545,7 +545,6 @@ if (parsed.source.type == astral::ShaderType::Surface) {
 `.ashader` mimarisi ve ayrıştırıcısı, motorun gelecek fazlarıyla (M14–M18) doğrudan genişleyecek şekilde kurgulanmıştır:
 
 1. **Aktif Edilecek Yeni `shader_type` Türleri:**
-   - **`shader_type particle;` ve `shader_type volume;` (M14 — Volumetric VFX):** Ayrıştırıcıda şimdiden tanımlı olan bu türler, GPU compute parçacık simülasyonuna ve hacimsel raymarching geçişine (`density()`, `emission()`) bağlanacak.
    - **`shader_type ui;`:** 2B `UiCanvas` / HUD elemanları üzerinde SDF efektleri ve özel arayüz animasyonları için derlenecek.
 2. **HDR Öncesi Son İşlem (`render_mode before_tonemap`):**
    - `shader_type post;` için şu anki `after_tonemap` noktasına ek olarak doğrusal HDR tamponu üzerinde (Bloom/Tonemap öncesinde) çalışan `before_tonemap` kancası eklenecek.

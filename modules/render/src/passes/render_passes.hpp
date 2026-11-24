@@ -1,14 +1,17 @@
 #pragma once
 
+#include "passes/aerial_pass.hpp"
 #include "passes/bloom_pass.hpp"
 #include "passes/composite_pass.hpp"
 #include "passes/ddgi_pass.hpp"
 #include "passes/debug_lines_pass.hpp"
 #include "passes/decal_pass.hpp"
 #include "passes/denoise_pass.hpp"
+#include "passes/fog_pass.hpp"
 #include "passes/gbuffer_pass.hpp"
 #include "passes/lighting_pass.hpp"
 #include "passes/path_tracer_pass.hpp"
+#include "passes/particle_pass.hpp"
 #include "passes/post_pass.hpp"
 #include "passes/rt_lighting_pass.hpp"
 #include "passes/sdf_pass.hpp"
@@ -37,10 +40,13 @@ struct RenderPasses {
     DenoisePass denoise;
     CompositePass composite;
     SkyPass sky;
+    AerialPass aerial;
+    FogPass fog;
     TaaPass taa;
     BloomPass bloom;
     TonemapPass tonemap;
     TransparentPass transparent;
+    ParticlePass particles;
     PostPass post;
     DebugLinesPass debug_lines;
     UiPass ui;
@@ -56,10 +62,14 @@ struct RenderPasses {
           path_tracer(device),
           denoise(device),
           composite(device),
+          sky(device),
+          aerial(device),
+          fog(device),
           taa(device),
           bloom(device),
           tonemap(device, target_format),
           transparent(device),
+          particles(device, target_format),
           debug_lines(device, target_format),
           ui(device, target_format) {}
 

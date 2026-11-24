@@ -80,13 +80,16 @@ std::uint64_t path_tracer_scene_signature(const RenderScene& scene, const FrameI
 void update_path_tracer_history(RayTracedPathContext& ctx, const CameraData& camera,
                                 const RenderScene& scene, const Mat4& view_projection) {
     const std::uint64_t signature = path_tracer_scene_signature(scene, ctx.frame_instances);
+    const std::uint64_t sky_key = ctx.passes.sky.environment_key(scene, ctx.settings, ctx.materials);
+    const bool sky_changed = sky_key != ctx.temporal.sky_key;
     const bool time_changed = scene.time != ctx.temporal.prev_scene_time && has_time_dependent_surface(ctx, scene);
-    if (!ctx.temporal.history_valid || signature != ctx.temporal.path_tracer_scene_signature || time_changed ||
-        camera_changed(view_projection, ctx.temporal.prev_view_projection, camera.position,
-                       ctx.temporal.prev_camera_position)) {
+    if (!ctx.temporal.history_valid || signature != ctx.temporal.path_tracer_scene_signature || sky_changed ||
+        time_changed || camera_changed(view_projection, ctx.temporal.prev_view_projection, camera.position,
+                                       ctx.temporal.prev_camera_position)) {
         ctx.passes.path_tracer.reset();
     }
     ctx.temporal.path_tracer_scene_signature = signature;
+    ctx.temporal.sky_key = sky_key;
     ctx.temporal.prev_scene_time = scene.time;
 }
 
@@ -133,6 +136,7 @@ GpuFrame build_rt_frame(const CameraData& camera, const RenderScene& scene, cons
     frame.inv_view_projection = inverse(jittered);
     frame.light_view_projection = Mat4::identity();
     frame.camera_position = {camera.position.x, camera.position.y, camera.position.z, 1};
+    frame.atmosphere.aerial = settings.debug_view == DebugView::None ? aerial_parameters(scene.environment) : Vec4{};
     frame.sun_direction = {sun.x, sun.y, sun.z, 0};
     frame.sun_color = {scene.sun.color.x * sun_on, scene.sun.color.y * sun_on, scene.sun.color.z * sun_on, 0};
     frame.sky_color = {scene.environment.sky.x, scene.environment.sky.y, scene.environment.sky.z,
@@ -191,11 +195,21 @@ FrameAddresses collect_rt_addresses(gpu::Device& device, const FrameSlot& slot, 
     };
 }
 
+ShadowFrame prepare_fog_shadow(RayTracedPathContext& ctx, const RenderScene& scene, GpuFrame& frame) {
+    if (ctx.settings.path_tracer || ctx.settings.debug_view != DebugView::None) return {};
+    frame.atmosphere.fog = fog_parameters(scene);
+    if (frame.atmosphere.fog.x == 0 && scene.smoke.empty()) return {};
+    const auto shadow = ctx.passes.shadow.prepare(scene, ctx.meshes);
+    frame.light_view_projection = shadow.light_view_projection;
+    return shadow;
+}
+
 void record_rt_graph(RayTracedPathContext& ctx, const FrameInputs& inputs, gpu::TextureHandle target,
-                     const RtPipelines& rt_pipes) {
+                     const RtPipelines& rt_pipes, const ShadowFrame& fog_shadow) {
     RenderGraph& g = ctx.graph;
     g.begin_frame();
     const RGTexture output = g.import(target, "output");
+    ctx.passes.sky.bake_environment(g, inputs);
     GBufferTextures gbuffer = ctx.passes.gbuffer.add(g, inputs, ctx.stats);
     ctx.passes.sdf.add(g, inputs, gbuffer);
     ctx.passes.decals.add(g, inputs, gbuffer);
@@ -204,16 +218,23 @@ void record_rt_graph(RayTracedPathContext& ctx, const FrameInputs& inputs, gpu::
     const DenoiseOutput denoised = ctx.passes.denoise.add(g, inputs, gbuffer, rt);
     const RGTexture hdr = ctx.passes.composite.add(g, inputs, gbuffer, denoised);
     ctx.passes.sky.add(g, inputs, hdr, gbuffer);
-    const RGTexture taa_out = ctx.passes.taa.add(g, inputs, gbuffer, hdr);
+    const RGTexture atmospheric_hdr = inputs.settings.debug_view == DebugView::None ?
+        ctx.passes.aerial.add(g, inputs, hdr, gbuffer) : hdr;
+    const RGTexture taa_out = ctx.passes.taa.add(g, inputs, gbuffer, atmospheric_hdr);
+    const RGTexture shadow = fog_shadow.bindless_index != 0xFFFFFFFFu ?
+        ctx.passes.shadow.add(g, inputs, fog_shadow, ctx.stats) : RGTexture{};
+    const RGTexture fog = ctx.passes.fog.integrate(g, inputs, shadow, ctx.stats, ddgi);
+    const RGTexture fogged = ctx.passes.fog.composite(g, inputs, taa_out, gbuffer, fog);
     ctx.passes.sdf.merge_depth(g, inputs, gbuffer);
-    ctx.passes.transparent.add(g, inputs, taa_out, gbuffer.depth, ctx.stats);
-    const RGTexture bloom = ctx.passes.bloom.add(g, inputs, taa_out);
+    ctx.passes.transparent.add(g, inputs, fogged, gbuffer.depth, ctx.stats, fog);
+    const RGTexture bloom = ctx.passes.bloom.add(g, inputs, fogged);
 
     const std::span<const MaterialHandle> post_chain = ctx.passes.post.collect(inputs.scene, ctx.materials);
     const RGTexture scene_color =
         post_chain.empty() ? output
                            : g.create("scene.ldr", {inputs.extent.width, inputs.extent.height, ctx.target_format});
-    ctx.passes.tonemap.add(g, inputs, taa_out, bloom, scene_color);
+    ctx.passes.tonemap.add(g, inputs, fogged, bloom, scene_color);
+    ctx.passes.particles.add(g, inputs, scene_color, gbuffer, fog, ddgi);
     ctx.passes.post.add(g, inputs, scene_color, output, post_chain);
     ctx.passes.debug_lines.add(g, inputs, output, gbuffer.depth);
     ctx.passes.ui.add(g, inputs, output);
@@ -224,8 +245,10 @@ void record_path_tracer_graph(RayTracedPathContext& ctx, const FrameInputs& inpu
     RenderGraph& g = ctx.graph;
     g.begin_frame();
     const RGTexture output = g.import(target, "output");
+    ctx.passes.sky.bake_environment(g, inputs);
     const bool need_depth =
-        inputs.scene.sky.valid() || !inputs.instances.transparent_draws.empty() || !inputs.scene.debug_lines.empty();
+        inputs.scene.sky.valid() || aerial_parameters(inputs.scene.environment).x > 0.0f ||
+        !inputs.instances.transparent_draws.empty() || !inputs.scene.debug_lines.empty() || !inputs.scene.particles.empty();
     GBufferTextures gbuffer{};
     if (need_depth) {
         gbuffer = ctx.passes.gbuffer.add(g, inputs, ctx.stats);
@@ -233,14 +256,17 @@ void record_path_tracer_graph(RayTracedPathContext& ctx, const FrameInputs& inpu
     }
     const RGTexture hdr = ctx.passes.path_tracer.add(g, inputs, rt_pipes.path_tracer);
     if (need_depth) ctx.passes.sky.add(g, inputs, hdr, gbuffer);
+    const RGTexture atmospheric_hdr =
+        need_depth && inputs.settings.debug_view == DebugView::None ? ctx.passes.aerial.add(g, inputs, hdr, gbuffer) : hdr;
     ctx.passes.sdf.merge_depth(g, inputs, gbuffer);
-    if (need_depth) ctx.passes.transparent.add(g, inputs, hdr, gbuffer.depth, ctx.stats);
-    const RGTexture bloom = ctx.passes.bloom.add(g, inputs, hdr);
+    if (need_depth) ctx.passes.transparent.add(g, inputs, atmospheric_hdr, gbuffer.depth, ctx.stats);
+    const RGTexture bloom = ctx.passes.bloom.add(g, inputs, atmospheric_hdr);
     const std::span<const MaterialHandle> post_chain = ctx.passes.post.collect(inputs.scene, ctx.materials);
     const RGTexture scene_color =
         post_chain.empty() ? output
                            : g.create("scene.ldr", {inputs.extent.width, inputs.extent.height, ctx.target_format});
-    ctx.passes.tonemap.add(g, inputs, hdr, bloom, scene_color);
+    ctx.passes.tonemap.add(g, inputs, atmospheric_hdr, bloom, scene_color);
+    if (need_depth) ctx.passes.particles.add(g, inputs, scene_color, gbuffer);
     ctx.passes.post.add(g, inputs, scene_color, output, post_chain);
     if (need_depth) ctx.passes.debug_lines.add(g, inputs, output, gbuffer.depth);
     ctx.passes.ui.add(g, inputs, output);
@@ -265,9 +291,10 @@ void render_ray_traced_path(RayTracedPathContext& ctx, gpu::CommandList& cmd, gp
     else update_sdf_history(ctx.temporal, ctx.frame_instances.shapes);
 
     FrameAddresses addresses = collect_rt_addresses(ctx.device, slot, ctx.frame_instances);
-    const GpuFrame frame =
+    GpuFrame frame =
         build_rt_frame(camera, scene, ctx.settings, ddgi, ctx.temporal, ctx.frame_instances,
                        addresses, ctx.passes.path_tracer.sample_count(), extent, ctx.target_format, unjittered);
+    const ShadowFrame fog_shadow = prepare_fog_shadow(ctx, scene, frame);
     slot.frame.write(ctx.device, &frame, sizeof(frame));
     addresses.frame = ctx.device.buffer_address(slot.frame.buffer);
 
@@ -291,7 +318,7 @@ void render_ray_traced_path(RayTracedPathContext& ctx, gpu::CommandList& cmd, gp
     if (ctx.settings.path_tracer) {
         record_path_tracer_graph(ctx, inputs, target, rt_pipes);
     } else {
-        record_rt_graph(ctx, inputs, target, rt_pipes);
+        record_rt_graph(ctx, inputs, target, rt_pipes, fog_shadow);
         ctx.passes.ddgi.mark_valid();
     }
     ctx.graph.execute(cmd);

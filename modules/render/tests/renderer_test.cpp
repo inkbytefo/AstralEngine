@@ -1242,3 +1242,331 @@ TEST_CASE("characterization: RenderStats and pass list for raster and ray-traced
         f.renderer->destroy(glass);
     }
 }
+
+TEST_CASE("aerial perspective tints distant opaque surfaces without changing clear foreground or sky") {
+    Fixture f;
+    if (!f.device) return;
+    const auto cube = f.renderer->create_mesh(make_cube());
+    const std::vector<Item> items{
+        {.mesh = cube, .transform = translate({-0.9f, 0, 0}), .color = {1, 0, 0, 1}, .emissive = 1},
+        {.mesh = cube, .transform = translate({8, 0, -32}) * scale({5, 5, 5}),
+         .color = {1, 0, 0, 1}, .emissive = 1},
+    };
+    RenderScene scene{.meshes = f.inst(items), .sun = front_sun};
+    scene.environment.sky = {0.05f, 0.22f, 0.65f};
+    const auto clear = f.draw(scene);
+    scene.environment.aerial_extinction = 0.15f;
+    scene.environment.aerial_start_m = 8.0f;
+    const auto hazy = f.draw(scene);
+    const Vec3 far_position{8, 0, -30};
+    const auto distant_clear = rgb(f.at(clear, far_position));
+    const auto distant_hazy = rgb(f.at(hazy, far_position));
+    CHECK(f.at(hazy, {-0.9f, 0, 0.5f}) == f.at(clear, {-0.9f, 0, 0.5f}));
+    CHECK(hazy[0] == clear[0]);
+    CHECK(distant_clear.r > distant_clear.b);
+    CHECK(distant_hazy.b > distant_hazy.r);
+    CHECK(distant_hazy.b > distant_clear.b);
+}
+
+TEST_CASE("froxel extinction agrees with Beer-Lambert at an opaque surface") {
+    Fixture f;
+    if (!f.device) return;
+    const auto cube = f.renderer->create_mesh(make_cube());
+    const auto material = f.renderer->create_material({.base_color = {0, 0, 0, 1}, .emissive = {1, 1, 1}});
+    MeshInstance item{.mesh = cube, .material = material, .transform = Mat4::identity()};
+    RenderScene scene{.meshes = std::span(&item, 1), .sun = {.intensity = 0, .shadows = false},
+                      .environment = {.ambient = 0, .fog_extinction = 0.2f, .fog_range_m = 20}};
+    const auto actual = rgb(Fixture::center(f.draw(scene)));
+    const float expected_transmittance = std::exp(-0.2f * 4.5f);
+    const auto reference = f.renderer->create_material({
+        .base_color = {0, 0, 0, 1},
+        .emissive = {expected_transmittance, expected_transmittance, expected_transmittance}});
+    item.material = reference;
+    scene.environment.fog_extinction = 0;
+    const auto expected = rgb(Fixture::center(f.draw(scene)));
+    CHECK(std::abs(actual.r - expected.r) <= 2);
+    CHECK(std::abs(actual.g - expected.g) <= 2);
+    CHECK(std::abs(actual.b - expected.b) <= 2);
+}
+
+TEST_CASE("froxel fog attenuates an additive surface at its own depth") {
+    Fixture f;
+    if (!f.device) return;
+    const auto shader = make_shader(f,
+        "shader_type surface;\nrender_mode blend_add;\nvoid surface() { ALBEDO = vec3(0); EMISSION = vec3(1, 0, 0); ALPHA = 1.0; }\n",
+        "fog_additive");
+    REQUIRE(shader.valid());
+    const auto cube = f.renderer->create_mesh(make_cube());
+    const auto pane = f.renderer->create_material({.shader = shader});
+    const MeshInstance item{.mesh = cube, .material = pane, .transform = Mat4::identity()};
+    RenderScene scene{.meshes = std::span(&item, 1), .sun = {.intensity = 0, .shadows = false},
+                      .environment = {.sky = {}, .ground = {}, .ambient = 0}};
+    const auto clear = rgb(Fixture::center(f.draw(scene)));
+    scene.environment.fog_extinction = 0.65f;
+    scene.environment.fog_range_m = 25.0f;
+    const auto fogged = rgb(Fixture::center(f.draw(scene)));
+    CHECK(clear.r > fogged.r + 30);
+    CHECK(fogged.r > 0);
+    CHECK(fogged.g == 0);
+}
+
+TEST_CASE("local smoke uses packed occupancy without requiring global fog") {
+    Fixture f;
+    if (!f.device) return;
+    const auto cube = f.renderer->create_mesh(make_cube());
+    const auto material = f.renderer->create_material({.base_color = {0, 0, 0, 1}, .emissive = {1, 1, 1}});
+    const MeshInstance wall{.mesh = cube, .material = material,
+                            .transform = translate({0, 0, -1}) * scale({6, 5, 0.2f})};
+    std::array<std::uint8_t, 27> occupied{};
+    occupied[13] = 1;
+    SmokeVolumeView smoke{.centre = {0, 0, 1}, .cell_size_m = 1, .extinction_per_m = 2,
+                          .side = 3, .occupancy = occupied};
+    RenderScene scene{.meshes = std::span(&wall, 1), .sun = {.intensity = 0, .shadows = false},
+                      .environment = {.ambient = 0, .fog_range_m = 16}};
+    const auto clear = f.draw(scene);
+    scene.smoke = std::span(&smoke, 1);
+    const auto smoky = f.draw(scene);
+    CHECK(rgb(Fixture::center(clear)).r > rgb(Fixture::center(smoky)).r + 60);
+    CHECK(f.at(clear, {2, 0, -0.9f}) == f.at(smoky, {2, 0, -0.9f}));
+    const auto shader = make_shader(f, "shader_type volume;\nuniform float mask = 1.0;\n"
+                                       "void volume() { DENSITY *= mask; }\n", "smoke_mask");
+    REQUIRE(shader.valid());
+    smoke.material = f.renderer->create_material({.shader = shader, .params = {0.0f}});
+    CHECK(f.draw(scene) == clear);
+    CHECK(occupied[13] == 1);
+    smoke.material = f.renderer->create_material({.shader = shader, .params = {1.0f}});
+    CHECK(f.draw(scene) == smoky);
+    occupied[13] = 0;
+    CHECK(f.draw(scene) == clear);
+
+    // A visual-only volume can emit light even with zero extinction and no occupied CPU cells.
+    const auto emission = make_shader(f, "shader_type volume;\n"
+                                         "void volume() { DENSITY = 0.0; EMISSION = vec3(0.0, AGE, 0.0); }\n",
+                                      "volume_emission");
+    REQUIRE(emission.valid());
+    smoke.occupancy = {};
+    smoke.material = {};
+    CHECK(f.draw(scene) == clear);
+    smoke.material = f.renderer->create_material({.shader = emission});
+    CHECK(f.draw(scene) == clear);
+    smoke.age = 3.0f;
+    const auto glowing = rgb(Fixture::center(f.draw(scene)));
+    CHECK(glowing.g > glowing.r);
+}
+
+TEST_CASE("sky IBL lights neutral diffuse and metallic surfaces using the active sky") {
+    RenderSettings settings{.shadow_map_size = 512, .ray_tracing = false};
+    Fixture f(settings);
+    if (!f.device) return;
+    const auto sky_shader = make_shader(f, "shader_type sky;\nvoid sky() { COLOR = vec3(0, 0.8, 0); }\n", "ibl_green");
+    REQUIRE(sky_shader.valid());
+    const auto sky = f.renderer->create_material({.shader = sky_shader});
+    const auto cube = f.renderer->create_mesh(make_cube());
+    const std::vector<Item> items{{.mesh = cube, .transform = translate({-0.65f, 0, 0})},
+                                   {.mesh = cube, .transform = translate({0.65f, 0, 0}), .roughness = 0.4f,
+                                    .metallic = 1}};
+    const RenderScene scene{.meshes = f.inst(items), .sun = {.intensity = 0, .shadows = false},
+                            .environment = {.sky = {0.8f, 0, 0}, .ground = {0.8f, 0, 0}, .ambient = 1}, .sky = sky};
+    const auto prior = f.draw(scene);
+    CHECK(rgb(f.at(prior, {-0.65f, 0, 0.5f})).r > 70);
+    settings.sky_ibl = true;
+    f.renderer->set_settings(settings);
+    const auto lit = f.draw(scene);
+    for (float x : {-0.65f, 0.65f}) {
+        const auto c = rgb(f.at(lit, {x, 0, 0.5f}));
+        CHECK(c.g > 70);
+        CHECK(c.r == 0);
+    }
+}
+
+TEST_CASE("the volume atlas allocates occupied bricks and isolates material data across volumes") {
+    Fixture f;
+    if (!f.device) return;
+    const auto shader = make_shader(f, "shader_type volume;\nuniform vec3 tint = vec3(1);\n"
+                                       "void volume() { DENSITY = 0.0; EMISSION = tint * 5.0; }\n", "brick_test");
+    REQUIRE(shader.valid());
+    const auto red = f.renderer->create_material({.shader = shader, .params = {1, 0, 0}});
+    const auto green = f.renderer->create_material({.shader = shader, .params = {0, 1, 0}});
+    constexpr unsigned side = 17;
+    std::array<std::uint8_t, side * side * side> cells{};
+    cells[(7 * side + 8) * side + 8] = 1;
+    cells[(8 * side + 8) * side + 8] = 1;
+    const std::array volumes{
+        SmokeVolumeView{.centre = {-1, 0, 0}, .cell_size_m = 0.95f, .extinction_per_m = 1,
+                        .side = side, .occupancy = cells, .material = red},
+        SmokeVolumeView{.centre = {1, 0, 0}, .cell_size_m = 0.95f, .extinction_per_m = 1,
+                        .side = side, .occupancy = cells, .material = green},
+    };
+    const RenderScene scene{.sun = {.intensity = 0, .shadows = false},
+                            .environment = {.sky = {}, .ground = {}, .ambient = 0, .fog_range_m = 12},
+                            .smoke = volumes};
+    const auto pixels = f.draw(scene);
+    CHECK(f.renderer->stats().volume_bricks == 4);
+    const auto left = rgb(f.at(pixels, volumes[0].centre));
+    const auto right = rgb(f.at(pixels, volumes[1].centre));
+    CHECK(left.r > 30);
+    CHECK(left.g == 0);
+    CHECK(right.g > 30);
+    CHECK(right.r == 0);
+}
+
+TEST_CASE("sky IBL supplies path-traced reflection and resets accumulation when the sky changes") {
+    Fixture f({.shadow_map_size = 512, .ray_tracing = true, .bloom_strength = 0,
+               .path_tracer = true, .path_tracer_max_bounces = 3, .sky_ibl = true});
+    if (!f.device || !f.device->supports(gpu::Feature::RayTracing)) return;
+    REQUIRE(f.renderer->ray_tracing());
+    const auto sky_shader = make_shader(f,
+        "shader_type sky;\nvoid sky() { COLOR = TIME < 0.5 ? vec3(0, 1, 0) : vec3(0, 0, 1); }\n",
+        "ibl_animated");
+    REQUIRE(sky_shader.valid());
+    const auto sky = f.renderer->create_material({.shader = sky_shader});
+    const auto cube = f.renderer->create_mesh(make_cube());
+    const std::vector<Item> items{{.mesh = cube, .roughness = 0.02f, .metallic = 1}};
+    RenderScene scene{.meshes = f.inst(items), .sun = {.intensity = 0, .shadows = false},
+                      .environment = {.sky = {}, .ground = {}, .ambient = 0}, .sky = sky};
+    const auto first = rgb(Fixture::center(f.draw(scene)));
+    CHECK(first.g > 100);
+    CHECK(first.b == 0);
+    f.draw(scene);
+    CHECK(f.renderer->stats().path_tracer_samples == 2);
+    scene.time = 1;
+    const auto changed = rgb(Fixture::center(f.draw(scene)));
+    CHECK(f.renderer->stats().path_tracer_samples == 1);
+    CHECK(changed.b > 100);
+    CHECK(changed.g == 0);
+}
+
+TEST_CASE("GPU particle burst draws and obeys scene depth") {
+    Fixture f;
+    if (!f.device) return;
+    ParticleBurst burst{.position = {0, 0, 0}, .age = 0.1f, .duration = 0.8f,
+                        .color = {3, 0.4f, 0.1f}, .size_m = 0.25f};
+    RenderScene scene{.sun = {.intensity = 0, .shadows = false}, .environment = {.sky = {}, .ground = {}, .ambient = 0}};
+    const auto clear = f.draw(scene);
+    scene.particles = std::span(&burst, 1);
+    const auto lit = f.draw(scene);
+    CHECK(lit != clear);
+    const auto shader = make_shader(f, "shader_type particle;\nuniform float opacity = 1.0;\n"
+                                       "uniform float offset = 0.0;\nvoid motion() { WORLD_POSITION = ORIGIN + vec3(offset, 0, 0); }\n"
+                                       "void particle() { COLOR = vec3(0.0, 5.0, 0.0); ALPHA *= opacity; }\n",
+                                    "spark_color");
+    REQUIRE(shader.valid());
+    burst.material = f.renderer->create_material({.shader = shader, .params = {0.0f, 0.0f}});
+    CHECK(f.draw(scene) == clear);
+    burst.material = f.renderer->create_material({.shader = shader, .params = {1.0f, 100.0f}});
+    CHECK(f.draw(scene) == clear);
+    burst.material = f.renderer->create_material({.shader = shader, .params = {1.0f, 0.0f}});
+    const auto green = f.draw(scene);
+    CHECK(green != clear);
+    CHECK(std::equal(green.begin(), green.end(), clear.begin(),
+                     [](auto effect, auto baseline) { return rgb(effect).r == rgb(baseline).r; }));
+    const auto cube = f.renderer->create_mesh(make_cube());
+    const std::vector<Item> floor{{.mesh = cube, .transform = translate({0, 0, -0.3f}) * scale({4, 4, 0.2f})}};
+    scene.meshes = f.inst(floor);
+    burst.count = 1;
+    burst.age = 0.25f;
+    const auto hard = rgb(Fixture::center(f.draw(scene)));
+    burst.soft_distance_m = 1.0f;
+    const auto soft = rgb(Fixture::center(f.draw(scene)));
+    CHECK(soft.g > 0);
+    CHECK(soft.g < hard.g);
+    const std::vector<Item> items{{.mesh = cube, .transform = translate({0, 0, 1}) * scale({4, 4, 0.2f})}};
+    scene.meshes = f.inst(items);
+    const auto behind = f.draw(scene);
+    scene.particles = {};
+    CHECK(f.draw(scene) == behind);
+}
+
+TEST_CASE("local smoke attenuates sunlight through its own occupied cells") {
+    const RenderSettings settings{.shadow_map_size = 512, .ray_tracing = false, .bloom_strength = 0};
+    Fixture f(settings);
+    if (!f.device) return;
+    std::array<std::uint8_t, 27> occupied{};
+    occupied.fill(1);
+    const SmokeVolumeView smoke{.centre = {0, 0, 1}, .cell_size_m = 1, .extinction_per_m = 1.5f,
+                                .side = 3, .occupancy = occupied};
+    RenderScene scene{.sun = {.direction = {0, 0, 1}, .intensity = 5, .shadows = false},
+                      .environment = {.sky = {}, .ground = {}, .ambient = 0, .fog_range_m = 16},
+                      .smoke = std::span(&smoke, 1)};
+    const auto shaded = rgb(Fixture::center(f.draw(scene)));
+    auto unshadowed = settings;
+    unshadowed.fog_self_shadows = false;
+    f.renderer->set_settings(unshadowed);
+    const auto bright = rgb(Fixture::center(f.draw(scene)));
+    CHECK(shaded.r > 0);
+    CHECK(bright.r > shaded.r + 20);
+    scene.sun.intensity = 0;
+    CHECK(rgb(Fixture::center(f.draw(scene))).r == 0);
+}
+
+TEST_CASE("GPU particle state bounces off scene depth and does not advance twice at the same age") {
+    Fixture f;
+    if (!f.device) return;
+    f.look_from({0, 4, 6}, {0, 0, 0});
+    const auto floor = f.renderer->create_mesh(make_cube());
+    const std::vector<Item> items{{.mesh = floor, .transform = translate({0, -0.2f, 0}) * scale({16, 0.2f, 16}),
+                                   .color = {0, 0, 0, 1}}};
+    ParticleBurst burst{.color = {3, 1, 0.5f}, .size_m = 0.12f, .count = 64, .simulation_id = 1, .restitution = 0.65f};
+    burst.duration = 2;
+    RenderScene scene{.meshes = f.inst(items), .sun = {.intensity = 0, .shadows = false},
+                      .environment = {.sky = {}, .ground = {}, .ambient = 0}, .particles = std::span(&burst, 1)};
+    auto visible = [&](const std::vector<std::uint32_t>& pixels) {
+        return std::count_if(pixels.begin(), pixels.end(), [](auto pixel) { return rgb(pixel).r > 15; });
+    };
+    burst.age = 0.1f;
+    {
+        auto discarded = f.device->begin_commands();
+        f.renderer->render(discarded, f.target, f.camera, scene);
+    }
+    const auto initialized = f.draw(scene);
+    burst.simulation_id = 3;
+    CHECK(f.draw(scene) == initialized);
+    burst.simulation_id = 1;
+    for (int step = 0; step <= 12; ++step) {
+        burst.age = static_cast<float>(step) * 0.1f;
+        f.draw(scene);
+    }
+    const auto bounced = f.draw(scene);
+    CHECK(f.draw(scene) == bounced);
+    const auto ground = scene.meshes;
+    scene.meshes = {};
+    burst.simulation_id = 2;
+    for (int step = 0; step <= 12; ++step) {
+        burst.age = static_cast<float>(step) * 0.1f;
+        f.draw(scene);
+    }
+    scene.meshes = ground;
+    CHECK(visible(bounced) > visible(f.draw(scene)) + 10);
+}
+
+TEST_CASE("hybrid fog and lit particles receive coloured indirect light from DDGI") {
+    RenderSettings settings{.shadow_map_size = 512, .ray_tracing = true,
+                            .gi = {.probes_x = 3, .probes_y = 3, .probes_z = 3, .rays_per_probe = 64,
+                                   .volume_min = {-2, -2, -2}, .volume_max = {2, 2, 4}},
+                            .denoise_iterations = 0, .bloom_strength = 0};
+    Fixture f(settings);
+    if (!f.device || !f.device->supports(gpu::Feature::RayTracing)) return;
+    REQUIRE(f.renderer->ray_tracing());
+    const auto slab = f.renderer->create_mesh(make_cube());
+    const auto material = f.renderer->create_material({.base_color = {0, 0, 0, 1}, .emissive = {0, 2, 0}});
+    const MeshInstance emitter{.mesh = slab, .material = material,
+                               .transform = translate({-1.5f, 0, 1}) * scale({0.25f, 5, 8})};
+    RenderScene scene{.meshes = std::span(&emitter, 1), .sun = {.intensity = 0, .shadows = false},
+                      .environment = {.sky = {}, .ground = {}, .ambient = 0,
+                                      .fog_extinction = 0.55f, .fog_range_m = 14}};
+    const auto lit = rgb(Fixture::center(f.draw(scene)));
+    settings.fog_ddgi = false;
+    f.renderer->set_settings(settings);
+    const auto clear = rgb(Fixture::center(f.draw(scene)));
+    CHECK(clear.g == 0);
+    CHECK(lit.g > clear.g + 15);
+    CHECK(lit.r == 0);
+
+    const ParticleBurst burst{.position = {0, 0, 1}, .age = 0.05f, .color = {3, 3, 3},
+                              .size_m = 0.26f, .lighting = 1};
+    scene.environment.fog_extinction = 0;
+    scene.particles = std::span(&burst, 1);
+    const auto particle = rgb(Fixture::center(f.draw(scene)));
+    CHECK(particle.g > 10);
+    CHECK(particle.r == 0);
+}

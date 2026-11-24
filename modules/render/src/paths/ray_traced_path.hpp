@@ -28,6 +28,7 @@ struct TemporalState {
     bool prev_restir_active = false;
     std::uint64_t path_tracer_scene_signature = 0;
     std::uint64_t sdf_signature = 0;
+    std::uint64_t sky_key = 0;
     float prev_scene_time = 0.0f;
 };
 

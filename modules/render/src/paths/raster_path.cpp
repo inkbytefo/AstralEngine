@@ -18,6 +18,8 @@ GpuFrame build_raster_frame(const CameraData& camera, const RenderScene& scene, 
     frame.inv_view_projection = inverse(view_projection);
     frame.light_view_projection = shadow.light_view_projection;
     frame.camera_position = {camera.position.x, camera.position.y, camera.position.z, 1};
+    frame.atmosphere.fog = fog_parameters(scene);
+    frame.atmosphere.aerial = aerial_parameters(scene.environment);
     frame.sun_direction = {sun.x, sun.y, sun.z, shadow.texel_world * 1.5f};
     frame.sun_color = {scene.sun.color.x * scene.sun.intensity, scene.sun.color.y * scene.sun.intensity,
                        scene.sun.color.z * scene.sun.intensity, 0};
@@ -94,19 +96,25 @@ void render_raster_path(RasterPathContext& ctx, gpu::CommandList& cmd, gpu::Text
     RenderGraph& g = ctx.graph;
     g.begin_frame();
     const RGTexture output = g.import(target, "output");
+    ctx.passes.sky.bake_environment(g, inputs);
     const RGTexture shadow_map = ctx.passes.shadow.add(g, inputs, shadow, ctx.stats);
     GBufferTextures gbuffer = ctx.passes.gbuffer.add(g, inputs, ctx.stats);
     ctx.passes.sdf.add(g, inputs, gbuffer);
     ctx.passes.decals.add(g, inputs, gbuffer);
     const RGTexture hdr = ctx.passes.lighting.add(g, inputs, gbuffer, shadow_map);
     ctx.passes.sky.add(g, inputs, hdr, gbuffer);
+    const RGTexture atmospheric_hdr = ctx.passes.aerial.add(g, inputs, hdr, gbuffer);
+
+    const RGTexture fog = ctx.passes.fog.integrate(g, inputs, shadow_map, ctx.stats);
+    const RGTexture fogged = ctx.passes.fog.composite(g, inputs, atmospheric_hdr, gbuffer, fog);
 
     const std::span<const MaterialHandle> post_chain = ctx.passes.post.collect(scene, ctx.materials);
     const RGTexture scene_color =
         post_chain.empty() ? output : g.create("scene.ldr", {extent.width, extent.height, ctx.target_format});
     ctx.passes.sdf.merge_depth(g, inputs, gbuffer);
-    ctx.passes.transparent.add(g, inputs, hdr, gbuffer.depth, ctx.stats);
-    ctx.passes.tonemap.add(g, inputs, hdr, {}, scene_color);
+    ctx.passes.transparent.add(g, inputs, fogged, gbuffer.depth, ctx.stats, fog);
+    ctx.passes.tonemap.add(g, inputs, fogged, {}, scene_color);
+    ctx.passes.particles.add(g, inputs, scene_color, gbuffer, fog);
     ctx.passes.post.add(g, inputs, scene_color, output, post_chain);
     ctx.passes.debug_lines.add(g, inputs, output, gbuffer.depth);
     ctx.passes.ui.add(g, inputs, output);

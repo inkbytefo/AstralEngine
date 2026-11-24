@@ -4,8 +4,10 @@
 #include <astral/app/app.hpp>
 #include <astral/app/components.hpp>
 #include <astral/app/feature.hpp>
+#include <astral/app/gameplay_smoke.hpp>
 #include <astral/app/input_actions.hpp>
 #include <astral/app/shell.hpp>
+#include <astral/app/vfx.hpp>
 #include <astral/script/script.hpp>
 #include <astral/assets/asset_manager.hpp>
 #include <astral/physics/physics.hpp>

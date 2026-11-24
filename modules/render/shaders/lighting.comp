@@ -175,13 +175,14 @@ void main() {
         float nv = max(dot(n, v), 1e-4);
         vec3 f0 = mix(vec3(0.04), albedo, metallic);
         vec3 dfg = env_brdf(f0, roughness, nv);
-        vec3 diffuse_ambient = mix(f.ground_color.rgb, f.sky_color.rgb, n.y * 0.5 + 0.5) * albedo * (1.0 - metallic);
+        vec3 reflected_dir = reflect(-v, n);
+        vec3 diffuse_ambient = sky_diffuse_ibl(f, n) * albedo * (1.0 - metallic);
         vec3 reflected = sky_radiance(f, reflect(-v, n));
-        vec3 specular_ambient = mix(reflected, mix(f.ground_color.rgb, f.sky_color.rgb, 0.5), roughness) * dfg;
+        vec3 specular_ambient = sky_specular_ibl(f, reflected_dir, roughness) * dfg;
         vec3 ambient = (diffuse_ambient * (1.0 - dfg) + specular_ambient) * f.sky_color.a;
         if (model == SHADING_CLEARCOAT) {
             float coat_f = fresnel_schlick(vec3(0.04), nv).x * mat_ext.x;
-            vec3 coat_env = mix(reflected, mix(f.ground_color.rgb, f.sky_color.rgb, 0.5), mat_ext.y);
+            vec3 coat_env = sky_specular_ibl(f, reflected_dir, mat_ext.y);
             ambient = ambient * (1.0 - coat_f) + coat_env * coat_f * f.sky_color.a;
         } else if (model == SHADING_SHEEN) {
             float rim = pow(1.0 - nv, 3.0) * (1.0 - 0.4 * mat_ext.a);
@@ -195,7 +196,7 @@ void main() {
             vec3 absorb = beer_lambert(albedo, mat_ext.w, mat_ext.z);
             ambient = mix(ambient, (reflected * F_tr + refr_env * absorb * (1.0 - F_tr)) * max(f.sky_color.a, 0.6), tr);
         } else if (model == SHADING_SUBSURFACE) {
-            vec3 back_amb = mix(f.ground_color.rgb, f.sky_color.rgb, -n.y * 0.5 + 0.5);
+            vec3 back_amb = sky_diffuse_ibl(f, -n);
             ambient += mat_ext.rgb * mat_ext.a * back_amb * 0.35 * f.sky_color.a;
         }
         color += ambient + emissive_u.rgb;

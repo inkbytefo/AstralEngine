@@ -26,6 +26,7 @@ struct DepthAttachment {
     LoadOp load = LoadOp::Clear;
     StoreOp store = StoreOp::Store;
     float clear = 1.0f;
+    bool read_only = false; ///< Use ShaderRead state and Load; the pass must leave depth writes disabled.
 };
 
 struct RenderingDesc {

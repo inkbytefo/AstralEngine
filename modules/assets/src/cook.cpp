@@ -21,7 +21,7 @@ namespace {
 constexpr std::string_view cache_name = ".astral-cook.json";
 constexpr int cache_version = 1;
 /// Bump when cooked formats or the cook's decisions change: everything is cooked again.
-constexpr std::string_view cook_version = "astral-cook 5";
+constexpr std::string_view cook_version = "astral-cook 6";
 
 enum class Kind { Model, World, Terrain, Shader, Document, Script, Copy };
 
@@ -33,7 +33,7 @@ Kind kind_of(const std::filesystem::path& p) {
     if (ext == ".aterrain") return Kind::Terrain;
     if (ext == ".ashader") return Kind::Shader;
     if (ext == ".luau") return Kind::Script;
-    if (ext == ".scene" || ext == ".prefab" || ext == ".json" || ext == ".material") return Kind::Document;
+    if (ext == ".scene" || ext == ".prefab" || ext == ".json" || ext == ".material" || ext == ".vfx") return Kind::Document;
     return Kind::Copy;
 }
 
@@ -271,7 +271,8 @@ bool validate_shader(CookSession& s, const std::string& rel, const std::vector<s
     const ShaderParse parsed = parse_ashader(std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()));
     std::vector<ShaderError> problems = parsed.errors;
     if (problems.empty() && parsed.source.type == ShaderType::Surface) problems = compile_surface_shader(parsed.source, rel).errors;
-    else if (problems.empty() && (parsed.source.type == ShaderType::Post || parsed.source.type == ShaderType::Sky)) {
+    else if (problems.empty() && (parsed.source.type == ShaderType::Post || parsed.source.type == ShaderType::Sky ||
+               parsed.source.type == ShaderType::Volume || parsed.source.type == ShaderType::Particle)) {
         problems = compile_screen_shader(parsed.source, rel).errors;
     }
     for (const ShaderError& e : problems) s.error(rel + ":" + std::to_string(e.line) + ": " + e.message);

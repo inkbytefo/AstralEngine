@@ -125,7 +125,8 @@ MaterialLibrary::Shader* MaterialLibrary::load_shader(const std::string& path, b
         }
         handle = renderer_.create_shader(build, path);
         layout = build.layout;
-    } else if (parsed.source.type == ShaderType::Post || parsed.source.type == ShaderType::Sky) {
+    } else if (parsed.source.type == ShaderType::Post || parsed.source.type == ShaderType::Sky ||
+               parsed.source.type == ShaderType::Volume || parsed.source.type == ShaderType::Particle) {
         const ScreenShaderBuild build = compile_screen_shader(parsed.source, path);
         if (!build.ok()) {
             std::string all;

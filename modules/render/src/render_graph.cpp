@@ -9,7 +9,7 @@ namespace astral {
 
 namespace {
 
-enum class Use : std::uint8_t { Read, Storage, Color, Depth, CopySrc, CopyDst };
+enum class Use : std::uint8_t { Read, Storage, Color, Depth, DepthRead, CopySrc, CopyDst };
 
 struct Access {
     std::uint32_t resource;
@@ -46,7 +46,8 @@ struct PoolEntry {
 
 gpu::ResourceState state_for(Use use) {
     switch (use) {
-    case Use::Read: return gpu::ResourceState::ShaderRead;
+    case Use::Read:
+    case Use::DepthRead: return gpu::ResourceState::ShaderRead;
     case Use::Storage: return gpu::ResourceState::ShaderWrite;
     case Use::Color: return gpu::ResourceState::ColorTarget;
     case Use::Depth: return gpu::ResourceState::DepthTarget;
@@ -62,6 +63,7 @@ gpu::TextureUsage usage_for(Use use) {
     case Use::Storage: return gpu::TextureUsage::Storage;
     case Use::Color: return gpu::TextureUsage::ColorTarget;
     case Use::Depth: return gpu::TextureUsage::DepthTarget;
+    case Use::DepthRead: return gpu::TextureUsage::DepthTarget | gpu::TextureUsage::Sampled;
     case Use::CopySrc: return gpu::TextureUsage::TransferSrc;
     case Use::CopyDst: return gpu::TextureUsage::TransferDst;
     }
@@ -72,7 +74,7 @@ bool writes(const Access& a) {
     return a.use == Use::Storage || a.use == Use::Color || a.use == Use::Depth || a.use == Use::CopyDst;
 }
 bool reads(const Access& a) {
-    return a.use == Use::Read || a.use == Use::CopySrc ||
+    return a.use == Use::Read || a.use == Use::DepthRead || a.use == Use::CopySrc ||
            ((a.use == Use::Color || a.use == Use::Depth) && a.load == gpu::LoadOp::Load);
 }
 
@@ -207,8 +209,9 @@ struct RenderGraph::Impl {
             if (a.use == Use::Color) {
                 rendering.color.push_back({.texture = r.texture, .load = a.load, .clear = a.clear});
                 extent = {r.desc.width, r.desc.height};
-            } else if (a.use == Use::Depth) {
-                rendering.depth = {.texture = r.texture, .load = a.load, .clear = a.depth_clear};
+            } else if (a.use == Use::Depth || a.use == Use::DepthRead) {
+                rendering.depth = {.texture = r.texture, .load = a.load, .clear = a.depth_clear,
+                                   .read_only = a.use == Use::DepthRead};
                 extent = {r.desc.width, r.desc.height};
             }
         }
@@ -261,6 +264,10 @@ void PassBuilder::color(RGTexture t, gpu::LoadOp load, std::array<float, 4> clea
 void PassBuilder::depth(RGTexture t, gpu::LoadOp load, float clear) {
     auto* b = static_cast<BuilderTarget*>(pass_);
     b->graph->add(b->pass, t, {0, Use::Depth, load, {}, clear});
+}
+void PassBuilder::depth_read(RGTexture t) {
+    auto* b = static_cast<BuilderTarget*>(pass_);
+    b->graph->add(b->pass, t, {0, Use::DepthRead, gpu::LoadOp::Load});
 }
 void PassBuilder::copy_src(RGTexture t) {
     auto* b = static_cast<BuilderTarget*>(pass_);
