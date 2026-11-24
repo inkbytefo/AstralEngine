@@ -13,3 +13,20 @@
 | **5. Ölçüm ve devir** | Mesh üretimi ve upload süresi, frame-time dağılımı, RAM/VRAM, aktif collider ve tile sayısı, RT açıksa BLAS maliyeti. Küçük fixture ile başlayıp M15 hedefindeki 2 × 2 km sahnede koş. | Debug testleri, ilgili golden kareleri ve ölçüm koşulları raporlanır. Yazılımsal Vulkan ve gerçek GPU sonuçları ayrı etiketlenir. Eksik donanım ölçümleri açıkça belirtilir. |
 
 İlk merge incelemesinde tek tile geometri/fizik hizası, dört tile geçişi ve paketli çalıştırma için loglar ve sahne görüntüleri sunulur. Materyal katmanları, boyama ve delik maskesi için yeni görev paketi, bu temel doğrulandıktan sonra açılır.
+
+## Uygulama ve doğrulama
+
+- Görev 1–3. 16 bit örnekler paketlemede korunur. 65 × 65 tile mesh’i ve collider hizası raycast ile doğrulanır. Dört tile ve ortak köşe karakterle geçilir. 16 kenar maskesi için dikiş topolojisi, ortak UV ve normaller ile kamera LOD değişiminde collider eşliği test edilir.
+- Görev 4. Pozitif `TerrainRef` yarıçapları mesh ve collision için ayrı residency etkinleştirir. Tile verisi ve ilk mesh worker’da hazırlanır. Yayın ana thread’de fizik adımından önce yapılır. Bekleyen işin sahibi veya isteği kaybolursa sonucu uygulanmaz. Eksik dosya uyarısı ve bölgeye tekrar girişte yeniden deneme test edilir. Kaynak ve `.apak` aynı karakter sonucunu verir. Collider, negatif floating origin kaymasından sonra aynı handle ve raycast yüksekliğini korur.
+- Görev 5. Software golden referansları karma ve uzak LOD için `tests/golden/references/terrain_*.png` altında. `golden-hw` uygun cihaz olduğunda aynı sahneleri çalıştırır.
+
+| 2.048 × 2.048 m stres senaryosu | Sonuç |
+|---|---:|
+| Manifestteki tile | 1.024 |
+| En yüksek eşzamanlı residency | 6 collider ve 6 mesh |
+| Headless medyan kare | 28,6 ms |
+| llvmpipe, 160 × 90 raster medyan kare | 67,3 ms |
+| Son karede LOD mesh üretimi / toplam mesh upload | 9,1 ms / 2,5 ms |
+| Test süreci tepe RSS | 128 MiB |
+
+Ölçüm Debug derlemede altı odak adımı ile yapıldı. Her karede odak 320 m sıçratıldı, yükleme zorla tamamlandı ve 1.024 tile merkezinde raycast çalıştı. Bu değerler residency stres senaryosuna aittir. Donanım VRAM ve RT BLAS maliyetleri bu raster koşusunda ölçülmedi. LOD dikiş batch’i ana thread’de oluşturulup yükleniyor. Karakter güvenlik kontrolü `CharacterController` yolunda uygulanıyor. Serbest rijit cisimler için ayrı bir geçiş politikası gerekiyor.

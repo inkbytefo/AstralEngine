@@ -36,6 +36,8 @@ struct PrimitiveMesh {
 struct TerrainRef {
     std::string asset;
     std::string material_file;
+    float render_radius_m = 0.0f;   ///< Zero keeps all render tiles resident.
+    float collision_radius_m = 0.0f; ///< Zero keeps all colliders resident; otherwise at least the render radius.
     bool operator==(const TerrainRef&) const = default;
 };
 
@@ -258,7 +260,7 @@ struct StreamingSource {
 
 ASTRAL_REFLECT_ENUM(astral::Primitive, Cube, Sphere, Plane)
 ASTRAL_REFLECT(astral::PrimitiveMesh, shape, material, material_file)
-ASTRAL_REFLECT(astral::TerrainRef, asset, material_file)
+ASTRAL_REFLECT(astral::TerrainRef, asset, material_file, render_radius_m, collision_radius_m)
 ASTRAL_REFLECT(astral::Sdf, shape, order)
 ASTRAL_REFLECT(astral::StreamingSource, active)
 ASTRAL_REFLECT(astral::Camera, fov_y, near_plane, far_plane, active)

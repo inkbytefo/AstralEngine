@@ -52,7 +52,7 @@ M14–M23 kimlikleri korunur. A0, M20'nin teslim planı, S1 M21'in teslim planı
 | E2 | AI-First Native Editör UX, Offscreen Viewport & Asenkron AI İnceleme ([ADR-0037](decisions/0037-ai-first-native-editor-v2.md)) | E0, E1 | ✅ |
 | P0 | Physics API v2 ([ADR-0038](decisions/0038-physics-api-v2.md)) | F1, M12 | ✅ |
 | M14 | Atmosfer, hacimsel VFX ve GPU partikülleri | F1, M10, M12–M13 | 🔜 |
-| M15 | Heightfield arazi ve streaming | F1, M9–M10, M12 | ⬜ |
+| M15 | Heightfield arazi ve streaming | F1, M9–M10, M12 | Temel ✅ · katmanlar ve düzenleme ⬜ |
 | M16 | Okyanus ve göller | M14–M15, P0 su örnekleme sözleşmesi | ⬜ |
 | M17 | Bulutlar ve hava durumu | M13–M14 | ⬜ |
 | M18 | Etkileşimli su ve nehir | M16 | ⬜ |

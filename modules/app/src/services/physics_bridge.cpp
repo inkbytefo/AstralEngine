@@ -1,4 +1,5 @@
 #include "physics_bridge.hpp"
+#include "terrain_bridge.hpp"
 
 #include <astral/core/jobs.hpp>
 #include <astral/core/log.hpp>
@@ -409,10 +410,17 @@ void PhysicsBridge::move_kinematics(float alpha, float fixed) {
     }
 }
 
-void PhysicsBridge::update_characters(float fixed) {
+void PhysicsBridge::update_characters(float fixed, const TerrainBridge* terrain) {
     world_.each<CharacterController>([&](Entity e, CharacterController& cc) {
         if (physics_->user_data(cc.handle) != to_user_data(e)) return;
-        physics_->update_character(cc.handle, cc.move, cc.jump, fixed, cc.jump_speed);
+        Vec3 move = cc.move;
+        if (terrain) {
+            const Vec3 position = physics_->character_state(cc.handle).position;
+            if (!terrain->character_tiles_ready(position, position, 0.0f)) return;
+            const Vec3 target = position + Vec3{move.x, 0, move.z} * fixed;
+            if (!terrain->character_tiles_ready(position, target, cc.desc.radius)) move = {};
+        }
+        physics_->update_character(cc.handle, move, cc.jump, fixed, cc.jump_speed);
         cc.jump = false;
     });
 }
@@ -520,7 +528,7 @@ void PhysicsBridge::write_simulated_transforms(float blend) {
     });
 }
 
-void PhysicsBridge::step(float delta, FixedStepCallback on_fixed_update, void* user) {
+void PhysicsBridge::step(float delta, FixedStepCallback on_fixed_update, void* user, const TerrainBridge* terrain) {
     frame_contacts_.clear();
     frame_broken_joints_.clear();
     sync_bodies();
@@ -540,7 +548,7 @@ void PhysicsBridge::step(float delta, FixedStepCallback on_fixed_update, void* u
         flush_commands();
         const float alpha = planned > 0 ? std::min(1.0f, static_cast<float>(steps + 1) / static_cast<float>(planned)) : 1.0f;
         move_kinematics(alpha, fixed);
-        update_characters(fixed);
+        update_characters(fixed, terrain);
         if (config_.interpolation) snapshot_interpolation();
         apply_field_forces(fixed);
         {

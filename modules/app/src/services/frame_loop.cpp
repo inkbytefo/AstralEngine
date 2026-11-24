@@ -29,7 +29,8 @@ FrameLoop::FrameLoop(const Services& s)
       world_bridge_(s.world_bridge),
       render_bridge_(s.render_bridge),
       physics_bridge_(s.physics_bridge),
-      terrain_bridge_(s.world, s.assets, s.log, s.render_bridge, s.context.renderer, *s.physics_bridge.world()),
+      terrain_bridge_(s.world, s.assets, s.log, s.render_bridge, s.context.renderer, *s.physics_bridge.world(),
+                      s.context.jobs, s.dev_tools.profiler()),
       audio_bridge_(s.audio_bridge),
       script_bridge_(s.script_bridge),
       run_phase_(s.run_phase),
@@ -59,7 +60,10 @@ bool FrameLoop::start(Game& game) {
 
 float FrameLoop::next_delta() { return fixed_timestep_ > 0.0f ? fixed_timestep_ : clock_.tick(); }
 
-void FrameLoop::finish_world_loading() { update_world(true); }
+void FrameLoop::finish_world_loading() {
+    update_world(true);
+    terrain_bridge_.sync(world_bridge_.streaming_sources(), true);
+}
 
 void FrameLoop::run_frame(Game& game, float delta) {
     dev_tools_.begin_frame();
@@ -74,7 +78,8 @@ void FrameLoop::run_frame(Game& game, float delta) {
     run_scripted_phase(Phase::PreUpdate, ScriptPhase::PreUpdate, "PreUpdate");
     run_game_update(game);
     run_scripted_phase(Phase::Update, ScriptPhase::Update, "Update");
-    terrain_bridge_.sync();
+    if (terrain_bridge_.streaming_enabled()) terrain_bridge_.sync(world_bridge_.streaming_sources());
+    else terrain_bridge_.sync({});
     run_physics(delta);
     run_scripted_phase(Phase::PostUpdate, ScriptPhase::PostUpdate, "PostUpdate");
     update_transforms_and_primitives();
@@ -90,7 +95,7 @@ void FrameLoop::route_input() {
 }
 
 void FrameLoop::update_world(bool finish) {
-    if (!world_bridge_.is_open()) return;
+    if (!world_bridge_.is_open() && !terrain_bridge_.streaming_enabled()) return;
     std::vector<Vec3> sources = world_bridge_.streaming_sources();
     if (const auto off = world_bridge_.begin_origin_shift(sources)) {
         physics_bridge_.shift_origin(*off);
@@ -132,7 +137,7 @@ void FrameLoop::run_fixed_update() {
 
 void FrameLoop::run_physics(float delta) {
     ASTRAL_PROFILE_SCOPE(&dev_tools_.profiler(), "physics");
-    physics_bridge_.step(delta, &FrameLoop::run_fixed_update_cb, this);
+    physics_bridge_.step(delta, &FrameLoop::run_fixed_update_cb, this, &terrain_bridge_);
     world_.apply_commands();
 }
 
