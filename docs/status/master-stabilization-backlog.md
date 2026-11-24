@@ -50,3 +50,7 @@ Her ID için: **durum (open / in progress / verified fixed / deferred)**, kaynak
 ## Ek denetim: Rendering
 
 [Rendering Deep Audit](rendering-deep-audit-2026-11-25.md): REN01–REN10 kaynak kusurları, RR01–RR06 koşullu riskler, RP01–RP03 öneriler. REN01–05, REN07–08 P1; öncelik A01/G01–G03 ile ortak submit/resource/history sözleşmesi, sonra input validation ve M14 pass ordering. S1/S4 ve rendering stabilizasyon görevleriyle koordine et; GDX ve motor fazları değişmedi. Statik inceleme, runtime testleri açık.
+
+## Ek denetim: Physics / Jolt
+
+[Physics & Jolt Deep Audit](physics-jolt-deep-audit-2026-11-25.md): PH01–PH09 kaynak kusurları, PHR01–PHR06 koşullu riskler, PHP01–PHP03 öneriler. PH01–05 P1; S5 runtime reliability, C/CR scheduler ve S4 parser hardening ile koordine. Contact/character ownership, fixed-step clock, origin ve deterministic producer order öncelikli; M21/M23 öncesi joint/pose sözleşmesi doğrulansın. Derleme ve runtime testleri kapsam dışı, bütün kayıtlar açık.
