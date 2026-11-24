@@ -51,8 +51,9 @@ struct SurfaceShaderBuild {
 ///   sky():   EYEDIR, SUN_DIR, SUN_COLOR, TIME; write COLOR (linear HDR, before tonemapping)
 struct ScreenShaderBuild {
     ShaderType type = ShaderType::Post;
-    std::vector<std::uint32_t> vertex, fragment, compute;
+    std::vector<std::uint32_t> vertex, fragment, compute, sky_capture;
     bool additive = true;
+    bool sky_uses_time = false;
     UniformLayout layout;
     std::vector<SurfaceShaderBuild::Sampler> samplers;
     std::vector<ShaderError> errors;

@@ -66,6 +66,7 @@ struct Frame {
     uint pt_params;       // bits 0..15: pt_sample_index, bits 16..23: max_bounces
     vec4 aerial;          // x extinction per metre, y start distance in metres
     vec4 fog;             // x extinction per metre, y maximum range
+    uvec4 ibl;            // radiance map, filtered atlas, active, reserved
 };
 struct PointLight { vec4 position_radius; vec4 color_intensity; vec4 source; /* x source radius */ };
 struct SdfShape {

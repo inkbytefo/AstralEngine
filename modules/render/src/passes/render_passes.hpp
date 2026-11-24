@@ -62,6 +62,7 @@ struct RenderPasses {
           path_tracer(device),
           denoise(device),
           composite(device),
+          sky(device),
           aerial(device),
           fog(device),
           taa(device),

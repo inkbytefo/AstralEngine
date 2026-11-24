@@ -122,11 +122,12 @@ void main() {
     return s;
 }
 
-std::string screen_fragment(const ShaderSource& source, const UniformLayout& layout, bool sky) {
+std::string screen_fragment(const ShaderSource& source, const UniformLayout& layout, bool sky, bool capture = false) {
     std::string s = R"(#version 460
 #extension GL_GOOGLE_include_directive : require
 #include <astral/scene.glsl>
 #include <astral/color.glsl>
+#include <astral/sky_ibl.glsl>
 layout(push_constant, scalar) uniform Push { FrameRef frame; Materials materials; uint material; uint scene; } pc;
 layout(location = 0) in vec2 astral_uv;
 layout(location = 0) out vec4 astral_out_color;
@@ -135,6 +136,7 @@ layout(location = 0) out vec4 astral_out_color;
     s += screen_params;
     s += sky ? "vec3 COLOR; vec3 EYEDIR; vec3 SUN_DIR; vec3 SUN_COLOR;\n"
              : "vec3 COLOR; vec2 SCREEN_UV;\n#define SCREEN_TEXTURE sampler2D(astral_textures[pc.scene], astral_samplers[ASTRAL_SAMPLER_LINEAR_CLAMP])\n";
+    if (sky) s += capture ? "const bool IBL_CAPTURE = true;\n" : "const bool IBL_CAPTURE = false;\n";
     s += detail::wrap_body(source, layout, source.body);
     s += R"(void main() {
     Frame f = pc.frame.f;
@@ -142,13 +144,15 @@ layout(location = 0) out vec4 astral_out_color;
     astral_base = pc.materials.data[pc.material].custom.x;
 )";
     if (sky) {
-        s += R"(    if (f.counts.y > 0u && pc.scene != NO_TEXTURE) {
+        s += capture ? "    EYEDIR = sky_direction(astral_uv);\n" : R"(    if (f.counts.y > 0u && pc.scene != NO_TEXTURE) {
         float sd = texelFetch(sampler2D(astral_textures[pc.scene], astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]),
                               ivec2(gl_FragCoord.xy), 0).r;
         if (sd < 1.0) discard;
     }
     vec2 uv = gl_FragCoord.xy * f.screen.zw;
     EYEDIR = normalize(reconstruct_world(f, uv, 1.0) - f.camera_position.xyz);
+)";
+        s += R"(
     SUN_DIR = -normalize(f.sun_direction.xyz);
     SUN_COLOR = f.sun_color.rgb;
     COLOR = vec3(0.0);
@@ -259,6 +263,12 @@ ScreenShaderBuild compile_screen_shader(const ShaderSource& source, std::string_
     if (!out.errors.empty()) return out;
     out.fragment = std::move(frag.spirv);
     out.vertex = std::move(vert.spirv);
+    if (sky) {
+        auto capture = compile_glsl(screen_fragment(source, out.layout, true, true), ShaderStage::Fragment, includes, name);
+        detail::collect_errors(capture, out.errors, "sky capture");
+        out.sky_capture = std::move(capture.spirv);
+        out.sky_uses_time = source.body.find("TIME") != std::string::npos;
+    }
     return out;
 }
 

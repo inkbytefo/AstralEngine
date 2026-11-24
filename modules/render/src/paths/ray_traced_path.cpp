@@ -54,7 +54,7 @@ GpuFrame build_rt_frame(const CameraData& camera, const RenderScene& scene, cons
     frame.inv_view_projection = inverse(jittered);
     frame.light_view_projection = Mat4::identity();
     frame.camera_position = {camera.position.x, camera.position.y, camera.position.z, 1};
-    frame.aerial = settings.debug_view == DebugView::None ? aerial_parameters(scene.environment) : Vec4{};
+    frame.atmosphere.aerial = settings.debug_view == DebugView::None ? aerial_parameters(scene.environment) : Vec4{};
     frame.sun_direction = {sun.x, sun.y, sun.z, 0};
     frame.sun_color = {scene.sun.color.x * sun_on, scene.sun.color.y * sun_on, scene.sun.color.z * sun_on, 0};
     frame.sky_color = {scene.environment.sky.x, scene.environment.sky.y, scene.environment.sky.z,
@@ -115,8 +115,8 @@ FrameAddresses collect_rt_addresses(gpu::Device& device, const FrameSlot& slot, 
 
 ShadowFrame prepare_fog_shadow(RayTracedPathContext& ctx, const RenderScene& scene, GpuFrame& frame) {
     if (ctx.settings.path_tracer || ctx.settings.debug_view != DebugView::None) return {};
-    frame.fog = fog_parameters(scene);
-    if (frame.fog.x == 0 && scene.smoke.empty()) return {};
+    frame.atmosphere.fog = fog_parameters(scene);
+    if (frame.atmosphere.fog.x == 0 && scene.smoke.empty()) return {};
     const auto shadow = ctx.passes.shadow.prepare(scene, ctx.meshes);
     frame.light_view_projection = shadow.light_view_projection;
     return shadow;
@@ -127,6 +127,7 @@ void record_rt_graph(RayTracedPathContext& ctx, const FrameInputs& inputs, gpu::
     RenderGraph& g = ctx.graph;
     g.begin_frame();
     const RGTexture output = g.import(target, "output");
+    ctx.passes.sky.bake_environment(g, inputs);
     GBufferTextures gbuffer = ctx.passes.gbuffer.add(g, inputs, ctx.stats);
     ctx.passes.sdf.add(g, inputs, gbuffer);
     ctx.passes.decals.add(g, inputs, gbuffer);
@@ -161,6 +162,7 @@ void record_path_tracer_graph(RayTracedPathContext& ctx, const FrameInputs& inpu
     RenderGraph& g = ctx.graph;
     g.begin_frame();
     const RGTexture output = g.import(target, "output");
+    ctx.passes.sky.bake_environment(g, inputs);
     const bool need_depth =
         inputs.scene.sky.valid() || aerial_parameters(inputs.scene.environment).x > 0.0f ||
         !inputs.instances.transparent_draws.empty() || !inputs.scene.debug_lines.empty() || !inputs.scene.particles.empty();
@@ -187,6 +189,19 @@ void record_path_tracer_graph(RayTracedPathContext& ctx, const FrameInputs& inpu
     ctx.passes.ui.add(g, inputs, output);
 }
 
+void reset_path_tracer_history(RayTracedPathContext& ctx, const RenderScene& scene, const CameraData& camera,
+                               const Mat4& unjittered) {
+    const auto sky_key = ctx.passes.sky.environment_key(scene, ctx.settings, ctx.materials);
+    const bool sky_changed = sky_key != ctx.temporal.sky_key;
+    ctx.temporal.sky_key = sky_key;
+    if (sky_changed || !ctx.temporal.history_valid ||
+        camera_changed(unjittered, ctx.temporal.prev_view_projection, camera.position, ctx.temporal.prev_camera_position) ||
+        ctx.temporal.prev_point_lights != static_cast<std::uint32_t>(ctx.frame_instances.lights.size()) ||
+        ctx.temporal.prev_rect_lights != static_cast<std::uint32_t>(ctx.frame_instances.rects.size())) {
+        ctx.passes.path_tracer.reset();
+    }
+}
+
 } // namespace
 
 void render_ray_traced_path(RayTracedPathContext& ctx, gpu::CommandList& cmd, gpu::TextureHandle target,
@@ -211,12 +226,7 @@ void render_ray_traced_path(RayTracedPathContext& ctx, gpu::CommandList& cmd, gp
     if (!build_tlas(ctx.device, cmd, ctx.frame_instances)) return;
 
     const Mat4 unjittered = camera.projection * camera.view;
-    if (!ctx.temporal.history_valid ||
-        camera_changed(unjittered, ctx.temporal.prev_view_projection, camera.position, ctx.temporal.prev_camera_position) ||
-        ctx.temporal.prev_point_lights != static_cast<std::uint32_t>(ctx.frame_instances.lights.size()) ||
-        ctx.temporal.prev_rect_lights != static_cast<std::uint32_t>(ctx.frame_instances.rects.size())) {
-        ctx.passes.path_tracer.reset();
-    }
+    reset_path_tracer_history(ctx, scene, camera, unjittered);
 
     FrameAddresses addresses = collect_rt_addresses(ctx.device, slot, ctx.frame_instances);
     GpuFrame frame =

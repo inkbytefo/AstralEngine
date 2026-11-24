@@ -139,7 +139,7 @@ void Renderer::set_settings(const RenderSettings& settings) {
     if (a.probes_x != b.probes_x || a.probes_y != b.probes_y || a.probes_z != b.probes_z ||
         a.rays_per_probe != b.rays_per_probe || old.denoise_iterations != settings.denoise_iterations ||
         old.restir_di != settings.restir_di || old.path_tracer != settings.path_tracer ||
-        old.path_tracer_max_bounces != settings.path_tracer_max_bounces) {
+        old.path_tracer_max_bounces != settings.path_tracer_max_bounces || old.sky_ibl != settings.sky_ibl) {
         reset_history();
     }
     if (old.shadow_map_size != settings.shadow_map_size && settings.shadow_map_size > 0) {

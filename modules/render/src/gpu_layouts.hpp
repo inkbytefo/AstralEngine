@@ -30,9 +30,11 @@ struct GpuShader {
     enum class Kind : std::uint8_t { Surface, Post, Sky, Particle, Volume } kind = Kind::Surface;
     gpu::PipelineHandle gbuffer, shadow;
     gpu::PipelineHandle forward; ///< Blended surfaces (kind Surface, blend) and the post / sky pipelines.
+    gpu::PipelineHandle sky_capture;
     bool blend = false;
     bool alpha_test = false;
     bool casts_shadows = true;
+    bool sky_uses_time = false;
     std::string rt_chunk;                              ///< Ray-traced surface() (see compose_rt_surfaces)
     std::vector<SurfaceShaderBuild::Sampler> samplers; ///< Texture slots of the parameter block
 };
@@ -107,6 +109,13 @@ struct GpuSceneAddresses {
 };
 static_assert(sizeof(GpuSceneAddresses) == 56);
 
+struct GpuAtmosphere {
+    Vec4 aerial; // x extinction per metre, y start distance in metres
+    Vec4 fog;    // x extinction per metre, y maximum range
+    std::uint32_t ibl[4]; // radiance map, filtered atlas, active, reserved
+};
+static_assert(sizeof(GpuAtmosphere) == 48);
+
 struct GpuFrame {
     Mat4 view_projection;
     Mat4 inv_view_projection;
@@ -131,12 +140,12 @@ struct GpuFrame {
     GpuSceneAddresses scene;
     std::uint32_t decal_count;
     std::uint32_t pt_params; // bits 0..15: pt_sample_index, bits 16..23: max_bounces
-    Vec4 aerial; // x extinction per metre, y start distance in metres
-    Vec4 fog;    // x extinction per metre, y maximum range
+    GpuAtmosphere atmosphere; // flattened in scene.glsl
 };
-static_assert(sizeof(GpuFrame) == 704);
-static_assert(offsetof(GpuFrame, aerial) == 672);
-static_assert(offsetof(GpuFrame, fog) == 688);
+static_assert(sizeof(GpuFrame) == 720);
+static_assert(offsetof(GpuFrame, atmosphere) == 672);
+static_assert(offsetof(GpuAtmosphere, fog) == 16);
+static_assert(offsetof(GpuAtmosphere, ibl) == 32);
 static_assert(alignof(GpuFrame) == 8);
 static_assert(offsetof(GpuFrame, camera_position) == 192);
 static_assert(offsetof(GpuFrame, counts) == 272);

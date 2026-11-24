@@ -91,3 +91,9 @@ Partiküller varsayılan olarak additive karışır. Alfa karışımı için `re
 Derinlik çarpışması kameranın gördüğü ilk yüzeyi kullanır. `motion()` simülasyon sonucuna yalnızca çizim katmanında müdahale eder. C++ renderer çağrısında benzersiz `ParticleBurst::simulation_id` verilirse durum saklanır, sıfır değeri analitik çizimi seçer. Aynı anda en fazla 64 emitter durum saklayabilir.
 
 GPU görselleştirme, 8³ hücrelik sayfalardan oluşan ortak materyal ve güneş geçirgenliği atlaslarını kullanır. Gameplay dumanında yalnızca dolu hücre içeren sayfalar yer alır. Prosedürel `volume` track’i kendi ızgarasını doldurur. Kare bütçesi 512 sayfadır. Bütçeyi aşan gameplay hacmi doluluğunu ve temel sis görünümünü korur. Bütçeyi aşan prosedürel hacim atlanır. `--profile` yerleşen sayfa ve bütçeyi aşan hacim sayısını gösterir.
+
+## Gökyüzü IBL’i
+
+VFX Lab, etkin `sky()` materyalini 64×32 HDR ortam haritasına çizer. Kosinüs ağırlıklı diffuse ışık ve altı GGX pürüzlülük seviyesi raster yüzeylere ulaşır. Hibrit RT yansımaları ve DDGI ışınları, sahneyi ıskaladıklarında aynı HDR haritayı örnekler. Path tracer da çevre ışınlarında bu haritayı kullanır ve aydınlatmayı etkileyen gökyüzü girdileri değiştiğinde birikimi baştan başlatır.
+
+`--no-sky-ibl` aynı sahnede motorun gökyüzü/zemin rengiyle çalışan ortam aydınlatmasına döner. Diğer uygulamalar `RenderSettings::sky_ibl` ile etkinleştirir. `sky()` içinde `IBL_CAPTURE` ile ışık haritasına özel davranış yazılabilir. Örneğin doğrudan güneş zaten sahne ışığıyla geldiği için VFX Lab bu haritaya görünür güneş diskini katmaz.

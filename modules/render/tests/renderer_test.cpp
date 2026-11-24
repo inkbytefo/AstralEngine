@@ -1231,6 +1231,31 @@ TEST_CASE("local smoke uses packed occupancy without requiring global fog") {
     CHECK(glowing.g > glowing.r);
 }
 
+TEST_CASE("sky IBL lights neutral diffuse and metallic surfaces using the active sky") {
+    RenderSettings settings{.shadow_map_size = 512, .ray_tracing = false};
+    Fixture f(settings);
+    if (!f.device) return;
+    const auto sky_shader = make_shader(f, "shader_type sky;\nvoid sky() { COLOR = vec3(0, 0.8, 0); }\n", "ibl_green");
+    REQUIRE(sky_shader.valid());
+    const auto sky = f.renderer->create_material({.shader = sky_shader});
+    const auto cube = f.renderer->create_mesh(make_cube());
+    const std::vector<Item> items{{.mesh = cube, .transform = translate({-0.65f, 0, 0})},
+                                   {.mesh = cube, .transform = translate({0.65f, 0, 0}), .roughness = 0.4f,
+                                    .metallic = 1}};
+    const RenderScene scene{.meshes = f.inst(items), .sun = {.intensity = 0, .shadows = false},
+                            .environment = {.sky = {0.8f, 0, 0}, .ground = {0.8f, 0, 0}, .ambient = 1}, .sky = sky};
+    const auto prior = f.draw(scene);
+    CHECK(rgb(f.at(prior, {-0.65f, 0, 0.5f})).r > 70);
+    settings.sky_ibl = true;
+    f.renderer->set_settings(settings);
+    const auto lit = f.draw(scene);
+    for (float x : {-0.65f, 0.65f}) {
+        const auto c = rgb(f.at(lit, {x, 0, 0.5f}));
+        CHECK(c.g > 70);
+        CHECK(c.r == 0);
+    }
+}
+
 TEST_CASE("the volume atlas allocates occupied bricks and isolates material data across volumes") {
     Fixture f;
     if (!f.device) return;
@@ -1260,6 +1285,32 @@ TEST_CASE("the volume atlas allocates occupied bricks and isolates material data
     CHECK(left.g == 0);
     CHECK(right.g > 30);
     CHECK(right.r == 0);
+}
+
+TEST_CASE("sky IBL supplies path-traced reflection and resets accumulation when the sky changes") {
+    Fixture f({.shadow_map_size = 512, .ray_tracing = true, .bloom_strength = 0,
+               .path_tracer = true, .path_tracer_max_bounces = 3, .sky_ibl = true});
+    if (!f.device || !f.device->supports(gpu::Feature::RayTracing)) return;
+    REQUIRE(f.renderer->ray_tracing());
+    const auto sky_shader = make_shader(f,
+        "shader_type sky;\nvoid sky() { COLOR = TIME < 0.5 ? vec3(0, 1, 0) : vec3(0, 0, 1); }\n",
+        "ibl_animated");
+    REQUIRE(sky_shader.valid());
+    const auto sky = f.renderer->create_material({.shader = sky_shader});
+    const auto cube = f.renderer->create_mesh(make_cube());
+    const std::vector<Item> items{{.mesh = cube, .roughness = 0.02f, .metallic = 1}};
+    RenderScene scene{.meshes = f.inst(items), .sun = {.intensity = 0, .shadows = false},
+                      .environment = {.sky = {}, .ground = {}, .ambient = 0}, .sky = sky};
+    const auto first = rgb(Fixture::center(f.draw(scene)));
+    CHECK(first.g > 100);
+    CHECK(first.b == 0);
+    f.draw(scene);
+    CHECK(f.renderer->stats().path_tracer_samples == 2);
+    scene.time = 1;
+    const auto changed = rgb(Fixture::center(f.draw(scene)));
+    CHECK(f.renderer->stats().path_tracer_samples == 1);
+    CHECK(changed.b > 100);
+    CHECK(changed.g == 0);
 }
 
 TEST_CASE("GPU particle burst draws and obeys scene depth") {

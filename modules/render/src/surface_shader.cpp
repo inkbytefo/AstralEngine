@@ -20,7 +20,9 @@ std::vector<GlslInclude> engine_includes() {
             {"astral/particle_state.glsl",
              embedded_text(embedded::astral_particle_state_glsl, embedded::astral_particle_state_glsl_size)},
             {"astral/smoke_atlas.glsl",
-             embedded_text(embedded::astral_smoke_atlas_glsl, embedded::astral_smoke_atlas_glsl_size)}};
+             embedded_text(embedded::astral_smoke_atlas_glsl, embedded::astral_smoke_atlas_glsl_size)},
+            {"astral/sky_ibl.glsl",
+             embedded_text(embedded::astral_sky_ibl_glsl, embedded::astral_sky_ibl_glsl_size)}};
 }
 
 std::string uniform_macros(const ShaderSource& source, const UniformLayout& layout) {
@@ -170,9 +172,8 @@ constexpr const char* forward_lighting = R"(vec3 astral_lit(vec3 N, vec3 V, vec3
     float nv = max(dot(N, V), 1e-4);
     vec3 f0 = mix(vec3(0.04), albedo, metallic);
     vec3 dfg = env_brdf(f0, r, nv);
-    vec3 diffuse_ambient = mix(f.ground_color.rgb, f.sky_color.rgb, N.y * 0.5 + 0.5) * albedo * (1.0 - metallic);
-    vec3 reflected = sky_radiance(f, reflect(-V, N));
-    vec3 specular_ambient = mix(reflected, mix(f.ground_color.rgb, f.sky_color.rgb, 0.5), r) * dfg;
+    vec3 diffuse_ambient = sky_diffuse_ibl(f, N) * albedo * (1.0 - metallic);
+    vec3 specular_ambient = sky_specular_ibl(f, reflect(-V, N), r) * dfg;
     return c + (diffuse_ambient * (1.0 - dfg) + specular_ambient) * f.sky_color.a;
 }
 )";

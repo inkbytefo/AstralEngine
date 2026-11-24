@@ -82,6 +82,7 @@ astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle.fra
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle.vert astral_particle_vert)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/particle_state.glsl astral_particle_state_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/smoke_atlas.glsl astral_smoke_atlas_glsl)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/sky_ibl.glsl astral_sky_ibl_glsl)
 target_include_directories(astral_render SYSTEM PRIVATE $<BUILD_INTERFACE:${stb_SOURCE_DIR}>)
 
 astral_add_shaders(astral_render
@@ -90,6 +91,7 @@ astral_add_shaders(astral_render
         shaders/sdf.comp shaders/decal.comp shaders/lighting.comp shaders/aerial.comp
         shaders/fog_integrate.comp shaders/fog_composite.comp shaders/fog_volume_shadow.comp shaders/fog_ddgi_reduce.comp
         shaders/particle.vert shaders/particle.frag shaders/particle_simulate.comp
+        shaders/sky_ibl_filter.comp
         shaders/tonemap.vert shaders/tonemap.frag
         shaders/rt_lighting.comp shaders/ddgi_trace.comp shaders/ddgi_update.comp
         shaders/restir_di_temporal.comp shaders/restir_di_spatial.comp

@@ -531,7 +531,7 @@ if (parsed.source.type == astral::ShaderType::Surface) {
    - RT ikincil ışınlarında `vertex()` deformasyonu, `ALPHA` / `alpha_test` kesimi, `NORMAL_MAP` ve ekran türevleri (`dFdx`/`dFdy`) çalıştırılmaz; BLAS mesh oluşturulurken orijinal köşe konumlarıyla bir kez kurulur.
    - İki farklı `surface` shader'ında fonksiyon dışında aynı adla global sabit (`const float k = 1.0;`) tanımlanırsa birleşik RT shader derlemesi hata verir (bu durumda raster çalışmaya devam eder, `Renderer::shader_error()` hatayı bildirir). Sabitleri fonksiyon içinde tanımlayın veya benzersiz ön ek verin.
 3. **Gökyüzü (`sky`) ve Aydınlatma İlişkisi:**
-   - `shader_type sky` görsel arka planı (HDR) çizer; ancak ortam aydınlatması ve raster gökyüzü yansıması sahnedeki `astral::Environment` (`sky_color`, `ground_color`) bileşeninden okunur.
+   - `shader_type sky` HDR arka planı çizer. `RenderSettings::sky_ibl` etkinse aynı `sky()` fonksiyonu yüzeyler, yansımalar ve RT ortam ışınları için HDR ışık haritası da üretir. `IBL_CAPTURE` yalnız ışık haritası üretilirken doğrudur. Ayar kapalıyken motor `astral::Environment` gökyüzü ve zemin renklerini kullanır.
    - SDF şekilleri ayrı bir derinlik tamponu kullandığı için özel `sky` shader'ı SDF primitiflerinin üzerine yazabilir (mesh'lerde bu sorun yoktur).
 4. **Doku Tipleri:**
    - Yalnızca 2B dokular (`sampler2D`) uniform olarak tanımlanabilir; `sampler3D`, `samplerCube` veya `sampler2DArray` henüz `.ashader` başlığında açılmamıştır.

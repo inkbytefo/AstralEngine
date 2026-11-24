@@ -46,6 +46,8 @@ extern const std::uint8_t astral_particle_state_glsl[];
 extern const std::size_t astral_particle_state_glsl_size;
 extern const std::uint8_t astral_smoke_atlas_glsl[];
 extern const std::size_t astral_smoke_atlas_glsl_size;
+extern const std::uint8_t astral_sky_ibl_glsl[];
+extern const std::size_t astral_sky_ibl_glsl_size;
 extern const std::uint8_t astral_path_tracer_comp[];
 extern const std::size_t astral_path_tracer_comp_size;
 } // namespace astral::embedded

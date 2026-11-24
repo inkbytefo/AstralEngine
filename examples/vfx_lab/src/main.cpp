@@ -80,6 +80,7 @@ int main(int argc, char** argv) {
     return astral::run_game(options, {.title = "Astral VFX Lab",
                                      .render = {.ray_tracing = rt, .path_tracer = options.has("--path-tracer"),
                                                 .fog_self_shadows = !options.has("--no-volume-shadows"),
-                                                .fog_ddgi = !options.has("--no-fog-ddgi")},
+                                                .fog_ddgi = !options.has("--no-fog-ddgi"),
+                                                .sky_ibl = !options.has("--no-sky-ibl")},
                                      .asset_root = ASTRAL_GAME_ASSETS, .pack = ASTRAL_GAME_PACK}, game, 8);
 }

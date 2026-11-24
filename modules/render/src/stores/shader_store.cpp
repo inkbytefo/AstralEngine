@@ -41,6 +41,7 @@ ShaderStore::~ShaderStore() {
         device_.destroy(shader.forward);
         device_.destroy(shader.gbuffer);
         device_.destroy(shader.shadow);
+        device_.destroy(shader.sky_capture);
     });
     destroy_rt_pipelines();
 }
@@ -133,6 +134,13 @@ ShaderHandle ShaderStore::create(const ScreenShaderBuild& build, std::string_vie
         .debug_name = name + (sky ? ".sky" : ".post"),
     });
     if (!shader.forward.valid()) return {};
+    if (sky && !build.sky_capture.empty()) {
+        shader.sky_capture = device_.create_graphics_pipeline({
+            .vertex = {build.vertex}, .fragment = {build.sky_capture}, .color_formats = {gpu::Format::RGBA16Float},
+            .depth = {.test = false, .write = false}, .debug_name = name + ".ibl",
+        });
+        shader.sky_uses_time = build.sky_uses_time;
+    }
     return shaders_.create(shader);
 }
 
@@ -141,6 +149,7 @@ void ShaderStore::destroy(ShaderHandle handle) {
         device_.destroy(s->forward);
         device_.destroy(s->gbuffer); // deferred by the device until the GPU is done with it
         device_.destroy(s->shadow);
+        device_.destroy(s->sky_capture);
         shaders_.destroy(handle);
         rt_surfaces_dirty_ = true;
     }
