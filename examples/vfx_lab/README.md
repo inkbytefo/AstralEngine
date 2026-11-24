@@ -27,7 +27,11 @@ build/debug/packages/vfx_lab/vfx_lab --raster --hour 17 --fog 0.035 --capture fo
 build/debug/packages/vfx_lab/vfx_lab --hour 17 --fog 0.035 --capture fog-rt.ppm --profile
 ```
 
-Kamera hacmi 16 derinlik dilimidir. Compute pass, birikimli Beer–Lambert geçirgenliği ve saçılmayı üretir. Raster ve hibrit RT, güneş için gölge haritasını kullanır. HDR kompozisyon en yakın mesh/SDF derinliğini, forward yüzeyler kendi derinliğini örnekler. Sis atlası her kare yeniden oluşturulur. Hibrit RT’de sis TAA’dan sonra birleştirilir. Hacimsel ortam ışığı sahnenin gökyüzü renginden gelir.
+Kamera hacmi 16 derinlik dilimidir. Compute pass, birikimli Beer–Lambert geçirgenliği ve saçılmayı üretir. Raster ve hibrit RT, güneş için gölge haritasını kullanır. HDR kompozisyon en yakın mesh/SDF derinliğini, forward yüzeyler kendi derinliğini örnekler. Sis atlası her kare yeniden oluşturulur. Hibrit RT’de sis TAA’dan sonra birleştirilir.
+
+Yerel hacim, güneşe bakan her dolu hücreden kendi sınırına kadar geçirgenliği hesaplar. Kendi gölgesi, doğrudan güneş saçılmasını azaltır. Oyun doluluğu, kamera yönündeki geçirgenlik ve shader ışıması ayrı kalır. Hibrit RT, DDGI probunun altı eksendeki ışığını bir ortam örneğine indirger ve prob mesafe momentlerini kullanarak görüşü kapalı probların ağırlığını düşürür. Prob alanının dışına çıkıldığında geçiş gökyüzü rengine döner. Raster, gökyüzü ortam ışığını kullanır.
+
+`--no-volume-shadows` ve `--no-fog-ddgi` ile aynı sahnede iki etki ayrı ayrı kapatılabilir. Renderer karşılıkları `RenderSettings::fog_self_shadows` ve `RenderSettings::fog_ddgi` alanlarıdır. Hacimler arası gölge ve path tracer’da hacim ışığı bu sürümün açık işleridir.
 
 ## Gameplay dumanı
 

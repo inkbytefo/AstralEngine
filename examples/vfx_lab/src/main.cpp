@@ -75,6 +75,9 @@ int main(int argc, char** argv) {
     VfxLab game(number_or(options.value("--hour", "12"), 12),
                 number_or(options.value("--hours-per-second", "0"), 0),
                 options.has("--baseline"), options.has("--profile"), !options.has("--no-aerial"), number_or(options.value("--fog", "0"), 0), options.has("--smoke"), options.has("--vfx"));
-    return astral::run_game(options, {.title = "Astral VFX Lab", .render = {.ray_tracing = rt, .path_tracer = options.has("--path-tracer")},
+    return astral::run_game(options, {.title = "Astral VFX Lab",
+                                     .render = {.ray_tracing = rt, .path_tracer = options.has("--path-tracer"),
+                                                .fog_self_shadows = !options.has("--no-volume-shadows"),
+                                                .fog_ddgi = !options.has("--no-fog-ddgi")},
                                      .asset_root = ASTRAL_GAME_ASSETS, .pack = ASTRAL_GAME_PACK}, game, 8);
 }

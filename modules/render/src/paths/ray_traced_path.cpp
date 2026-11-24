@@ -140,7 +140,7 @@ void record_rt_graph(RayTracedPathContext& ctx, const FrameInputs& inputs, gpu::
     const RGTexture taa_out = ctx.passes.taa.add(g, inputs, gbuffer, atmospheric_hdr);
     const RGTexture shadow = fog_shadow.bindless_index != 0xFFFFFFFFu ?
         ctx.passes.shadow.add(g, inputs, fog_shadow, ctx.stats) : RGTexture{};
-    const RGTexture fog = ctx.passes.fog.integrate(g, inputs, shadow);
+    const RGTexture fog = ctx.passes.fog.integrate(g, inputs, shadow, ddgi);
     const RGTexture fogged = ctx.passes.fog.composite(g, inputs, taa_out, gbuffer, fog);
     const RGTexture bloom = ctx.passes.bloom.add(g, inputs, fogged);
 

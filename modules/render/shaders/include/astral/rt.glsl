@@ -7,6 +7,7 @@
 #include <astral/sdf.glsl>
 #include <astral/bsdf.glsl>
 #include <astral/color.glsl>
+#include <astral/ddgi_layout.glsl>
 
 struct RectLight {
     vec4 position_two_sided; // xyz center, w 1 = emits on both sides
@@ -377,45 +378,6 @@ float intersect_rect(RectLight l, vec3 o, vec3 d) {
     return abs(u) <= 1.0 && abs(v) <= 1.0 ? t : -1.0;
 }
 
-// --- Octahedral mapping --------------------------------------------------------------------
-vec2 sign_not_zero(vec2 v) { return vec2(v.x >= 0.0 ? 1.0 : -1.0, v.y >= 0.0 ? 1.0 : -1.0); }
-vec2 oct_encode(vec3 n) {
-    n /= max(abs(n.x) + abs(n.y) + abs(n.z), 1e-8);
-    return n.z >= 0.0 ? n.xy : (1.0 - abs(n.yx)) * sign_not_zero(n.xy);
-}
-vec3 oct_decode(vec2 e) {
-    vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
-    if (v.z < 0.0) v.xy = (1.0 - abs(v.yx)) * sign_not_zero(v.xy);
-    return normalize(v);
-}
-
-// --- DDGI ----------------------------------------------------------------------------------
-const int DDGI_IRR = 8;   // interior texels per probe (irradiance)
-const int DDGI_DIST = 16; // interior texels per probe (distance moments)
-
-uint ddgi_probe_count(Frame f) { return f.ddgi_counts.x * f.ddgi_counts.y * f.ddgi_counts.z; }
-ivec3 ddgi_probe_coord(Frame f, uint index) {
-    uint nx = f.ddgi_counts.x, ny = f.ddgi_counts.y;
-    return ivec3(index % nx, (index / nx) % ny, index / (nx * ny));
-}
-uint ddgi_probe_index(Frame f, ivec3 c) {
-    return uint(c.x) + uint(c.y) * f.ddgi_counts.x + uint(c.z) * f.ddgi_counts.x * f.ddgi_counts.y;
-}
-vec3 ddgi_probe_position(Frame f, ivec3 c) { return f.ddgi_origin.xyz + vec3(c) * f.ddgi_spacing.xyz; }
-float ddgi_max_dist(Frame f) { return max(1.5 * length(f.ddgi_spacing.xyz), 1e-3); }
-// Atlas: probes in rows of nx*ny tiles, nz rows; each tile has a 1-texel border.
-ivec2 ddgi_tile_origin(Frame f, uint index, int interior) {
-    uint cols = f.ddgi_counts.x * f.ddgi_counts.y;
-    return ivec2(int(index % cols), int(index / cols)) * (interior + 2);
-}
-ivec2 ddgi_atlas_size(Frame f, int interior) {
-    return ivec2(int(f.ddgi_counts.x * f.ddgi_counts.y), int(f.ddgi_counts.z)) * (interior + 2);
-}
-vec2 ddgi_uv(Frame f, uint index, vec3 dir, int interior) {
-    vec2 texel = vec2(ddgi_tile_origin(f, index, interior)) + 1.0 + (oct_encode(dir) * 0.5 + 0.5) * float(interior);
-    return texel / vec2(ddgi_atlas_size(f, interior));
-}
-
 // Spherical Fibonacci ray directions, rotated every frame so probes see the whole sphere over time.
 mat3 ddgi_rotation(uint frame) {
     uint s = frame * 2654435761u + 12345u;
@@ -467,13 +429,7 @@ vec3 ddgi_irradiance(Frame f, uint irr_tex, uint dist_tex, vec3 p, vec3 n, vec3 
         w = w * w + 0.2;
         // Chebyshev visibility from the probe's normalized distance moments.
         vec2 moments = astral_sample(dist_tex, ASTRAL_SAMPLER_LINEAR_CLAMP, ddgi_uv(f, index, -dir, DDGI_DIST)).rg;
-        float r_norm = r / max_d;
-        if (r_norm > moments.x) {
-            float variance = max(moments.y - moments.x * moments.x, 0.0);
-            float diff = r_norm - moments.x;
-            float cheb = variance / max(variance + diff * diff, 1e-8);
-            w *= max(cheb * cheb * cheb, 0.0);
-        }
+        w *= ddgi_visibility(moments, r / max_d);
         w = max(w, 1e-6);
         if (w < 0.2) w *= w * w / 0.04; // crush tiny weights (light leaks)
         w *= trilinear;

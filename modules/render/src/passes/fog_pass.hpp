@@ -1,5 +1,6 @@
 #pragma once
 
+#include "passes/ddgi_pass.hpp"
 #include "passes/frame_inputs.hpp"
 
 namespace astral {
@@ -13,13 +14,13 @@ public:
     FogPass(const FogPass&) = delete;
     FogPass& operator=(const FogPass&) = delete;
 
-    RGTexture integrate(RenderGraph& graph, const FrameInputs& inputs, RGTexture shadow) const;
+    RGTexture integrate(RenderGraph& graph, const FrameInputs& inputs, RGTexture shadow, DdgiOutput ddgi = {}) const;
     RGTexture composite(RenderGraph& graph, const FrameInputs& inputs, RGTexture hdr,
                         const GBufferTextures& gbuffer, RGTexture atlas) const;
 
 private:
     gpu::Device& device_;
-    gpu::PipelineHandle integrate_{}, composite_{};
+    gpu::PipelineHandle integrate_{}, composite_{}, volume_shadow_{}, probe_reduce_{};
 };
 
 } // namespace astral

@@ -1271,3 +1271,49 @@ TEST_CASE("GPU particle burst draws and obeys scene depth") {
     scene.particles = {};
     CHECK(f.draw(scene) == behind);
 }
+
+TEST_CASE("local smoke attenuates sunlight through its own occupied cells") {
+    const RenderSettings settings{.shadow_map_size = 512, .ray_tracing = false, .bloom_strength = 0};
+    Fixture f(settings);
+    if (!f.device) return;
+    std::array<std::uint8_t, 27> occupied{};
+    occupied.fill(1);
+    const SmokeVolumeView smoke{.centre = {0, 0, 1}, .cell_size_m = 1, .extinction_per_m = 1.5f,
+                                .side = 3, .occupancy = occupied};
+    RenderScene scene{.sun = {.direction = {0, 0, 1}, .intensity = 5, .shadows = false},
+                      .environment = {.sky = {}, .ground = {}, .ambient = 0, .fog_range_m = 16},
+                      .smoke = std::span(&smoke, 1)};
+    const auto shaded = rgb(Fixture::center(f.draw(scene)));
+    auto unshadowed = settings;
+    unshadowed.fog_self_shadows = false;
+    f.renderer->set_settings(unshadowed);
+    const auto bright = rgb(Fixture::center(f.draw(scene)));
+    CHECK(shaded.r > 0);
+    CHECK(bright.r > shaded.r + 20);
+    scene.sun.intensity = 0;
+    CHECK(rgb(Fixture::center(f.draw(scene))).r == 0);
+}
+
+TEST_CASE("hybrid fog receives coloured indirect light from DDGI") {
+    RenderSettings settings{.shadow_map_size = 512, .ray_tracing = true,
+                            .gi = {.probes_x = 3, .probes_y = 3, .probes_z = 3, .rays_per_probe = 64,
+                                   .volume_min = {-2, -2, -2}, .volume_max = {2, 2, 4}},
+                            .denoise_iterations = 0, .bloom_strength = 0};
+    Fixture f(settings);
+    if (!f.device || !f.device->supports(gpu::Feature::RayTracing)) return;
+    REQUIRE(f.renderer->ray_tracing());
+    const auto slab = f.renderer->create_mesh(make_cube());
+    const auto material = f.renderer->create_material({.base_color = {0, 0, 0, 1}, .emissive = {0, 2, 0}});
+    const MeshInstance emitter{.mesh = slab, .material = material,
+                               .transform = translate({-1.5f, 0, 1}) * scale({0.25f, 5, 8})};
+    const RenderScene scene{.meshes = std::span(&emitter, 1), .sun = {.intensity = 0, .shadows = false},
+                            .environment = {.sky = {}, .ground = {}, .ambient = 0,
+                                            .fog_extinction = 0.55f, .fog_range_m = 14}};
+    const auto lit = rgb(Fixture::center(f.draw(scene)));
+    settings.fog_ddgi = false;
+    f.renderer->set_settings(settings);
+    const auto clear = rgb(Fixture::center(f.draw(scene)));
+    CHECK(clear.g == 0);
+    CHECK(lit.g > clear.g + 15);
+    CHECK(lit.r == 0);
+}

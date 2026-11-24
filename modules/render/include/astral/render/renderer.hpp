@@ -275,6 +275,8 @@ struct RenderSettings {
     bool path_tracer = false;
     std::uint32_t path_tracer_max_bounces = 6;
     DebugView debug_view = DebugView::None;
+    bool fog_self_shadows = true; ///< Local media attenuate direct sun light within their own volume.
+    bool fog_ddgi = true; ///< Sample diffuse probe lighting in fog on the hybrid path.
 };
 
 struct RenderStats {
@@ -396,4 +398,4 @@ ASTRAL_REFLECT_ENUM(astral::DebugView, None, Albedo, Normals, DiffuseLight, Spec
 ASTRAL_REFLECT(astral::GiSettings, probes_x, probes_y, probes_z, rays_per_probe, hysteresis, volume_min, volume_max)
 ASTRAL_REFLECT(astral::RenderSettings, shadow_map_size, ray_tracing, gi, denoise_iterations, max_history, taa_blend,
                bloom_strength, max_ray_distance, near_gi_radius, restir_di, path_tracer, path_tracer_max_bounces,
-               debug_view)
+               debug_view, fog_self_shadows, fog_ddgi)

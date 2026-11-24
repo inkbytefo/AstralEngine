@@ -1,7 +1,9 @@
 #include "passes/fog_pass.hpp"
 
 #include <shaders/fog_composite.comp.hpp>
+#include <shaders/fog_ddgi_reduce.comp.hpp>
 #include <shaders/fog_integrate.comp.hpp>
+#include <shaders/fog_volume_shadow.comp.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -14,13 +16,14 @@ struct GpuSmokeVolume {
     Vec3 corner;
     float cell_size;
     float extinction;
-    std::uint32_t side, first_word, modulation;
+    std::uint32_t side, first_word, modulation = no_texture, sun_shadow = no_texture;
 };
-static_assert(sizeof(GpuSmokeVolume) == 32);
+static_assert(sizeof(GpuSmokeVolume) == 36);
 
 struct SmokeBatch {
     std::vector<GpuSmokeVolume> volumes;
     std::vector<RGTexture> modulation;
+    std::vector<RGTexture> shadows;
 };
 
 RGTexture record_volume_shader(RenderGraph& g, const FrameInputs& in, const SmokeVolumeView& smoke, Vec3 corner) {
@@ -71,11 +74,62 @@ SmokeBatch prepare_smoke(RenderGraph& g, gpu::Device& device, const FrameInputs&
             if (smoke.occupancy[i]) words[first + i / 32] |= 1u << (i % 32);
         }
         volumes.push_back({corner, smoke.cell_size_m, smoke.extinction_per_m,
-                           smoke.side, static_cast<std::uint32_t>(first), 0xFFFFFFFFu});
+                           smoke.side, static_cast<std::uint32_t>(first)});
         batch.modulation.push_back(modulation);
     }
     if (!volumes.empty()) in.slot.fog_density.write(device, words.data(), words.size() * sizeof(std::uint32_t));
     return batch;
+}
+
+void record_smoke_shadows(RenderGraph& g, const FrameInputs& in, gpu::PipelineHandle pipeline,
+                          std::uint64_t density, SmokeBatch& batch) {
+    batch.shadows.resize(batch.volumes.size());
+    if (!pipeline.valid() || !in.settings.fog_self_shadows || !(in.scene.sun.intensity > 0) ||
+        !(length(in.scene.sun.direction) > 0)) return;
+    for (std::size_t i = 0; i < batch.volumes.size(); ++i) {
+        const auto volume = batch.volumes[i];
+        const auto material = batch.modulation[i];
+        const auto target = g.create("volume.sun", {volume.side, volume.side * volume.side, gpu::Format::R32Float});
+        batch.shadows[i] = target;
+        g.add_pass("volume sunlight", [material, target](PassBuilder& b) {
+            if (material.valid()) b.read(material);
+            b.write_storage(target);
+        }, [pipeline, target, material, volume, frame = in.addresses.frame, density](PassContext& c) {
+            struct Push {
+                std::uint64_t frame, density;
+                GpuSmokeVolume volume;
+                std::uint32_t target;
+            };
+            static_assert(sizeof(Push) == 56);
+            Push push{frame, density, volume, c.bindless(target)};
+            if (material.valid()) push.volume.modulation = c.bindless(material);
+            c.cmd.bind_pipeline(pipeline);
+            c.cmd.push_constants(&push, sizeof(push));
+            c.cmd.dispatch((volume.side + 7) / 8, (volume.side * volume.side + 7) / 8);
+        });
+    }
+}
+
+RGTexture record_probe_reduction(RenderGraph& g, const FrameInputs& in, gpu::PipelineHandle pipeline, DdgiOutput ddgi) {
+    if (!in.settings.fog_ddgi || !pipeline.valid() || !ddgi.irradiance.valid() || !ddgi.distance.valid()) return {};
+    const auto& gi = in.settings.gi;
+    const auto width = std::max(gi.probes_x, 2u) * std::max(gi.probes_y, 2u);
+    const auto height = std::max(gi.probes_z, 2u);
+    const auto target = g.create("fog.probe_radiance", {width, height, gpu::Format::RGBA16Float});
+    g.add_pass("fog probe radiance", [ddgi, target](PassBuilder& b) {
+        b.read(ddgi.irradiance);
+        b.write_storage(target);
+    }, [pipeline, frame = in.addresses.frame, ddgi, target, width, height](PassContext& c) {
+        struct Push {
+            std::uint64_t frame;
+            std::uint32_t irradiance, target;
+        };
+        const Push push{frame, c.bindless(ddgi.irradiance), c.bindless(target)};
+        c.cmd.bind_pipeline(pipeline);
+        c.cmd.push_constants(&push, sizeof(push));
+        c.cmd.dispatch((width + 7) / 8, (height + 7) / 8);
+    });
+    return target;
 }
 
 } // namespace
@@ -91,44 +145,61 @@ Vec4 fog_parameters(const RenderScene& scene) noexcept {
 FogPass::FogPass(gpu::Device& device) : device_(device) {
     integrate_ = device_.create_compute_pipeline({.shader = {shaders::fog_integrate_comp}, .debug_name = "astral.fog.integrate"});
     composite_ = device_.create_compute_pipeline({.shader = {shaders::fog_composite_comp}, .debug_name = "astral.fog.composite"});
+    volume_shadow_ = device_.create_compute_pipeline(
+        {.shader = {shaders::fog_volume_shadow_comp}, .debug_name = "astral.fog.volume_shadow"});
+    probe_reduce_ = device_.create_compute_pipeline(
+        {.shader = {shaders::fog_ddgi_reduce_comp}, .debug_name = "astral.fog.probe_reduce"});
 }
 
 FogPass::~FogPass() {
     device_.destroy(integrate_);
     device_.destroy(composite_);
+    device_.destroy(volume_shadow_);
+    device_.destroy(probe_reduce_);
 }
 
-RGTexture FogPass::integrate(RenderGraph& g, const FrameInputs& in, RGTexture shadow) const {
+RGTexture FogPass::integrate(RenderGraph& g, const FrameInputs& in, RGTexture shadow, DdgiOutput ddgi) const {
     if ((fog_parameters(in.scene).x == 0 && in.scene.smoke.empty()) || !integrate_.valid() || !composite_.valid() ||
         in.settings.debug_view != DebugView::None) return {};
     auto batch = prepare_smoke(g, device_, in);
     const auto count = static_cast<std::uint32_t>(batch.volumes.size());
     if (count == 0 && fog_parameters(in.scene).x == 0) return {};
     const auto density = count ? device_.buffer_address(in.slot.fog_density.buffer) : 0;
+    record_smoke_shadows(g, in, volume_shadow_, density, batch);
+    const auto radiance = record_probe_reduction(g, in, probe_reduce_, ddgi);
     constexpr std::uint32_t slices = 16;
     const auto w = std::min((in.extent.width + 7) / 8, 240u);
     const auto h = std::min((in.extent.height + 7) / 8, 135u);
     const RGTexture atlas = g.create("fog.atlas", {w, h * slices, gpu::Format::RGBA16Float});
-    const auto textures = batch.modulation;
-    g.add_pass("froxel integrate", [atlas, shadow, textures](PassBuilder& b) {
+    const auto declare = [atlas, shadow, radiance, ddgi, &batch](PassBuilder& b) {
         if (shadow.valid()) b.read(shadow);
-        for (auto texture : textures) if (texture.valid()) b.read(texture);
+        if (radiance.valid()) {
+            b.read(radiance);
+            b.read(ddgi.distance);
+        }
+        for (auto texture : batch.modulation) if (texture.valid()) b.read(texture);
+        for (auto texture : batch.shadows) if (texture.valid()) b.read(texture);
         b.write_storage(atlas);
-    }, [pipeline = integrate_, atlas, shadow, frame = in.addresses.frame, w, h, count, density, this, &slot = in.slot,
-        batch = std::move(batch)](PassContext& c) mutable {
+    };
+    g.add_pass("froxel integrate", declare,
+        [pipeline = integrate_, atlas, shadow, radiance, ddgi, frame = in.addresses.frame, w, h, count, density,
+         this, &slot = in.slot, batch](PassContext& c) mutable {
         std::uint64_t volumes = 0;
         if (count) {
             for (std::size_t i = 0; i < count; ++i) {
                 if (batch.modulation[i].valid()) batch.volumes[i].modulation = c.bindless(batch.modulation[i]);
+                if (batch.shadows[i].valid()) batch.volumes[i].sun_shadow = c.bindless(batch.shadows[i]);
             }
             slot.fog_volumes.write(device_, batch.volumes.data(), count * sizeof(GpuSmokeVolume));
             volumes = device_.buffer_address(slot.fog_volumes.buffer);
         }
         struct Push {
             std::uint64_t frame, volumes, density;
-            std::uint32_t atlas, shadow, w, h, count, padding;
+            std::uint32_t atlas, shadow, w, h, count, probe_radiance, probe_distance;
         };
-        const Push push{frame, volumes, density, c.bindless(atlas), shadow.valid() ? c.bindless(shadow) : 0xFFFFFFFFu, w, h, count, 0};
+        const Push push{frame, volumes, density, c.bindless(atlas), shadow.valid() ? c.bindless(shadow) : no_texture,
+                        w, h, count, radiance.valid() ? c.bindless(radiance) : no_texture,
+                        radiance.valid() ? c.bindless(ddgi.distance) : no_texture};
         c.cmd.bind_pipeline(pipeline);
         c.cmd.push_constants(&push, sizeof(push));
         c.cmd.dispatch((w + 7) / 8, (h + 7) / 8);

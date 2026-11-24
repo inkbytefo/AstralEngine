@@ -69,6 +69,7 @@ astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astr
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/brdf.glsl astral_brdf_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/bsdf.glsl astral_bsdf_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/rt.glsl astral_rt_glsl)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/ddgi_layout.glsl astral_ddgi_layout_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/restir.glsl astral_restir_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/primary.glsl astral_primary_glsl)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/sdf.glsl astral_sdf_glsl)
@@ -85,7 +86,8 @@ astral_add_shaders(astral_render
     SOURCES
         shaders/gbuffer.vert shaders/gbuffer.frag shaders/shadow.vert
         shaders/sdf.comp shaders/decal.comp shaders/lighting.comp shaders/aerial.comp
-        shaders/fog_integrate.comp shaders/fog_composite.comp shaders/particle.vert shaders/particle.frag
+        shaders/fog_integrate.comp shaders/fog_composite.comp shaders/fog_volume_shadow.comp shaders/fog_ddgi_reduce.comp
+        shaders/particle.vert shaders/particle.frag
         shaders/tonemap.vert shaders/tonemap.frag
         shaders/rt_lighting.comp shaders/ddgi_trace.comp shaders/ddgi_update.comp
         shaders/restir_di_temporal.comp shaders/restir_di_spatial.comp

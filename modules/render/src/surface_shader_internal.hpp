@@ -22,6 +22,8 @@ extern const std::uint8_t astral_bsdf_glsl[];
 extern const std::size_t astral_bsdf_glsl_size;
 extern const std::uint8_t astral_rt_glsl[];
 extern const std::size_t astral_rt_glsl_size;
+extern const std::uint8_t astral_ddgi_layout_glsl[];
+extern const std::size_t astral_ddgi_layout_glsl_size;
 extern const std::uint8_t astral_restir_glsl[];
 extern const std::size_t astral_restir_glsl_size;
 extern const std::uint8_t astral_primary_glsl[];

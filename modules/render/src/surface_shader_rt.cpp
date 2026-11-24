@@ -192,6 +192,8 @@ RtVariants compile_rt_variants(std::span<const RtSurface> surfaces) {
     RtVariants out;
     std::vector<GlslInclude> includes = detail::engine_includes();
     includes.push_back({"astral/rt.glsl", detail::embedded_text(embedded::astral_rt_glsl, embedded::astral_rt_glsl_size)});
+    includes.push_back({"astral/ddgi_layout.glsl",
+                        detail::embedded_text(embedded::astral_ddgi_layout_glsl, embedded::astral_ddgi_layout_glsl_size)});
     includes.push_back({"astral/restir.glsl", detail::embedded_text(embedded::astral_restir_glsl, embedded::astral_restir_glsl_size)});
     includes.push_back({"astral/primary.glsl", detail::embedded_text(embedded::astral_primary_glsl, embedded::astral_primary_glsl_size)});
     includes.push_back({"astral/sdf.glsl", detail::embedded_text(embedded::astral_sdf_glsl, embedded::astral_sdf_glsl_size)});
