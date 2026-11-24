@@ -173,13 +173,13 @@ void Device::destroy(AccelerationStructureHandle as) {
     s.retire([&s, copy] { destroy_accel_record(s, copy); });
 }
 
-void CommandList::build_tlas(AccelerationStructureHandle tlas, std::span<const TlasInstance> instances) {
-    if (!usable()) return;
+bool CommandList::build_tlas(AccelerationStructureHandle tlas, std::span<const TlasInstance> instances) {
+    if (!usable()) return false;
     auto& s = device_->impl();
     const AccelRecord* t = s.accels.get(tlas);
     if (!t || t->max_instances == 0 || instances.size() > t->max_instances) {
         s.log_error("build_tlas: invalid TLAS or more instances than its max_instances");
-        return;
+        return false;
     }
     // Instances go through a transient host-visible buffer, freed once this list completed.
     const std::uint64_t bytes = std::max<std::uint64_t>(1, instances.size()) * sizeof(VkAccelerationStructureInstanceKHR);
@@ -187,7 +187,7 @@ void CommandList::build_tlas(AccelerationStructureHandle tlas, std::span<const T
     if (!create_buffer_raw_usage(s, bytes, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
                                  MemoryUsage::CpuToGpu, 16, upload)) {
         s.log_error("build_tlas: instance upload allocation failed");
-        return;
+        return false;
     }
     auto* out = static_cast<VkAccelerationStructureInstanceKHR*>(upload.mapped);
     std::uint32_t count = 0;
@@ -229,6 +229,7 @@ void CommandList::build_tlas(AccelerationStructureHandle tlas, std::span<const T
                VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR, shader_stages,
                VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR);
     s.retire([&s, upload] { destroy_buffer_record(s, upload); });
+    return true;
 }
 
 } // namespace astral::gpu

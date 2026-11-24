@@ -180,9 +180,7 @@ std::string fragment_output(Mode mode, bool unshaded, ShadingModel shading_model
     if (NORMAL_MAP != vec3(0.5, 0.5, 1.0)) n = astral_perturb(n, NORMAL_MAP * 2.0 - 1.0, NORMAL_MAP_DEPTH);
     vec3 lit = astral_lit(n, VIEW_DIR, WORLD_POSITION, ALBEDO * AO, ROUGHNESS, METALLIC) + EMISSION;
 )";
-        s += R"(    vec3 c = astral_aces_tonemap(lit * f.ground_color.a);
-    if (f.custom.w != 0u) c = astral_linear_to_srgb(c);
-    astral_out_color = vec4(c, clamp(ALPHA, 0.0, 1.0));
+        s += R"(    astral_out_color = vec4(lit, clamp(ALPHA, 0.0, 1.0));
 )";
         return s;
     }

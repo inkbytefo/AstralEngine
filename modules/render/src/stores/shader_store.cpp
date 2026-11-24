@@ -56,7 +56,7 @@ ShaderHandle ShaderStore::create(const SurfaceShaderBuild& build, std::string_vi
         blended.forward = device_.create_graphics_pipeline({
             .vertex = {build.forward_vertex},
             .fragment = {build.forward_fragment},
-            .color_formats = {target_format_},
+            .color_formats = {gpu::Format::RGBA16Float},
             .depth = {.format = gpu::Format::D32Float, .test = true, .write = false, .compare = gpu::CompareOp::LessEqual},
             .cull = cull,
             .alpha_blend = !build.additive,
@@ -70,6 +70,7 @@ ShaderHandle ShaderStore::create(const SurfaceShaderBuild& build, std::string_vi
     shader.casts_shadows = build.casts_shadows;
     shader.alpha_test = build.alpha_test;
     shader.rt_chunk = build.rt_chunk;
+    shader.rt_uses_time = shader.rt_chunk.find("TIME") != std::string::npos;
     shader.samplers = build.samplers;
     shader.gbuffer = device_.create_graphics_pipeline({
         .vertex = {build.gbuffer_vertex},

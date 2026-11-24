@@ -429,6 +429,25 @@ TEST_CASE("M13 PBR: path tracer accumulates, resets on camera move, and matches 
     (void)rig.draw(scene, 1);
     CHECK(rig.renderer->stats().path_tracer_samples == 1u);
 
+    // Scene changes must restart accumulation even with the same camera and light count.
+    auto moved_items = items;
+    auto moved_lights = rects;
+    RenderScene changed = scene;
+    changed.meshes = moved_items;
+    changed.rect_lights = moved_lights;
+    (void)rig.draw(changed, 2);
+    REQUIRE(rig.renderer->stats().path_tracer_samples == 3u);
+    moved_items[1].transform = translate({1, 0.6f, 0});
+    (void)rig.draw(changed, 2);
+    CHECK(rig.renderer->stats().path_tracer_samples == 2u);
+    moved_lights[0].position.x += 0.5f;
+    (void)rig.draw(changed, 1);
+    CHECK(rig.renderer->stats().path_tracer_samples == 1u);
+    REQUIRE(rig.renderer->update_material(box_m, {.base_color = {0.2f, 0.5f, 0.8f, 1}}));
+    (void)rig.draw(changed, 1);
+    CHECK(rig.renderer->stats().path_tracer_samples == 1u);
+    REQUIRE(rig.renderer->update_material(box_m, {.base_color = {0.82f, 0.22f, 0.18f, 1}, .roughness = 0.55f}));
+
     // Compare Hybrid RT mean luminance against converged Path Tracer Reference at the original pose.
     rig.look_from({0, 1.5f, 4.5f}, {0, 1.0f, 0});
     rig.renderer->set_settings(rt_settings(false));
@@ -478,6 +497,30 @@ void surface() {
     rig.renderer->destroy(sh);
 }
 
+TEST_CASE("path tracing only resets when time changes for a time-dependent surface") {
+    PbrRig rig(rt_settings(true));
+    if (!rig.device || !rig.renderer->ray_tracing()) return;
+    const auto parsed = parse_ashader(
+        "shader_type surface;\nrender_mode unshaded;\nvoid surface() { ALBEDO = vec3(TIME, 0.0, 0.0); }");
+    REQUIRE(parsed.errors.empty());
+    const ShaderHandle shader = rig.renderer->create_shader(compile_surface_shader(parsed.source, "animated"), "animated");
+    REQUIRE(shader.valid());
+    const MeshHandle cube = rig.renderer->create_mesh(make_cube());
+    MeshInstance item{.mesh = cube, .material = rig.renderer->default_material()};
+    RenderScene scene{.meshes = std::span(&item, 1)};
+    (void)rig.draw(scene, 1);
+    scene.time = 0.25f;
+    (void)rig.draw(scene, 1);
+    CHECK(rig.renderer->stats().path_tracer_samples == 2u);
+
+    item.material = rig.renderer->create_material({.shader = shader});
+    (void)rig.draw(scene, 2);
+    CHECK(rig.renderer->stats().path_tracer_samples == 2u);
+    scene.time = 0.75f;
+    (void)rig.draw(scene, 1);
+    CHECK(rig.renderer->stats().path_tracer_samples == 1u);
+}
+
 TEST_CASE("M13 PBR: path tracer renders custom sky and forward blended glass/hologram") {
     PbrRig rig(rt_settings(true));
     if (!rig.device || !rig.renderer->ray_tracing()) return;
@@ -501,7 +544,10 @@ TEST_CASE("M13 PBR: path tracer renders custom sky and forward blended glass/hol
     const auto bg = PbrRig::rgb(px[4 * PbrRig::kSize + 4]);
     const auto fg = PbrRig::rgb(rig.at(px, {0, 0, 0}));
     CHECK_MESSAGE(bg[2] > bg[0] + 60, "pt sky=(", bg[0], ",", bg[1], ",", bg[2], ")");
-    CHECK_MESSAGE(fg[0] > fg[2] + 60, "pt blend=(", fg[0], ",", fg[1], ",", fg[2], ")");
+    // A 2.5-linear blue background contributes 0.375 before tonemapping at 85% opacity.
+    // Blending the already tonemapped colors would lose most of that blue contribution.
+    CHECK(fg[2] > 170);
+    CHECK_MESSAGE(fg[0] > fg[2] + 20, "pt blend=(", fg[0], ",", fg[1], ",", fg[2], ")");
     rig.renderer->destroy(sky_sh);
     rig.renderer->destroy(blend_sh);
 }

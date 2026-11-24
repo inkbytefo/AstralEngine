@@ -79,7 +79,7 @@ target_include_directories(astral_render SYSTEM PRIVATE $<BUILD_INTERFACE:${stb_
 astral_add_shaders(astral_render
     SOURCES
         shaders/gbuffer.vert shaders/gbuffer.frag shaders/shadow.vert
-        shaders/sdf.comp shaders/decal.comp shaders/lighting.comp
+        shaders/sdf.comp shaders/sdf_depth.frag shaders/decal.comp shaders/lighting.comp
         shaders/tonemap.vert shaders/tonemap.frag
         shaders/rt_lighting.comp shaders/ddgi_trace.comp shaders/ddgi_update.comp
         shaders/restir_di_temporal.comp shaders/restir_di_spatial.comp

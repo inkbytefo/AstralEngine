@@ -72,7 +72,7 @@ public:
 
     /// Rebuilds `tlas` from `instances` (at most its max_instances). Barriers before and after
     /// make it safe against earlier ray queries and visible to later ones.
-    void build_tlas(AccelerationStructureHandle tlas, std::span<const TlasInstance> instances);
+    bool build_tlas(AccelerationStructureHandle tlas, std::span<const TlasInstance> instances);
 
     void copy_buffer(BufferHandle src, BufferHandle dst, std::uint64_t size,
                      std::uint64_t src_offset = 0, std::uint64_t dst_offset = 0);

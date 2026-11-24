@@ -75,8 +75,45 @@ vec3 eval_raster_direct(uint model, vec4 mat_ext, vec3 n, vec3 v, vec3 l, vec3 a
     return base_d + specular_brdf(n, v, l, f0, roughness);
 }
 
+const uint tile_capacity = 128u;
+shared uint tile_light_count;
+shared uint tile_lights[tile_capacity];
+
+bool sphere_inside_plane(vec4 plane, vec3 center, float radius) {
+    float distance = dot(plane, vec4(center, 1.0));
+    float reach = radius * length(plane.xyz);
+    return distance >= -reach - 1e-5 * max(1.0, abs(distance) + reach);
+}
+
+void gather_tile_lights(Frame f) {
+    if (gl_LocalInvocationIndex == 0u) tile_light_count = 0u;
+    barrier();
+
+    vec2 first = vec2(gl_WorkGroupID.xy * gl_WorkGroupSize.xy);
+    vec2 last = min(first + vec2(gl_WorkGroupSize.xy), f.screen.xy);
+    vec2 lo = first * f.screen.zw * 2.0 - 1.0;
+    vec2 hi = last * f.screen.zw * 2.0 - 1.0;
+    mat4 rows = transpose(f.view_projection);
+    vec4 left = rows[0] - lo.x * rows[3];
+    vec4 right = hi.x * rows[3] - rows[0];
+    vec4 top = rows[1] - lo.y * rows[3];
+    vec4 bottom = hi.y * rows[3] - rows[1];
+    for (uint i = gl_LocalInvocationIndex; i < f.counts.x; i += 64u) {
+        vec4 light = pc.lights.data[i].position_radius;
+        float r = max(light.w, 1e-4);
+        if (sphere_inside_plane(left, light.xyz, r) && sphere_inside_plane(right, light.xyz, r) &&
+            sphere_inside_plane(top, light.xyz, r) && sphere_inside_plane(bottom, light.xyz, r)) {
+            uint slot = atomicAdd(tile_light_count, 1u);
+            if (slot < tile_capacity) tile_lights[slot] = i;
+        }
+    }
+    barrier();
+}
+
 void main() {
     Frame f = pc.frame.f;
+    // Every lane must reach the gather barriers, including lanes outside the viewport.
+    if (f.counts.x > 16u) gather_tile_lights(f);
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     if (pixel.x >= int(f.screen.x) || pixel.y >= int(f.screen.y)) return;
     vec2 uv = (vec2(pixel) + 0.5) * f.screen.zw;
@@ -120,8 +157,11 @@ void main() {
         float sun_vis = model == SHADING_SUBSURFACE ? max(shade, 0.25 * mat_ext.a) : shade;
         color = eval_raster_direct(model, mat_ext, n, v, l, albedo, roughness, metallic) * f.sun_color.rgb * sun_vis;
 
-        for (uint i = 0u; i < f.counts.x; ++i) {
-            PointLight light = pc.lights.data[i];
+        bool use_tile = false;
+        if (f.counts.x > 16u) use_tile = tile_light_count <= tile_capacity;
+        uint light_count = use_tile ? tile_light_count : f.counts.x;
+        for (uint i = 0u; i < light_count; ++i) {
+            PointLight light = pc.lights.data[use_tile ? tile_lights[i] : i];
             vec3 to = light.position_radius.xyz - p;
             float dist = max(length(to), 1e-4);
             float radius = max(light.position_radius.w, 1e-4);

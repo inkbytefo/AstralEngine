@@ -193,12 +193,29 @@ TEST_CASE("prepare_instances groups opaque draws, sorts blended back-to-front, a
         CHECK(prepared.tlas_instances.size() == 2); // opaque only
         auto cmd = device->begin_commands();
         CHECK(build_tlas(*device, cmd, prepared));
-        CHECK(prepared.tlas.valid());
-        CHECK(prepared.tlas_capacity >= 64);
+        REQUIRE(prepared.tlas->handle.valid());
+        CHECK(prepared.tlas->capacity >= 64);
+        CHECK(prepared.tlas_build_recorded);
         device->wait(device->submit(cmd));
+
+        auto unchanged = device->begin_commands();
+        REQUIRE(build_tlas(*device, unchanged, prepared));
+        CHECK_FALSE(prepared.tlas_build_recorded);
+        device->wait(device->submit(unchanged));
+
+        prepared.tlas_instances[0].transform[3] += 1.0f;
+        {
+            auto dropped = device->begin_commands();
+            REQUIRE(build_tlas(*device, dropped, prepared));
+            CHECK(prepared.tlas_build_recorded);
+        }
+        auto moved = device->begin_commands();
+        REQUIRE(build_tlas(*device, moved, prepared));
+        CHECK(prepared.tlas_build_recorded);
+        device->wait(device->submit(moved));
     }
 
-    prepared.destroy(*device);
+    prepared.tlas.reset();
     slot.destroy(*device);
     shaders.destroy(blend_shader);
 }

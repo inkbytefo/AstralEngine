@@ -142,6 +142,38 @@ TEST_CASE("many instances of one mesh are one draw call") {
     CHECK(f.renderer->stats().instances == 1000);
 }
 
+TEST_CASE("tiled raster lights preserve the image with offscreen lights and full tiles") {
+    Fixture f;
+    if (!f.device) return;
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const MeshInstance item{.mesh = cube, .material = f.renderer->default_material()};
+    const PointLight key{.position = {0, 0, 3}, .intensity = 5.0f, .radius = 4.0f};
+    RenderScene scene{.meshes = std::span(&item, 1), .lights = std::span(&key, 1), .sun = {.intensity = 0}};
+    const auto baseline = f.draw(scene);
+
+    std::vector<PointLight> lights(150, {.position = {100, 0, 0}, .intensity = 20.0f, .radius = 1.0f});
+    lights.back() = key;
+    scene.lights = lights;
+    CHECK(f.draw(scene) == baseline);
+
+    // More lights in the same tile than its shared list can hold. Keep the actual light last.
+    for (auto& light : std::span(lights).first(lights.size() - 1)) {
+        light = {.position = key.position, .intensity = 0.0f, .radius = key.radius};
+    }
+    CHECK(f.draw(scene) == baseline);
+}
+
+TEST_CASE("offscreen mesh groups still submit to the shadow pass") {
+    Fixture f;
+    if (!f.device) return;
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const MeshInstance item{.mesh = cube, .material = f.renderer->default_material(),
+                            .transform = translate({100, 0, 0})};
+    (void)f.draw({.meshes = std::span(&item, 1)});
+    CHECK(f.renderer->stats().draw_calls == 0);
+    CHECK(f.renderer->stats().shadow_draw_calls == 1);
+}
+
 TEST_CASE("draw items with destroyed meshes are skipped") {
     Fixture f;
     if (!f.device) return;
@@ -289,6 +321,22 @@ bool rt_available(Fixture& f) {
 }
 
 } // namespace
+
+TEST_CASE("moving SDF invalidates hybrid temporal history until the next stable frame") {
+    Fixture f(rt_settings());
+    if (!rt_available(f)) return;
+    SdfShape shape{.size = {0.6f, 0, 0, 0}};
+    const RenderScene scene{.sdf = std::span(&shape, 1)};
+    (void)f.draw(scene);
+    CHECK_FALSE(f.renderer->stats().temporal_history_used);
+    (void)f.draw(scene);
+    CHECK(f.renderer->stats().temporal_history_used);
+    shape.position.x = 0.75f;
+    (void)f.draw(scene);
+    CHECK_FALSE(f.renderer->stats().temporal_history_used);
+    (void)f.draw(scene);
+    CHECK(f.renderer->stats().temporal_history_used);
+}
 
 TEST_CASE("ray-traced path renders a lit mesh with the full pass chain") {
     Fixture f(rt_settings());
@@ -949,6 +997,23 @@ TEST_CASE("transparent surfaces are sorted back to front and hidden behind opaqu
     f.renderer->destroy(shader);
 }
 
+TEST_CASE("SDF depth occludes transparent geometry behind it without hiding glass in front") {
+    Fixture f;
+    if (!f.device) return;
+    const ShaderHandle shader = make_shader(f, glass_shader, "sdf_glass");
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const MaterialHandle glass = f.renderer->create_material({.shader = shader, .params = {0, 1, 0, 0.9f}});
+    const SdfShape sdf{.size = {1, 0, 0, 0}, .color = {1, 0, 0, 1}};
+    MeshInstance pane{.mesh = cube, .material = glass, .transform = translate({0, 0, -2}) * scale({1, 1, 0.1f})};
+    RenderScene scene{.sdf = std::span(&sdf, 1), .sun = front_sun};
+    const auto opaque = Fixture::center(f.draw(scene));
+    scene.meshes = std::span(&pane, 1);
+    CHECK(Fixture::center(f.draw(scene)) == opaque);
+    pane.transform = translate({0, 0, 2}) * scale({1, 1, 0.1f});
+    const Rgb foreground = rgb(Fixture::center(f.draw(scene)));
+    CHECK(foreground.g > rgb(opaque).g + 10);
+}
+
 TEST_CASE("a sky shader replaces the background and leaves geometry alone") {
     Fixture f;
     if (!f.device) return;
@@ -1044,13 +1109,13 @@ TEST_CASE("characterization: RenderStats and pass list for raster and ray-traced
         CHECK(s.point_lights == 1);
         CHECK(s.rect_lights == 0);
         CHECK(s.gi_probes == 0);
-        CHECK(s.passes == 7);
+        CHECK(s.passes == 8);
 
         if (!f.device->supports(gpu::Feature::Timestamps)) {
             MESSAGE("no GPU timestamps — skipping raster pass list assertion");
         } else {
             const std::vector<std::string> expected{
-                "shadow", "gbuffer", "sdf", "lighting", "tonemap", "transparent", "debug.lines",
+                "shadow", "gbuffer", "sdf", "lighting", "sdf.depth_merge", "transparent", "tonemap", "debug.lines",
             };
             CHECK(pass_names(*f.renderer) == expected);
         }
@@ -1101,7 +1166,7 @@ TEST_CASE("characterization: RenderStats and pass list for raster and ray-traced
         CHECK(s.point_lights == 1);
         CHECK(s.rect_lights == 1);
         CHECK(s.gi_probes == 64);
-        CHECK(s.passes == 26);
+        CHECK(s.passes == 27);
 
         if (!f.device->supports(gpu::Feature::Timestamps)) {
             MESSAGE("no GPU timestamps — skipping ray-traced pass list assertion");
@@ -1109,10 +1174,10 @@ TEST_CASE("characterization: RenderStats and pass list for raster and ray-traced
             const std::vector<std::string> expected{
                 "gbuffer", "sdf", "ddgi.trace", "ddgi.update.irradiance", "ddgi.update.distance",
                 "rt.lighting", "denoise.temporal", "denoise.atrous", "denoise.atrous", "denoise.atrous",
-                "composite", "taa",
+                "composite", "taa", "sdf.depth_merge", "transparent",
                 "bloom.down", "bloom.down", "bloom.down", "bloom.down", "bloom.down", "bloom.down",
                 "bloom.up", "bloom.up", "bloom.up", "bloom.up", "bloom.up",
-                "tonemap", "transparent", "debug.lines",
+                "tonemap", "debug.lines",
             };
             CHECK(pass_names(*f.renderer) == expected);
         }

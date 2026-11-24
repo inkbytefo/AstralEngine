@@ -4,6 +4,9 @@
 #include "passes/frame_inputs.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
+#include <span>
 #include <cmath>
 #include <cstring>
 
@@ -32,6 +35,82 @@ bool camera_changed(const Mat4& a, const Mat4& b, const Vec3& pos_a, const Vec3&
         }
     }
     return false;
+}
+
+void hash_bytes(std::uint64_t& signature, std::span<const std::byte> bytes) {
+    for (const std::byte byte : bytes) {
+        signature = (signature ^ std::to_integer<std::uint8_t>(byte)) * 1099511628211ull;
+    }
+}
+
+bool has_time_dependent_surface(const RayTracedPathContext& ctx, const RenderScene& scene) {
+    return std::any_of(ctx.frame_instances.order.begin(), ctx.frame_instances.order.end(),
+                       [&ctx, &scene](std::uint32_t index) {
+                           const GpuShader* shader = ctx.materials.shader_of(scene.meshes[index].material);
+                           return shader && shader->rt_uses_time;
+                       });
+}
+
+std::uint64_t path_tracer_scene_signature(const RenderScene& scene, const FrameInstances& instances) {
+    std::uint64_t signature = 14695981039346656037ull;
+    const auto hash = [&signature](std::span<const std::byte> bytes) { hash_bytes(signature, bytes); };
+    const std::array<std::size_t, 5> counts{
+        instances.order.size(), instances.lights.size(), instances.rects.size(), instances.shapes.size(),
+        instances.decals.size()};
+    hash(std::as_bytes(std::span(counts)));
+    for (const GpuInstance& instance : std::span(instances.instances).first(instances.order.size())) {
+        hash(std::as_bytes(std::span(&instance.model, 1)));
+        hash(std::as_bytes(std::span(&instance.material, 1)));
+        hash(std::as_bytes(std::span(instance.vertices)));
+        hash(std::as_bytes(std::span(instance.indices)));
+    }
+    hash(std::as_bytes(std::span(instances.lights)));
+    hash(std::as_bytes(std::span(instances.rects)));
+    hash(std::as_bytes(std::span(instances.shapes)));
+    hash(std::as_bytes(std::span(instances.decals)));
+    const std::array lighting{
+        scene.sun.direction.x, scene.sun.direction.y, scene.sun.direction.z,
+        scene.sun.color.x, scene.sun.color.y, scene.sun.color.z, scene.sun.intensity, scene.sun.angular_radius,
+        scene.environment.sky.x, scene.environment.sky.y, scene.environment.sky.z,
+        scene.environment.ground.x, scene.environment.ground.y, scene.environment.ground.z, scene.environment.ambient};
+    hash(std::as_bytes(std::span(lighting)));
+    return signature;
+}
+
+void update_path_tracer_history(RayTracedPathContext& ctx, const CameraData& camera,
+                                const RenderScene& scene, const Mat4& view_projection) {
+    const std::uint64_t signature = path_tracer_scene_signature(scene, ctx.frame_instances);
+    const bool time_changed = scene.time != ctx.temporal.prev_scene_time && has_time_dependent_surface(ctx, scene);
+    if (!ctx.temporal.history_valid || signature != ctx.temporal.path_tracer_scene_signature || time_changed ||
+        camera_changed(view_projection, ctx.temporal.prev_view_projection, camera.position,
+                       ctx.temporal.prev_camera_position)) {
+        ctx.passes.path_tracer.reset();
+    }
+    ctx.temporal.path_tracer_scene_signature = signature;
+    ctx.temporal.prev_scene_time = scene.time;
+}
+
+void update_sdf_history(TemporalState& temporal, std::span<const GpuSdfShape> shapes) {
+    std::uint64_t signature = 14695981039346656037ull;
+    hash_bytes(signature, std::as_bytes(shapes));
+    // SDF velocity currently reprojects camera motion only. Reject stale
+    // history when shape motion or a CSG edit makes that velocity unreliable.
+    if (signature != temporal.sdf_signature) temporal.history_valid = false;
+    temporal.sdf_signature = signature;
+}
+
+DdgiFrameInfo prepare_mode_resources(RayTracedPathContext& ctx, const RenderScene& scene, gpu::Extent2D extent) {
+    if (ctx.settings.path_tracer) {
+        if (ctx.passes.path_tracer.resize(extent.width, extent.height)) ctx.temporal.history_valid = false;
+        return {};
+    }
+
+    bool resized = ctx.passes.rt_lighting.resize(extent.width, extent.height);
+    resized |= ctx.passes.denoise.resize(extent.width, extent.height);
+    resized |= ctx.passes.taa.resize(extent.width, extent.height);
+    if (resized) ctx.temporal.history_valid = false;
+    ctx.passes.ddgi.ensure(scene, ctx.meshes, ctx.settings.gi);
+    return ctx.passes.ddgi.info();
 }
 
 GpuFrame build_rt_frame(const CameraData& camera, const RenderScene& scene, const RenderSettings& settings,
@@ -108,7 +187,7 @@ FrameAddresses collect_rt_addresses(gpu::Device& device, const FrameSlot& slot, 
         .rects = device.buffer_address(slot.rects.buffer),
         .decals = device.buffer_address(slot.decals.buffer),
         .params = device.buffer_address(slot.params.buffer),
-        .tlas = device.acceleration_structure_address(instances.tlas),
+        .tlas = device.acceleration_structure_address(instances.tlas->handle),
     };
 }
 
@@ -126,6 +205,8 @@ void record_rt_graph(RayTracedPathContext& ctx, const FrameInputs& inputs, gpu::
     const RGTexture hdr = ctx.passes.composite.add(g, inputs, gbuffer, denoised);
     ctx.passes.sky.add(g, inputs, hdr, gbuffer);
     const RGTexture taa_out = ctx.passes.taa.add(g, inputs, gbuffer, hdr);
+    ctx.passes.sdf.merge_depth(g, inputs, gbuffer);
+    ctx.passes.transparent.add(g, inputs, taa_out, gbuffer.depth, ctx.stats);
     const RGTexture bloom = ctx.passes.bloom.add(g, inputs, taa_out);
 
     const std::span<const MaterialHandle> post_chain = ctx.passes.post.collect(inputs.scene, ctx.materials);
@@ -133,7 +214,6 @@ void record_rt_graph(RayTracedPathContext& ctx, const FrameInputs& inputs, gpu::
         post_chain.empty() ? output
                            : g.create("scene.ldr", {inputs.extent.width, inputs.extent.height, ctx.target_format});
     ctx.passes.tonemap.add(g, inputs, taa_out, bloom, scene_color);
-    ctx.passes.transparent.add(g, inputs, scene_color, gbuffer.depth, ctx.stats);
     ctx.passes.post.add(g, inputs, scene_color, output, post_chain);
     ctx.passes.debug_lines.add(g, inputs, output, gbuffer.depth);
     ctx.passes.ui.add(g, inputs, output);
@@ -153,13 +233,14 @@ void record_path_tracer_graph(RayTracedPathContext& ctx, const FrameInputs& inpu
     }
     const RGTexture hdr = ctx.passes.path_tracer.add(g, inputs, rt_pipes.path_tracer);
     if (need_depth) ctx.passes.sky.add(g, inputs, hdr, gbuffer);
+    ctx.passes.sdf.merge_depth(g, inputs, gbuffer);
+    if (need_depth) ctx.passes.transparent.add(g, inputs, hdr, gbuffer.depth, ctx.stats);
     const RGTexture bloom = ctx.passes.bloom.add(g, inputs, hdr);
     const std::span<const MaterialHandle> post_chain = ctx.passes.post.collect(inputs.scene, ctx.materials);
     const RGTexture scene_color =
         post_chain.empty() ? output
                            : g.create("scene.ldr", {inputs.extent.width, inputs.extent.height, ctx.target_format});
     ctx.passes.tonemap.add(g, inputs, hdr, bloom, scene_color);
-    if (need_depth) ctx.passes.transparent.add(g, inputs, scene_color, gbuffer.depth, ctx.stats);
     ctx.passes.post.add(g, inputs, scene_color, output, post_chain);
     if (need_depth) ctx.passes.debug_lines.add(g, inputs, output, gbuffer.depth);
     ctx.passes.ui.add(g, inputs, output);
@@ -173,32 +254,19 @@ void render_ray_traced_path(RayTracedPathContext& ctx, gpu::CommandList& cmd, gp
     const RtPipelines& rt_pipes = ctx.shaders.rt_pipelines();
     FrameSlot& slot = ctx.ring.acquire(ctx.device, cmd);
 
-    bool resized = false;
-    resized |= ctx.passes.rt_lighting.resize(extent.width, extent.height);
-    resized |= ctx.passes.denoise.resize(extent.width, extent.height);
-    resized |= ctx.passes.taa.resize(extent.width, extent.height);
-    resized |= ctx.passes.path_tracer.resize(extent.width, extent.height);
-    if (resized) {
-        ctx.temporal.history_valid = false;
-        ctx.passes.path_tracer.reset();
-    }
-    ctx.passes.ddgi.ensure(scene, ctx.meshes, ctx.settings.gi);
+    const DdgiFrameInfo ddgi = prepare_mode_resources(ctx, scene, extent);
 
     prepare_instances(ctx.device, scene, camera.position, ctx.meshes, ctx.materials, slot, ctx.frame_instances, true);
     upload_scene_buffers(ctx.device, scene, ctx.textures, slot, ctx.frame_instances, true);
     if (!build_tlas(ctx.device, cmd, ctx.frame_instances)) return;
 
     const Mat4 unjittered = camera.projection * camera.view;
-    if (!ctx.temporal.history_valid ||
-        camera_changed(unjittered, ctx.temporal.prev_view_projection, camera.position, ctx.temporal.prev_camera_position) ||
-        ctx.temporal.prev_point_lights != static_cast<std::uint32_t>(ctx.frame_instances.lights.size()) ||
-        ctx.temporal.prev_rect_lights != static_cast<std::uint32_t>(ctx.frame_instances.rects.size())) {
-        ctx.passes.path_tracer.reset();
-    }
+    if (ctx.settings.path_tracer) update_path_tracer_history(ctx, camera, scene, unjittered);
+    else update_sdf_history(ctx.temporal, ctx.frame_instances.shapes);
 
     FrameAddresses addresses = collect_rt_addresses(ctx.device, slot, ctx.frame_instances);
     const GpuFrame frame =
-        build_rt_frame(camera, scene, ctx.settings, ctx.passes.ddgi.info(), ctx.temporal, ctx.frame_instances,
+        build_rt_frame(camera, scene, ctx.settings, ddgi, ctx.temporal, ctx.frame_instances,
                        addresses, ctx.passes.path_tracer.sample_count(), extent, ctx.target_format, unjittered);
     slot.frame.write(ctx.device, &frame, sizeof(frame));
     addresses.frame = ctx.device.buffer_address(slot.frame.buffer);
@@ -234,6 +302,7 @@ void render_ray_traced_path(RayTracedPathContext& ctx, gpu::CommandList& cmd, gp
     ctx.temporal.prev_rect_lights = static_cast<std::uint32_t>(ctx.frame_instances.rects.size());
     ctx.temporal.prev_restir_active =
         ctx.settings.restir_di && (ctx.frame_instances.lights.size() + ctx.frame_instances.rects.size()) > 2;
+    ctx.stats.temporal_history_used = !ctx.settings.path_tracer && ctx.temporal.history_valid;
     ctx.temporal.history_valid = true;
     ++ctx.temporal.frame_index;
 
@@ -243,7 +312,7 @@ void render_ray_traced_path(RayTracedPathContext& ctx, gpu::CommandList& cmd, gp
     ctx.stats.rect_lights = static_cast<std::uint32_t>(ctx.frame_instances.rects.size());
     ctx.stats.decals = static_cast<std::uint32_t>(ctx.frame_instances.decals.size());
     ctx.stats.path_tracer_samples = ctx.settings.path_tracer ? ctx.passes.path_tracer.sample_count() : 0u;
-    ctx.stats.gi_probes = ctx.passes.ddgi.probe_count();
+    ctx.stats.gi_probes = ctx.settings.path_tracer ? 0u : ctx.passes.ddgi.probe_count();
     ctx.stats.passes = ctx.graph.stats().passes_executed;
 }
 

@@ -225,6 +225,7 @@ struct TlasInstance {
     std::uint32_t custom_index = 0; ///< 24 bits, readable in shaders (e.g. a material index).
     std::uint8_t mask = 0xFF;
     bool opaque = true; ///< False for alpha-tested instances (invokes candidate ray query).
+    bool operator==(const TlasInstance&) const = default;
 };
 
 /// Push constants are limited to this many bytes in every pipeline.

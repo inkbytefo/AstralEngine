@@ -258,6 +258,7 @@ struct RenderStats {
     std::uint32_t rect_lights = 0;
     std::uint32_t decals = 0;
     std::uint32_t path_tracer_samples = 0;
+    bool temporal_history_used = false; ///< Hybrid RT history was available to the temporal passes.
 };
 
 /// Hybrid deferred renderer built on RenderGraph.

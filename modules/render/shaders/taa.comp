@@ -4,7 +4,7 @@
 // reprojected by nearest-depth velocity (or unjittered camera ray for sky), sampled with a
 // Catmull-Rom filter, and clipped to the current pixel neighbourhood's YCoCg variance AABB.
 layout(push_constant, scalar) uniform Push {
-    FrameRef frame; GBufferIds g; uint hdr; uint history; uint out_color; float blend;
+    FrameRef frame; GBufferIds g; uint hdr; uint history; uint out_color; float blend; uint out_composite;
 } pc;
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -38,6 +38,13 @@ vec3 sample_history(vec2 uv, vec2 size) {
     return max(c / wsum, vec3(0));
 }
 
+void store_result(ivec2 pixel, vec3 color) {
+    imageStore(astral_storage_images[pc.out_color], pixel, vec4(color, 1));
+    if (pc.out_composite != pc.out_color) {
+        imageStore(astral_storage_images[pc.out_composite], pixel, vec4(color, 1));
+    }
+}
+
 void main() {
     Frame f = pc.frame.f;
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
@@ -45,7 +52,7 @@ void main() {
     if (pixel.x >= size.x || pixel.y >= size.y) return;
     vec3 current = fetch_texel(pc.hdr, pixel).rgb;
     if (f.rt_counts.z == 0u) {
-        imageStore(astral_storage_images[pc.out_color], pixel, vec4(current, 1));
+        store_result(pixel, current);
         return;
     }
     // Neighbourhood statistics; nearest depth in 3x3 for reprojection (keeps edges crisp).
@@ -71,11 +78,11 @@ void main() {
         // Motion of the nearest surface in the 3x3 (keeps moving edges crisp).
         uv = uv_now - primary_velocity(f, pc.g, nearest_px);
     } else if (!reproject(f, f.camera_position.xyz + unjittered_camera_ray(f, nearest_px) * 1e4, uv)) {
-        imageStore(astral_storage_images[pc.out_color], pixel, vec4(current, 1));
+        store_result(pixel, current);
         return;
     }
     if (any(lessThan(uv, vec2(0))) || any(greaterThan(uv, vec2(1)))) {
-        imageStore(astral_storage_images[pc.out_color], pixel, vec4(current, 1));
+        store_result(pixel, current);
         return;
     }
     uv += (vec2(pixel) - vec2(nearest_px)) * f.screen.zw;
@@ -89,5 +96,5 @@ void main() {
     if (m > 1.0) history = center + offset / m;
     vec3 now = to_ycocg(compress(current));
     vec3 result = mix(history, now, pc.blend);
-    imageStore(astral_storage_images[pc.out_color], pixel, vec4(uncompress(from_ycocg(result)), 1));
+    store_result(pixel, uncompress(from_ycocg(result)));
 }

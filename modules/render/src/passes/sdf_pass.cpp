@@ -1,14 +1,25 @@
 #include "passes/sdf_pass.hpp"
 
 #include <shaders/sdf.comp.hpp>
+#include <shaders/sdf_depth.frag.hpp>
+#include <shaders/tonemap.vert.hpp>
 
 namespace astral {
 
 SdfPass::SdfPass(gpu::Device& device) : device_(device) {
     pipeline_ = device_.create_compute_pipeline({.shader = {shaders::sdf_comp}, .debug_name = "astral.sdf"});
+    depth_pipeline_ = device_.create_graphics_pipeline({
+        .vertex = {shaders::tonemap_vert},
+        .fragment = {shaders::sdf_depth_frag},
+        .depth = {.format = gpu::Format::D32Float, .test = true, .write = true, .compare = gpu::CompareOp::Less},
+        .debug_name = "astral.sdf_depth",
+    });
 }
 
-SdfPass::~SdfPass() { device_.destroy(pipeline_); }
+SdfPass::~SdfPass() {
+    device_.destroy(pipeline_);
+    device_.destroy(depth_pipeline_);
+}
 
 void SdfPass::add(RenderGraph& graph, const FrameInputs& inputs, GBufferTextures& gbuffer) const {
     if (inputs.instances.shapes.empty()) return;
@@ -39,6 +50,25 @@ void SdfPass::add(RenderGraph& graph, const FrameInputs& inputs, GBufferTextures
             ctx.cmd.bind_pipeline(pipeline);
             ctx.cmd.push_constants(&push, sizeof(push));
             ctx.cmd.dispatch((w + 7) / 8, (h + 7) / 8);
+        });
+}
+
+void SdfPass::merge_depth(RenderGraph& graph, const FrameInputs& inputs, const GBufferTextures& gbuffer) const {
+    if (!gbuffer.has_sdf || !depth_pipeline_.valid() ||
+        (inputs.instances.transparent_draws.empty() && inputs.scene.debug_lines.empty())) return;
+
+    const gpu::PipelineHandle pipeline = depth_pipeline_;
+    graph.add_pass(
+        "sdf.depth_merge",
+        [gbuffer](PassBuilder& b) {
+            b.read(gbuffer.sdf_depth);
+            b.depth(gbuffer.depth, gpu::LoadOp::Load);
+        },
+        [pipeline, sdf_depth = gbuffer.sdf_depth](PassContext& ctx) {
+            const std::uint32_t depth_index = ctx.bindless(sdf_depth);
+            ctx.cmd.bind_pipeline(pipeline);
+            ctx.cmd.push_constants(&depth_index, sizeof(depth_index));
+            ctx.cmd.draw(3);
         });
 }
 

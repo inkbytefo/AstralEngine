@@ -33,6 +33,7 @@ struct GpuShader {
     bool blend = false;
     bool alpha_test = false;
     bool casts_shadows = true;
+    bool rt_uses_time = false;
     std::string rt_chunk;                              ///< Ray-traced surface() (see compose_rt_surfaces)
     std::vector<SurfaceShaderBuild::Sampler> samplers; ///< Texture slots of the parameter block
 };
@@ -291,7 +292,9 @@ struct TaaPush {
     GBufferIds g;
     std::uint32_t hdr, history, out_color;
     float blend;
+    std::uint32_t out_composite;
 };
+static_assert(offsetof(TaaPush, out_composite) == 64);
 static_assert(sizeof(TaaPush) <= gpu::max_push_constant_size);
 static_assert(offsetof(TaaPush, g) == 8);
 static_assert(offsetof(TaaPush, blend) == 60);

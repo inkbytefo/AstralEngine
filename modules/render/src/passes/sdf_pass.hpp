@@ -15,9 +15,12 @@ struct SdfPass {
 
     void add(RenderGraph& graph, const FrameInputs& inputs, GBufferTextures& gbuffer) const;
 
+    void merge_depth(RenderGraph& graph, const FrameInputs& inputs, const GBufferTextures& gbuffer) const;
+
 private:
     gpu::Device& device_;
     gpu::PipelineHandle pipeline_{};
+    gpu::PipelineHandle depth_pipeline_{};
 };
 
 } // namespace astral

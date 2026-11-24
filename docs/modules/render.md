@@ -34,13 +34,17 @@ renderer.set_settings(s);   // çalışma anında; teknik/GI değişirse geçmi�
 ```
 TLAS build ─► gbuffer (+material_ext) ─► sdf ─► decals (varsa) ─► ddgi.trace ─► ddgi.update (×2)
           ─► restir.temporal ─► restir.spatial (3+ ışık) ─► rt.lighting ─► denoise.temporal
-          ─► denoise.atrous (×N) ─► composite ─► sky ─► taa ─► bloom ─► tonemap
+          ─► denoise.atrous (×N) ─► composite ─► sky ─► taa ─► şeffaf ─► bloom ─► tonemap
 ```
-`RenderSettings::path_tracer = true` iken hibrit geçişler yerine `path_tracer` (`RGBA32Float` ping-pong birikimli çok sekmeli NEE+MIS yansız yol izleyici) → `tonemap` → `post` → `ui` çalışır.
+`RenderSettings::path_tracer = true` iken hibrit geçişler yerine `path_tracer` (`RGBA32Float` ping-pong birikimli çok sekmeli NEE+MIS yansız yol izleyici) → şeffaf → bloom → `tonemap` → `post` → `ui` çalışır.
+PT, sahnedeki ışın izlenen bir yüzey `TIME` kullanıyorsa zaman değiştiğinde birikimi sıfırlar.
+Hibrit RT, SDF verisi değiştiği karede TAA, denoise ve ReSTIR temporal geçmişini devre dışı bırakır.
+SDF motion vector’ları kamera hareketini taşır. SDF verisi sabit kaldığında temporal birikim devam eder.
+
 
 | Pass | Ne yapar |
 |---|---|
-| TLAS | Her kare instance'lardan yeniden kurulur; BLAS mesh oluşturulurken bir kez |
+| TLAS | Son başarılı GPU gönderimindeki instance listesi değişmediyse yeniden kullanılır. Transform, BLAS, maske veya instance indeksi değişince yeniden kurulur. |
 | `gbuffer` / `sdf` | 5 renk hedefi (`albedo`, `normal`, `emissive` [a=kodlanmış `ShadingModel`], `velocity`, `material_ext`); POM, RNM detay normal ve ıslaklık burada işlenir |
 | `decals` | `RenderScene::decals` boş değilse G-buffer (`albedo`, `normal`, `emissive`, `material_ext`) üzerine kutu-izdüşümlü boya/pürüzlülük/ıslaklık uygular (boşsa sıfır maliyet) |
 | `path_tracer` | `RenderSettings::path_tracer` açıldığında tüm M13 BSDF'lerini, decal'ları, SDF'leri ve özel `.ashader`'ları yansız çoklu sekme + Russian roulette ile biriktirir (kamera hareketinde sıfırlanır) |
@@ -127,7 +131,8 @@ graph.add_pass("blur", [&](PassBuilder& b) { b.read(hdr); b.write_storage(blurre
 - SDF'ler her pikselde tüm şekil listesini değerlendirir: onlarca şekle kadar uygun; daha fazlası için
   eski v2'deki seyrek brick bake + mesafe alanı önbelleği taşınacak.
 - Doku/materyal haritası, IBL (yalnız gökyüzü rengi yansıması), TAA, bloom, şeffaflık, frustum culling yok.
-- Nokta ışıklar gölge atmaz; tüm ışıklar her pikselde döngüyle hesaplanır (clustered/tiled yok).
+- G-buffer, standart materyal kullanan ve bütünüyle görüş hacmi dışında kalan opak çizim gruplarını CPU’da eler. Bu eleme gölge ve TLAS girdilerine uygulanmaz. Özel vertex shader’lı gruplar çizilir.
+- Nokta ışıklar gölge atmaz. Raster deferred aydınlatma, 16’dan fazla nokta ışığında GPU’da 8×8 piksel başına ışık listesi kurar. 128 girişlik liste dolarsa ilgili karo tam listeyi kullanır. Şeffaf forward geçişi, nokta ışık listesini piksel başına tarar.
 
 ## Debug çizim, 2D katman, metin, GPU zamanları (M8)
 
@@ -156,9 +161,9 @@ Karar: [ADR-0022](../decisions/0022-shader-and-material-language.md). Dil: [shad
 | `Renderer::shader_error()` | Özel yüzeyler ışın izleme shader'larına giremediyse nedeni |
 
 **Çizim sırası:** opak mesh'ler shader'a göre gruplanır (raster G-buffer ve RT G-buffer geçişleri aynı
-mantık) → aydınlatma → **sky** (yalnız derinliği 1 olan piksellerde, HDR'a) → tonemap → **şeffaf** geçiş
+mantık) → aydınlatma → **sky** (yalnız derinliği 1 olan piksellerde, HDR'a) → **şeffaf** HDR geçiş
 (`blend_mix`/`blend_add`; arkadan öne sıralı, derinlik testli, ileri aydınlatma: güneş + nokta ışıklar + ortam;
-tonemap shader içinde) → **post** zinciri (ping-pong) → debug çizgileri → UI.
+RT yolunda TAA sonrasında, TAA geçmişinden ayrı) → tonemap → **post** zinciri (ping-pong) → debug çizgileri → UI.
 
 **Işın izleme tutarlılığı:** RT compute shader'ları (`rt_lighting`, `ddgi_trace`), her özel `surface()`
 fonksiyonu eklenmiş hâliyle çalışma anında yeniden derlenir (`compile_rt_variants`); özel shader yoksa
