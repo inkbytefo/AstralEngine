@@ -2,6 +2,7 @@
 #include <astral/assets/model.hpp>
 #include <astral/core/json.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -168,7 +169,7 @@ struct Loader {
         if (!texture_info.is_object()) return -1;
         const Json& tex = doc["textures"][static_cast<std::size_t>(texture_info["index"].as_number(-1))];
         if (!tex.is_object() || !tex.find("source")) return -1;
-        if (texture_info["texCoord"].as_number(0) != 0) model.warnings.push_back("only TEXCOORD_0 is supported");
+
         const int image = static_cast<int>(tex["source"].as_number(-1));
         if (image < 0 || static_cast<std::size_t>(image) >= image_srgb.size()) return -1;
         auto& color = image_srgb[static_cast<std::size_t>(image)];
@@ -190,6 +191,22 @@ struct Loader {
         const auto filter = min == 9728 ? 0 : min == 9729 ? 1 : min == 9984 ? 2 : min == 9985 ? 3 : min == 9986 ? 4 : 5;
         return {wrap(sampler["wrapS"].as_number()), wrap(sampler["wrapT"].as_number()),
                 static_cast<std::uint8_t>(filter), sampler["magFilter"].as_number(9729) != 9728};
+    }
+
+    ModelTextureTransform texture_transform(const Json& info) {
+        const Json& ext = info["extensions"]["KHR_texture_transform"];
+        ModelTextureTransform result;
+        const auto set = ext["texCoord"].as_number(info["texCoord"].as_number(0));
+        if (set == 1) result.uv_set = 1;
+        else if (set != 0) model.warnings.push_back("only TEXCOORD_0 and TEXCOORD_1 are supported");
+        const auto pair = [](const Json& values, Vec2 fallback) {
+            if (values.size() != 2) return fallback;
+            return Vec2{static_cast<float>(values[0].as_number()), static_cast<float>(values[1].as_number())};
+        };
+        result.scale = pair(ext["scale"], {1, 1});
+        result.offset = pair(ext["offset"], {});
+        result.rotation = static_cast<float>(ext["rotation"].as_number());
+        return result;
     }
 
     void load_materials() {
@@ -225,6 +242,9 @@ struct Loader {
             mat.double_sided = m["doubleSided"].as_bool();
             mat.occlusion_image = texture_image(m["occlusionTexture"], false);
             mat.occlusion_strength = static_cast<float>(m["occlusionTexture"]["strength"].as_number(1.0));
+            mat.texture_transforms = {texture_transform(pbr["baseColorTexture"]), texture_transform(pbr["metallicRoughnessTexture"]),
+                                      texture_transform(m["normalTexture"]), texture_transform(m["emissiveTexture"]),
+                                      texture_transform(m["occlusionTexture"])};
             mat.samplers = {texture_sampler(pbr["baseColorTexture"]), texture_sampler(pbr["metallicRoughnessTexture"]),
                             texture_sampler(m["normalTexture"]), texture_sampler(m["emissiveTexture"]),
                             texture_sampler(m["occlusionTexture"])};
@@ -276,10 +296,20 @@ struct Loader {
                 }
                 const Json& attr = prim["attributes"];
                 if (!attr.find("POSITION")) return fail("a primitive has no POSITION");
-                std::vector<float> pos, nrm, uv;
+                std::vector<float> pos, nrm, uv, uv1;
                 if (!accessor(static_cast<std::size_t>(attr["POSITION"].as_number()), 3, &pos, nullptr)) return false;
                 if (attr.find("NORMAL") && !accessor(static_cast<std::size_t>(attr["NORMAL"].as_number()), 3, &nrm, nullptr)) return false;
                 if (attr.find("TEXCOORD_0") && !accessor(static_cast<std::size_t>(attr["TEXCOORD_0"].as_number()), 2, &uv, nullptr)) return false;
+                if (attr.find("TEXCOORD_1") && !accessor(static_cast<std::size_t>(attr["TEXCOORD_1"].as_number()), 2, &uv1, nullptr)) return false;
+                if (uv1.empty() && prim.find("material")) {
+                    const auto material = static_cast<std::size_t>(prim["material"].as_number(-1));
+                    if (material < model.materials.size() &&
+                        std::any_of(model.materials[material].texture_transforms.begin(),
+                                    model.materials[material].texture_transforms.end(),
+                                    [](const auto& transform) { return transform.uv_set == 1; })) {
+                        model.warnings.push_back("material requests missing TEXCOORD_1; using TEXCOORD_0");
+                    }
+                }
                 if (attr.find("JOINTS_0")) model.warnings.push_back("skinning is not supported");
                 const std::size_t count = pos.size() / 3;
                 ModelPrimitive p;
@@ -291,6 +321,7 @@ struct Loader {
                     v.position = {pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]};
                     if (nrm.size() == count * 3) v.normal = {nrm[i * 3], nrm[i * 3 + 1], nrm[i * 3 + 2]};
                     if (uv.size() == count * 2) v.uv = {uv[i * 2], uv[i * 2 + 1]};
+                    v.uv1 = uv1.size() == count * 2 ? Vec2{uv1[i * 2], uv1[i * 2 + 1]} : v.uv;
                 }
                 if (prim.find("indices")) {
                     if (!accessor(static_cast<std::size_t>(prim["indices"].as_number()), 1, nullptr, &p.mesh.indices)) return false;
@@ -412,7 +443,7 @@ struct Loader {
         const std::string& version = doc["asset"]["version"].as_string();
         if (!version.starts_with("2.")) return fail("unsupported glTF version '" + version + "'");
         for (const Json& ext : doc["extensionsRequired"].as_array()) {
-            if (ext.as_string() != "KHR_materials_emissive_strength") return fail("required extension not supported: " + ext.as_string());
+            if (ext.as_string() != "KHR_materials_emissive_strength" && ext.as_string() != "KHR_texture_transform") return fail("required extension not supported: " + ext.as_string());
         }
         std::vector<std::vector<std::uint32_t>> mesh_primitives;
         if (!load_buffers(glb_bin ? &*glb_bin : nullptr)) return false;

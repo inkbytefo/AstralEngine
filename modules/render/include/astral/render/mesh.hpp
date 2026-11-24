@@ -12,6 +12,7 @@ struct Vertex {
     Vec3 position;
     Vec3 normal;
     Vec2 uv;
+    Vec2 uv1{};
 };
 
 struct MeshData {

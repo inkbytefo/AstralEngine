@@ -14,7 +14,9 @@ inline constexpr ModelSampler default_model_sampler{};
 inline unsigned imported_surface_key(const ModelMaterial& material) {
     const bool custom_sampler = std::any_of(material.samplers.begin(), material.samplers.end(),
                                             [](const auto& sampler) { return sampler != default_model_sampler; });
-    return (custom_sampler ? 16u : 0u) | static_cast<unsigned>(material.alpha_mode) | (material.double_sided ? 4u : 0u) |
+    const bool custom_uv = std::any_of(material.texture_transforms.begin(), material.texture_transforms.end(),
+                                       [](const auto& transform) { return transform != ModelTextureTransform{}; });
+    return (custom_uv ? 32u : 0u) | (custom_sampler ? 16u : 0u) | static_cast<unsigned>(material.alpha_mode) | (material.double_sided ? 4u : 0u) |
            (material.occlusion_image >= 0 ? 8u : 0u);
 }
 
@@ -79,13 +81,54 @@ vec4 gltf_sample(uint img, vec2 uv, vec2 uv_dx, vec2 uv_dy, vec4 config) {
 }
 )";
 
+inline constexpr std::string_view imported_texture_names[] = {
+    "base_color_texture", "metallic_roughness_texture", "normal_texture", "emissive_texture", "occlusion_texture",
+};
+inline constexpr std::string_view imported_sampling_names[] = {
+    "base_sampling", "mr_sampling", "normal_sampling", "emission_sampling", "occlusion_sampling",
+};
+
+inline void add_uv_transforms(std::string& source) {
+    for (const auto name : imported_texture_names) {
+        source += "uniform vec4 " + std::string(name) + "_st = vec4(1.0, 1.0, 0.0, 0.0);\n";
+        source += "uniform vec2 " + std::string(name) + "_rs = vec2(0.0);\n";
+    }
+    source += R"(
+vec2 asset_uv(vec2 uv0, vec2 uv1, vec4 st, vec2 rs) {
+    float s = sin(rs.x), c = cos(rs.x);
+    return mat2(c, s, -s, c) * ((rs.y > 0.5 ? uv1 : uv0) * st.xy) + st.zw;
+}
+)";
+}
+
+inline void apply_imported_sampling(std::string& source, bool sampler, bool transform) {
+    for (std::size_t i = 0; i < std::size(imported_texture_names); ++i) {
+        const std::string name(imported_texture_names[i]);
+        const std::string uv = transform ? "uv_map_" + std::to_string(i) : "UV";
+        if (transform) {
+            const auto start = source.find("void surface() {") + sizeof("void surface() {") - 1;
+            source.insert(start, "\n    vec2 " + uv + " = asset_uv(UV, UV1, " + name + "_st, " + name + "_rs);");
+        }
+        const std::string call = "texture(" + name + ", UV)";
+        const std::string replacement = sampler
+            ? "gltf_sample(astral_image_" + name + ", " + uv + ", dFdx(" + uv + "), dFdy(" + uv + "), " +
+                  std::string(imported_sampling_names[i]) + ")"
+            : "texture(" + name + ", " + uv + ")";
+        const auto at = source.find(call);
+        source.replace(at, call.size(), replacement);
+    }
+    if (transform) source.insert(source.find("    NORMAL_MAP ="), "    NORMAL_UV = uv_map_2;\n");
+}
+
 inline std::string imported_surface_source(const ModelMaterial& material) {
     std::string source = "shader_type surface;\n";
     if (material.alpha_mode == ModelAlphaMode::Mask) source += "render_mode alpha_test;\n";
     if (material.alpha_mode == ModelAlphaMode::Blend) source += "render_mode blend_mix;\n";
     if (material.double_sided) source += "render_mode cull_disabled;\n";
     const bool custom_sampler = (imported_surface_key(material) & 16u) != 0;
+    const bool custom_uv = (imported_surface_key(material) & 32u) != 0;
     if (custom_sampler) source += imported_sampler_source;
+    if (custom_uv) add_uv_transforms(source);
     source += R"(
 uniform vec4 base_color = vec4(1.0);
 uniform vec3 emission_factor = vec3(0.0);
@@ -114,19 +157,7 @@ void surface() {
     AO = mix(1.0, texture(occlusion_texture, UV).r, occlusion_strength);
 }
 )";
-    if (custom_sampler) {
-        const std::pair<std::string_view, std::string_view> names[] = {
-            {"base_color_texture", "base_sampling"}, {"metallic_roughness_texture", "mr_sampling"},
-            {"normal_texture", "normal_sampling"}, {"emissive_texture", "emission_sampling"},
-            {"occlusion_texture", "occlusion_sampling"},
-        };
-        for (const auto& [name, config] : names) {
-            const std::string call = "texture(" + std::string(name) + ", UV)";
-            const std::string replacement = "gltf_sample(astral_image_" + std::string(name) + ", UV, dFdx(UV), dFdy(UV), " +
-                                            std::string(config) + ")";
-            if (const auto at = source.find(call); at != std::string::npos) source.replace(at, call.size(), replacement);
-        }
-    }
+    if (custom_sampler || custom_uv) apply_imported_sampling(source, custom_sampler, custom_uv);
     return source;
 }
 
@@ -140,13 +171,19 @@ inline MaterialFile imported_surface_values(const ModelMaterial& m) {
         {"roughness_factor", m.roughness}, {"metallic_factor", m.metallic}, {"normal_scale", m.normal_scale},
         {"alpha_cutoff", m.alpha_cutoff}, {"occlusion_strength", m.occlusion_strength},
     };
-    constexpr std::string_view names[] = {"base_sampling", "mr_sampling", "normal_sampling", "emission_sampling",
-                                          "occlusion_sampling"};
     if ((imported_surface_key(m) & 16u) != 0) {
         for (std::size_t i = 0; i < m.samplers.size(); ++i) {
             const auto& sampler = m.samplers[i];
-            result.values.emplace_back(names[i], Json::array({sampler.wrap_u, sampler.wrap_v, sampler.min_filter,
+            result.values.emplace_back(imported_sampling_names[i], Json::array({sampler.wrap_u, sampler.wrap_v, sampler.min_filter,
                                                               sampler.mag_linear ? 1 : 0}));
+        }
+    }
+    if ((imported_surface_key(m) & 32u) != 0) {
+        for (std::size_t i = 0; i < m.texture_transforms.size(); ++i) {
+            const auto& uv = m.texture_transforms[i];
+            const std::string name(imported_texture_names[i]);
+            result.values.emplace_back(name + "_st", Json::array({uv.scale.x, uv.scale.y, uv.offset.x, uv.offset.y}));
+            result.values.emplace_back(name + "_rs", Json::array({uv.rotation, uv.uv_set}));
         }
     }
     return result;

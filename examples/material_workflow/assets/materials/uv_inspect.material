@@ -1,0 +1,5 @@
+{
+  "format": "astral.material",
+  "version": 1,
+  "shader": "shaders/uv_inspect.ashader"
+}

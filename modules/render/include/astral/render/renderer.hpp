@@ -12,6 +12,7 @@
 #include <astral/render/render_graph.hpp>
 #include <astral/render/ui.hpp>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -77,6 +78,18 @@ struct DetailDesc {
     float parallax_scale = 0.0f; ///< >0 enables POM displacement along view ray.
 };
 
+enum class TextureProjection : std::uint8_t { MeshUV, PlanarXY, PlanarXZ, PlanarYZ, Triplanar };
+
+struct TextureMapping {
+    TextureProjection projection = TextureProjection::MeshUV;
+    Vec2 uv_scale{1, 1};
+    Vec2 uv_offset{};
+    float uv_rotation = 0.0f; ///< Radians.
+    float tile_size_m = 1.0f;
+    float blend_sharpness = 4.0f;
+    bool world_space = true;
+};
+
 /// Metallic-roughness PBR + M13 advanced shading layers. Texture values multiply the factors; invalid = none.
 struct MaterialDesc {
     Vec4 base_color{1, 1, 1, 1};
@@ -95,6 +108,7 @@ struct MaterialDesc {
     TransmissionDesc transmission{};
     SubsurfaceDesc subsurface{};
     DetailDesc detail{};
+    TextureMapping mapping{};
     float wetness = 0.0f; ///< [0, 1]: darkens porous surfaces, smooths roughness, adds water clearcoat.
     /// A custom surface shader (ADR-0022). Invalid = the standard PBR shader with the values above.
     ShaderHandle shader{};
@@ -209,6 +223,7 @@ struct RenderScene {
     MaterialHandle sky{};
     /// Materials with shader_type post shaders, applied in order after tonemapping (before debug lines and UI).
     std::span<const MaterialHandle> post = {};
+    std::array<double, 3> world_origin{}; ///< Absolute offset of the current floating render origin, in meters.
 };
 
 /// Dynamic diffuse global illumination: a grid of probes that trace rays every frame.
@@ -359,8 +374,10 @@ ASTRAL_REFLECT(astral::AnisotropyDesc, strength, rotation)
 ASTRAL_REFLECT(astral::TransmissionDesc, strength, ior, thickness, attenuation_color, attenuation_distance)
 ASTRAL_REFLECT(astral::SubsurfaceDesc, strength, color, radius)
 ASTRAL_REFLECT(astral::DetailDesc, uv_scale, normal_scale, parallax_scale)
+ASTRAL_REFLECT_ENUM(astral::TextureProjection, MeshUV, PlanarXY, PlanarXZ, PlanarYZ, Triplanar)
+ASTRAL_REFLECT(astral::TextureMapping, projection, uv_scale, uv_offset, uv_rotation, tile_size_m, blend_sharpness, world_space)
 ASTRAL_REFLECT(astral::MaterialDesc, base_color, roughness, metallic, emissive, normal_scale, shading_model, clearcoat,
-               sheen, anisotropy, transmission, subsurface, detail, wetness)
+               sheen, anisotropy, transmission, subsurface, detail, wetness, mapping)
 ASTRAL_REFLECT(astral::Decal, transform, color, roughness, metallic, wetness, normal_strength, affect_roughness)
 ASTRAL_REFLECT_ENUM(astral::DebugView, None, Albedo, Normals, DiffuseLight, Specular, Motion)
 ASTRAL_REFLECT(astral::GiSettings, probes_x, probes_y, probes_z, rays_per_probe, hysteresis, volume_min, volume_max)

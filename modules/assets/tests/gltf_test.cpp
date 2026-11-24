@@ -156,3 +156,18 @@ TEST_CASE("glTF alpha sidedness occlusion and samplers survive cooking") {
     CHECK(mat.samplers[0] == ModelSampler{0, 2, 4, false});
     CHECK_FALSE(cooked->images[static_cast<std::size_t>(mat.occlusion_image)].image.srgb);
 }
+
+TEST_CASE("a second UV set and KHR_texture_transform survive model cooking") {
+    const auto dir = test::temp_dir("gltf_uv_transform");
+    const auto model = load_gltf(test::write_glb(dir, "mapped", {.uv_transform = true}));
+    REQUIRE(model);
+    const auto cooked = read_cooked_model(write_cooked_model(*model));
+    REQUIRE(cooked);
+    const auto& mapping = cooked->materials[0].texture_transforms[0];
+    CHECK(mapping.uv_set == 1);
+    CHECK(mapping.scale == Vec2{2, 3});
+    CHECK(mapping.offset == Vec2{0.25f, 0.5f});
+    CHECK(mapping.rotation == 0.75f);
+    CHECK(cooked->primitives[0].mesh.vertices[2].uv == Vec2{1, 0});
+    CHECK(cooked->primitives[0].mesh.vertices[2].uv1 == Vec2{0, 0});
+}

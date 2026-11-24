@@ -19,7 +19,7 @@ namespace {
 constexpr std::string_view cache_name = ".astral-cook.json";
 constexpr int cache_version = 1;
 /// Bump when cooked formats or the cook's decisions change: everything is cooked again.
-constexpr std::string_view cook_version = "astral-cook 3";
+constexpr std::string_view cook_version = "astral-cook 4";
 
 enum class Kind { Model, World, Shader, Document, Script, Copy };
 

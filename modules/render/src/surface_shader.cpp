@@ -118,10 +118,11 @@ layout(location = 2) out vec4 astral_out_clip_now;
 layout(location = 3) out vec4 astral_out_clip_prev;
 layout(location = 4) out vec2 astral_out_uv;
 layout(location = 5) out vec3 astral_out_world;
-vec3 VERTEX; vec3 NORMAL; vec2 UV; vec3 WORLD_POSITION; mat4 MODEL_MATRIX;
+layout(location = 6) out vec2 astral_out_uv1;
+vec3 VERTEX; vec3 NORMAL; vec2 UV; vec2 UV1; vec3 WORLD_POSITION; mat4 MODEL_MATRIX;
 )";
     for (std::size_t i = 0; i < source.varyings.size(); ++i) {
-        s += "layout(location = " + std::to_string(6 + i) + ") out " + source.varyings[i].type + " " + source.varyings[i].name + ";\n";
+        s += "layout(location = " + std::to_string(7 + i) + ") out " + source.varyings[i].type + " " + source.varyings[i].name + ";\n";
     }
     s += detail::wrap_body(source, layout, source.body_without("surface"));
     s += R"(void main() {
@@ -132,7 +133,7 @@ vec3 VERTEX; vec3 NORMAL; vec2 UV; vec3 WORLD_POSITION; mat4 MODEL_MATRIX;
     astral_base = pc.materials.data[inst.material].custom.x;
     VERTEX = v.position;
     NORMAL = v.normal;
-    UV = v.uv;
+    UV = v.uv; UV1 = v.uv1;
     MODEL_MATRIX = inst.model;
     WORLD_POSITION = (inst.model * vec4(v.position, 1.0)).xyz;
 )";
@@ -148,6 +149,7 @@ vec3 VERTEX; vec3 NORMAL; vec2 UV; vec3 WORLD_POSITION; mat4 MODEL_MATRIX;
     astral_out_clip_now = f.unjittered_view_projection * world;
     astral_out_clip_prev = f.prev_view_projection * (inst.prev_model * vec4(VERTEX, 1.0));
     astral_out_uv = UV;
+    astral_out_uv1 = UV1;
     astral_out_world = world.xyz;
 }
 )";
@@ -233,6 +235,7 @@ layout(location = 2) in vec4 astral_in_clip_now;
 layout(location = 3) in vec4 astral_in_clip_prev;
 layout(location = 4) in vec2 astral_in_uv;
 layout(location = 5) in vec3 astral_in_world;
+layout(location = 6) in vec2 astral_in_uv1;
 )";
     if (mode == Mode::GBuffer) {
         s += R"(layout(location = 0) out vec4 astral_out_albedo;
@@ -245,7 +248,7 @@ layout(location = 4) out vec4 astral_out_material_ext;
         s += "layout(location = 0) out vec4 astral_out_color;\n";
     }
     for (std::size_t i = 0; i < source.varyings.size(); ++i) {
-        s += "layout(location = " + std::to_string(6 + i) + ") in " + source.varyings[i].type + " " + source.varyings[i].name + ";\n";
+        s += "layout(location = " + std::to_string(7 + i) + ") in " + source.varyings[i].type + " " + source.varyings[i].name + ";\n";
     }
     s += detail::kSurfaceBuiltinsDecl;
     const bool unshaded = source.has_render_mode("unshaded");
@@ -253,7 +256,7 @@ layout(location = 4) out vec4 astral_out_material_ext;
     s += detail::wrap_body(source, layout, source.body_without("vertex"));
     s += R"(vec3 astral_perturb(vec3 n, vec3 map, float scale) {
     vec3 dp1 = dFdx(astral_in_world), dp2 = dFdy(astral_in_world);
-    vec2 duv1 = dFdx(astral_in_uv), duv2 = dFdy(astral_in_uv);
+    vec2 duv1 = dFdx(NORMAL_UV), duv2 = dFdy(NORMAL_UV);
     vec3 dp2perp = cross(dp2, n), dp1perp = cross(n, dp1);
     vec3 t = dp2perp * duv1.x + dp1perp * duv2.x;
     vec3 b = dp2perp * duv1.y + dp1perp * duv2.y;
@@ -266,7 +269,7 @@ void main() {
     astral_params = AstralParams(pc.params);
     astral_base = pc.materials.data[inst.material].custom.x;
     Frame f = pc.frame.f;
-    UV = astral_in_uv;
+    UV = astral_in_uv; UV1 = astral_in_uv1; NORMAL_UV = UV;
     NORMAL = normalize(astral_in_normal);
     FRONT_FACING = gl_FrontFacing;
     if (!gl_FrontFacing) NORMAL = -NORMAL;
@@ -290,9 +293,9 @@ std::string rt_chunk(const ShaderSource& source, const UniformLayout& layout) {
     for (const ShaderVarying& v : source.varyings) s += "#define " + v.name + " " + prefix + v.name + "\n" + v.type + " " + v.name + ";\n";
     s += "#define ASTRAL_RT_CHUNK 1\n#define texture(s, uv) textureLod(s, uv, 2.0)\n#define dFdx(x) ((x) * 0.0)\n#define dFdy(x) ((x) * 0.0)\n";
     s += detail::wrap_body(source, layout, source.body_without("vertex"));
-    s += R"(void astral_run_@ID@(uint base, vec2 uv, vec3 view_dir, inout Surface s) {
+    s += R"(void astral_run_@ID@(uint base, vec2 uv, vec2 uv1, vec3 view_dir, inout Surface s) {
     astral_base = base;
-    UV = uv; NORMAL = s.n; WORLD_POSITION = s.p; VIEW_DIR = view_dir; FRONT_FACING = !s.backface; SCREEN_UV = vec2(0.0);
+    UV = uv; UV1 = uv1; NORMAL_UV = uv; NORMAL = s.n; WORLD_POSITION = s.p; VIEW_DIR = view_dir; FRONT_FACING = !s.backface; SCREEN_UV = vec2(0.0);
 )";
     s += detail::kSurfaceBuiltinsInit;
     s += "    surface();\n";
@@ -323,9 +326,9 @@ std::string rt_chunk(const ShaderSource& source, const UniformLayout& layout) {
 )";
     }
     if (source.has_render_mode("alpha_test")) {
-        s += R"(bool astral_alpha_@ID@(uint base, vec2 uv, vec3 p, vec3 n, vec3 view_dir, bool backface) {
+        s += R"(bool astral_alpha_@ID@(uint base, vec2 uv, vec2 uv1, vec3 p, vec3 n, vec3 view_dir, bool backface) {
     astral_base = base;
-    UV = uv; NORMAL = n; WORLD_POSITION = p; VIEW_DIR = view_dir; FRONT_FACING = !backface; SCREEN_UV = vec2(0.0);
+    UV = uv; UV1 = uv1; NORMAL_UV = uv; NORMAL = n; WORLD_POSITION = p; VIEW_DIR = view_dir; FRONT_FACING = !backface; SCREEN_UV = vec2(0.0);
 )";
         s += detail::kSurfaceBuiltinsInit;
         s += "    surface();\n    return ALPHA >= ALPHA_SCISSOR;\n}\n";

@@ -22,6 +22,8 @@ extern const std::uint8_t astral_bsdf_glsl[];
 extern const std::size_t astral_bsdf_glsl_size;
 extern const std::uint8_t astral_rt_glsl[];
 extern const std::size_t astral_rt_glsl_size;
+extern const std::uint8_t astral_projection_glsl[];
+extern const std::size_t astral_projection_glsl_size;
 extern const std::uint8_t astral_restir_glsl[];
 extern const std::size_t astral_restir_glsl_size;
 extern const std::uint8_t astral_primary_glsl[];
@@ -42,7 +44,7 @@ extern const std::size_t astral_path_tracer_comp_size;
 
 namespace astral::detail {
 
-inline constexpr const char* kSurfaceBuiltinsDecl = R"(vec2 UV; vec3 NORMAL; vec3 WORLD_POSITION; vec3 VIEW_DIR; bool FRONT_FACING; vec2 SCREEN_UV;
+inline constexpr const char* kSurfaceBuiltinsDecl = R"(vec2 UV; vec2 UV1; vec2 NORMAL_UV; vec3 NORMAL; vec3 WORLD_POSITION; vec3 VIEW_DIR; bool FRONT_FACING; vec2 SCREEN_UV;
 vec3 ALBEDO; float ROUGHNESS; float METALLIC; vec3 EMISSION; float ALPHA; float ALPHA_SCISSOR;
 vec3 NORMAL_MAP; float NORMAL_MAP_DEPTH; float AO;
 float CLEARCOAT; float CLEARCOAT_ROUGHNESS; vec3 SHEEN_COLOR; float SHEEN_ROUGHNESS;

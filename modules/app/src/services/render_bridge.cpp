@@ -403,7 +403,8 @@ void RenderBridge::render_frame(const RenderFrameInput& input) {
                            .ui = {},
                            .time = input.time,
                            .sky = input.sky,
-                           .post = input.post});
+                           .post = input.post,
+                           .world_origin = input.world_origin});
         cmd.transition(vp_native, gpu::ResourceState::ShaderRead);
         renderer_->render_ui(cmd, image, input.ui_layers, viewport_.clear_color);
     } else {
@@ -422,7 +423,8 @@ void RenderBridge::render_frame(const RenderFrameInput& input) {
                            .ui = input.ui_layers,
                            .time = input.time,
                            .sky = input.sky,
-                           .post = input.post});
+                           .post = input.post,
+                           .world_origin = input.world_origin});
     }
     if (offscreen) {
         cmd.transition(image, gpu::ResourceState::TransferSrc);

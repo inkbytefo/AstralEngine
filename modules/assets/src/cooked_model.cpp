@@ -8,7 +8,7 @@ namespace astral {
 namespace {
 
 constexpr std::uint8_t magic[4] = {'A', 'M', 'D', 'L'};
-constexpr std::uint32_t format_version = 2;
+constexpr std::uint32_t format_version = 3;
 /// Counts read from a file are checked against this before allocating (a damaged count must not
 /// make us allocate gigabytes); real models are far below it.
 constexpr std::uint64_t max_count = 1u << 28;
@@ -32,19 +32,21 @@ bool u32s(ByteReader& r, std::vector<std::uint32_t>& v) {
 }
 std::int32_t index(ByteReader& r) { return static_cast<std::int32_t>(r.u32()); }
 
-const char* read_primitives(ByteReader& r, std::vector<ModelPrimitive>& primitives) {
+const char* read_primitives(ByteReader& r, std::vector<ModelPrimitive>& primitives, std::uint32_t version) {
     const std::uint64_t n = r.varint();
     if (n > max_count) return "damaged primitive count";
     primitives.resize(static_cast<std::size_t>(n));
     for (ModelPrimitive& p : primitives) {
         p.material = index(r);
         const std::uint64_t vertices = r.varint();
-        if (vertices * 32 > r.remaining()) return "truncated vertices";
+        if (vertices > r.remaining() / (version >= 3 ? 40 : 32)) return "truncated vertices";
         p.mesh.vertices.resize(static_cast<std::size_t>(vertices));
         for (Vertex& v : p.mesh.vertices) {
             vec(r, &v.position.x, 3);
             vec(r, &v.normal.x, 3);
             vec(r, &v.uv.x, 2);
+            if (version >= 3) vec(r, &v.uv1.x, 2);
+            else v.uv1 = v.uv;
         }
         const std::uint64_t indices = r.varint();
         if (indices * 4 > r.remaining()) return "truncated indices";
@@ -85,8 +87,49 @@ const char* read_materials(ByteReader& r, std::vector<ModelMaterial>& materials,
                 if (sampler.wrap_u > 2 || sampler.wrap_v > 2 || sampler.min_filter > 5) return "invalid material sampler";
             }
         }
+        if (version >= 3) {
+            for (auto& mapping : mat.texture_transforms) {
+                vec(r, &mapping.scale.x, 2);
+                vec(r, &mapping.offset.x, 2);
+                mapping.rotation = r.f32();
+                mapping.uv_set = r.u8();
+                if (mapping.uv_set > 1) return "invalid texture coordinate set";
+            }
+        }
     }
     return nullptr;
+}
+
+void write_materials(ByteWriter& w, const ModelData& m) {
+    w.varint(m.materials.size());
+    for (const ModelMaterial& mat : m.materials) {
+        w.string(mat.name);
+        vec(w, &mat.base_color.x, 4);
+        w.f32(mat.roughness);
+        w.f32(mat.metallic);
+        vec(w, &mat.emissive.x, 3);
+        w.f32(mat.normal_scale);
+        for (int i : {mat.base_color_image, mat.metallic_roughness_image, mat.normal_image, mat.emissive_image}) {
+            w.u32(static_cast<std::uint32_t>(i));
+        }
+        w.u32(static_cast<std::uint32_t>(mat.occlusion_image));
+        w.u8(static_cast<std::uint8_t>(mat.alpha_mode));
+        w.f32(mat.alpha_cutoff);
+        w.f32(mat.occlusion_strength);
+        w.u8(mat.double_sided ? 1 : 0);
+        for (const auto& sampler : mat.samplers) {
+            w.u8(sampler.wrap_u);
+            w.u8(sampler.wrap_v);
+            w.u8(sampler.min_filter);
+            w.u8(sampler.mag_linear ? 1 : 0);
+        }
+        for (const auto& mapping : mat.texture_transforms) {
+            vec(w, &mapping.scale.x, 2);
+            vec(w, &mapping.offset.x, 2);
+            w.f32(mapping.rotation);
+            w.u8(mapping.uv_set);
+        }
+    }
 }
 
 const char* read_images(ByteReader& r, std::vector<ModelImage>& images) {
@@ -160,34 +203,13 @@ std::vector<std::uint8_t> write_cooked_model(const ModelData& m) {
             vec(w, &v.position.x, 3);
             vec(w, &v.normal.x, 3);
             vec(w, &v.uv.x, 2);
+            vec(w, &v.uv1.x, 2);
         }
         w.varint(p.mesh.indices.size());
         for (std::uint32_t i : p.mesh.indices) w.u32(i);
     }
 
-    w.varint(m.materials.size());
-    for (const ModelMaterial& mat : m.materials) {
-        w.string(mat.name);
-        vec(w, &mat.base_color.x, 4);
-        w.f32(mat.roughness);
-        w.f32(mat.metallic);
-        vec(w, &mat.emissive.x, 3);
-        w.f32(mat.normal_scale);
-        for (int i : {mat.base_color_image, mat.metallic_roughness_image, mat.normal_image, mat.emissive_image}) {
-            w.u32(static_cast<std::uint32_t>(i));
-        }
-        w.u32(static_cast<std::uint32_t>(mat.occlusion_image));
-        w.u8(static_cast<std::uint8_t>(mat.alpha_mode));
-        w.f32(mat.alpha_cutoff);
-        w.f32(mat.occlusion_strength);
-        w.u8(mat.double_sided ? 1 : 0);
-        for (const auto& sampler : mat.samplers) {
-            w.u8(sampler.wrap_u);
-            w.u8(sampler.wrap_v);
-            w.u8(sampler.min_filter);
-            w.u8(sampler.mag_linear ? 1 : 0);
-        }
-    }
+    write_materials(w, m);
 
     w.varint(m.images.size());
     for (const ModelImage& img : m.images) {
@@ -238,7 +260,7 @@ std::optional<ModelData> read_cooked_model(std::span<const std::uint8_t> data, s
     if (version < 1 || version > format_version) return fail("unsupported version (cook again)");
     ModelData m;
 
-    if (const char* err = read_primitives(r, m.primitives)) return fail(err);
+    if (const char* err = read_primitives(r, m.primitives, version)) return fail(err);
     if (const char* err = read_materials(r, m.materials, version)) return fail(err);
     if (const char* err = read_images(r, m.images)) return fail(err);
     if (const char* err = read_nodes(r, m)) return fail(err);

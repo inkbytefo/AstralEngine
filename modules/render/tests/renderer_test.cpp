@@ -557,6 +557,64 @@ TEST_CASE("base colour textures are sampled with the mesh uvs, and can be replac
     CHECK(rgb(Fixture::center(f.draw(scene))).g > 120); // material colour (white) under the sun: bright
 }
 
+TEST_CASE("meter-based wall projection is preserved across a floating origin shift") {
+    Fixture f;
+    if (!f.device) return;
+    const auto cube = f.renderer->create_mesh(make_cube());
+    const auto texture = f.renderer->create_texture(solid_halves({255, 0, 0, 255}, {0, 0, 255, 255}));
+    const auto material = f.renderer->create_material({.roughness = 1.0f, .base_color_texture = texture,
+        .mapping = {.projection = TextureProjection::PlanarXY, .tile_size_m = 2.0f}});
+    MeshInstance wall{.mesh = cube, .material = material, .transform = scale({4, 2, 0.2f})};
+    RenderScene scene{.meshes = std::span(&wall, 1), .sun = front_sun};
+    const auto before = f.draw(scene);
+    const Rgb a = rgb(f.at(before, {0.5f, 0, 0.1f}));
+    const Rgb b = rgb(f.at(before, {1.5f, 0, 0.1f}));
+    CHECK(a.r > a.b + 80);
+    CHECK(b.b > b.r + 80);
+    scene.world_origin = {101, 0, 0};
+    wall.transform = translate({-101, 0, 0}) * wall.transform;
+    f.look_from({-101, 0, 5}, {-101, 0, 0});
+    const auto after = f.draw(scene);
+    CHECK(rgb(f.at(after, {-100.5f, 0, 0.1f})).r == a.r);
+    CHECK(rgb(f.at(after, {-99.5f, 0, 0.1f})).b == b.b);
+}
+
+TEST_CASE("triplanar shading uses the matching projection on an axis-aligned wall") {
+    Fixture f;
+    if (!f.device) return;
+    const auto cube = f.renderer->create_mesh(make_cube());
+    const auto texture = f.renderer->create_texture(solid_halves({255, 0, 0, 255}, {0, 0, 255, 255}));
+    const auto normal = f.renderer->create_texture(solid_halves({210, 128, 225, 255}, {210, 128, 225, 255}, false));
+    MaterialDesc desc{.roughness = 1.0f, .base_color_texture = texture, .normal_texture = normal,
+                      .mapping = {.projection = TextureProjection::PlanarXY}};
+    const auto material = f.renderer->create_material(desc);
+    const MeshInstance wall{.mesh = cube, .material = material, .transform = scale({2, 2, 0.2f})};
+    const RenderScene scene{.meshes = std::span(&wall, 1), .sun = front_sun};
+    const auto planar = f.draw(scene);
+    desc.mapping.projection = TextureProjection::Triplanar;
+    REQUIRE(f.renderer->update_material(material, desc));
+    CHECK(f.draw(scene) == planar);
+}
+
+TEST_CASE("path tracing samples triplanar material textures on ray hits") {
+    auto settings = rt_settings();
+    settings.path_tracer = true;
+    Fixture f(settings);
+    if (!rt_available(f)) return;
+    const auto cube = f.renderer->create_mesh(make_cube());
+    const auto texture = f.renderer->create_texture(solid_halves({255, 0, 0, 255}, {0, 0, 255, 255}));
+    const auto material = f.renderer->create_material({.base_color = {0, 0, 0, 1}, .emissive = {2, 2, 2},
+        .emissive_texture = texture, .mapping = {.projection = TextureProjection::Triplanar, .tile_size_m = 2.0f}});
+    const MeshInstance wall{.mesh = cube, .material = material, .transform = scale({4, 2, 0.2f})};
+    const RenderScene scene{.meshes = std::span(&wall, 1), .sun = {.intensity = 0.0f}};
+    const auto pixels = f.draw(scene);
+    REQUIRE(f.renderer->stats().path_tracer_samples == 1);
+    const auto red = rgb(f.at(pixels, {0.5f, 0, 0.1f}));
+    const auto blue = rgb(f.at(pixels, {1.5f, 0, 0.1f}));
+    CHECK(red.r > red.b + 80);
+    CHECK(blue.b > blue.r + 80);
+}
+
 TEST_CASE("normal maps tilt the shading normal") {
     Fixture f;
     if (!f.device) return;
