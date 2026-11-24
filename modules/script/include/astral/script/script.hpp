@@ -76,6 +76,10 @@ struct ScriptWater {
     Vec3 flow{};
     float density = 0.0f;
 };
+struct ScriptCharacterState {
+    Vec3 velocity{};
+    bool on_ground = false;
+};
 class ScriptPhysics {
 public:
     virtual ~ScriptPhysics() = default;
@@ -93,6 +97,8 @@ public:
     virtual void force(Entity body, Vec3 force) = 0;
     virtual void set_velocity(Entity body, Vec3 velocity) = 0;
     [[nodiscard]] virtual Vec3 velocity(Entity body) const = 0;
+    virtual bool move_character(Entity, Vec3, bool) { return false; }
+    [[nodiscard]] virtual std::optional<ScriptCharacterState> character_state(Entity) const { return std::nullopt; }
     virtual void teleport(Entity, Vec3, Quat) {}
     virtual void wake(Entity) {}
     virtual void sleep(Entity) {}

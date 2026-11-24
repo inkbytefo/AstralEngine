@@ -249,6 +249,17 @@ struct StreamingSource {
 
 } // namespace astral
 
+// Scene descriptions keep authored settings. The entity Transform supplies the pose,
+// and PhysicsBridge owns the native handles and physics user data.
+ASTRAL_REFLECT_ENUM(astral::MotionType, Static, Kinematic, Dynamic)
+ASTRAL_REFLECT_ENUM(astral::ShapeType, Box, Sphere, Capsule, Cylinder, ConvexHull, Mesh, HeightField, Compound)
+ASTRAL_REFLECT(astral::ShapeChild, position, rotation, shape)
+ASTRAL_REFLECT(astral::ShapeDesc, type, half_extents, radius, half_height, points, vertices, indices, heights, samples, cell_size, children)
+ASTRAL_REFLECT(astral::BodyDesc, shape, motion, linear_velocity, mass, friction, restitution, linear_damping,
+               angular_damping, gravity_factor, layer, surface, sensor, continuous)
+ASTRAL_REFLECT(astral::RigidBody, desc)
+ASTRAL_REFLECT(astral::CharacterDesc, radius, height, max_slope, mass)
+ASTRAL_REFLECT(astral::CharacterController, desc, jump_speed)
 ASTRAL_REFLECT_ENUM(astral::Primitive, Cube, Sphere, Plane)
 ASTRAL_REFLECT(astral::PrimitiveMesh, shape, material, material_file)
 ASTRAL_REFLECT(astral::Sdf, shape, order)

@@ -65,6 +65,20 @@ public:
     void force(Entity body, Vec3 v) override { service_.add_force(body, v); }
     void set_velocity(Entity body, Vec3 v) override { service_.set_linear_velocity(body, v); }
     Vec3 velocity(Entity body) const override { return service_.linear_velocity(body); }
+    bool move_character(Entity entity, Vec3 velocity, bool jump) override {
+        if (auto* controller = world_.get<CharacterController>(entity)) {
+            controller->move = {velocity.x, 0, velocity.z};
+            controller->jump |= jump;
+            return true;
+        }
+        return false;
+    }
+    std::optional<ScriptCharacterState> character_state(Entity entity) const override {
+        if (const auto* controller = world_.get<const CharacterController>(entity); controller && controller->handle.valid()) {
+            return ScriptCharacterState{controller->velocity, controller->on_ground};
+        }
+        return std::nullopt;
+    }
     void teleport(Entity body, Vec3 position, Quat rotation) override { service_.set_body_transform(body, position, rotation); }
     void wake(Entity body) override { service_.wake_body(body); }
     void sleep(Entity body) override { service_.sleep_body(body); }

@@ -270,6 +270,28 @@ int physics_raycast_batch(lua_State* L) {
     return 1;
 }
 
+int physics_move_character(lua_State* L) {
+    if (!lua_isnoneornil(L, 3)) luaL_checktype(L, 3, LUA_TBOOLEAN);
+    const bool accepted = require_physics(L, Impl::of(L)).move_character(
+        check_entity(L, 1), check_vec3(L, 2), lua_toboolean(L, 3));
+    lua_pushboolean(L, accepted);
+    return 1;
+}
+
+int physics_character_state(lua_State* L) {
+    const auto state = require_physics(L, Impl::of(L)).character_state(check_entity(L, 1));
+    if (!state) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_createtable(L, 0, 2);
+    push_vec3(L, state->velocity);
+    lua_setfield(L, -2, "velocity");
+    lua_pushboolean(L, state->on_ground);
+    lua_setfield(L, -2, "on_ground");
+    return 1;
+}
+
 int physics_teleport(lua_State* L) {
     Quat rot{};
     if (!lua_isnoneornil(L, 3)) rot = check_quat(L, 3);
@@ -368,6 +390,8 @@ void register_service_bindings(lua_State* L) {
     set_function(L, "force", physics_force);
     set_function(L, "set_velocity", physics_set_velocity);
     set_function(L, "velocity", physics_velocity);
+    set_function(L, "move_character", physics_move_character);
+    set_function(L, "character_state", physics_character_state);
     set_function(L, "teleport", physics_teleport);
     set_function(L, "wake", physics_wake);
     set_function(L, "sleep", physics_sleep);

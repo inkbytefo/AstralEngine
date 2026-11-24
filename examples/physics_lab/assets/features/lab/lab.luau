@@ -67,3 +67,26 @@ astral.system({
         end
     end,
 })
+
+astral.system({
+    name = "scene_character_driver",
+    phase = "FixedUpdate",
+    run = function()
+        local character = astral.find("scene_character")
+        if not character then
+            return
+        end
+        local state = astral.physics.character_state(character)
+        if not state then
+            return
+        end
+        local transform = character:get("astral::Transform")
+        if not transform then
+            return
+        end
+        local x = transform.position.x
+        local speed = if x < 0.9 then 1.5 else 0
+        local jump = state.on_ground and x > -0.45 and x < -0.35
+        astral.physics.move_character(character, vector.create(speed, 0, 0), jump)
+    end,
+})

@@ -314,6 +314,8 @@ public:
     JointHandle create_joint(const JointDesc& desc);
     void destroy(JointHandle joint);
     [[nodiscard]] bool valid(JointHandle joint) const noexcept;
+    /// Updates spring frequency, damping and force/torque limits without rebuilding the joint.
+    void set_joint_motor_tuning(JointHandle joint, float frequency_hz, float damping, float max_force, float max_torque);
     void set_joint_motor_mode(JointHandle joint, JointMotorMode mode);
     void set_joint_motor_velocity(JointHandle joint, float velocity);
     void set_joint_motor_position(JointHandle joint, float position);

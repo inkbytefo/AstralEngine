@@ -109,6 +109,9 @@ void PhysicsLabGame::on_start(Context& ctx) {
     features.add("lab", lab::install_lab);
     features.install(ctx);
 
+    const LoadResult scene = ctx.scenes().load_scene("component_demo.scene");
+    for (const auto& error : scene.errors) ctx.log.warn("physics lab scene: {}", error);
+
     ctx.sun = {.direction = normalize(Vec3{-0.4f, -0.8f, -0.4f}), .color = {1.0f, 0.97f, 0.92f}, .intensity = 3.0f};
     ctx.environment.ambient = 0.4f;
     ctx.debug_show.physics = show_overlays_;

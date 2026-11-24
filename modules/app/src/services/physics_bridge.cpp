@@ -321,6 +321,7 @@ void PhysicsBridge::sync_joints() {
 void PhysicsBridge::sync_joint_motors() {
     world_.each<const Joint, const JointMotor>([&](const Joint& j, const JointMotor& m) {
         if (j.broken || !physics_->valid(j.handle)) return;
+        physics_->set_joint_motor_tuning(j.handle, m.frequency, m.damping, m.max_force, m.max_torque);
         physics_->set_joint_motor_mode(j.handle, m.mode);
         if (m.mode == JointMotorMode::Velocity) {
             physics_->set_joint_motor_velocity(j.handle, m.target_velocity);
@@ -414,6 +415,9 @@ void PhysicsBridge::update_characters(float fixed) {
         if (physics_->user_data(cc.handle) != to_user_data(e)) return;
         physics_->update_character(cc.handle, cc.move, cc.jump, fixed, cc.jump_speed);
         cc.jump = false;
+        const CharacterState state = physics_->character_state(cc.handle);
+        cc.on_ground = state.on_ground;
+        cc.velocity = state.velocity;
     });
 }
 

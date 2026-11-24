@@ -13,7 +13,10 @@ target_link_libraries(physics_lab PRIVATE physics_lab_lib)
 if(ASTRAL_BUILD_TESTS)
     add_executable(physics_lab_tests tests/game_test.cpp)
     target_link_libraries(physics_lab_tests PRIVATE physics_lab_lib doctest::doctest)
-    target_compile_definitions(physics_lab_tests PRIVATE ASTRAL_GAME_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/assets")
+    target_compile_definitions(physics_lab_tests PRIVATE
+        ASTRAL_GAME_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/assets"
+        ASTRAL_LAB_TEST_PACK="${CMAKE_BINARY_DIR}/packages/physics_lab/physics_lab.apak")
+    add_dependencies(physics_lab_tests physics_lab_package)
     astral_set_warnings(physics_lab_tests)
     add_test(NAME physics_lab_tests COMMAND physics_lab_tests)
     astral_check_features(physics_lab SOURCES src/features MANIFESTS assets/features)

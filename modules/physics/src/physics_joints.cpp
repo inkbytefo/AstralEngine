@@ -358,6 +358,44 @@ void PhysicsWorld::destroy(JointHandle joint) {
 
 bool PhysicsWorld::valid(JointHandle joint) const noexcept { return impl_->joints.get(joint) != nullptr; }
 
+void PhysicsWorld::set_joint_motor_tuning(JointHandle joint, float frequency_hz, float damping, float max_force,
+                                         float max_torque) {
+    auto* r = impl_->joints.get(joint);
+    if (!r || r->broken || !r->constraint || !std::isfinite(frequency_hz) || !std::isfinite(damping) ||
+        !std::isfinite(max_force) || !std::isfinite(max_torque)) return;
+    JointMotorDesc& motor = r->desc.motor;
+    if (motor.frequency_hz == frequency_hz && motor.damping == damping &&
+        motor.max_force == max_force && motor.max_torque == max_torque) return;
+    motor.frequency_hz = frequency_hz;
+    motor.damping = damping;
+    motor.max_force = max_force;
+    motor.max_torque = max_torque;
+    const auto settings = make_motor_settings(motor);
+    switch (r->desc.type) {
+    case JointType::Hinge:
+        static_cast<JPH::HingeConstraint&>(*r->constraint).GetMotorSettings() = settings;
+        break;
+    case JointType::Slider:
+        static_cast<JPH::SliderConstraint&>(*r->constraint).GetMotorSettings() = settings;
+        break;
+    case JointType::SixDOF: {
+        auto& constraint = static_cast<JPH::SixDOFConstraint&>(*r->constraint);
+        for (int axis = 0; axis < JPH::SixDOFConstraintSettings::Num; ++axis) {
+            constraint.GetMotorSettings(static_cast<JPH::SixDOFConstraintSettings::EAxis>(axis)) = settings;
+        }
+        break;
+    }
+    case JointType::SwingTwist: {
+        auto& constraint = static_cast<JPH::SwingTwistConstraint&>(*r->constraint);
+        constraint.GetSwingMotorSettings() = settings;
+        constraint.GetTwistMotorSettings() = settings;
+        break;
+    }
+    default: return;
+    }
+    wake_joint_bodies(*impl_, *r);
+}
+
 void PhysicsWorld::set_joint_motor_mode(JointHandle joint, JointMotorMode mode) {
     auto* r = impl_->joints.get(joint);
     if (!r || r->broken || !r->constraint) return;
