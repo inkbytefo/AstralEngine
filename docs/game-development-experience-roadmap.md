@@ -152,3 +152,7 @@ Kapsam: single-player first-person fizik bulmaca oyunu. Önerilen geçici isim; 
 İlk teslim E3. E4–E10 planı hazır ancak her faz için kaynak incelemesi, ayrı uygulama planı ve gerekliyse ADR açılacak. GDX için motoru yeniden yazmak, yeni ECS kurmak, Unity/Unreal UI kopyalamak, zorunlu bulut/AI aboneliği ve tüm oyun türlerini bir kerede desteklemek kapsam dışı. Özellikle ARENA gibi geniş oyunlar, TRIALS ile doğrulanan aynı üretim hattını kullanır.
 
 Açık kararlar: manifest adı/schema, process IPC veya in-process PIE, asset identity/rename stratejisi, UI document formatı, MCP transport ve izin modeli. Bunların implementasyonunu bu roadmap sabitlemez; alternatifler ve testle karar verilir.
+
+## Sonraki editör yeniden inşa notu (25 Kasım 2026)
+
+Kullanıcı mevcut Editor/AI derin denetimini erteledi ve daha sonra sıfırdan yeniden yapılandırma istedi. [Studio & Intelligence hedef mimarisi](editor/studio-intelligence-target-architecture.md) önerilen tasarım ve kabul sözleşmesidir. E3–E10 ürün hedefleri korunur; eski editör implementasyonu ile yeni authoring/Studio/AI katmanlarının geçişi ayrı ADR ve planla belirlenir. S2/S3 bulguları replacement regresyonlarıyla kapatılabilir. Bu not herhangi bir fazı tamamlanmış göstermez.
