@@ -44,18 +44,19 @@ std::vector<ParticlePass::Draw> ParticlePass::collect(std::span<const ParticleBu
         if (existing == states_.end() && states_.size() >= 64) continue;
         auto& state = states_[emitter.simulation_id];
         if (state.seen == serial_) continue;
-        draw.reset = !state.buffer.valid() || state.count != count || state.seed != emitter.seed ||
-                     state.age > emitter.age || emitter.age - state.age > 8.0f / 60.0f;
         if (!state.buffer.valid() || state.count != count) {
             device_.destroy(state.buffer);
             state.buffer = device_.create_buffer({.size = count * 32u, .usage = gpu::BufferUsage::Storage,
                                                    .debug_name = "astral.particle_state"});
+            state.progress = std::make_shared<Progress>();
         }
-        draw.previous_age = draw.reset ? std::max(0.0f, emitter.age - 8.0f / 60.0f) : state.age;
+        draw.progress = state.progress;
+        const auto& prior = *state.progress;
+        draw.reset = !prior.initialized || prior.seed != emitter.seed ||
+                     prior.age > emitter.age || emitter.age - prior.age > 8.0f / 60.0f;
+        draw.previous_age = draw.reset ? std::max(0.0f, emitter.age - 8.0f / 60.0f) : prior.age;
         draw.address = state.buffer.valid() ? device_.buffer_address(state.buffer) : 0;
-        state.age = emitter.age;
         state.count = count;
-        state.seed = emitter.seed;
         state.seen = serial_;
     }
     return draws;
@@ -96,6 +97,9 @@ void ParticlePass::simulate(RenderGraph& graph, const FrameInputs& in, const GBu
                 gb.has_sdf ? c.bindless(gb.sdf_normal) : no_texture};
             c.cmd.push_constants(&push, sizeof(push));
             c.cmd.dispatch((d.count + 63) / 64);
+            c.cmd.on_submitted([progress = d.progress, age = e.age, seed = e.seed](gpu::SubmitTicket) {
+                *progress = {age, seed, true};
+            });
         }
         c.cmd.memory_barrier(); // publish particle positions to the subsequent vertex draws
     });

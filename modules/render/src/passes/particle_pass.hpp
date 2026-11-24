@@ -3,6 +3,7 @@
 #include "passes/ddgi_pass.hpp"
 #include "passes/frame_inputs.hpp"
 
+#include <memory>
 #include <unordered_map>
 
 namespace astral {
@@ -17,16 +18,22 @@ public:
              RGTexture fog = {}, DdgiOutput ddgi = {});
 
 private:
+    struct Progress {
+        float age = 0;
+        std::uint32_t seed = 0;
+        bool initialized = false;
+    };
     struct EmitterState {
         gpu::BufferHandle buffer;
-        float age = 0;
-        std::uint32_t count = 0, seed = 0;
+        std::shared_ptr<Progress> progress;
+        std::uint32_t count = 0;
         std::uint64_t seen = 0;
     };
     struct Draw {
         ParticleBurst burst;
         std::uint32_t count;
         std::uint64_t address = 0;
+        std::shared_ptr<Progress> progress{};
         float previous_age = 0;
         bool reset = false;
     };

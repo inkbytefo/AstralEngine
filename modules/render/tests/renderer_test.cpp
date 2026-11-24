@@ -1390,6 +1390,15 @@ TEST_CASE("GPU particle state bounces off scene depth and does not advance twice
     auto visible = [&](const std::vector<std::uint32_t>& pixels) {
         return std::count_if(pixels.begin(), pixels.end(), [](auto pixel) { return rgb(pixel).r > 15; });
     };
+    burst.age = 0.1f;
+    {
+        auto discarded = f.device->begin_commands();
+        f.renderer->render(discarded, f.target, f.camera, scene);
+    }
+    const auto initialized = f.draw(scene);
+    burst.simulation_id = 3;
+    CHECK(f.draw(scene) == initialized);
+    burst.simulation_id = 1;
     for (int step = 0; step <= 12; ++step) {
         burst.age = static_cast<float>(step) * 0.1f;
         f.draw(scene);
