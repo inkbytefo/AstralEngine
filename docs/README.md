@@ -15,6 +15,8 @@ kurallar [process.md](process.md)'de.
 | [status/gpu-rhi-deep-audit-2026-11-25.md](status/gpu-rhi-deep-audit-2026-11-25.md) | GPU/Vulkan RHI statik denetimi: lifetime, WSI, RT, descriptor ve bounds |
 | [status/core-ecs-deep-audit-2026-11-25.md](status/core-ecs-deep-audit-2026-11-25.md) | Core/ECS derin statik denetim: scheduler, events, serialization, lifecycle |
 | [status/master-code-audit-2026-11-25.md](status/master-code-audit-2026-11-25.md) | Master teknik denetimi: kaynak bulguları, CI, riskler ve kanıt sınırları |
+| [status/master-stabilization-roadmap.md](status/master-stabilization-roadmap.md) | Merkezi stabilizasyon roadmap'i: 137 kayıt, bağımlılık ve kabul kapıları |
+| [guides/game-architecture.md](guides/game-architecture.md) | World/Scene/Prefab/Entity/Component ve gerçek gameplay geliştirme akışı |
 | [status/master-stabilization-backlog.md](status/master-stabilization-backlog.md) | Denetim bulgularının öncelikli düzeltme ve test planı |
 | [game-development-experience-roadmap.md](game-development-experience-roadmap.md) | **GDX (E3–E10)** — proje oluşturma, editör, AI, gerçek Play, export ve bitmiş referans oyun |
 | [process.md](process.md) | Geliştirme akışı ve "faz bitti" tanımı |

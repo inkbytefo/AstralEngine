@@ -4,7 +4,9 @@ Bu rehber kod bilmeden okunabilir. "Bir harita nerede yaşıyor, neyden oluşuyo
 bugünkü hâliyle ve yol haritasındaki hedefiyle (M9, [ADR-0021](../decisions/0021-world-and-level-system.md))
 anlatır.
 
-## Bugün (v3, M8 sonu)
+**Güncel kaynak temelli rehber:** [Game Architecture](game-architecture.md). Aşağıdaki M8/M9 anlatımı tarihsel bağlam içerir; E1 Level Instance desteği artık mevcut.
+
+## Küçük sahne (M8 temeli)
 
 Bir oyun alanı **tek bir sahne dosyasıdır** (`.scene`, JSON metni). Pong'un bütün sahası
 [`examples/pong/assets/court.scene`](../../examples/pong/assets/court.scene):
@@ -31,7 +33,7 @@ Okuma kılavuzu:
 - **Prefab** (`.prefab`) = tekrar kullanılan hazır nesne (raket, top). Sahne prefab'ı yerleştirir ve yalnızca
   farkını yazar ("bu raket kırmızı olsun"). Prefab'ın **varyantı** da olabilir (rakip raket = raket + yapay zekâ).
 - **Sistem** = davranış, kodda ya da Luau'da (`ball_physics` topu hareket ettirir). Sahne dosyası davranış içermez.
-- Oyun çalışırken dosyayı düzenleyip kaydedersen sahne anında güncellenir (hot-reload). F1 ile açılan
+- Prefab, material, model ve script hot reload yolları var; herhangi bir yüklenmiş root .scene dosyasının otomatik replace edilmesi güncel frame loop'ta doğrulanmadı. F1 ile açılan
   panelden de component'ler düzenlenir.
 - Paketlemede (`<oyun>_package`) sahne ikili biçime çevrilip `.apak` içine girer.
 
@@ -60,7 +62,7 @@ maps/
 | Büyük harita belleğe nasıl sığar? | Cook nesneleri **hücrelere** (ör. 128 m kareler) dağıtır; oyuncunun çevresindeki hücreler arka planda yüklenir, uzaktakiler boşaltılır |
 | Uzakta değiştirdiğim şey ne olur? | Kırılan kapı, alınan eşya hücre farkı olarak saklanır; geri dönünce öyle kalmış olur |
 | Gece/gündüz, görev öncesi/sonrası? | **Veri katmanları**: nesneler `gece`, `köprü_yıkıldı` gibi katmanlara etiketlenir, oyun bunları açıp kapatır |
-| Aynı köyü iki haritada kullanmak? | Köy bir `.scene`; dünyaya **bölüm örneği** olarak yerleştirilecek (henüz yok; şimdilik prefab kullan) |
+| Aynı köyü iki haritada kullanmak? | Köy bir `.scene`; E1 ile **Level Instance** olarak yerleştirilebilir (bkz. [ADR-0036](../decisions/0036-world-authoring-and-level-instances.md)) |
 | Merkezden 20 km uzakta titreme? | **Kayan orijin**: oyuncu uzaklaştıkça dünyanın orijini sessizce kaydırılır |
 | Küçük oyun yine tek dosya olabilir mi? | Evet. `.scene` geçerli bir harita olarak kalır |
 
@@ -71,5 +73,5 @@ Arazi (M15), SDF hacimleri (M19) ve uzak görünüm vekilleri (HLOD, M22) aynı 
 Harita = veri. Kurallar = **özellik paketleri** ([ADR-0023](../decisions/0023-modular-game-code.md)): her
 özellik (savaş, envanter, duman bombası) kendi klasöründe component'leri, sistemleri, Luau script'leri ve
 testleriyle durur; özellikler birbirine yalnızca olaylarla ve dışa açtıkları component'lerle bağlanır.
-Haritanın oyun kuralları, `.world` dosyasındaki bir kural entity'sinde ayar olarak yaşar (Pong'daki
+Haritanın oyun kuralları, `.world` haritasına ait `.ent` dosyasındaki bir kural entity'sinde veya oyunun okuduğu map settings içinde ayar olarak yaşar (Pong'daki
 `pong::Court` gibi).
