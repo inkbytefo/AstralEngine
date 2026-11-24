@@ -63,7 +63,7 @@ build/debug/modules/app/astral_app_tests '--test-case=gameplay smoke*'
 
 `--smoke` CPU duman ızgarasını froxel atlasına taşır. GPU, dolu hücrelerin içinden geçen görüş segmentini entegre eder. Global sis kapalıyken de çalışır. Bir karede en fazla 16 duman ızgarası yüklenir.
 
-`--vfx`, `courtyard.vfx` paketli örneğini başlatır. Sürümlü JSON dosyası `smoke`, `volume`, `particles`, `light`, `decal` ve `sound` track’leri destekler. Her track saniye cinsinden `start` ve `duration` kullanır. Partiküller GPU’da analitik olarak ilerler, spawn anındaki rüzgârı kullanır ve mesh/SDF derinliğiyle örtülür. Partikül bütçesi burst başına 1.024 ve kare başına 8.192’dir. C++’ta `play_vfx` ve `stop_vfx` kullanılır. Luau olayları sabit adımda işlenir:
+`--vfx`, `courtyard.vfx` paketli örneğini başlatır. Sürümlü JSON dosyası `smoke`, `volume`, `particles`, `light`, `decal` ve `sound` track’leri destekler. Her track saniye cinsinden `start` ve `duration` kullanır. Partikül konumu ve hızı GPU’da kareler arasında saklanır. Emitter konumundaki rüzgâr her sabit adımda yenilenir. Mesh/SDF derinliğinde görünen yüzeyler çarpışma sağlar. `restitution` yüzey normalindeki sekmeyi 0–1 aralığında ayarlar. Partikül bütçesi burst başına 1.024 ve kare başına 8.192’dir. C++’ta `play_vfx` ve `stop_vfx` kullanılır. Luau olayları sabit adımda işlenir:
 
 ```lua
 astral.send("astral::PlayVfx", {asset = "courtyard.vfx", position = vector.create(0, 1, 0), tag = "courtyard"})
@@ -88,4 +88,6 @@ Partiküller varsayılan olarak additive karışır. Alfa karışımı için `re
 
 `volume` track’i için hacim materyali zorunludur. `size`, 17³ hücreli küpün kenar uzunluğunu metre cinsinden, `strength` ise sönüm ve ışıma ölçeğini ayarlar. `flame.material` ile avluda örnek bir prosedürel alev oluşturulur. Bu track yalnızca renderer’a veri gönderir. Çevre geometrisini de aydınlatmak için zaman çizelgesine bir `light` track’i eklenebilir.
 
-Seyrek GPU hacim atlası ve partikül fizik çarpışması M14’ün açık işleridir.
+Derinlik çarpışması kameranın gördüğü ilk yüzeyi kullanır. `motion()` simülasyon sonucuna yalnızca çizim katmanında müdahale eder. C++ renderer çağrısında benzersiz `ParticleBurst::simulation_id` verilirse durum saklanır, sıfır değeri analitik çizimi seçer. Aynı anda en fazla 64 emitter durum saklayabilir.
+
+Seyrek GPU hacim atlası M14’ün açık işidir.

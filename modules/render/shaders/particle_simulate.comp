@@ -1,0 +1,68 @@
+#version 460
+#include <astral/particle_state.glsl>
+layout(local_size_x = 64) in;
+layout(push_constant, scalar) uniform Push {
+    FrameRef frame;
+    ParticleStates states;
+    vec4 position_age, wind_duration;
+    float previous_age, restitution;
+    uint seed, count, reset, depth, normal, sdf_depth, sdf_normal;
+} pc;
+
+vec4 sample_surface(uint tex, ivec2 pixel) {
+    return texelFetch(sampler2D(astral_textures[tex], astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]), pixel, 0);
+}
+
+vec3 collide(Frame f, vec3 from, vec3 to, inout vec3 velocity) {
+    vec4 clip = f.view_projection * vec4(to, 1.0);
+    if (clip.w <= 0.0) return to;
+    vec3 ndc = clip.xyz / clip.w;
+    vec2 uv = ndc.xy * 0.5 + 0.5;
+    if (any(lessThan(uv, vec2(0))) || any(greaterThanEqual(uv, vec2(1))) || ndc.z <= 0.0 || ndc.z >= 1.0) return to;
+    ivec2 pixel = ivec2(uv * f.screen.xy);
+    float mesh = sample_surface(pc.depth, pixel).r;
+    float sdf = pc.sdf_depth == NO_TEXTURE ? 1.0 : sample_surface(pc.sdf_depth, pixel).r;
+    float depth = min(mesh, sdf);
+    if (ndc.z < depth) return to;
+    vec3 normal = sample_surface(sdf < mesh ? pc.sdf_normal : pc.normal, pixel).xyz;
+    if (dot(normal, normal) < 0.5) return to;
+    normal = normalize(normal);
+    float speed = dot(velocity, normal);
+    if (speed >= 0.0) return to;
+    vec2 sample_uv = (vec2(pixel) + 0.5) * f.screen.zw;
+    vec3 surface = reconstruct_world(f, sample_uv, depth);
+    float before = dot(from - surface, normal), after = dot(to - surface, normal);
+    if (before < -0.012 || after > 0.0) return to;
+    float fraction = clamp(before / max(before - after, 1e-6), 0.0, 1.0);
+    velocity -= normal * speed * (1.0 + pc.restitution);
+    return mix(from, to, fraction) + normal * 0.008;
+}
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    if (index >= pc.count) return;
+    uint key = index * 13u + pc.seed * 7919u;
+    float delay = pc.wind_duration.w * 0.24 * random_unit(key + 3u);
+    float old_age = max(pc.previous_age - delay, 0.0);
+    float age = max(pc.position_age.w - delay, 0.0);
+    vec3 gravity = vec3(0, -2.6, 0);
+    vec3 position, velocity;
+    if (pc.reset != 0u) {
+        vec3 initial = particle_velocity(key) + pc.wind_duration.xyz;
+        position = pc.position_age.xyz + initial * old_age + gravity * (0.5 * old_age * old_age);
+        velocity = initial + gravity * old_age;
+    } else {
+        position = pc.states.data[index].position.xyz;
+        velocity = pc.states.data[index].velocity.xyz;
+    }
+    float elapsed = clamp(age - old_age, 0.0, 8.0 / 60.0);
+    uint substeps = max(1u, uint(ceil(elapsed * 60.0)));
+    float dt = elapsed / float(substeps);
+    if (dt > 0.0) {
+        for (uint i = 0; i < substeps; ++i) {
+            velocity += (gravity + 0.65 * (pc.wind_duration.xyz - velocity)) * dt;
+            position = collide(pc.frame.f, position, position + velocity * dt, velocity);
+        }
+    }
+    pc.states.data[index] = ParticleState(vec4(position, 0), vec4(velocity, 0));
+}

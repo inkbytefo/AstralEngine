@@ -342,9 +342,10 @@ void RenderBridge::extract_lights(World& w) {
 namespace {
 std::vector<ParticleBurst> extract_particles(World& world) {
     std::vector<ParticleBurst> bursts;
-    world.each<const VfxEmitter, const Transform>([&](const VfxEmitter& emitter, const Transform& transform) {
+    world.each<const VfxEmitter, const Transform>([&](Entity entity, const VfxEmitter& emitter, const Transform& transform) {
         auto burst = emitter.burst;
         burst.position = transform.position;
+        burst.simulation_id = (std::uint64_t{entity.generation} << 32) | entity.index;
         bursts.push_back(burst);
     });
     return bursts;

@@ -1294,6 +1294,37 @@ TEST_CASE("local smoke attenuates sunlight through its own occupied cells") {
     CHECK(rgb(Fixture::center(f.draw(scene))).r == 0);
 }
 
+TEST_CASE("GPU particle state bounces off scene depth and does not advance twice at the same age") {
+    Fixture f;
+    if (!f.device) return;
+    f.look_from({0, 4, 6}, {0, 0, 0});
+    const auto floor = f.renderer->create_mesh(make_cube());
+    const std::vector<Item> items{{.mesh = floor, .transform = translate({0, -0.2f, 0}) * scale({16, 0.2f, 16}),
+                                   .color = {0, 0, 0, 1}}};
+    ParticleBurst burst{.color = {3, 1, 0.5f}, .size_m = 0.12f, .count = 64, .simulation_id = 1, .restitution = 0.65f};
+    burst.duration = 2;
+    RenderScene scene{.meshes = f.inst(items), .sun = {.intensity = 0, .shadows = false},
+                      .environment = {.sky = {}, .ground = {}, .ambient = 0}, .particles = std::span(&burst, 1)};
+    auto visible = [&](const std::vector<std::uint32_t>& pixels) {
+        return std::count_if(pixels.begin(), pixels.end(), [](auto pixel) { return rgb(pixel).r > 15; });
+    };
+    for (int step = 0; step <= 12; ++step) {
+        burst.age = static_cast<float>(step) * 0.1f;
+        f.draw(scene);
+    }
+    const auto bounced = f.draw(scene);
+    CHECK(f.draw(scene) == bounced);
+    const auto ground = scene.meshes;
+    scene.meshes = {};
+    burst.simulation_id = 2;
+    for (int step = 0; step <= 12; ++step) {
+        burst.age = static_cast<float>(step) * 0.1f;
+        f.draw(scene);
+    }
+    scene.meshes = ground;
+    CHECK(visible(bounced) > visible(f.draw(scene)) + 10);
+}
+
 TEST_CASE("hybrid fog receives coloured indirect light from DDGI") {
     RenderSettings settings{.shadow_map_size = 512, .ray_tracing = true,
                             .gi = {.probes_x = 3, .probes_y = 3, .probes_z = 3, .rays_per_probe = 64,

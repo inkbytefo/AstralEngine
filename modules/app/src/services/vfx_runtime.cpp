@@ -19,7 +19,7 @@ struct Track {
     TrackKind kind;
     float start, duration;
     Vec3 offset{}, color{1, 0.6f, 0.3f};
-    float size = 0, strength = 0, soft_distance_m = 0;
+    float size = 0, strength = 0, soft_distance_m = 0, restitution = 0.45f;
     std::uint32_t count;
     std::string sound, material;
 };
@@ -79,6 +79,7 @@ std::optional<Playback> parse_vfx(const Json& json) {
             !read_scalar(node, "size", t.size, *kind == TrackKind::Particles ? 0.05 : 2.0, 0.01, 100) ||
             !read_scalar(node, "strength", t.strength, 1, 0, 100) ||
             (*kind == TrackKind::Particles && !read_scalar(node, "soft_distance_m", t.soft_distance_m, 0, 0, 20)) ||
+            (*kind == TrackKind::Particles && !read_scalar(node, "restitution", t.restitution, 0.45, 0, 1)) ||
             !read_scalar(node, "count", count, 64, 1, 1024) || count != std::floor(count) ||
             !read_xyz(node, "offset", t.offset, -1000, 1000) || !read_xyz(node, "color", t.color, 0, 100)) return {};
         t.count = static_cast<std::uint32_t>(count);
@@ -124,7 +125,8 @@ void spawn_track(Context& ctx, Entity owner, Vec3 position, const Track& t, floa
         ctx.world.create(transform, child, VfxEmitter{{
             .age = age - t.start, .drift = ctx.fields.wind_at(transform.position, ctx.time.elapsed),
             .duration = t.duration, .color = t.color * t.strength, .size_m = t.size,
-            .count = t.count, .seed = owner.index * 37u + sequence, .material = material, .soft_distance_m = t.soft_distance_m}});
+            .count = t.count, .seed = owner.index * 37u + sequence, .material = material,
+            .soft_distance_m = t.soft_distance_m, .restitution = t.restitution}});
         break;
     case TrackKind::Light:
         ctx.world.create(transform, child, PointLight{.color = t.color, .intensity = t.strength, .radius = t.size});
@@ -201,6 +203,8 @@ void VfxRuntime::update(Context& ctx, float delta) {
             expired.push_back(e);
         } else if (auto* emitter = world.get<VfxEmitter>(e)) {
             emitter->burst.age = playback->age - delta - child.start;
+            if (const auto* transform = world.get<const Transform>(e))
+                emitter->burst.drift = ctx.fields.wind_at(transform->position, ctx.time.elapsed);
         } else if (auto* volume = world.get<VfxVolume>(e)) {
             volume->age = playback->age - delta - child.start;
         }
