@@ -42,3 +42,7 @@ Her ID için: **durum (open / in progress / verified fixed / deferred)**, kaynak
 ## Ek denetim: Core / ECS
 
 [Core & ECS Deep Audit](core-ecs-deep-audit-2026-11-25.md): C01–C06 kaynak kusurları, CR01–CR06 riskler, CP01–CP03 öneriler. C01–C05 yüksek öncelikli çalışma kuyruğuna alınır; mevcut S0–S6 paketleri korunur. CI durumu kullanıcı tarafından altyapı engeli olarak bildirilmiştir; bağımsız kök neden logu yoktur. Yerel derleme bu inceleme kapsamı dışındadır.
+
+## Ek denetim: GPU / Vulkan RHI
+
+[GPU & Vulkan RHI Deep Audit](gpu-rhi-deep-audit-2026-11-25.md): G01–G10 kaynak kusurları, GR01–GR05 riskler, GP01–GP03 öneriler. S1 kapsamı A01, G01–G10 ile genişler; G01–G05 ve G07–G09 P1. A01 immediate submit takip notu yeni bulgu sayılmaz. GPU validation ve fault injection ileride, bu faz sadece statik analiz. Mevcut motor/GDX fazları değişmedi.
