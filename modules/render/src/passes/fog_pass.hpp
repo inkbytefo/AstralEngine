@@ -14,7 +14,7 @@ public:
     FogPass(const FogPass&) = delete;
     FogPass& operator=(const FogPass&) = delete;
 
-    RGTexture integrate(RenderGraph& graph, const FrameInputs& inputs, RGTexture shadow, DdgiOutput ddgi = {}) const;
+    RGTexture integrate(RenderGraph& graph, const FrameInputs& inputs, RGTexture shadow, RenderStats& stats, DdgiOutput ddgi = {}) const;
     RGTexture composite(RenderGraph& graph, const FrameInputs& inputs, RGTexture hdr,
                         const GBufferTextures& gbuffer, RGTexture atlas) const;
 

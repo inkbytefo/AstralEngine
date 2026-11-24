@@ -81,6 +81,7 @@ astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/path_tracer.
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle.frag astral_particle_frag)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/particle.vert astral_particle_vert)
 astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/particle_state.glsl astral_particle_state_glsl)
+astral_embed_file(astral_render ${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/astral/smoke_atlas.glsl astral_smoke_atlas_glsl)
 target_include_directories(astral_render SYSTEM PRIVATE $<BUILD_INTERFACE:${stb_SOURCE_DIR}>)
 
 astral_add_shaders(astral_render

@@ -46,6 +46,8 @@ private:
 
     void on_shutdown(astral::Context& ctx) override {
         if (!profile_ || !ctx.renderer) return;
+        const auto stats = ctx.renderer->stats();
+        ctx.log.info("vfx_lab volume bricks: {}, budget fallbacks: {}", stats.volume_bricks, stats.volume_brick_fallbacks);
         for (const auto& timing : ctx.renderer->gpu_timings()) {
             ctx.log.info("vfx_lab pass {}: {} ms", timing.name, timing.ms);
         }

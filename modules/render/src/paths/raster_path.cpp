@@ -104,7 +104,7 @@ void render_raster_path(RasterPathContext& ctx, gpu::CommandList& cmd, gpu::Text
     ctx.passes.sky.add(g, inputs, hdr, gbuffer);
     const RGTexture atmospheric_hdr = ctx.passes.aerial.add(g, inputs, hdr, gbuffer);
 
-    const RGTexture fog = ctx.passes.fog.integrate(g, inputs, shadow_map);
+    const RGTexture fog = ctx.passes.fog.integrate(g, inputs, shadow_map, ctx.stats);
     const RGTexture fogged = ctx.passes.fog.composite(g, inputs, atmospheric_hdr, gbuffer, fog);
 
     const std::span<const MaterialHandle> post_chain = ctx.passes.post.collect(scene, ctx.materials);

@@ -1,15 +1,14 @@
 #ifndef ASTRAL_FOG_VOLUME_GLSL
 #define ASTRAL_FOG_VOLUME_GLSL
-#include <astral/scene.glsl>
+#include <astral/smoke_atlas.glsl>
 
 struct SmokeVolume {
     vec3 corner;
     float cell_size;
     float extinction;
-    uint side, first_word, modulation, sun_shadow;
+    uint side, first_word, first_brick, modulation, sun_shadow;
 };
 ASTRAL_BUFFER(SmokeVolumes, SmokeVolume);
-ASTRAL_BUFFER(SmokeWords, uint);
 
 vec4 smoke_texel(uint index, ivec2 texel) {
     return texelFetch(sampler2D(astral_textures[nonuniformEXT(index)], astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]),
@@ -52,16 +51,18 @@ vec4 march_smoke(SmokeVolume v, SmokeWords words, vec3 eye, vec3 ray, float ente
         float next = min(exit, min(edge.x, min(edge.y, edge.z)));
         uint index = (uint(cell.z) * v.side + uint(cell.y)) * v.side + uint(cell.x);
         if (smoke_occupied(v, words, index)) {
-            ivec2 texel = ivec2(cell.x, cell.y + cell.z * int(v.side));
+            uint brick = v.first_brick == NO_TEXTURE ? NO_TEXTURE : smoke_brick(words, v.first_brick, v.side, uvec3(cell));
+            ivec2 texel = brick == NO_TEXTURE ? ivec2(0) : smoke_atlas_texel(brick, uvec3(cell), 2u);
             vec4 material = v.modulation == NO_TEXTURE ? vec4(1) : smoke_texel(v.modulation, texel);
             float distance_m = max(0.0, next - enter);
             vec3 tint = material.rgb * (material.a * distance_m);
             filled += vec4(tint, material.a * distance_m);
             if (!shadow_ray) {
                 if (v.modulation != NO_TEXTURE)
-                    emitted += distance_m * smoke_texel(v.modulation, texel + ivec2(0, v.side * v.side)).rgb;
+                    emitted += distance_m * smoke_texel(v.modulation, texel + ivec2(0, 64)).rgb;
                 if (material.a > 0.0) {
-                    float light = v.sun_shadow == NO_TEXTURE ? 1.0 : smoke_texel(v.sun_shadow, texel).r;
+                    float light = v.sun_shadow == NO_TEXTURE ? 1.0 :
+                        smoke_texel(v.sun_shadow, smoke_atlas_texel(brick, uvec3(cell), 1u)).r;
                     sunlit += light * tint;
                 }
             }

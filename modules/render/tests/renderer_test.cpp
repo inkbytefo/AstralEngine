@@ -1231,6 +1231,37 @@ TEST_CASE("local smoke uses packed occupancy without requiring global fog") {
     CHECK(glowing.g > glowing.r);
 }
 
+TEST_CASE("the volume atlas allocates occupied bricks and isolates material data across volumes") {
+    Fixture f;
+    if (!f.device) return;
+    const auto shader = make_shader(f, "shader_type volume;\nuniform vec3 tint = vec3(1);\n"
+                                       "void volume() { DENSITY = 0.0; EMISSION = tint * 5.0; }\n", "brick_test");
+    REQUIRE(shader.valid());
+    const auto red = f.renderer->create_material({.shader = shader, .params = {1, 0, 0}});
+    const auto green = f.renderer->create_material({.shader = shader, .params = {0, 1, 0}});
+    constexpr unsigned side = 17;
+    std::array<std::uint8_t, side * side * side> cells{};
+    cells[(7 * side + 8) * side + 8] = 1;
+    cells[(8 * side + 8) * side + 8] = 1;
+    const std::array volumes{
+        SmokeVolumeView{.centre = {-1, 0, 0}, .cell_size_m = 0.95f, .extinction_per_m = 1,
+                        .side = side, .occupancy = cells, .material = red},
+        SmokeVolumeView{.centre = {1, 0, 0}, .cell_size_m = 0.95f, .extinction_per_m = 1,
+                        .side = side, .occupancy = cells, .material = green},
+    };
+    const RenderScene scene{.sun = {.intensity = 0, .shadows = false},
+                            .environment = {.sky = {}, .ground = {}, .ambient = 0, .fog_range_m = 12},
+                            .smoke = volumes};
+    const auto pixels = f.draw(scene);
+    CHECK(f.renderer->stats().volume_bricks == 4);
+    const auto left = rgb(f.at(pixels, volumes[0].centre));
+    const auto right = rgb(f.at(pixels, volumes[1].centre));
+    CHECK(left.r > 30);
+    CHECK(left.g == 0);
+    CHECK(right.g > 30);
+    CHECK(right.r == 0);
+}
+
 TEST_CASE("GPU particle burst draws and obeys scene depth") {
     Fixture f;
     if (!f.device) return;

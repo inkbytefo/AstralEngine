@@ -18,7 +18,9 @@ std::vector<GlslInclude> engine_includes() {
             {"astral/brdf.glsl", embedded_text(embedded::astral_brdf_glsl, embedded::astral_brdf_glsl_size)},
             {"astral/bsdf.glsl", embedded_text(embedded::astral_bsdf_glsl, embedded::astral_bsdf_glsl_size)},
             {"astral/particle_state.glsl",
-             embedded_text(embedded::astral_particle_state_glsl, embedded::astral_particle_state_glsl_size)}};
+             embedded_text(embedded::astral_particle_state_glsl, embedded::astral_particle_state_glsl_size)},
+            {"astral/smoke_atlas.glsl",
+             embedded_text(embedded::astral_smoke_atlas_glsl, embedded::astral_smoke_atlas_glsl_size)}};
 }
 
 std::string uniform_macros(const ShaderSource& source, const UniformLayout& layout) {

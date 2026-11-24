@@ -90,4 +90,4 @@ Partiküller varsayılan olarak additive karışır. Alfa karışımı için `re
 
 Derinlik çarpışması kameranın gördüğü ilk yüzeyi kullanır. `motion()` simülasyon sonucuna yalnızca çizim katmanında müdahale eder. C++ renderer çağrısında benzersiz `ParticleBurst::simulation_id` verilirse durum saklanır, sıfır değeri analitik çizimi seçer. Aynı anda en fazla 64 emitter durum saklayabilir.
 
-Seyrek GPU hacim atlası M14’ün açık işidir.
+GPU görselleştirme, 8³ hücrelik sayfalardan oluşan ortak materyal ve güneş geçirgenliği atlaslarını kullanır. Gameplay dumanında yalnızca dolu hücre içeren sayfalar yer alır. Prosedürel `volume` track’i kendi ızgarasını doldurur. Kare bütçesi 512 sayfadır. Bütçeyi aşan gameplay hacmi doluluğunu ve temel sis görünümünü korur. Bütçeyi aşan prosedürel hacim atlanır. `--profile` yerleşen sayfa ve bütçeyi aşan hacim sayısını gösterir.

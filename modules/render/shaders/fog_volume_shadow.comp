@@ -13,13 +13,17 @@ void main() {
     uint side = pc.volume.side;
     if (xy.x >= side || xy.y >= side * side) return;
     if (!smoke_occupied(pc.volume, pc.words, xy.y * side + xy.x)) return;
-    if (pc.volume.modulation != NO_TEXTURE && smoke_texel(pc.volume.modulation, ivec2(xy)).a <= 0.0) return;
-    vec3 cell = vec3(xy.x, xy.y % side, xy.y / side) + 0.5;
+    uvec3 voxel = uvec3(xy.x, xy.y % side, xy.y / side);
+    uint brick = smoke_brick(pc.words, pc.volume.first_brick, side, voxel);
+    if (brick == NO_TEXTURE) return;
+    if (pc.volume.modulation != NO_TEXTURE &&
+        smoke_texel(pc.volume.modulation, smoke_atlas_texel(brick, voxel, 2u)).a <= 0.0) return;
+    vec3 cell = vec3(voxel) + 0.5;
     vec3 point = pc.volume.corner + pc.volume.cell_size * cell;
     vec3 emitted, sunlit;
     vec3 to_sun = -pc.frame.f.sun_direction.xyz;
     float distance_m = pc.volume.cell_size * float(side) * 2.0;
     float depth = pc.volume.extinction *
                   march_smoke(pc.volume, pc.words, point, to_sun, 0.0, distance_m, true, emitted, sunlit).a;
-    imageStore(astral_storage_images[pc.target], ivec2(xy), vec4(exp(-depth), 0, 0, 0));
+    imageStore(astral_storage_images[pc.target], smoke_atlas_texel(brick, voxel, 1u), vec4(exp(-depth), 0, 0, 0));
 }

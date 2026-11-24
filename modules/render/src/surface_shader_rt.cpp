@@ -22,12 +22,13 @@ uint astral_pu(uint o) { return astral_params.data[astral_base + o]; }
 std::string volume_compute(const ShaderSource& source, const UniformLayout& layout) {
     std::string s = R"(#version 460
 #extension GL_GOOGLE_include_directive : require
-#include <astral/scene.glsl>
+#include <astral/smoke_atlas.glsl>
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(push_constant, scalar) uniform Push {
     FrameRef frame;
+    SmokeWords words;
     vec4 corner_cell;
-    uint side, target, material;
+    uint side, target, material, first_word, first_brick;
     float age;
 } pc;
 vec3 UVW, WORLD_POSITION, TINT, EMISSION;
@@ -39,10 +40,16 @@ float DENSITY, TIME, AGE;
     uvec2 p = gl_GlobalInvocationID.xy;
     uint side = pc.side;
     if (p.x >= side || p.y >= side * side) return;
+    uint index = p.y * side + p.x;
+    if ((pc.words.data[pc.first_word + index / 32u] & (1u << (index % 32u))) == 0u) return;
+    uvec3 voxel = uvec3(p.x, p.y % side, p.y / side);
+    uint brick = smoke_brick(pc.words, pc.first_brick, side, voxel);
+    if (brick == NO_TEXTURE) return;
+    ivec2 texel = smoke_atlas_texel(brick, voxel, 2u);
     Frame f = pc.frame.f;
     astral_params = AstralParams(uint64_t(f.custom.x) | (uint64_t(f.custom.y) << 32));
     astral_base = Materials(f.scene_materials).data[pc.material].custom.x;
-    vec3 sample_cell = vec3(p.x, p.y % side, p.y / side) + 0.5;
+    vec3 sample_cell = vec3(voxel) + 0.5;
     UVW = sample_cell / float(side);
     WORLD_POSITION = pc.corner_cell.xyz + pc.corner_cell.w * sample_cell;
     TIME = uintBitsToFloat(f.custom.z);
@@ -51,8 +58,8 @@ float DENSITY, TIME, AGE;
     DENSITY = 1.0;
     EMISSION = vec3(0.0);
     volume();
-    imageStore(astral_storage_images[pc.target], ivec2(p), vec4(clamp(TINT, 0.0, 8.0), clamp(DENSITY, 0.0, 1.0)));
-    imageStore(astral_storage_images[pc.target], ivec2(p) + ivec2(0, side * side),
+    imageStore(astral_storage_images[pc.target], texel, vec4(clamp(TINT, 0.0, 8.0), clamp(DENSITY, 0.0, 1.0)));
+    imageStore(astral_storage_images[pc.target], texel + ivec2(0, 64),
                vec4(clamp(EMISSION, 0.0, 64.0), 0.0));
 }
 )";

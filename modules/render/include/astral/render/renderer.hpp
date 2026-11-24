@@ -293,6 +293,8 @@ struct RenderStats {
     std::uint32_t rect_lights = 0;
     std::uint32_t decals = 0;
     std::uint32_t path_tracer_samples = 0;
+    std::uint32_t volume_bricks = 0; ///< Resident 8-cube pages in the shared volume atlas.
+    std::uint32_t volume_brick_fallbacks = 0; ///< Volumes that exceeded the page budget.
 };
 
 /// Hybrid deferred renderer built on RenderGraph.
