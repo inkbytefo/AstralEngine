@@ -54,3 +54,7 @@ Her ID için: **durum (open / in progress / verified fixed / deferred)**, kaynak
 ## Ek denetim: Physics / Jolt
 
 [Physics & Jolt Deep Audit](physics-jolt-deep-audit-2026-11-25.md): PH01–PH09 kaynak kusurları, PHR01–PHR06 koşullu riskler, PHP01–PHP03 öneriler. PH01–05 P1; S5 runtime reliability, C/CR scheduler ve S4 parser hardening ile koordine. Contact/character ownership, fixed-step clock, origin ve deterministic producer order öncelikli; M21/M23 öncesi joint/pose sözleşmesi doğrulansın. Derleme ve runtime testleri kapsam dışı, bütün kayıtlar açık.
+
+## Ek denetim: Assets / Shader Compiler
+
+[Assets & Shader Compiler Deep Audit](assets-shader-deep-audit-2026-11-25.md): AS01–AS13 kaynak kusurları, ASR01–ASR06 koşullu riskler, ASP01–ASP03 öneriler. AS01, AS03–04, AS06, AS08–12 P1; S4 parser hardening, S1 GPU publish/lifetime ve E4/E9 asset/cook sözleşmeleriyle koordineli. Dependency graph, atomic asset/shader publication, cook output closure, typed ABI. Derleme ve runtime testleri kapsam dışı, tüm kayıtlar açık.
