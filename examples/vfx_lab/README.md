@@ -41,6 +41,15 @@ const float visible = smoke->transmittance(centre, eye, target);
 
 Konumlar aynı yerel dünya koordinatlarında verilmelidir. `optical_depth` segmentin dolu hücrelerde katettiği mesafeyi entegre eder. Oyun, görüş eşiğini kendi kurallarında belirler. En küçük doluluk birimi bir hücredir.
 
+C++ ve Luau, bir kapsüldeki dolu hücreleri belirli sayıda fizik adımı için açabilir. Kapsülün iki ucu aynı noktadaysa etki küreseldir. Görüş sorgusu ve GPU dumanı aynı boşluğu görür.
+
+```lua
+astral.send("astral::DisperseSmoke", {
+    from = vector.create(-1, 1, 0), to = vector.create(1, 1, 0),
+    radius_m = 0.3, hold_steps = 12
+})
+```
+
 ```sh
 cmake --build --preset debug --target astral_app_tests
 build/debug/modules/app/astral_app_tests '--test-case=gameplay smoke*'
@@ -70,6 +79,8 @@ Bir `particles` veya `smoke` track’ine `"material": "effect.material"` ekleyer
 | `volume()` | `UVW`, `WORLD_POSITION`, `TIME` (saniye), `AGE` (görsel hacmin yaşı) | `TINT`, `DENSITY`, `EMISSION` |
 
 Partiküller varsayılan olarak additive karışır. Alfa karışımı için `render_mode blend_mix;` kullanılır. Hacim shader’ı her hücre merkezinde GPU’da çalışır. `DENSITY` 0 ile 1 arasında görsel yoğunluk çarpanıdır, `TINT` saçılma rengini çarpar. Oyun sorguları CPU doluluk ızgarasını kullanır. Her iki shader türü de materyal uniform’larını ve `sampler2D` destekler.
+
+`particles` track’inde `soft_distance_m` ayarlanırsa billboard, en yakın mesh veya SDF yüzeyine yaklaşırken opaklığı azalır. Varsayılan değer sıfırdır. Örtülme ve yumuşak geçiş görüş derinliğini kullanır.
 
 `volume` track’i için hacim materyali zorunludur. `size`, 17³ hücreli küpün kenar uzunluğunu metre cinsinden, `strength` ise sönüm ve ışıma ölçeğini ayarlar. `flame.material` ile avluda örnek bir prosedürel alev oluşturulur. Bu track yalnızca renderer’a veri gönderir. Çevre geometrisini de aydınlatmak için zaman çizelgesine bir `light` track’i eklenebilir.
 

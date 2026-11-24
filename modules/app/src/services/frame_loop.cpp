@@ -133,6 +133,7 @@ void FrameLoop::run_fixed_update() {
     world_.each<GameplaySmoke, const Transform>([&](Entity entity, GameplaySmoke& smoke, const Transform& transform) {
         if (!world_.has<Parent>(entity)) smoke.step(physics_bridge_, transform.position);
     });
+    vfx_.apply_smoke_events(world_);
 }
 
 void FrameLoop::run_physics(float delta) {

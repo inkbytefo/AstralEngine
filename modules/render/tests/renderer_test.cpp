@@ -1242,7 +1242,7 @@ TEST_CASE("GPU particle burst draws and obeys scene depth") {
     const auto lit = f.draw(scene);
     CHECK(lit != clear);
     const auto shader = make_shader(f, "shader_type particle;\nuniform float opacity = 1.0;\n"
-                                       "uniform float offset = 0.0;\nvoid motion() { WORLD_POSITION.x += offset; }\n"
+                                       "uniform float offset = 0.0;\nvoid motion() { WORLD_POSITION = ORIGIN + vec3(offset, 0, 0); }\n"
                                        "void particle() { COLOR = vec3(0.0, 5.0, 0.0); ALPHA *= opacity; }\n",
                                     "spark_color");
     REQUIRE(shader.valid());
@@ -1256,6 +1256,15 @@ TEST_CASE("GPU particle burst draws and obeys scene depth") {
     CHECK(std::equal(green.begin(), green.end(), clear.begin(),
                      [](auto effect, auto baseline) { return rgb(effect).r == rgb(baseline).r; }));
     const auto cube = f.renderer->create_mesh(make_cube());
+    const std::vector<Item> floor{{.mesh = cube, .transform = translate({0, 0, -0.3f}) * scale({4, 4, 0.2f})}};
+    scene.meshes = f.inst(floor);
+    burst.count = 1;
+    burst.age = 0.25f;
+    const auto hard = rgb(Fixture::center(f.draw(scene)));
+    burst.soft_distance_m = 1.0f;
+    const auto soft = rgb(Fixture::center(f.draw(scene)));
+    CHECK(soft.g > 0);
+    CHECK(soft.g < hard.g);
     const std::vector<Item> items{{.mesh = cube, .transform = translate({0, 0, 1}) * scale({4, 4, 0.2f})}};
     scene.meshes = f.inst(items);
     const auto behind = f.draw(scene);

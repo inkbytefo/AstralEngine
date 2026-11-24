@@ -138,9 +138,10 @@ void CommandList::begin_rendering(const RenderingDesc& desc) {
     if (d) {
         if (extent.width == 0) extent = {d->desc.width, d->desc.height};
         depth.imageView = d->view;
-        depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-        depth.loadOp = to_vk(desc.depth.load);
-        depth.storeOp = to_vk(desc.depth.store);
+        depth.imageLayout = desc.depth.read_only ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+                                                 : VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+        depth.loadOp = desc.depth.read_only ? VK_ATTACHMENT_LOAD_OP_LOAD : to_vk(desc.depth.load);
+        depth.storeOp = desc.depth.read_only ? VK_ATTACHMENT_STORE_OP_NONE : to_vk(desc.depth.store);
         depth.clearValue.depthStencil = {desc.depth.clear, 0};
     }
     VkRenderingInfo info{VK_STRUCTURE_TYPE_RENDERING_INFO};

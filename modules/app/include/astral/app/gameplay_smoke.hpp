@@ -28,6 +28,9 @@ public:
     explicit GameplaySmoke(GameplaySmokeDesc desc = {});
 
     void step(const PhysicsService& physics, Vec3 centre);
+    /// Temporarily removes occupied cells whose centres lie inside a world-space capsule.
+    /// Use equal endpoints for a sphere. The renderer and visibility both see the change.
+    void disperse(Vec3 centre, Vec3 from, Vec3 to, float radius_m, unsigned hold_steps);
     [[nodiscard]] float optical_depth(Vec3 centre, Vec3 from, Vec3 to) const noexcept;
     [[nodiscard]] float transmittance(Vec3 centre, Vec3 from, Vec3 to) const noexcept;
     [[nodiscard]] float density_scale() const noexcept;
@@ -40,6 +43,7 @@ private:
     GameplaySmokeDesc desc_;
     unsigned side_;
     std::vector<std::uint8_t> occupied_;
+    std::vector<std::uint64_t> restore_at_;
     std::uint64_t tick_ = 0;
 };
 

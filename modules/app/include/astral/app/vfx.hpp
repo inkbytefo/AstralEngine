@@ -19,6 +19,12 @@ struct PlayVfx {
 struct StopVfx {
     std::string tag;
 };
+/// Clears gameplay smoke along a capsule. Equal endpoints make a sphere.
+struct DisperseSmoke {
+    Vec3 from{}, to{};
+    float radius_m = 0.25f;
+    std::uint32_t hold_steps = 15;
+};
 
 /// Plays a versioned .vfx asset at a local world position. Invalid on a load or validation error.
 Entity play_vfx(Context& context, std::string_view asset, Vec3 position);
@@ -29,3 +35,4 @@ void stop_vfx(Context& context, Entity instance);
 
 ASTRAL_REFLECT(astral::PlayVfx, asset, position, tag)
 ASTRAL_REFLECT(astral::StopVfx, tag)
+ASTRAL_REFLECT(astral::DisperseSmoke, from, to, radius_m, hold_steps)

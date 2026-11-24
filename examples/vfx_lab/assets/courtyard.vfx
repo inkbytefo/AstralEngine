@@ -7,7 +7,7 @@
      "offset": [2.4, -0.1, 2.3], "color": [1, 0.4, 0.12]},
     {"type": "volume", "material": "flame.material", "start": 0.06, "duration": 1.0,
      "size": 1.6, "strength": 1.0, "offset": [2.4, -0.15, 2.3]},
-    {"type": "particles", "material": "sparks.material", "start": 0.09, "duration": 1.2, "size": 0.043, "count": 132, "strength": 2.6,
+    {"type": "particles", "material": "sparks.material", "start": 0.09, "duration": 1.2, "size": 0.043, "count": 132, "strength": 2.6, "soft_distance_m": 0.2,
      "offset": [2.4, -0.2, 2.3], "color": [1, 0.42, 0.12]},
     {"type": "decal", "start": 0.11, "duration": 4.5, "size": 2.4, "strength": 0.65,
      "offset": [2.4, -1.05, 2.3], "color": [0.12, 0.09, 0.05]}

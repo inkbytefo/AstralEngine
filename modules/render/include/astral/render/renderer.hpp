@@ -217,6 +217,7 @@ struct ParticleBurst {
     std::uint32_t count = 64;
     std::uint32_t seed = 1;
     MaterialHandle material{};
+    float soft_distance_m = 0; ///< Fade as the billboard approaches the nearest solid surface.
 };
 
 /// Everything to draw in one frame. Spans must stay valid until render() returns.

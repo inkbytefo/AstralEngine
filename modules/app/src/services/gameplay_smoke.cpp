@@ -34,6 +34,19 @@ GameplaySmoke::GameplaySmoke(GameplaySmokeDesc desc)
 void GameplaySmoke::step(const PhysicsService& physics, Vec3 centre) {
     if (tick_ >= static_cast<std::uint64_t>(desc_.spread_steps) + desc_.fade_steps) return;
     ++tick_;
+    if (!restore_at_.empty()) {
+        bool pending = false;
+        for (std::size_t i = 0; i < restore_at_.size(); ++i) {
+            if (restore_at_[i] == 0) continue;
+            if (restore_at_[i] <= tick_) {
+                occupied_[i] = 1;
+                restore_at_[i] = 0;
+            } else {
+                pending = true;
+            }
+        }
+        if (!pending) restore_at_.clear();
+    }
     if (!finite(centre) || tick_ > desc_.spread_steps || tick_ % desc_.spread_interval_steps != 0) return;
 
     const int side = static_cast<int>(side_);
@@ -50,7 +63,7 @@ void GameplaySmoke::step(const PhysicsService& physics, Vec3 centre) {
                     const int nx = x + n[0], ny = y + n[1], nz = z + n[2];
                     if (nx < 0 || nx >= side || ny < 0 || ny >= side || nz < 0 || nz >= side) continue;
                     const auto target = index_of(nx, ny, nz, side_);
-                    if (occupied_[target]) continue;
+                    if (occupied_[target] || (!restore_at_.empty() && restore_at_[target] != 0)) continue;
                     rays.push_back({origin, {static_cast<float>(n[0]), static_cast<float>(n[1]), static_cast<float>(n[2])},
                                     desc_.cell_size_m, {.layers = desc_.obstacle_layers}});
                     targets.push_back(target);
@@ -64,6 +77,42 @@ void GameplaySmoke::step(const PhysicsService& physics, Vec3 centre) {
     physics.raycast_batch(rays, hits);
     for (std::size_t i = 0; i < hits.size(); ++i) {
         if (!hits[i]) occupied_[targets[i]] = 1;
+    }
+}
+
+void GameplaySmoke::disperse(Vec3 centre, Vec3 from, Vec3 to, float radius_m, unsigned hold_steps) {
+    if (!finite(centre) || !finite(from) || !finite(to) || !std::isfinite(radius_m) ||
+        radius_m <= 0 || hold_steps == 0 || density_scale() <= 0) return;
+    const Vec3 start = from - centre;
+    const Vec3 end = to - centre;
+    const Vec3 segment = end - start;
+    const float segment_sq = dot(segment, segment);
+    const float radius_sq = radius_m * radius_m;
+    const float half = static_cast<float>(side_ / 2) * desc_.cell_size_m;
+    if (!std::isfinite(segment_sq) || !std::isfinite(radius_sq) || !std::isfinite(half)) return;
+    const float reach = half + radius_m;
+    if (std::min(start.x, end.x) > reach || std::max(start.x, end.x) < -reach ||
+        std::min(start.y, end.y) > reach || std::max(start.y, end.y) < -reach ||
+        std::min(start.z, end.z) > reach || std::max(start.z, end.z) < -reach) return;
+
+    const auto restore = std::min(tick_ + hold_steps, static_cast<std::uint64_t>(desc_.spread_steps) + desc_.fade_steps);
+    const int side = static_cast<int>(side_);
+    const int middle = side / 2;
+    for (int z = 0; z < side; ++z) {
+        for (int y = 0; y < side; ++y) {
+            for (int x = 0; x < side; ++x) {
+                const auto i = index_of(x, y, z, side_);
+                if (!occupied_[i] && (restore_at_.empty() || restore_at_[i] == 0)) continue;
+                const Vec3 offset = Vec3{static_cast<float>(x - middle), static_cast<float>(y - middle),
+                                         static_cast<float>(z - middle)} * desc_.cell_size_m - start;
+                const float t = segment_sq > 0 ? std::clamp(dot(offset, segment) / segment_sq, 0.0f, 1.0f) : 0.0f;
+                const Vec3 radial = offset - segment * t;
+                if (!(dot(radial, radial) <= radius_sq)) continue;
+                if (restore_at_.empty()) restore_at_.resize(occupied_.size());
+                occupied_[i] = 0;
+                restore_at_[i] = std::max(restore_at_[i], restore);
+            }
+        }
     }
 }
 

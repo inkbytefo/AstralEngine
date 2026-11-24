@@ -85,7 +85,8 @@ void Device::Impl::free_bindless_index(std::uint32_t index) {
 }
 
 void Device::Impl::write_texture_descriptors(const TextureRecord& texture) {
-    VkDescriptorImageInfo sampled{VK_NULL_HANDLE, texture.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkDescriptorImageInfo sampled{VK_NULL_HANDLE, texture.view,
+                                  state_info(ResourceState::ShaderRead, is_depth(texture.desc.format)).layout};
     VkDescriptorImageInfo storage{VK_NULL_HANDLE, texture.view, VK_IMAGE_LAYOUT_GENERAL};
     VkWriteDescriptorSet writes[2]{};
     std::uint32_t count = 0;

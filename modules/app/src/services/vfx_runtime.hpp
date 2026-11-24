@@ -22,10 +22,12 @@ struct VfxEmitter {
 class VfxRuntime {
 public:
     void update(Context& context, float delta);
+    void apply_smoke_events(World& world);
 
 private:
     EventReader<PlayVfx> plays_;
     EventReader<StopVfx> stops_;
+    EventReader<DisperseSmoke> smoke_events_;
 };
 void register_vfx_types(TypeRegistry& types, EventRegistry& events);
 } // namespace astral

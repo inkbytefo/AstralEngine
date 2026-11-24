@@ -19,7 +19,7 @@ struct Track {
     TrackKind kind;
     float start, duration;
     Vec3 offset{}, color{1, 0.6f, 0.3f};
-    float size, strength;
+    float size = 0, strength = 0, soft_distance_m = 0;
     std::uint32_t count;
     std::string sound, material;
 };
@@ -72,12 +72,13 @@ std::optional<Playback> parse_vfx(const Json& json) {
     for (const auto& node : tracks.as_array()) {
         const auto kind = track_kind(node["type"].as_string());
         if (!kind) return {};
-        Track t{.kind = *kind, .start = 0, .duration = 0, .size = 0, .strength = 0, .count = 0, .sound = {}, .material = {}};
+        Track t{.kind = *kind, .start = 0, .duration = 0, .count = 0, .sound = {}, .material = {}};
         float count;
         if (!read_scalar(node, "start", t.start, 0, 0, 60) ||
             !read_scalar(node, "duration", t.duration, 1, 0.05, 60) ||
             !read_scalar(node, "size", t.size, *kind == TrackKind::Particles ? 0.05 : 2.0, 0.01, 100) ||
             !read_scalar(node, "strength", t.strength, 1, 0, 100) ||
+            (*kind == TrackKind::Particles && !read_scalar(node, "soft_distance_m", t.soft_distance_m, 0, 0, 20)) ||
             !read_scalar(node, "count", count, 64, 1, 1024) || count != std::floor(count) ||
             !read_xyz(node, "offset", t.offset, -1000, 1000) || !read_xyz(node, "color", t.color, 0, 100)) return {};
         t.count = static_cast<std::uint32_t>(count);
@@ -123,7 +124,7 @@ void spawn_track(Context& ctx, Entity owner, Vec3 position, const Track& t, floa
         ctx.world.create(transform, child, VfxEmitter{{
             .age = age - t.start, .drift = ctx.fields.wind_at(transform.position, ctx.time.elapsed),
             .duration = t.duration, .color = t.color * t.strength, .size_m = t.size,
-            .count = t.count, .seed = owner.index * 37u + sequence, .material = material}});
+            .count = t.count, .seed = owner.index * 37u + sequence, .material = material, .soft_distance_m = t.soft_distance_m}});
         break;
     case TrackKind::Light:
         ctx.world.create(transform, child, PointLight{.color = t.color, .intensity = t.strength, .radius = t.size});
@@ -159,6 +160,7 @@ void stop_vfx(Context& ctx, Entity instance) {
 void register_vfx_types(TypeRegistry& types, EventRegistry& events) {
     events.add<PlayVfx>();
     events.add<StopVfx>();
+    events.add<DisperseSmoke>();
     types.exclude<Playback>();
     types.exclude<VfxChild>();
     types.exclude<VfxVolume>();
@@ -207,6 +209,16 @@ void VfxRuntime::update(Context& ctx, float delta) {
         spawn_track(ctx, start.owner, start.position, start.track, start.age, start.sequence);
     }
     for (const Entity e : expired) world.destroy(e);
+}
+
+void VfxRuntime::apply_smoke_events(World& world) {
+    smoke_events_.read(world, [&](const DisperseSmoke& event) {
+        world.each<GameplaySmoke, const Transform>([&](Entity entity, GameplaySmoke& smoke, const Transform& transform) {
+            if (!world.has<Parent>(entity)) {
+                smoke.disperse(transform.position, event.from, event.to, event.radius_m, event.hold_steps);
+            }
+        });
+    });
 }
 
 } // namespace astral

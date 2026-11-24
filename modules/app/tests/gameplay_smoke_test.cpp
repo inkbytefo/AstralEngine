@@ -1,6 +1,7 @@
 #include <astral/astral.hpp>
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -77,4 +78,33 @@ TEST_CASE("gameplay smoke reaches the other side around the end of a partition")
     REQUIRE(game.samples.size() == 27);
     CHECK(game.samples[2] == 1.0f);
     CHECK(game.samples[25] < 0.2f);
+}
+
+TEST_CASE("gameplay smoke dispersion clears only its capsule and restores on fixed ticks") {
+    struct Demo final : Game {
+        Entity cloud;
+        std::vector<float> axis, adjacent;
+        std::vector<std::uint8_t> centre_cell;
+        void on_start(Context& ctx) override {
+            cloud = ctx.world.create(Transform{}, GameplaySmoke({.radius_cells = 2, .cell_size_m = 0.5f,
+                .spread_interval_steps = 1, .spread_steps = 30}));
+        }
+        void on_update(Context& ctx) override {
+            const auto& smoke = *ctx.world.get<const GameplaySmoke>(cloud);
+            axis.push_back(smoke.optical_depth({}, {-2, 0, 0}, {2, 0, 0}));
+            adjacent.push_back(smoke.optical_depth({}, {-2, 0.5f, 0}, {2, 0.5f, 0}));
+            centre_cell.push_back(smoke.occupancy()[smoke.occupancy().size() / 2]);
+            if (axis.size() == 8) {
+                ctx.world.send(DisperseSmoke{.from = {-2, 0, 0}, .to = {2, 0, 0}, .radius_m = 0.24f, .hold_steps = 4});
+            }
+        }
+    } demo;
+    App app({.headless = true, .fixed_timestep = 1.0f / 60.0f, .worker_threads = 2, .hot_reload = false});
+    app.run_frames(demo, 18);
+    CHECK(demo.axis[7] > 0);
+    CHECK(demo.axis.back() == demo.axis[7]);
+    CHECK(std::count(demo.axis.begin(), demo.axis.end(), 0.0f) == 4);
+    CHECK(std::count(demo.centre_cell.begin(), demo.centre_cell.end(), 0u) == 4);
+    CHECK(std::all_of(demo.adjacent.begin() + 7, demo.adjacent.end(),
+                      [&](float sample) { return sample == demo.adjacent[7]; }));
 }

@@ -21,16 +21,17 @@ void ParticlePass::add(RenderGraph& graph, const FrameInputs& in, RGTexture targ
     if (in.scene.particles.empty() || !pipeline_.valid() || in.settings.debug_view != DebugView::None) return;
     graph.add_pass("GPU particles", [target, gb, fog](PassBuilder& b) {
         b.color(target, gpu::LoadOp::Load);
-        b.depth(gb.depth, gpu::LoadOp::Load);
+        b.depth_read(gb.depth);
         if (gb.has_sdf) b.read(gb.sdf_depth);
         if (fog.valid()) b.read(fog);
     }, [pipeline = pipeline_, &in, gb, fog](PassContext& c) {
         struct Push {
             std::uint64_t frame;
             Vec4 position_age, drift_duration, color_size;
-            std::uint32_t seed, fog, sdf_depth, material;
+            std::uint32_t seed, fog, sdf_depth, material, mesh_depth;
+            float soft_distance_m;
         };
-        static_assert(sizeof(Push) == 72);
+        static_assert(sizeof(Push) == 80);
         constexpr std::uint32_t none = 0xFFFFFFFFu;
         std::uint32_t remaining = 8192;
         gpu::PipelineHandle bound{};
@@ -51,7 +52,8 @@ void ParticlePass::add(RenderGraph& graph, const FrameInputs& in, RGTexture targ
                 {emitter.drift.x, emitter.drift.y, emitter.drift.z, emitter.duration},
                 {emitter.color.x, emitter.color.y, emitter.color.z, emitter.size_m},
                 emitter.seed, fog.valid() ? c.bindless(fog) : none,
-                gb.has_sdf ? c.bindless(gb.sdf_depth) : none, in.materials.resolve_index(emitter.material)};
+                gb.has_sdf ? c.bindless(gb.sdf_depth) : none, in.materials.resolve_index(emitter.material),
+                c.bindless(gb.depth), emitter.soft_distance_m};
             c.cmd.push_constants(&push, sizeof(push));
             c.cmd.draw(6, count);
             remaining -= count;
