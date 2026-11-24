@@ -32,40 +32,50 @@ int gltf_address(int at, int size, int mode) {
     return index < size ? index : period - 1 - index;
 }
 
-vec4 gltf_texel(texture2D img, ivec2 p, ivec2 size, ivec2 wrap_mode, int mip) {
+vec4 gltf_texel(uint img, ivec2 p, ivec2 size, ivec2 wrap_mode, int mip) {
     ivec2 index = ivec2(gltf_address(p.x, size.x, wrap_mode.x), gltf_address(p.y, size.y, wrap_mode.y));
-    return texelFetch(sampler2D(img, astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]), index, mip);
+    return texelFetch(sampler2D(astral_textures[nonuniformEXT(img)], astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]), index, mip);
 }
 
-vec4 gltf_level(texture2D img, vec2 uv, ivec2 wrap_mode, int mip, bool linear_filter) {
-    ivec2 size = textureSize(sampler2D(img, astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]), mip);
-    vec2 texel = uv * vec2(size);
-    if (!linear_filter) return gltf_texel(img, ivec2(floor(texel)), size, wrap_mode, mip);
-    vec2 origin = floor(texel - 0.5);
-    vec2 fraction = texel - 0.5 - origin;
-    ivec2 base = ivec2(origin);
-    vec4 top = mix(gltf_texel(img, base, size, wrap_mode, mip),
-                   gltf_texel(img, base + ivec2(1, 0), size, wrap_mode, mip), fraction.x);
+vec4 gltf_level(uint img, vec2 uv, ivec2 wrap_mode, int mip, bool linear_filter) {
+    ivec2 size = max(textureSize(sampler2D(astral_textures[nonuniformEXT(img)], astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]), mip), ivec2(1));
+    vec2 texel = uv * vec2(size) - (linear_filter ? 0.5 : 0.0);
+    ivec2 base = ivec2(floor(texel));
+    vec4 c00 = gltf_texel(img, base, size, wrap_mode, mip);
+    if (!linear_filter) return c00;
+    vec2 fraction = texel - vec2(base);
+    vec4 top = mix(c00, gltf_texel(img, base + ivec2(1, 0), size, wrap_mode, mip), fraction.x);
     vec4 bottom = mix(gltf_texel(img, base + ivec2(0, 1), size, wrap_mode, mip),
                       gltf_texel(img, base + ivec2(1, 1), size, wrap_mode, mip), fraction.x);
     return mix(top, bottom, fraction.y);
 }
 
-vec4 gltf_sample(texture2D img, vec2 uv, vec2 uv_dx, vec2 uv_dy, vec4 config) {
-    vec2 extent = vec2(textureSize(sampler2D(img, astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]), 0));
-    float footprint = max(length(uv_dx * extent), length(uv_dy * extent));
+vec4 gltf_sample(uint img, vec2 uv, vec2 uv_dx, vec2 uv_dy, vec4 config) {
     ivec2 wrap_mode = ivec2(config.xy);
+#ifdef ASTRAL_RT_CHUNK
+    return gltf_level(img, uv, wrap_mode, 0, config.w != 0.0);
+#else
+    vec2 extent = vec2(textureSize(sampler2D(astral_textures[nonuniformEXT(img)], astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP]), 0));
+    float footprint = max(length(uv_dx * extent), length(uv_dy * extent));
     int mode = int(config.z);
-    if (footprint <= 1.0) return gltf_level(img, uv, wrap_mode, 0, config.w != 0.0);
-    bool linear_filter = (mode & 1) != 0;
-    if (mode < 2) return gltf_level(img, uv, wrap_mode, 0, linear_filter);
-    int max_mip = textureQueryLevels(sampler2D(img, astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP])) - 1;
-    float lod = clamp(log2(footprint), 0.0, float(max_mip));
-    if (mode < 4) return gltf_level(img, uv, wrap_mode, int(floor(lod + 0.5)), linear_filter);
-    int low = int(floor(lod));
-    vec4 a = gltf_level(img, uv, wrap_mode, low, linear_filter);
-    if (low == max_mip) return a;
-    return mix(a, gltf_level(img, uv, wrap_mode, low + 1, linear_filter), fract(lod));
+    bool linear_filter = footprint <= 1.0 ? (config.w != 0.0) : ((mode & 1) != 0);
+    int mip0 = 0, mip1 = 0;
+    float mip_t = 0.0;
+    if (footprint > 1.0 && mode >= 2) {
+        int max_mip = max(textureQueryLevels(sampler2D(astral_textures[nonuniformEXT(img)], astral_samplers[ASTRAL_SAMPLER_NEAREST_CLAMP])) - 1, 0);
+        float lod = clamp(log2(footprint), 0.0, float(max_mip));
+        if (mode < 4) {
+            mip0 = int(floor(lod + 0.5));
+            mip1 = mip0;
+        } else {
+            mip0 = int(floor(lod));
+            mip1 = min(mip0 + 1, max_mip);
+            mip_t = fract(lod);
+        }
+    }
+    vec4 a = gltf_level(img, uv, wrap_mode, mip0, linear_filter);
+    return mip1 == mip0 ? a : mix(a, gltf_level(img, uv, wrap_mode, mip1, linear_filter), mip_t);
+#endif
 }
 )";
 

@@ -82,4 +82,5 @@ astral_add_tests(MODULE app
 if(TARGET astral_app_tests)
     FetchContent_GetProperties(stb)
     target_include_directories(astral_app_tests SYSTEM PRIVATE ${stb_SOURCE_DIR})
+    set_tests_properties(astral_app_tests PROPERTIES TIMEOUT 300)
 endif()

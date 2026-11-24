@@ -126,7 +126,20 @@ TEST_CASE("glTF masked and blended materials build Vulkan shader variants") {
     test::write_glb(dir, "blend", {.child_node = false, .alpha_mode = "BLEND", .alpha = 0.5f});
     const std::string root = dir.string();
 
+    App app({.width = 80, .height = 60, .render = {.ray_tracing = false},
+             .asset_root = root, .hot_reload = false, .offscreen = true});
+    if (!app.context().renderer) return;
+
     struct G final : Game {
+        App& app;
+        bool tested_rt = false;
+        explicit G(App& owner) : app(owner) {}
+        void check_frame(Context& ctx) {
+            const auto error = ctx.renderer->shader_error();
+            CHECK_MESSAGE(error.empty(), error);
+            std::vector<std::uint8_t> rgba;
+            CHECK(app.read_frame(rgba));
+        }
         void on_start(Context& ctx) override {
             for (const char* filename : {"mask.glb", "blend.glb"}) {
                 const AssetId id = ctx.assets->load_model(filename);
@@ -140,21 +153,28 @@ TEST_CASE("glTF masked and blended materials build Vulkan shader variants") {
             }
             ctx.world.create(Transform{.position = {0, 1, 3}}, Camera{});
         }
-    };
-    for (int mode = 0; mode < 3; ++mode) {
-        CAPTURE(mode);
-        App app({.width = 80, .height = 60,
-                 .render = {.ray_tracing = mode != 0, .gi = {.probes_x = 4, .probes_y = 4, .probes_z = 4},
-                            .path_tracer = mode == 2},
-                 .asset_root = root, .hot_reload = false, .offscreen = true});
-        if (!app.context().renderer) return;
-        if (mode != 0 && !app.context().renderer->ray_tracing()) continue;
-        G game;
-        app.run_frames(game, 4);
-        const auto error = app.context().renderer->shader_error();
-        CHECK_MESSAGE(error.empty(), error);
-        std::vector<std::uint8_t> rgba;
-        CHECK(app.read_frame(rgba));
-        if (mode == 2) CHECK(app.context().renderer->stats().path_tracer_samples > 0);
-    }
+        void on_update(Context& ctx) override {
+            if (ctx.time.frame == 3) {
+                check_frame(ctx);
+                ctx.renderer->set_settings({.ray_tracing = true, .gi = {.probes_x = 4, .probes_y = 4, .probes_z = 4}});
+                if (!ctx.renderer->ray_tracing()) {
+                    ctx.quit();
+                    return;
+                }
+                tested_rt = true;
+            }
+            if (ctx.time.frame == 6 && tested_rt) {
+                check_frame(ctx);
+                ctx.renderer->set_settings({.ray_tracing = true, .gi = {.probes_x = 4, .probes_y = 4, .probes_z = 4},
+                                            .path_tracer = true});
+            }
+        }
+    } game(app);
+
+    app.run_frames(game, 9);
+    const auto error = app.context().renderer->shader_error();
+    CHECK_MESSAGE(error.empty(), error);
+    std::vector<std::uint8_t> rgba;
+    CHECK(app.read_frame(rgba));
+    if (game.tested_rt) CHECK(app.context().renderer->stats().path_tracer_samples > 0);
 }

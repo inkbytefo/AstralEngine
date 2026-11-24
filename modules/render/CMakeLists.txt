@@ -106,4 +106,5 @@ if(TARGET astral_render_tests)
     target_include_directories(astral_render_tests PRIVATE
         ${CMAKE_SOURCE_DIR}/modules/gpu/tests
         ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    set_tests_properties(astral_render_tests PROPERTIES TIMEOUT 300)
 endif()

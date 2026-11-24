@@ -37,8 +37,9 @@ std::string uniform_macros(const ShaderSource& source, const UniformLayout& layo
             const char* sampler = u.hints.filter == TextureFilter::Nearest || u.hints.filter == TextureFilter::NearestMipmap
                                       ? "ASTRAL_SAMPLER_NEAREST_CLAMP"
                                       : (u.hints.repeat ? "ASTRAL_SAMPLER_LINEAR_REPEAT" : "ASTRAL_SAMPLER_LINEAR_CLAMP");
-            const std::string image = "astral_textures[nonuniformEXT(astral_pu(" + o + "))]";
-            s += "#define astral_image_" + u.name + " " + image + "\n";
+            const std::string index = "astral_pu(" + o + ")";
+            const std::string image = "astral_textures[nonuniformEXT(" + index + ")]";
+            s += "#define astral_image_" + u.name + " " + index + "\n";
             value = "sampler2D(" + image + ", astral_samplers[" + sampler + "])";
             break;
         }
@@ -287,7 +288,7 @@ std::string rt_chunk(const ShaderSource& source, const UniformLayout& layout) {
     std::string s = "// ---- shader slot @ID@\n";
     for (const std::string& f : source.functions) s += "#define " + f + " " + prefix + f + "\n";
     for (const ShaderVarying& v : source.varyings) s += "#define " + v.name + " " + prefix + v.name + "\n" + v.type + " " + v.name + ";\n";
-    s += "#define texture(s, uv) textureLod(s, uv, 2.0)\n#define dFdx(x) ((x) * 0.0)\n#define dFdy(x) ((x) * 0.0)\n";
+    s += "#define ASTRAL_RT_CHUNK 1\n#define texture(s, uv) textureLod(s, uv, 2.0)\n#define dFdx(x) ((x) * 0.0)\n#define dFdy(x) ((x) * 0.0)\n";
     s += detail::wrap_body(source, layout, source.body_without("vertex"));
     s += R"(void astral_run_@ID@(uint base, vec2 uv, vec3 view_dir, inout Surface s) {
     astral_base = base;
@@ -329,7 +330,7 @@ std::string rt_chunk(const ShaderSource& source, const UniformLayout& layout) {
         s += detail::kSurfaceBuiltinsInit;
         s += "    surface();\n    return ALPHA >= ALPHA_SCISSOR;\n}\n";
     }
-    s += "#undef texture\n#undef dFdx\n#undef dFdy\n";
+    s += "#undef ASTRAL_RT_CHUNK\n#undef texture\n#undef dFdx\n#undef dFdy\n";
     for (const ShaderVarying& v : source.varyings) s += "#undef " + v.name + "\n";
     for (const std::string& f : source.functions) s += "#undef " + f + "\n";
     return s;
