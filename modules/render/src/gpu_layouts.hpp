@@ -132,9 +132,11 @@ struct GpuFrame {
     std::uint32_t decal_count;
     std::uint32_t pt_params; // bits 0..15: pt_sample_index, bits 16..23: max_bounces
     Vec4 aerial; // x extinction per metre, y start distance in metres
+    Vec4 fog;    // x extinction per metre, y maximum range
 };
-static_assert(sizeof(GpuFrame) == 688);
+static_assert(sizeof(GpuFrame) == 704);
 static_assert(offsetof(GpuFrame, aerial) == 672);
+static_assert(offsetof(GpuFrame, fog) == 688);
 static_assert(alignof(GpuFrame) == 8);
 static_assert(offsetof(GpuFrame, camera_position) == 192);
 static_assert(offsetof(GpuFrame, counts) == 272);
@@ -322,6 +324,7 @@ struct MeshPush {
     std::uint32_t first_instance;
     std::uint64_t params; // .ashader parameter block (custom surface shaders)
     float time;
+    std::uint32_t fog_atlas;
     std::uint64_t lights; // point lights (forward-lit blended surfaces)
 };
 static_assert(sizeof(MeshPush) == 64);
@@ -329,6 +332,7 @@ static_assert(sizeof(MeshPush) <= gpu::max_push_constant_size);
 static_assert(offsetof(MeshPush, first_instance) == 32);
 static_assert(offsetof(MeshPush, params) == 40);
 static_assert(offsetof(MeshPush, time) == 48);
+static_assert(offsetof(MeshPush, fog_atlas) == 52);
 static_assert(offsetof(MeshPush, lights) == 56);
 
 struct ScreenPush { // post and sky shaders

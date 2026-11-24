@@ -65,6 +65,7 @@ struct Frame {
     uint decal_count;
     uint pt_params;       // bits 0..15: pt_sample_index, bits 16..23: max_bounces
     vec4 aerial;          // x extinction per metre, y start distance in metres
+    vec4 fog;             // x extinction per metre, y maximum range
 };
 struct PointLight { vec4 position_radius; vec4 color_intensity; vec4 source; /* x source radius */ };
 struct SdfShape {
@@ -123,6 +124,26 @@ vec3 aerial_surface(Frame f, vec3 radiance, vec3 world) {
     if (f.aerial.x <= 0.0) return radiance;
     vec3 visibility = aerial_transmittance(f, world);
     return radiance * visibility + f.sky_color.rgb * (1.0 - visibility);
+}
+
+const uint FOG_SLICES = 16u;
+
+vec4 fog_sample(Frame f, uint atlas, vec2 uv, float distance_m) {
+    if (atlas == NO_TEXTURE) return vec4(0, 0, 0, 1);
+    vec2 atlas_size = vec2(textureSize(sampler2D(astral_textures[atlas], astral_samplers[ASTRAL_SAMPLER_LINEAR_CLAMP]), 0));
+    vec2 slice_size = atlas_size / vec2(1.0, float(FOG_SLICES));
+    vec2 xy = clamp(uv * slice_size, vec2(0.5), slice_size - 0.5);
+    float layer = sqrt(clamp(distance_m / f.fog.y, 0.0, 1.0)) * float(FOG_SLICES);
+    float lower = floor(layer);
+    float upper = min(lower + 1.0, float(FOG_SLICES));
+    vec2 a = (xy + vec2(0, max(0.0, lower - 1.0) * slice_size.y)) / atlas_size;
+    vec2 b = (xy + vec2(0, max(0.0, upper - 1.0) * slice_size.y)) / atlas_size;
+    vec4 start = lower == 0.0 ? vec4(0, 0, 0, 1) :
+        textureLod(sampler2D(astral_textures[atlas], astral_samplers[ASTRAL_SAMPLER_LINEAR_CLAMP]), a, 0.0);
+    vec4 end = textureLod(sampler2D(astral_textures[atlas], astral_samplers[ASTRAL_SAMPLER_LINEAR_CLAMP]), b, 0.0);
+    // Interpolate in optical distance rather than slice index for the quadratic grid.
+    float fraction = (layer * layer - lower * lower) / max(1.0, upper * upper - lower * lower);
+    return mix(start, end, fraction);
 }
 
 vec3 reconstruct_world(Frame f, vec2 uv, float depth) {

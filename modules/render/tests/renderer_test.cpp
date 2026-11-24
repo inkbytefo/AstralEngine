@@ -1144,3 +1144,45 @@ TEST_CASE("aerial perspective tints distant opaque surfaces without changing cle
     CHECK(distant_hazy.b > distant_hazy.r);
     CHECK(distant_hazy.b > distant_clear.b);
 }
+
+TEST_CASE("froxel extinction agrees with Beer-Lambert at an opaque surface") {
+    Fixture f;
+    if (!f.device) return;
+    const auto cube = f.renderer->create_mesh(make_cube());
+    const auto material = f.renderer->create_material({.base_color = {0, 0, 0, 1}, .emissive = {1, 1, 1}});
+    MeshInstance item{.mesh = cube, .material = material, .transform = Mat4::identity()};
+    RenderScene scene{.meshes = std::span(&item, 1), .sun = {.intensity = 0, .shadows = false},
+                      .environment = {.ambient = 0, .fog_extinction = 0.2f, .fog_range_m = 20}};
+    const auto actual = rgb(Fixture::center(f.draw(scene)));
+    const float expected_transmittance = std::exp(-0.2f * 4.5f);
+    const auto reference = f.renderer->create_material({
+        .base_color = {0, 0, 0, 1},
+        .emissive = {expected_transmittance, expected_transmittance, expected_transmittance}});
+    item.material = reference;
+    scene.environment.fog_extinction = 0;
+    const auto expected = rgb(Fixture::center(f.draw(scene)));
+    CHECK(std::abs(actual.r - expected.r) <= 2);
+    CHECK(std::abs(actual.g - expected.g) <= 2);
+    CHECK(std::abs(actual.b - expected.b) <= 2);
+}
+
+TEST_CASE("froxel fog attenuates an additive surface at its own depth") {
+    Fixture f;
+    if (!f.device) return;
+    const auto shader = make_shader(f,
+        "shader_type surface;\nrender_mode blend_add;\nvoid surface() { ALBEDO = vec3(0); EMISSION = vec3(1, 0, 0); ALPHA = 1.0; }\n",
+        "fog_additive");
+    REQUIRE(shader.valid());
+    const auto cube = f.renderer->create_mesh(make_cube());
+    const auto pane = f.renderer->create_material({.shader = shader});
+    const MeshInstance item{.mesh = cube, .material = pane, .transform = Mat4::identity()};
+    RenderScene scene{.meshes = std::span(&item, 1), .sun = {.intensity = 0, .shadows = false},
+                      .environment = {.sky = {}, .ground = {}, .ambient = 0}};
+    const auto clear = rgb(Fixture::center(f.draw(scene)));
+    scene.environment.fog_extinction = 0.65f;
+    scene.environment.fog_range_m = 25.0f;
+    const auto fogged = rgb(Fixture::center(f.draw(scene)));
+    CHECK(clear.r > fogged.r + 30);
+    CHECK(fogged.r > 0);
+    CHECK(fogged.g == 0);
+}

@@ -13,7 +13,7 @@ struct TransparentPass {
     explicit TransparentPass(gpu::Device& device) noexcept : device_(device) {}
 
     void add(RenderGraph& graph, const FrameInputs& inputs, RGTexture target, RGTexture depth,
-             RenderStats& stats) const;
+             RenderStats& stats, RGTexture fog = {}) const;
 
 private:
     gpu::Device& device_;

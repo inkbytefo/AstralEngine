@@ -7,6 +7,7 @@
 #include "passes/debug_lines_pass.hpp"
 #include "passes/decal_pass.hpp"
 #include "passes/denoise_pass.hpp"
+#include "passes/fog_pass.hpp"
 #include "passes/gbuffer_pass.hpp"
 #include "passes/lighting_pass.hpp"
 #include "passes/path_tracer_pass.hpp"
@@ -39,6 +40,7 @@ struct RenderPasses {
     CompositePass composite;
     SkyPass sky;
     AerialPass aerial;
+    FogPass fog;
     TaaPass taa;
     BloomPass bloom;
     TonemapPass tonemap;
@@ -59,6 +61,7 @@ struct RenderPasses {
           denoise(device),
           composite(device),
           aerial(device),
+          fog(device),
           taa(device),
           bloom(device),
           tonemap(device, target_format),

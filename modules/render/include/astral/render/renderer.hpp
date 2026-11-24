@@ -191,6 +191,8 @@ struct Environment {
     float exposure = 1.0f;
     float aerial_extinction = 0.0f; ///< Horizontal extinction per metre; zero disables perspective.
     float aerial_start_m = 0.0f;   ///< Clear distance before aerial perspective begins.
+    float fog_extinction = 0.0f;   ///< Froxel fog extinction per metre; zero disables fog.
+    float fog_range_m = 100.0f;    ///< Maximum fog integration distance.
 };
 
 /// Everything to draw in one frame. Spans must stay valid until render() returns.
@@ -352,7 +354,7 @@ ASTRAL_REFLECT(astral::SdfShape, primitive, operation, position, rotation, size,
 ASTRAL_REFLECT(astral::PointLight, position, color, intensity, radius, source_radius)
 ASTRAL_REFLECT(astral::RectLight, position, right, up, color, intensity, two_sided)
 ASTRAL_REFLECT(astral::DirectionalLight, direction, color, intensity, shadows, angular_radius)
-ASTRAL_REFLECT(astral::Environment, sky, ground, ambient, exposure, aerial_extinction, aerial_start_m)
+ASTRAL_REFLECT(astral::Environment, sky, ground, ambient, exposure, aerial_extinction, aerial_start_m, fog_extinction, fog_range_m)
 ASTRAL_REFLECT_ENUM(astral::ShadingModel, Standard, Clearcoat, Sheen, Anisotropic, Transmission, Subsurface)
 ASTRAL_REFLECT(astral::ClearcoatDesc, strength, roughness)
 ASTRAL_REFLECT(astral::SheenDesc, color, roughness)

@@ -17,3 +17,14 @@ build/debug/examples/vfx_lab/vfx_lab --hours-per-second 0.5
 Sahnenin `environment.aerial_extinction` alanı metre başına sönümü, `aerial_start_m` ise kamera önündeki temiz mesafeyi ayarlar. Varsayılan sönüm sıfırdır. `--no-aerial` aynı saati ve gökyüzünü koruyarak sadece uzaklık etkisini kapatır. Örnek uzak silüetleri, ön plan ve gökyüzüyle aynı karede kıyaslar.
 
 Etki HDR aşamasında en yakın mesh veya SDF yüzey derinliğine uygulanır. Saydam yüzeyler kendi konumlarından geçirgenliği hesaplar. Additive yüzeyler uzaklıkla sönümlenir. `--path-tracer` ana görüş segmentine aynı HDR yaklaşımı uygular. Işın sekmeleri atmosferin içinde simüle edilmez. Froxel sis ve yerel duman hacimleri sonraki iş paketidir.
+
+## Froxel sis
+
+`--fog 0.035` sahnede metre başına homojen sis sönümü açar. Sahne dosyalarında `environment.fog_extinction` ile `fog_range_m` kullanılabilir. Sıfır sönüm, iki sis pass’ini devre dışı bırakır.
+
+```sh
+build/debug/packages/vfx_lab/vfx_lab --raster --hour 17 --fog 0.035 --capture fog-raster.ppm --profile
+build/debug/packages/vfx_lab/vfx_lab --hour 17 --fog 0.035 --capture fog-rt.ppm --profile
+```
+
+Kamera hacmi 16 derinlik dilimidir. Compute pass, birikimli Beer–Lambert geçirgenliği ve saçılmayı üretir. Raster ve hibrit RT, güneş için gölge haritasını kullanır. HDR kompozisyon en yakın mesh/SDF derinliğini, forward yüzeyler kendi derinliğini örnekler. Sis atlası her kare yeniden oluşturulur. Hibrit RT’de sis TAA’dan sonra birleştirilir. Bu sürümde ortam ışığı sahnenin gökyüzü renginden gelir. Yerel yoğunluk hacimleri, DDGI’dan hacimsel örnekleme ve path tracer’da hacim simülasyonu sonraki işlerdir.

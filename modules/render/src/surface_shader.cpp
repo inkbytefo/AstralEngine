@@ -79,7 +79,7 @@ std::string prelude() {
 #include <astral/bsdf.glsl>
 layout(push_constant, scalar) uniform Push {
     Vertices vertices; Instances instances; FrameRef frame; Materials materials; uint first_instance;
-    uint64_t params; float time; PointLights lights;
+    uint64_t params; float time; uint fog_atlas; PointLights lights;
 } pc;
 ASTRAL_BUFFER(AstralParams, uint);
 AstralParams astral_params;
@@ -182,6 +182,11 @@ std::string fragment_output(Mode mode, bool unshaded, bool additive, ShadingMode
 )";
         s += additive ? "    lit *= aerial_transmittance(f, WORLD_POSITION);\n"
                       : "    lit = aerial_surface(f, lit, WORLD_POSITION);\n";
+        s += R"(    vec4 medium = fog_sample(f, pc.fog_atlas, gl_FragCoord.xy * f.screen.zw,
+                                    length(WORLD_POSITION - f.camera_position.xyz));
+    lit *= medium.a;
+)";
+        if (!additive) s += "    lit += medium.rgb;\n";
         s += R"(    vec3 c = astral_aces_tonemap(lit * f.ground_color.a);
     if (f.custom.w != 0u) c = astral_linear_to_srgb(c);
     astral_out_color = vec4(c, clamp(ALPHA, 0.0, 1.0));

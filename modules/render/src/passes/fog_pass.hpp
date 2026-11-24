@@ -1,0 +1,25 @@
+#pragma once
+
+#include "passes/frame_inputs.hpp"
+
+namespace astral {
+
+Vec4 fog_parameters(const Environment& environment) noexcept;
+
+class FogPass {
+public:
+    explicit FogPass(gpu::Device& device);
+    ~FogPass();
+    FogPass(const FogPass&) = delete;
+    FogPass& operator=(const FogPass&) = delete;
+
+    RGTexture integrate(RenderGraph& graph, const FrameInputs& inputs, RGTexture shadow) const;
+    RGTexture composite(RenderGraph& graph, const FrameInputs& inputs, RGTexture hdr,
+                        const GBufferTextures& gbuffer, RGTexture atlas) const;
+
+private:
+    gpu::Device& device_;
+    gpu::PipelineHandle integrate_{}, composite_{};
+};
+
+} // namespace astral
