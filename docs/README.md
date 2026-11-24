@@ -7,6 +7,7 @@ kurallar [process.md](process.md)'de.
 |---|---|
 | [architecture.md](architecture.md) | Katmanlar, SOLID kuralları, bağımlılık yönü, klasör yapısı |
 | [roadmap.md](roadmap.md) | Fazlar, her fazın durumu ve bitiş kriterleri |
+| [status/rendering-deep-audit-2026-11-25.md](status/rendering-deep-audit-2026-11-25.md) | Rendering statik denetimi: RenderGraph, history, assets, M14 VFX |
 | [status/gpu-rhi-deep-audit-2026-11-25.md](status/gpu-rhi-deep-audit-2026-11-25.md) | GPU/Vulkan RHI statik denetimi: lifetime, WSI, RT, descriptor ve bounds |
 | [status/core-ecs-deep-audit-2026-11-25.md](status/core-ecs-deep-audit-2026-11-25.md) | Core/ECS derin statik denetim: scheduler, events, serialization, lifecycle |
 | [status/master-code-audit-2026-11-25.md](status/master-code-audit-2026-11-25.md) | Master teknik denetimi: kaynak bulguları, CI, riskler ve kanıt sınırları |

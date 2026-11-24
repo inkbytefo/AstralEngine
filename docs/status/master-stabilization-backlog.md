@@ -46,3 +46,7 @@ Her ID için: **durum (open / in progress / verified fixed / deferred)**, kaynak
 ## Ek denetim: GPU / Vulkan RHI
 
 [GPU & Vulkan RHI Deep Audit](gpu-rhi-deep-audit-2026-11-25.md): G01–G10 kaynak kusurları, GR01–GR05 riskler, GP01–GP03 öneriler. S1 kapsamı A01, G01–G10 ile genişler; G01–G05 ve G07–G09 P1. A01 immediate submit takip notu yeni bulgu sayılmaz. GPU validation ve fault injection ileride, bu faz sadece statik analiz. Mevcut motor/GDX fazları değişmedi.
+
+## Ek denetim: Rendering
+
+[Rendering Deep Audit](rendering-deep-audit-2026-11-25.md): REN01–REN10 kaynak kusurları, RR01–RR06 koşullu riskler, RP01–RP03 öneriler. REN01–05, REN07–08 P1; öncelik A01/G01–G03 ile ortak submit/resource/history sözleşmesi, sonra input validation ve M14 pass ordering. S1/S4 ve rendering stabilizasyon görevleriyle koordine et; GDX ve motor fazları değişmedi. Statik inceleme, runtime testleri açık.
