@@ -31,4 +31,5 @@ kurallar [process.md](process.md)'de.
 | [modules/](modules/) | Her modülün API özeti, tasarım kararları, bilinen sınırları |
 | [decisions/](decisions/) | Mimari karar kayıtları (ADR) — neyi neden seçtik |
 | [superpowers/plans/](superpowers/plans/) | Her fazın uygulama planı |
+| [superpowers/plans/2026-11-25-g1-engine-requests.md](superpowers/plans/2026-11-25-g1-engine-requests.md) | **G1** — PAPERWING geri bildiriminden genel motor iyileştirmeleri (plan) |
 | [../CHANGELOG.md](../CHANGELOG.md) | Sürüm sürüm değişiklikler |
