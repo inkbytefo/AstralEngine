@@ -15,6 +15,11 @@ MeshStore::~MeshStore() {
 
 bool MeshStore::upload(const MeshData& data, bool build_blas, GpuMesh& mesh) {
     if (data.vertices.empty() || data.indices.empty()) return false;
+    // Shaders fetch vertices by index and BLAS builds trust them: every index must name a vertex.
+    const std::size_t vertex_count = data.vertices.size();
+    for (std::uint32_t index : data.indices) {
+        if (index >= vertex_count) return false;
+    }
     const std::uint64_t vbytes = data.vertices.size() * sizeof(Vertex);
     const std::uint64_t ibytes = data.indices.size() * sizeof(std::uint32_t);
     mesh.vertices = device_.create_buffer({.size = vbytes, .usage = gpu::BufferUsage::Storage});

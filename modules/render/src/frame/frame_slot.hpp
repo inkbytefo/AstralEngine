@@ -17,15 +17,20 @@ struct GrowBuffer {
     gpu::BufferHandle buffer;
     std::uint64_t capacity = 0;
 
-    void write(gpu::Device& device, const void* data, std::uint64_t bytes) {
+    /// False when growing failed (the old buffer and capacity are kept, so a later call retries)
+    /// or the upload failed.
+    bool write(gpu::Device& device, const void* data, std::uint64_t bytes) {
         const std::uint64_t needed = std::max<std::uint64_t>(bytes, 64);
         if (capacity < needed) {
+            const std::uint64_t grown = std::max(needed, capacity * 2);
+            const gpu::BufferHandle fresh = device.create_buffer({.size = grown, .usage = gpu::BufferUsage::Storage,
+                                                                  .memory = gpu::MemoryUsage::CpuToGpu});
+            if (!fresh.valid()) return false;
             device.destroy(buffer);
-            capacity = std::max(needed, capacity * 2);
-            buffer = device.create_buffer({.size = capacity, .usage = gpu::BufferUsage::Storage,
-                                           .memory = gpu::MemoryUsage::CpuToGpu});
+            buffer = fresh;
+            capacity = grown;
         }
-        if (bytes) device.write_buffer(buffer, data, bytes);
+        return bytes == 0 || device.write_buffer(buffer, data, bytes);
     }
 
     void destroy(gpu::Device& device) {

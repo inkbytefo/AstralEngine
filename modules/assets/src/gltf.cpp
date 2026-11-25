@@ -2,17 +2,39 @@
 #include <astral/assets/model.hpp>
 #include <astral/core/json.hpp>
 
+#include "model_hierarchy.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <limits>
 
 namespace astral {
 
 namespace {
 
 constexpr int GL_UNSIGNED_BYTE = 5121, GL_UNSIGNED_SHORT = 5123, GL_UNSIGNED_INT = 5125, GL_FLOAT = 5126;
+
+/// Marks an absent or malformed glTF index or size (never a valid position in any array).
+constexpr std::size_t no_index = std::numeric_limits<std::size_t>::max();
+
+/// A glTF index, count, offset or length: a non-negative integral number below 2^53 (so the
+/// double holds it exactly). Absent values give `fallback`; malformed ones give `no_index`.
+std::size_t to_size(const Json& j, std::size_t fallback = no_index) noexcept {
+    if (!j.is_number()) return j.is_null() ? fallback : no_index;
+    const double v = j.as_number();
+    if (!(v >= 0.0) || v >= 9007199254740992.0 || v != std::floor(v)) return no_index;
+    return static_cast<std::size_t>(v);
+}
+
+/// `a * b + c` without wrapping; false when it does not fit.
+bool checked_mad(std::size_t a, std::size_t b, std::size_t c, std::size_t& out) noexcept {
+    if (b != 0 && a > (no_index - c) / b) return false;
+    out = a * b + c;
+    return true;
+}
 
 std::optional<std::vector<std::uint8_t>> read_file(const std::filesystem::path& path) {
     std::ifstream file(path, std::ios::binary);
@@ -47,11 +69,21 @@ std::optional<std::vector<std::uint8_t>> base64(std::string_view text) {
 }
 
 /// Percent-decoding for relative URIs ("my%20texture.png").
-std::string uri_to_path(std::string_view uri) {
+/// Returns nullopt for a malformed escape ("%zz", "%4").
+std::optional<std::string> uri_to_path(std::string_view uri) {
+    auto hex = [](char c) -> int {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        return -1;
+    };
     std::string out;
     for (std::size_t i = 0; i < uri.size(); ++i) {
-        if (uri[i] == '%' && i + 2 < uri.size()) {
-            out += static_cast<char>(std::stoi(std::string(uri.substr(i + 1, 2)), nullptr, 16));
+        if (uri[i] == '%') {
+            if (i + 2 >= uri.size()) return std::nullopt;
+            const int hi = hex(uri[i + 1]), lo = hex(uri[i + 2]);
+            if (hi < 0 || lo < 0) return std::nullopt;
+            out += static_cast<char>(hi * 16 + lo);
             i += 2;
         } else {
             out += uri[i];
@@ -81,7 +113,9 @@ struct Loader {
             if (comma == std::string_view::npos || uri.substr(0, comma).find(";base64") == std::string_view::npos) return std::nullopt;
             return base64(uri.substr(comma + 1));
         }
-        const std::filesystem::path p = base / uri_to_path(uri);
+        const auto relative = uri_to_path(uri);
+        if (!relative) return std::nullopt;
+        const std::filesystem::path p = base / *relative;
         model.files.push_back(p);
         return read_file(p);
     }
@@ -99,7 +133,8 @@ struct Loader {
             } else {
                 return fail("buffer " + std::to_string(i) + " has no data");
             }
-            if (buffers.back().size() < static_cast<std::size_t>(b["byteLength"].as_number())) {
+            const std::size_t declared = to_size(b["byteLength"]);
+            if (declared == no_index || buffers.back().size() < declared) {
                 return fail("buffer " + std::to_string(i) + " is shorter than its byteLength");
             }
         }
@@ -110,14 +145,16 @@ struct Loader {
     bool view(std::size_t index, std::span<const std::uint8_t>& out, std::size_t& stride) {
         const Json& v = doc["bufferViews"][index];
         if (!v.is_object()) return fail("bufferView " + std::to_string(index) + " missing");
-        const auto buffer = static_cast<std::size_t>(v["buffer"].as_number(-1));
-        const auto offset = static_cast<std::size_t>(v["byteOffset"].as_number(0));
-        const auto length = static_cast<std::size_t>(v["byteLength"].as_number(0));
-        if (buffer >= buffers.size() || offset + length > buffers[buffer].size()) {
+        const std::size_t buffer = to_size(v["buffer"]);
+        const std::size_t offset = to_size(v["byteOffset"], 0);
+        const std::size_t length = to_size(v["byteLength"]);
+        if (buffer >= buffers.size() || offset == no_index || length == no_index ||
+            length > buffers[buffer].size() || offset > buffers[buffer].size() - length) {
             return fail("bufferView " + std::to_string(index) + " out of range");
         }
         out = std::span<const std::uint8_t>(buffers[buffer]).subspan(offset, length);
-        stride = static_cast<std::size_t>(v["byteStride"].as_number(0));
+        stride = to_size(v["byteStride"], 0);
+        if (stride == no_index) return fail("bufferView " + std::to_string(index) + ": invalid byteStride");
         return true;
     }
 
@@ -126,10 +163,14 @@ struct Loader {
         const Json& a = doc["accessors"][index];
         if (!a.is_object()) return fail("accessor " + std::to_string(index) + " missing");
         if (a.find("sparse")) model.warnings.push_back("sparse accessors are not supported (accessor " + std::to_string(index) + ")");
-        const auto count = static_cast<std::size_t>(a["count"].as_number(0));
-        const int type = static_cast<int>(a["componentType"].as_number(0));
+        const std::size_t count = to_size(a["count"]);
+        // Same ceiling as cooked models: a damaged count must not make us allocate gigabytes.
+        constexpr std::size_t max_elements = std::size_t{1} << 28;
+        if (count == no_index || count > max_elements) return fail("accessor " + std::to_string(index) + ": invalid count");
+        const std::size_t type_index = to_size(a["componentType"]);
+        const int type = type_index <= 0xFFFF ? static_cast<int>(type_index) : 0;
         const std::size_t size = type == GL_FLOAT || type == GL_UNSIGNED_INT ? 4 : type == GL_UNSIGNED_SHORT ? 2 : type == GL_UNSIGNED_BYTE ? 1 : 0;
-        if (size == 0 || (floats && type != GL_FLOAT && !a["normalized"].as_bool())) {
+        if (size == 0 || (floats && type != GL_FLOAT && !a["normalized"].as_bool()) || (ints && type == GL_FLOAT)) {
             return fail("accessor " + std::to_string(index) + ": unsupported component type");
         }
         const Json* view_index = a.find("bufferView");
@@ -140,11 +181,14 @@ struct Loader {
         }
         std::span<const std::uint8_t> bytes;
         std::size_t stride = 0;
-        if (!view(static_cast<std::size_t>(view_index->as_number()), bytes, stride)) return false;
-        const auto offset = static_cast<std::size_t>(a["byteOffset"].as_number(0));
+        if (!view(to_size(*view_index), bytes, stride)) return false;
+        const std::size_t offset = to_size(a["byteOffset"], 0);
         const std::size_t element = size * components;
         if (stride == 0) stride = element;
-        if (count > 0 && offset + (count - 1) * stride + element > bytes.size()) {
+        if (stride < element) return fail("accessor " + std::to_string(index) + ": byteStride is smaller than an element");
+        std::size_t end = 0;
+        if (count > 0 && (offset == no_index || !checked_mad(count - 1, stride, element, end) ||
+                          offset > bytes.size() || end > bytes.size() - offset)) {
             return fail("accessor " + std::to_string(index) + " reads past its bufferView");
         }
         const bool normalized = a["normalized"].as_bool();
@@ -167,11 +211,12 @@ struct Loader {
 
     int texture_image(const Json& texture_info, bool srgb) {
         if (!texture_info.is_object()) return -1;
-        const Json& tex = doc["textures"][static_cast<std::size_t>(texture_info["index"].as_number(-1))];
+        const Json& tex = doc["textures"][to_size(texture_info["index"])];
         if (!tex.is_object() || !tex.find("source")) return -1;
 
-        const int image = static_cast<int>(tex["source"].as_number(-1));
-        if (image < 0 || static_cast<std::size_t>(image) >= image_srgb.size()) return -1;
+        const std::size_t source = to_size(tex["source"]);
+        if (source >= image_srgb.size()) return -1;
+        const int image = static_cast<int>(source);
         auto& color = image_srgb[static_cast<std::size_t>(image)];
         const int requested = srgb ? 1 : 0;
         if (color < 0) color = requested;
@@ -182,8 +227,8 @@ struct Loader {
     }
 
     ModelSampler texture_sampler(const Json& info) const {
-        const Json& texture = doc["textures"][static_cast<std::size_t>(info["index"].as_number(-1))];
-        const Json& sampler = doc["samplers"][static_cast<std::size_t>(texture["sampler"].as_number(-1))];
+        const Json& texture = doc["textures"][to_size(info["index"])];
+        const Json& sampler = doc["samplers"][to_size(texture["sampler"])];
         const auto wrap = [](double value) -> std::uint8_t {
             return value == 33071 ? 0u : value == 33648 ? 2u : 1u;
         };
@@ -297,12 +342,12 @@ struct Loader {
                 const Json& attr = prim["attributes"];
                 if (!attr.find("POSITION")) return fail("a primitive has no POSITION");
                 std::vector<float> pos, nrm, uv, uv1;
-                if (!accessor(static_cast<std::size_t>(attr["POSITION"].as_number()), 3, &pos, nullptr)) return false;
-                if (attr.find("NORMAL") && !accessor(static_cast<std::size_t>(attr["NORMAL"].as_number()), 3, &nrm, nullptr)) return false;
-                if (attr.find("TEXCOORD_0") && !accessor(static_cast<std::size_t>(attr["TEXCOORD_0"].as_number()), 2, &uv, nullptr)) return false;
-                if (attr.find("TEXCOORD_1") && !accessor(static_cast<std::size_t>(attr["TEXCOORD_1"].as_number()), 2, &uv1, nullptr)) return false;
+                if (!accessor(to_size(attr["POSITION"]), 3, &pos, nullptr)) return false;
+                if (attr.find("NORMAL") && !accessor(to_size(attr["NORMAL"]), 3, &nrm, nullptr)) return false;
+                if (attr.find("TEXCOORD_0") && !accessor(to_size(attr["TEXCOORD_0"]), 2, &uv, nullptr)) return false;
+                if (attr.find("TEXCOORD_1") && !accessor(to_size(attr["TEXCOORD_1"]), 2, &uv1, nullptr)) return false;
                 if (uv1.empty() && prim.find("material")) {
-                    const auto material = static_cast<std::size_t>(prim["material"].as_number(-1));
+                    const std::size_t material = to_size(prim["material"]);
                     if (material < model.materials.size() &&
                         std::any_of(model.materials[material].texture_transforms.begin(),
                                     model.materials[material].texture_transforms.end(),
@@ -313,8 +358,8 @@ struct Loader {
                 if (attr.find("JOINTS_0")) model.warnings.push_back("skinning is not supported");
                 const std::size_t count = pos.size() / 3;
                 ModelPrimitive p;
-                p.material = static_cast<int>(prim["material"].as_number(-1));
-                if (p.material >= static_cast<int>(model.materials.size())) p.material = -1;
+                const std::size_t material = to_size(prim["material"]);
+                p.material = material < model.materials.size() ? static_cast<int>(material) : -1;
                 p.mesh.vertices.resize(count);
                 for (std::size_t i = 0; i < count; ++i) {
                     Vertex& v = p.mesh.vertices[i];
@@ -324,7 +369,7 @@ struct Loader {
                     v.uv1 = uv1.size() == count * 2 ? Vec2{uv1[i * 2], uv1[i * 2 + 1]} : v.uv;
                 }
                 if (prim.find("indices")) {
-                    if (!accessor(static_cast<std::size_t>(prim["indices"].as_number()), 1, nullptr, &p.mesh.indices)) return false;
+                    if (!accessor(to_size(prim["indices"]), 1, nullptr, &p.mesh.indices)) return false;
                     for (std::uint32_t idx : p.mesh.indices) {
                         if (idx >= count) return fail("index out of range");
                     }
@@ -367,8 +412,16 @@ struct Loader {
                     for (int r = 0; r < 4; ++r) m[c][r] = static_cast<float>(n["matrix"][static_cast<std::size_t>(c * 4 + r)].as_number());
                 }
                 node.translation = {m[3].x, m[3].y, m[3].z};
-                node.scale = {length(Vec3{m[0].x, m[0].y, m[0].z}), length(Vec3{m[1].x, m[1].y, m[1].z}),
-                              length(Vec3{m[2].x, m[2].y, m[2].z})};
+                const Vec3 x{m[0].x, m[0].y, m[0].z}, y{m[1].x, m[1].y, m[1].z}, z{m[2].x, m[2].y, m[2].z};
+                node.scale = {length(x), length(y), length(z)};
+                // A mirroring matrix (negative determinant) has no proper rotation: put the
+                // reflection into scale.x and take the rotation of the un-mirrored basis.
+                if (dot(cross(x, y), z) < 0.0f) {
+                    node.scale.x = -node.scale.x;
+                    m[0].x = -m[0].x;
+                    m[0].y = -m[0].y;
+                    m[0].z = -m[0].z;
+                }
                 node.rotation = rotation_of(m);
             } else {
                 const Json &t = n["translation"], &r = n["rotation"], &s = n["scale"];
@@ -377,24 +430,25 @@ struct Loader {
                 if (s.size() == 3) node.scale = {static_cast<float>(s[0].as_number()), static_cast<float>(s[1].as_number()), static_cast<float>(s[2].as_number())};
             }
             if (const Json* mesh = n.find("mesh")) {
-                const auto m = static_cast<std::size_t>(mesh->as_number(-1));
+                const std::size_t m = to_size(*mesh);
                 if (m >= mesh_primitives.size()) return fail("node " + std::to_string(i) + " references a missing mesh");
                 node.primitives = mesh_primitives[m];
             }
             if (n.find("skin")) model.warnings.push_back("skins are not supported");
             for (const Json& c : n["children"].as_array()) {
-                const auto child = static_cast<std::size_t>(c.as_number(-1));
+                const std::size_t child = to_size(c);
                 if (child >= list.size() || child == i) return fail("node " + std::to_string(i) + " has an invalid child");
                 node.children.push_back(static_cast<std::uint32_t>(child));
             }
             model.nodes.push_back(std::move(node));
         }
+        if (!validate_hierarchy(model.nodes, error)) return false;
         // Roots: the default scene's nodes, or (no scenes) every node nobody parents.
         const Json& scenes = doc["scenes"];
         if (scenes.size() > 0) {
-            const Json& scene = scenes[static_cast<std::size_t>(doc["scene"].as_number(0))];
+            const Json& scene = scenes[to_size(doc["scene"], 0)];
             for (const Json& r : scene["nodes"].as_array()) {
-                const auto root = static_cast<std::size_t>(r.as_number(-1));
+                const std::size_t root = to_size(r);
                 if (root < model.nodes.size()) model.roots.push_back(static_cast<std::uint32_t>(root));
             }
         } else {

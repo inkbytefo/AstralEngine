@@ -30,7 +30,7 @@ QueryPoolHandle Device::create_timestamp_pool(std::uint32_t count) {
 bool Device::read_timestamps(QueryPoolHandle pool, std::uint32_t first, std::uint32_t count, std::uint64_t* out_ns) {
     auto& s = *impl_;
     const QueryRecord* r = s.queries.get(pool);
-    if (!r || !out_ns || count == 0 || first + count > r->count) return false;
+    if (!r || !out_ns || count == 0 || count > r->count || first > r->count - count) return false;
     std::vector<std::uint64_t> raw(std::size_t{count} * 2); // value, availability
     const VkResult result = vkGetQueryPoolResults(s.device, r->pool, first, count, raw.size() * sizeof(std::uint64_t), raw.data(),
                                                   2 * sizeof(std::uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
@@ -57,7 +57,7 @@ void CommandList::reset_queries(QueryPoolHandle pool, std::uint32_t first, std::
     if (!usable()) return;
     auto& s = device_->impl();
     const QueryRecord* r = s.queries.get(pool);
-    if (!r || first + count > r->count) return s.log_error("reset_queries: invalid pool or range");
+    if (!r || count > r->count || first > r->count - count) return s.log_error("reset_queries: invalid pool or range");
     if (rendering_) return s.log_error("reset_queries: not allowed while rendering");
     vkCmdResetQueryPool(native(native_), r->pool, first, count);
 }

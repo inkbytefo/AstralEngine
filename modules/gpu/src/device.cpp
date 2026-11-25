@@ -2,6 +2,7 @@
 
 #include <astral/core/log.hpp>
 
+#include <algorithm>
 #include <cstdio>
 #include <vector>
 
@@ -25,9 +26,22 @@ std::uint64_t Device::Impl::completed_value() const {
 }
 
 void Device::Impl::retire(std::function<void()> destroy) {
-    // A command list being recorded right now may reference the resource and will be
-    // submitted as `last_submitted + 1`: wait for that one too.
-    garbage.push_back({last_submitted + 1, std::move(destroy)});
+    // Submitted work may still use the resource; so may every list being recorded right now,
+    // whatever ticket it ends up with (lists can be submitted in any order).
+    Garbage g{last_submitted, std::move(destroy), {}};
+    for (std::uint32_t i = 0; i < command_slots.size(); ++i) {
+        if (command_slots[i].recording) g.open_slots.push_back(i);
+    }
+    garbage.push_back(std::move(g));
+}
+
+void Device::Impl::release_slot(std::uint32_t slot, std::uint64_t ticket) {
+    for (Garbage& g : garbage) {
+        const auto it = std::find(g.open_slots.begin(), g.open_slots.end(), slot);
+        if (it == g.open_slots.end()) continue;
+        g.open_slots.erase(it);
+        g.value = std::max(g.value, ticket);
+    }
 }
 
 bool Device::Impl::any_recording() const noexcept {
@@ -46,10 +60,18 @@ bool Device::Impl::can_run_immediate(const char* operation) const {
 
 void Device::Impl::collect_garbage() {
     const std::uint64_t done = completed_value();
-    while (!garbage.empty() && garbage.front().value <= done) {
-        garbage.front().destroy();
-        garbage.pop_front();
+    // Take the finished entries out first: a destroy callback may retire more resources, which
+    // appends to `garbage` and would invalidate iterators into it.
+    std::vector<std::function<void()>> ready;
+    for (auto it = garbage.begin(); it != garbage.end();) {
+        if (it->open_slots.empty() && it->value <= done) {
+            ready.push_back(std::move(it->destroy));
+            it = garbage.erase(it);
+        } else {
+            ++it;
+        }
     }
+    for (auto& destroy : ready) destroy();
 }
 
 void Device::Impl::wait_value(std::uint64_t value) {
@@ -280,6 +302,10 @@ SubmitTicket Device::submit_internal(CommandList& commands, const void* waits, s
                                      const void* signals, std::uint32_t signal_count) {
     auto& s = *impl_;
     if (!commands.valid()) return {s.last_submitted};
+    if (commands.device_ != this) {
+        s.log_error("submit: the command list belongs to another device");
+        return {s.last_submitted};
+    }
     if (commands.rendering_) commands.end_rendering();
     auto& slot = s.command_slots[commands.slot_];
     vkEndCommandBuffer(slot.buffer);
@@ -313,10 +339,12 @@ SubmitTicket Device::submit_internal(CommandList& commands, const void* waits, s
     if (vkQueueSubmit2(s.queue, 1, &submit, VK_NULL_HANDLE) != VK_SUCCESS) {
         s.log_error("vkQueueSubmit2 failed (device lost?)");
         slot.ticket = 0;
+        s.release_slot(commands.slot_, 0);
         return {s.last_submitted}; // nothing will signal `value`: do not advance
     }
     s.last_submitted = value;
     slot.ticket = value;
+    s.release_slot(commands.slot_, value);
     for (auto& callback : callbacks) callback({value});
     return {value};
 }

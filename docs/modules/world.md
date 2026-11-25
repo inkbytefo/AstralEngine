@@ -160,7 +160,13 @@ yeni dinamik component eklenince vektör büyüyebilir; indeks ya da ad tut.
   ikili içinde statik linklenmeli (varsayılan).
 - Tick'ler 32 bit: ~4 milyar sistem çalışmasından sonra sarar (pratikte sorun değil, ileride wrap koruması).
 - `changed<T>` satır başına, alan başına değil: bir alanı yazmak tüm component'i değişmiş sayar.
-- Olay okuyucusu iki kareden uzun okumazsa olay kaçırır (bilerek: sınırsız kuyruk yok).
+- Olay okuyucusu iki kareden uzun okumazsa olay kaçırır (bilerek: sınırsız kuyruk yok). Okuma callback'i içinde
+  aynı türden gönderilen olaylar o okumaya girmez, bir sonraki okumada gelir (MSR C02).
+- `CellLoader::attach()` `bool` döner: `false` hücre dünyaya girmedi demektir; `CellStreamer` hücreyi Unloaded'a
+  alır, 1, 2, 4 … 64 update bekleyip yeniden yükler (`StreamingStats::failed_last_update`, MSR A09).
+- Reflected alanlara sayı yüklerken değer hedef tipe sığmalı ve tamsayı alanlarda tam olmalı; reflected enum'larda
+  sayı bir enumeratöre karşılık gelmeli. Aksi halde hata raporlanır, varsayılan korunur (MSR C03/C04).
+- 64-bit tamsayılar `Json` içinde `double` olarak saklanır: 2^53 üstü değerler kayıplı (MSR C05, ADR bekliyor).
 - `commands().spawn()` oluşturulan entity'yi döndürmüyor (ertelenmiş referans yok).
 - `get<T>` dönen pointer bir sonraki yapısal değişikliğe kadar geçerli.
 - Sahneler: yalnız JSON (ikili sahne M6 cook'ta). Prefab şablonları her örnekte JSON üzerinden

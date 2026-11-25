@@ -23,18 +23,25 @@ std::vector<std::vector<std::uint8_t>> build_mips(const ImageData& image) {
         const std::uint32_t nw = std::max(1u, w / 2), nh = std::max(1u, h / 2);
         const std::vector<std::uint8_t>& src = mips.back();
         std::vector<std::uint8_t> dst(std::size_t{nw} * nh * 4);
+        // Area filter: each destination texel averages the source area it covers, weighted by
+        // overlap, so odd sizes (3 -> 1) keep their last row/column instead of dropping it.
+        const double fx = static_cast<double>(w) / nw, fy = static_cast<double>(h) / nh;
         for (std::uint32_t y = 0; y < nh; ++y) {
+            const double y0 = y * fy, y1 = (y + 1) * fy;
             for (std::uint32_t x = 0; x < nw; ++x) {
+                const double x0 = x * fx, x1 = (x + 1) * fx;
                 for (std::uint32_t c = 0; c < 4; ++c) {
-                    float sum = 0;
-                    for (std::uint32_t dy = 0; dy < 2; ++dy) {
-                        for (std::uint32_t dx = 0; dx < 2; ++dx) {
-                            const std::uint32_t sx = std::min(w - 1, x * 2 + dx), sy = std::min(h - 1, y * 2 + dy);
+                    double sum = 0, area = 0;
+                    for (auto sy = static_cast<std::uint32_t>(y0); sy < h && sy < y1; ++sy) {
+                        const double wy = std::min<double>(sy + 1, y1) - std::max<double>(sy, y0);
+                        for (auto sx = static_cast<std::uint32_t>(x0); sx < w && sx < x1; ++sx) {
+                            const double wx = std::min<double>(sx + 1, x1) - std::max<double>(sx, x0);
                             const float v = src[(std::size_t{sy} * w + sx) * 4 + c] / 255.0f;
-                            sum += (image.srgb && c < 3) ? srgb_to_linear(v) : v;
+                            sum += wx * wy * ((image.srgb && c < 3) ? srgb_to_linear(v) : v);
+                            area += wx * wy;
                         }
                     }
-                    float avg = sum * 0.25f;
+                    float avg = static_cast<float>(sum / area);
                     if (image.srgb && c < 3) avg = linear_to_srgb(avg);
                     dst[(std::size_t{y} * nw + x) * 4 + c] = static_cast<std::uint8_t>(std::clamp(avg, 0.0f, 1.0f) * 255.0f + 0.5f);
                 }

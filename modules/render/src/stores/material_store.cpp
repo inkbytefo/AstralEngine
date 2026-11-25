@@ -14,7 +14,21 @@ MaterialStore::MaterialStore(gpu::Device& device, const TextureStore& textures, 
     slots_ = default_material_.index + 1;
 }
 
+namespace {
+/// Largest uniform-block word a texture binding may name (a uniform block is at most 64 KiB).
+constexpr std::uint32_t max_param_words = 16384;
+
+bool valid_params(const MaterialDesc& desc) noexcept {
+    if (desc.params.size() > max_param_words) return false;
+    for (const MaterialDesc::ParamTexture& t : desc.textures) {
+        if (t.offset >= max_param_words) return false;
+    }
+    return true;
+}
+} // namespace
+
 MaterialHandle MaterialStore::create(const MaterialDesc& desc) {
+    if (!valid_params(desc)) return {};
     const MaterialHandle h = materials_.create(desc);
     slots_ = std::max(slots_, h.index + 1);
     return h;
@@ -22,7 +36,7 @@ MaterialHandle MaterialStore::create(const MaterialDesc& desc) {
 
 bool MaterialStore::update(MaterialHandle handle, const MaterialDesc& desc) {
     MaterialDesc* d = materials_.get(handle);
-    if (!d) return false;
+    if (!d || !valid_params(desc)) return false;
     *d = desc;
     return true;
 }
@@ -100,8 +114,8 @@ void MaterialStore::upload(GrowBuffer& material_buffer, GrowBuffer& param_buffer
             gm.custom[0] = base;
             gm.custom[1] = d.shader.index + 1;
             std::size_t words = d.params.size();
-            for (const MaterialDesc::ParamTexture& t : d.textures) words = std::max<std::size_t>(words, t.offset + 1);
-            for (const SurfaceShaderBuild::Sampler& sm : gs->samplers) words = std::max<std::size_t>(words, sm.offset + 1);
+            for (const MaterialDesc::ParamTexture& t : d.textures) words = std::max<std::size_t>(words, std::size_t{t.offset} + 1);
+            for (const SurfaceShaderBuild::Sampler& sm : gs->samplers) words = std::max<std::size_t>(words, std::size_t{sm.offset} + 1);
             param_words_.resize(base + words, 0u);
             for (std::size_t i = 0; i < d.params.size(); ++i) std::memcpy(&param_words_[base + i], &d.params[i], 4);
             for (const SurfaceShaderBuild::Sampler& sm : gs->samplers) { // unset textures read as white / a flat normal

@@ -226,15 +226,19 @@ void run_system(Impl& impl, Module& m, const SystemDef& def) {
 
 void run_listeners(Impl& impl, Module& m, ScriptPhase phase) {
     lua_State* L = impl.L;
-    for (ListenerDef& l : m.listeners) {
-        if (l.phase != phase || m.failed) continue;
-        const EventRegistry::Entry* entry = impl.env.events.find(l.event);
+    // Index loop over the listeners present now: a callback may register more (astral.on), which
+    // grows the vector; those start with the next phase.
+    const std::size_t count = m.listeners.size();
+    for (std::size_t i = 0; i < count; ++i) {
+        if (m.listeners[i].phase != phase || m.failed) continue;
+        const EventRegistry::Entry* entry = impl.env.events.find(m.listeners[i].event);
         if (!entry) continue;
         std::vector<Json> payloads;
-        entry->read(impl.env.world, l.cursor, [&](const Json& j) { payloads.push_back(j); });
+        entry->read(impl.env.world, m.listeners[i].cursor, [&](const Json& j) { payloads.push_back(j); });
+        const int fn_ref = m.listeners[i].fn_ref;
         for (const Json& payload : payloads) {
             if (m.failed) return;
-            lua_getref(L, l.fn_ref);
+            lua_getref(L, fn_ref);
             lua_getref(L, impl.ctx_ref);
             json_to_lua(L, payload, entry->fields.empty() ? nullptr : &entry->fields, impl.env.world);
             impl.protected_call(&m, 2);
@@ -293,6 +297,7 @@ void run_timers(Impl& impl, double delta) {
         auto it = std::find_if(impl.timers.begin(), impl.timers.end(), [id](const Timer& t) { return t.id == id; });
         if (it == impl.timers.end()) continue; // cancelled by an earlier callback
         Module* owner = const_cast<Module*>(it->owner);
+        if (owner->failed) continue; // an earlier callback of this batch stopped the module
         const int fn = it->fn_ref;
         if (it->interval > 0) {
             it->remaining += it->interval;
@@ -329,8 +334,13 @@ void ScriptHost::run(ScriptPhase phase, const ScriptFrame& frame) {
         if (m.failed) continue;
         ASTRAL_PROFILE_SCOPE(impl.env.profiler, m.name.c_str());
         run_listeners(impl, m, phase);
-        for (std::size_t s = 0; s < m.systems.size() && !m.failed; ++s) {
-            if (m.systems[s].phase == phase) run_system(impl, m, m.systems[s]);
+        // Systems present now, each run from a copy: a callback may register systems
+        // (astral.system), reallocating the vector; new ones run from the next phase.
+        const std::size_t systems = m.systems.size();
+        for (std::size_t s = 0; s < systems && !m.failed; ++s) {
+            if (m.systems[s].phase != phase) continue;
+            const SystemDef def = m.systems[s];
+            run_system(impl, m, def);
         }
     }
     if (phase == ScriptPhase::Update || phase == ScriptPhase::FixedUpdate) run_behaviours(impl, phase);

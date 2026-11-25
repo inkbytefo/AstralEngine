@@ -23,8 +23,10 @@
 
 #include <array>
 #include <charconv>
+#include <cmath>
 #include <deque>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -109,6 +111,24 @@ inline bool read_entity(const Json& j, Entity& v, const LoadContext& ctx) {
     v = {};
     return false;
 }
+/// True when `d` converts to T without undefined behaviour or loss: finite and in range, and
+/// integral for integer types (a float field takes any finite value its type can hold).
+template <class T> bool number_fits(double d) noexcept {
+    if (!std::isfinite(d)) return false;
+    if constexpr (std::is_same_v<T, bool>) {
+        return d == 0.0 || d == 1.0;
+    } else if constexpr (std::is_floating_point_v<T>) {
+        return std::fabs(d) <= static_cast<double>(std::numeric_limits<T>::max());
+    } else {
+        if (d != std::trunc(d)) return false;
+        constexpr double lo = static_cast<double>(std::numeric_limits<T>::lowest());
+        constexpr double hi = static_cast<double>(std::numeric_limits<T>::max());
+        // For 64-bit types max() rounds up to 2^63 / 2^64 as a double, which is itself out of range.
+        if constexpr (sizeof(T) >= 8) return d >= lo && d < hi;
+        else return d >= lo && d <= hi;
+    }
+}
+
 template <class T> bool read_number_or_enum(const Json& j, T& v, const LoadContext& ctx) {
     if constexpr (is_reflected_enum_v<T>) {
         if (j.is_string()) {
@@ -119,8 +139,19 @@ template <class T> bool read_number_or_enum(const Json& j, T& v, const LoadConte
         }
     }
     if (!j.is_number()) return ctx.error("expected a number"), false;
-    if constexpr (std::is_enum_v<T>) v = static_cast<T>(static_cast<std::underlying_type_t<T>>(j.as_number()));
-    else v = static_cast<T>(j.as_number());
+    const double d = j.as_number();
+    if constexpr (std::is_enum_v<T>) {
+        using U = std::underlying_type_t<T>;
+        if (!number_fits<U>(d)) return ctx.error("enumerator " + j.dump() + " is out of range"), false;
+        const T value = static_cast<T>(static_cast<U>(d));
+        if constexpr (is_reflected_enum_v<T>) {
+            if (enum_name(value).empty()) return ctx.error("unknown enumerator " + j.dump()), false;
+        }
+        v = value;
+    } else {
+        if (!number_fits<T>(d)) return ctx.error("number " + j.dump() + " does not fit the field"), false;
+        v = static_cast<T>(d);
+    }
     return true;
 }
 template <class T> bool read_reflected(const Json& j, T& v, const LoadContext& ctx) {

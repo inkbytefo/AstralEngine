@@ -27,6 +27,7 @@ bool create_structure(Device::Impl& s, VkAccelerationStructureTypeKHR type, std:
     info.type = type;
     if (s.rt.create_as(s.device, &info, nullptr, &out.handle) != VK_SUCCESS) {
         destroy_buffer_record(s, out.storage);
+        out.storage = {}; // the caller's cleanup must not free it again
         return false;
     }
     out.address = as_device_address(s, out.handle);

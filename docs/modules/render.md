@@ -115,8 +115,11 @@ graph.add_pass("blur", [&](PassBuilder& b) { b.read(hdr); b.write_storage(blurre
 ## Bilinen sınırlar
 
 
-- `build_mips` box filtre (normal map mip'lerini cook adımı ayrıca normalize eder). Daha keskin filtreler
-  (Kaiser) ileride.
+- `build_mips` alan ağırlıklı box filtre: tek boyutlarda kaynak alanın tamamı ortalanır (MSR REN06). Normal map
+  mip'lerini cook adımı ayrıca normalize eder. Daha keskin filtreler (Kaiser) ileride.
+- `RenderSettings::denoise_iterations` en çok `RenderSettings::max_denoise_iterations` (5); büyük değerler kırpılır (MSR REN07).
+- `create_mesh` vertex sayısı dışında index içeren mesh'i, `create_material`/`update_material` 16384 kelimeyi aşan
+  parametre/texture offset'ini reddeder (MSR REN05/REN08).
 
 ### Ray-traced yol
 - SDF'lerin hareket vektörü yalnız kameradan türetilir (SDF'ler kareler arası durağan varsayılır).

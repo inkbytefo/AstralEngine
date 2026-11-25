@@ -16,6 +16,7 @@ CellStreamer::~CellStreamer() = default;
 void CellStreamer::update(std::span<const StreamingPoint> sources, std::uint32_t max_attach) {
     stats_.attached_last_update = 0;
     stats_.detached_last_update = 0;
+    stats_.failed_last_update = 0;
     std::vector<Entry*> ready;
     for (Entry& cell : cells_) {
         cell.distance = std::numeric_limits<double>::infinity();
@@ -27,7 +28,9 @@ void CellStreamer::update(std::span<const StreamingPoint> sources, std::uint32_t
         const bool keep = cell.distance <= range * (1.0 + hysteresis_);
         switch (cell.state) {
         case State::Unloaded:
-            if (wanted) {
+            if (cell.cooldown > 0) {
+                --cell.cooldown;
+            } else if (wanted) {
                 loader_.begin_load(cell.key);
                 cell.state = State::Loading;
             }
@@ -54,9 +57,18 @@ void CellStreamer::update(std::span<const StreamingPoint> sources, std::uint32_t
     std::stable_sort(ready.begin(), ready.end(), [](const Entry* a, const Entry* b) { return a->distance < b->distance; });
     const std::size_t count = std::min<std::size_t>(ready.size(), max_attach);
     for (std::size_t i = 0; i < count; ++i) {
-        loader_.attach(ready[i]->key);
-        ready[i]->state = State::Attached;
-        ++stats_.attached_last_update;
+        Entry& cell = *ready[i];
+        if (loader_.attach(cell.key)) {
+            cell.state = State::Attached;
+            cell.failures = 0;
+            ++stats_.attached_last_update;
+        } else {
+            // A failed load is not in the world: retry after 1, 2, 4 ... 64 updates.
+            cell.state = State::Unloaded;
+            cell.cooldown = 1u << std::min(cell.failures, 6u);
+            ++cell.failures;
+            ++stats_.failed_last_update;
+        }
     }
 
     stats_.attached = 0;

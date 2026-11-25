@@ -42,6 +42,9 @@ if (auto hit = physics.raycast(origin, direction, 100.0f)) { /* hit->body, posit
 
 ## Bilinen sınırlar
 
+- `CharacterDesc::height` kapsülün toplam boyudur; `height < 2 * radius + 0.02` olan karakter reddedilir (eskiden
+  sessizce daha uzun bir kapsül oluşuyordu, MSR PH09).
+
 - Sahne dosyası `RigidBody.desc` ile collider, hareket tipi, kütle, sensör ve yüzey ayarlarını,
   `CharacterController.desc` ile kapsül geometrisi, eğim sınırı ve kütleyi tanımlar. Başlangıç konumu entity'nin
   `Transform` bileşeninden okunur. Native handle, karakter komutu ve simülasyon durumu kayda yazılmaz.

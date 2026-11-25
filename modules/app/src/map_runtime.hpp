@@ -50,7 +50,7 @@ public:
     // CellLoader
     void begin_load(CellKey cell) override;
     bool ready(CellKey cell) override;
-    void attach(CellKey cell) override;
+    bool attach(CellKey cell) override;
     void detach(CellKey cell) override;
     void cancel(CellKey cell) override;
 

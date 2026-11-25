@@ -67,7 +67,8 @@ astral_add_tests(MODULE assets
         tests/model_header_test.cpp
         tests/asset_manager_test.cpp
         tests/cook_test.cpp
-        tests/terrain_test.cpp)
+        tests/terrain_test.cpp
+        tests/msr_regression_test.cpp)
 if(TARGET astral_assets_tests)
     target_include_directories(astral_assets_tests SYSTEM PRIVATE ${stb_SOURCE_DIR})
 endif()

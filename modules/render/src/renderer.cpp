@@ -11,6 +11,8 @@
 #include <astral/render/render_graph.hpp>
 #include <astral/render/renderer.hpp>
 
+#include <algorithm>
+
 namespace astral {
 
 struct UiOnlySlot {
@@ -62,8 +64,17 @@ struct Renderer::Impl {
     }
 };
 
-Renderer::Renderer(gpu::Device& device, gpu::Format target_format, const RenderSettings& settings)
-    : impl_(std::make_unique<Impl>(device, target_format, settings)) {
+namespace {
+/// Brings user settings into the ranges the passes support (public fields can hold anything).
+RenderSettings normalized(RenderSettings s) noexcept {
+    s.denoise_iterations = std::min(s.denoise_iterations, RenderSettings::max_denoise_iterations);
+    return s;
+}
+} // namespace
+
+Renderer::Renderer(gpu::Device& device, gpu::Format target_format, const RenderSettings& settings_in)
+    : impl_(std::make_unique<Impl>(device, target_format, normalized(settings_in))) {
+    const RenderSettings& settings = impl_->settings;
     auto& m = *impl_;
     m.rt = settings.ray_tracing && device.supports(gpu::Feature::RayTracing) && m.enable_ray_tracing();
 }
@@ -139,9 +150,10 @@ std::span<const PassTiming> Renderer::gpu_timings() const noexcept { return impl
 float Renderer::gpu_frame_ms() const noexcept { return impl_->graph.gpu_frame_ms(); }
 const RenderSettings& Renderer::settings() const noexcept { return impl_->settings; }
 
-void Renderer::set_settings(const RenderSettings& settings) {
+void Renderer::set_settings(const RenderSettings& settings_in) {
     auto& m = *impl_;
     const RenderSettings old = m.settings;
+    const RenderSettings settings = normalized(settings_in);
     m.settings = settings;
     const bool want_rt = settings.ray_tracing && m.device.supports(gpu::Feature::RayTracing);
     if (want_rt != m.rt) {

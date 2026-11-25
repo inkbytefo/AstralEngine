@@ -18,14 +18,15 @@ struct StreamingPoint {
 };
 
 /// Does the work for CellStreamer. begin_load may start asynchronous work; ready() polls it;
-/// attach() puts the loaded cell into the world (main thread); detach() removes it; cancel()
+/// attach() puts the loaded cell into the world (main thread) and returns false when the load
+/// failed (nothing was attached; the streamer retries later); detach() removes it; cancel()
 /// abandons a load that is no longer wanted (whether or not it finished).
 class CellLoader {
 public:
     virtual ~CellLoader() = default;
     virtual void begin_load(CellKey cell) = 0;
     virtual bool ready(CellKey cell) = 0;
-    virtual void attach(CellKey cell) = 0;
+    virtual bool attach(CellKey cell) = 0;
     virtual void detach(CellKey cell) = 0;
     virtual void cancel(CellKey cell) = 0;
 };
@@ -36,6 +37,7 @@ struct StreamingStats {
     std::uint32_t waiting = 0;              ///< Ready, waiting for the attach budget.
     std::uint32_t attached_last_update = 0;
     std::uint32_t detached_last_update = 0;
+    std::uint32_t failed_last_update = 0;   ///< attach() reported a failed load; retried after a back-off.
 };
 
 class CellStreamer {
@@ -62,6 +64,8 @@ private:
         CellKey key;
         State state = State::Unloaded;
         double distance = 0.0; ///< To the nearest source, this update.
+        std::uint32_t failures = 0; ///< Consecutive failed attaches (reset on success).
+        std::uint32_t cooldown = 0; ///< Updates to wait before loading again after a failure.
     };
 
     MapDesc map_;

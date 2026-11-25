@@ -116,7 +116,8 @@ DenoiseOutput DenoisePass::add_atrous(RenderGraph& graph, const FrameInputs& inp
     const gpu::PipelineHandle pipeline = atrous_pipeline_;
     RGTexture final_d = temporal.diffuse;
     RGTexture final_s = temporal.specular;
-    for (std::uint32_t i = 0; i < inputs.settings.denoise_iterations; ++i) {
+    const std::uint32_t iterations = std::min(inputs.settings.denoise_iterations, RenderSettings::max_denoise_iterations);
+    for (std::uint32_t i = 0; i < iterations; ++i) {
         const RGTexture in_d = final_d;
         const RGTexture in_s = final_s;
         const RGTexture out_d = graph.create("denoise.diffuse", {w, h, gpu::Format::RGBA16Float});
