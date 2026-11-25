@@ -250,16 +250,18 @@ int astral_system(lua_State* L) {
     }
     for (const std::string& name : string_list(L, 1, "with")) def.required.push_back(entry_of(impl, require_type(L, impl, name)).component);
     for (const std::string& name : string_list(L, 1, "without")) def.excluded.push_back(entry_of(impl, require_type(L, impl, name)).component);
+    // Validate everything first: a registry ref taken before a luaL_error would never be released.
     lua_getfield(L, 1, "update");
     const bool has_update = lua_isfunction(L, -1);
-    if (has_update) def.update_ref = lua_ref(L, -1);
     lua_pop(L, 1);
     lua_getfield(L, 1, "run");
     const bool has_run = lua_isfunction(L, -1);
-    if (has_run) def.run_ref = lua_ref(L, -1);
     lua_pop(L, 1);
     if (has_update == has_run) luaL_error(L, "system \"%s\" needs exactly one of update (per entity) or run (once per phase)", def.name.c_str());
     if (has_update && def.types.empty() && def.required.empty()) luaL_error(L, "system \"%s\": update needs a query", def.name.c_str());
+    lua_getfield(L, 1, has_update ? "update" : "run");
+    (has_update ? def.update_ref : def.run_ref) = lua_ref(L, -1);
+    lua_pop(L, 1);
     m.systems.push_back(std::move(def));
     return 0;
 }
@@ -274,8 +276,9 @@ int astral_on(lua_State* L) {
     }
     ListenerDef l;
     l.event = event;
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    l.phase = lua_isnoneornil(L, 3) ? ScriptPhase::Update : phase_from(L, luaL_checkstring(L, 3)); // may raise: before the ref
     l.fn_ref = function_ref(L, 2);
-    l.phase = lua_isnoneornil(L, 3) ? ScriptPhase::Update : phase_from(L, luaL_checkstring(L, 3));
     entry->read(impl.env.world, l.cursor, [](const Json&) {}); // only events from now on
     m.listeners.push_back(std::move(l));
     return 0;

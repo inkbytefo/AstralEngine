@@ -196,7 +196,13 @@ Json floats_json(lua_State* L, int index, std::size_t n) {
     return detail::floats(v, n);
 }
 
-Json value_to_json(lua_State* L, int index, const FieldInfo* hint) {
+/// Deepest table nesting converted to JSON; deeper input (or a table that contains itself) is an
+/// error, so a payload can never recurse the host's C++ stack without bound.
+constexpr int max_json_depth = 64;
+
+Json table_to_json(lua_State* L, int index, const std::vector<FieldInfo>* fields, int depth);
+
+Json value_to_json(lua_State* L, int index, const FieldInfo* hint, int depth) {
     index = lua_absindex(L, index);
     switch (lua_type(L, index)) {
     case LUA_TNIL: return nullptr;
@@ -219,23 +225,21 @@ Json value_to_json(lua_State* L, int index, const FieldInfo* hint) {
             default: break;
             }
         }
-        return lua_to_json(L, index, nullptr);
+        return table_to_json(L, index, nullptr, depth + 1);
     }
     default: return nullptr;
     }
 }
 
-} // namespace
-
-Json lua_to_json(lua_State* L, int index, const std::vector<FieldInfo>* fields) {
-    index = lua_absindex(L, index);
-    if (lua_type(L, index) != LUA_TTABLE) return value_to_json(L, index, nullptr);
+Json table_to_json(lua_State* L, int index, const std::vector<FieldInfo>* fields, int depth) {
+    if (depth > max_json_depth) luaL_error(L, "table is nested deeper than %d levels (or contains itself)", max_json_depth);
+    if (!lua_checkstack(L, 3)) luaL_error(L, "not enough Lua stack to convert a table");
     const int length = lua_objlen(L, index);
     if (length > 0) { // an array
         Json a = Json::array();
         for (int i = 1; i <= length; ++i) {
             lua_rawgeti(L, index, i);
-            a.push_back(value_to_json(L, -1, nullptr));
+            a.push_back(value_to_json(L, -1, nullptr, depth));
             lua_pop(L, 1);
         }
         return a;
@@ -245,11 +249,19 @@ Json lua_to_json(lua_State* L, int index, const std::vector<FieldInfo>* fields) 
     while (lua_next(L, index) != 0) {
         if (lua_type(L, -2) == LUA_TSTRING) {
             const std::string key = lua_tostring(L, -2);
-            o[key] = value_to_json(L, -1, member_hint(fields, key));
+            o[key] = value_to_json(L, -1, member_hint(fields, key), depth);
         }
         lua_pop(L, 1);
     }
     return o;
+}
+
+} // namespace
+
+Json lua_to_json(lua_State* L, int index, const std::vector<FieldInfo>* fields) {
+    index = lua_absindex(L, index);
+    if (lua_type(L, index) != LUA_TTABLE) return value_to_json(L, index, nullptr, 0);
+    return table_to_json(L, index, fields, 0);
 }
 
 void json_to_lua(lua_State* L, const Json& j, const std::vector<FieldInfo>* fields, World& world) {

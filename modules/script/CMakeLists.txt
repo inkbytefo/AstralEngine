@@ -39,4 +39,5 @@ astral_add_tests(MODULE script
         tests/script_test.cpp
         tests/api_test.cpp
         tests/api_parity_test.cpp
-        tests/compile_test.cpp)
+        tests/compile_test.cpp
+        tests/msr_regression_test.cpp)
