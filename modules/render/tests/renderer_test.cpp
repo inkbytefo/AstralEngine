@@ -1578,3 +1578,86 @@ TEST_CASE("hybrid fog and lit particles receive coloured indirect light from DDG
     CHECK(particle.g > 10);
     CHECK(particle.r == 0);
 }
+
+namespace {
+
+/// A thin wall facing `normal_axis` (0 = X, 2 = Z) seen head-on, lit only by its emissive projected texture: the left half of the
+/// texture is red, the right half blue, one 2 m tile. Returns the picture and the camera-side direction vectors.
+struct ProjectedWall {
+    std::vector<std::uint32_t> pixels;
+    Vec3 right; ///< World direction of screen-right (up is +Y).
+};
+
+ProjectedWall draw_projected_wall(Fixture& f, int normal_axis, float side, TextureProjection projection) {
+    const auto cube = f.renderer->create_mesh(make_cube());
+    const auto texture = f.renderer->create_texture(solid_halves({255, 0, 0, 255}, {0, 0, 255, 255}));
+    const auto material = f.renderer->create_material({.base_color = {0, 0, 0, 1}, .roughness = 1.0f, .emissive = {2, 2, 2},
+        .emissive_texture = texture, .mapping = {.projection = projection, .tile_size_m = 2.0f}});
+    const Vec3 normal = normal_axis == 0 ? Vec3{side, 0, 0} : Vec3{0, 0, side};
+    const MeshInstance wall{.mesh = cube, .material = material,
+                            .transform = normal_axis == 0 ? scale({0.2f, 4, 4}) : scale({4, 4, 0.2f})};
+    f.look_from(normal * 5.0f, {0, 0, 0});
+    const RenderScene scene{.meshes = std::span(&wall, 1), .sun = {.intensity = 0.0f}, .environment = {.sky = {}, .ground = {}, .ambient = 0}};
+    // Looking from `normal` toward the origin with +Y up, screen-right = forward x up = -normal x Y.
+    const Vec3 right = normal_axis == 0 ? Vec3{0, 0, -side} : Vec3{side, 0, 0};
+    return {f.draw(scene), right};
+}
+
+bool is_red(Rgb c) { return c.r > c.b + 80; }
+bool is_blue(Rgb c) { return c.b > c.r + 80; }
+
+} // namespace
+
+TEST_CASE("projected textures keep world up on texture V and are not mirrored, on every vertical face") {
+    Fixture f;
+    if (!f.device) return;
+    for (const int axis : {0, 2}) {
+        for (const float side : {1.0f, -1.0f}) {
+            CAPTURE(axis);
+            CAPTURE(side);
+            for (const auto projection : {TextureProjection::Triplanar, axis == 0 ? TextureProjection::PlanarYZ : TextureProjection::PlanarXY}) {
+                const ProjectedWall w = draw_projected_wall(f, axis, side, projection);
+                // The texture runs left to right along screen-right: U grows with `right` (tile = 2 m, left half red).
+                // Wall points on the camera side of the thin slab: x (or z) = side * 0.1.
+                const Vec3 depth = axis == 0 ? Vec3{side * 0.1f, 0, 0} : Vec3{0, 0, side * 0.1f};
+                // u = dot(right, p) / 2 up to a constant: only the tiling phase matters, so compare against the neighbour tile
+                // positions one metre apart, which must differ (red <-> blue), and positions two metres apart, which must not.
+                const Vec3 origin = depth;
+                const Rgb here = rgb(f.at(w.pixels, origin + w.right * 0.5f));
+                const Rgb one_over = rgb(f.at(w.pixels, origin + w.right * 1.5f));
+                CHECK(((is_red(here) && is_blue(one_over)) || (is_blue(here) && is_red(one_over))));
+                // Along world up the texture does not change (it only varies with U).
+                const Rgb higher = rgb(f.at(w.pixels, origin + w.right * 0.5f + Vec3{0, 1.0f, 0}));
+                CHECK(((is_red(here) && is_red(higher)) || (is_blue(here) && is_blue(higher))));
+                // Not mirrored: U grows along screen-right, so just right of the seam at 0 is the left (red) half.
+                const Rgb just_right = rgb(f.at(w.pixels, origin + w.right * 0.25f));
+                const Rgb just_left = rgb(f.at(w.pixels, origin - w.right * 0.25f));
+                CHECK(is_red(just_right));
+                CHECK(is_blue(just_left));
+            }
+        }
+    }
+}
+
+TEST_CASE("projected normal maps tilt toward the texture's U direction on a side wall") {
+    Fixture f;
+    if (!f.device) return;
+    const auto cube = f.renderer->create_mesh(make_cube());
+    // Strongly tilted along +U (the same map as "normal maps tilt the shading normal").
+    const auto tilted = f.renderer->create_texture(solid_halves({250, 128, 60, 255}, {250, 128, 60, 255}, false));
+    const Environment dark{.sky = {}, .ground = {}, .ambient = 0};
+    for (const float side : {1.0f, -1.0f}) {
+        CAPTURE(side);
+        const auto material = f.renderer->create_material({.roughness = 1.0f, .normal_texture = tilted,
+            .mapping = {.projection = TextureProjection::PlanarYZ, .tile_size_m = 2.0f}});
+        const MeshInstance wall{.mesh = cube, .material = material, .transform = scale({0.2f, 2, 2})};
+        f.look_from({side * 5.0f, 0, 0}, {0, 0, 0});
+        // On this wall U grows along screen-right (world -side * Z): light arriving from that side brightens a map tilted along +U.
+        auto lit_from_u_side = [&](bool u_side) {
+            const float z_travel = (u_side ? 1.0f : -1.0f) * side; // the light travels away from the side it comes from
+            const DirectionalLight sun{.direction = normalize(Vec3{-side, 0, z_travel}), .intensity = 2.0f, .shadows = false};
+            return luminance(Fixture::center(f.draw({.meshes = std::span(&wall, 1), .sun = sun, .environment = dark})));
+        };
+        CHECK(lit_from_u_side(true) > lit_from_u_side(false));
+    }
+}
