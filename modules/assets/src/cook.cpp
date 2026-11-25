@@ -19,7 +19,7 @@ namespace astral {
 namespace {
 
 constexpr std::string_view cache_name = ".astral-cook.json";
-constexpr int cache_version = 1;
+constexpr int cache_version = 2; // 2: world entries list their cell outputs
 /// Bump when cooked formats or the cook's decisions change: everything is cooked again.
 constexpr std::string_view cook_version = "astral-cook 6";
 
@@ -63,8 +63,9 @@ std::string hex(std::uint64_t v) {
 
 struct CacheEntry {
     std::string kind;
-    std::string hash;
+    std::string hash; ///< Empty: cook again next time (could not hash, or the cook had problems).
     std::vector<std::string> deps;
+    std::vector<std::string> outputs; ///< Generated files besides `rel` itself (world cells), output-relative.
 };
 
 using CacheMap = std::unordered_map<std::string, CacheEntry>;
@@ -119,8 +120,9 @@ CacheMap read_cook_cache(const std::filesystem::path& path) {
         auto doc = Json::parse(std::string_view(reinterpret_cast<const char*>(text->data()), text->size()));
         if (doc && (*doc)["version"].as_number() == cache_version) {
             for (const auto& [rel, e] : (*doc)["entries"].as_object()) {
-                CacheEntry entry{e["kind"].as_string(), e["hash"].as_string(), {}};
+                CacheEntry entry{e["kind"].as_string(), e["hash"].as_string(), {}, {}};
                 for (const Json& d : e["deps"].as_array()) entry.deps.push_back(d.as_string());
+                for (const Json& d : e["outputs"].as_array()) entry.outputs.push_back(d.as_string());
                 old_cache.emplace(rel, std::move(entry));
             }
         }
@@ -128,7 +130,9 @@ CacheMap read_cook_cache(const std::filesystem::path& path) {
     return old_cache;
 }
 
-std::vector<std::string> scan_source_files(const std::filesystem::path& root) {
+/// Every source file under `root`, sorted. `complete` is false when the walk hit an error: the list
+/// is then partial and must not be used to decide which outputs are stale.
+std::vector<std::string> scan_source_files(const std::filesystem::path& root, bool& complete) {
     std::vector<std::string> sources;
     std::error_code ec;
     for (auto it = std::filesystem::recursive_directory_iterator(root, ec); !ec && it != std::filesystem::recursive_directory_iterator();
@@ -140,6 +144,7 @@ std::vector<std::string> scan_source_files(const std::filesystem::path& root) {
         }
         if (it->is_regular_file()) sources.push_back(detail::relative_path(it->path(), root));
     }
+    complete = !ec;
     std::sort(sources.begin(), sources.end());
     return sources;
 }
@@ -161,7 +166,7 @@ void cook_models(CookSession& s) {
         std::string load_error;
         auto data = load_gltf(s.o.source / rel, &load_error);
         if (!data) return s.error(rel + ": " + load_error);
-        CacheEntry entry{kind_name(Kind::Model), {}, {}};
+        CacheEntry entry{kind_name(Kind::Model), {}, {}, {}};
         for (const auto& f : data->files) {
             const std::string d = detail::relative_path(f, s.o.source);
             if (d != rel) entry.deps.push_back(d);
@@ -220,15 +225,20 @@ MapSource expand_world_for_cook(CookSession& s, const MapSource& raw) {
 void cook_one_world(CookSession& s, const std::string& rel) {
     const std::string stem = world_stem(rel);
     const std::string folder = stem + ".entities/";
-    CacheEntry entry{kind_name(Kind::World), {}, {}};
+    CacheEntry entry{kind_name(Kind::World), {}, {}, {}};
     for (const std::string& f : s.sources) {
         if (f.starts_with(folder)) entry.deps.push_back(f);
     }
     s.deps.insert(entry.deps.begin(), entry.deps.end());
     const auto h = content_hash(s.o.source, rel, entry.deps, s.seed);
     auto old = s.old_cache.find(rel);
+    const auto outputs_exist = [&](const CacheEntry& e) {
+        if (!std::filesystem::exists(s.o.output / rel)) return false;
+        return std::all_of(e.outputs.begin(), e.outputs.end(),
+                           [&](const std::string& out) { return std::filesystem::is_regular_file(s.o.output / out); });
+    };
     if (h && old != s.old_cache.end() && old->second.kind == entry.kind && old->second.hash == hex(*h) &&
-        std::filesystem::exists(s.o.output / rel)) {
+        outputs_exist(old->second)) {
         ++s.report.up_to_date;
         s.cache[rel] = old->second;
         return;
@@ -259,6 +269,7 @@ void cook_one_world(CookSession& s, const std::string& rel) {
     bool written = detail::write_file(s.o.output / rel, cooked.index.to_binary(), &io_error);
     for (const CookedCell& cell : cooked.cells) {
         written = written && detail::write_file(cells_dir / (cell.name + ".cell"), cell.document.to_binary(), &io_error);
+        entry.outputs.push_back(stem + ".cells/" + cell.name + ".cell");
     }
     if (!written) return s.error(io_error);
     ++s.report.cooked;
@@ -335,7 +346,7 @@ void cook_one_terrain(CookSession& s, const std::string& rel) {
     }
     if (!terrain_edges_match(samples, manifest->samples)) return s.error(rel + ": terrain tiles disagree at a shared boundary");
 
-    CacheEntry entry{kind_name(Kind::Terrain), {}, {dependencies.begin(), dependencies.end()}};
+    CacheEntry entry{kind_name(Kind::Terrain), {}, {dependencies.begin(), dependencies.end()}, {}};
     const auto input_hash = content_hash(s.o.source, rel, entry.deps, s.seed);
     if (!input_hash) return s.error(rel + ": could not hash terrain dependencies");
     entry.hash = hex(*input_hash);
@@ -374,10 +385,40 @@ void cook_one_terrain(CookSession& s, const std::string& rel) {
     s.cache[rel] = std::move(entry);
 }
 
+/// Source files that documents (.material, .scene, .prefab, .vfx, .json) name by path: the game opens
+/// them at run time, so they ship as files even when a model also embeds them (a PNG shared by a
+/// glTF and a .material must not exist only inside the cooked model).
+std::set<std::string> runtime_references(const CookSession& s) {
+    std::set<std::string> refs;
+    std::vector<const Json*> stack;
+    for (const std::string& rel : s.sources) {
+        if (kind_of(rel) != Kind::Document) continue;
+        const auto bytes = detail::read_file(s.o.source / rel);
+        if (!bytes || Json::is_binary(*bytes)) continue;
+        const auto doc = Json::parse(std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()));
+        if (!doc) continue; // reported when the document itself is cooked
+        stack.assign(1, &*doc);
+        while (!stack.empty()) {
+            const Json* j = stack.back();
+            stack.pop_back();
+            if (j->is_string()) {
+                if (std::binary_search(s.sources.begin(), s.sources.end(), j->as_string())) refs.insert(j->as_string());
+            } else if (j->is_array()) {
+                for (const Json& item : j->as_array()) stack.push_back(&item);
+            } else if (j->is_object()) {
+                for (const auto& [key, value] : j->as_object()) stack.push_back(&value);
+            }
+        }
+    }
+    return refs;
+}
+
 void cook_remaining_files(CookSession& s) {
+    const std::set<std::string> runtime_refs = runtime_references(s);
     for (const std::string& rel : s.sources) {
         const Kind kind = kind_of(rel);
-        if (kind == Kind::Model || kind == Kind::World || kind == Kind::Terrain || s.deps.count(rel)) continue;
+        if (kind == Kind::Model || kind == Kind::World || kind == Kind::Terrain) continue;
+        if (s.deps.count(rel) && !runtime_refs.count(rel)) continue; // only ever read through its model
         std::uint64_t h = 0;
         if (s.up_to_date(rel, kind, &h)) {
             ++s.report.up_to_date;
@@ -417,7 +458,7 @@ void cook_remaining_files(CookSession& s) {
         }
         if (kind == Kind::Document || (kind == Kind::Script && s.o.compile_script)) ++s.report.cooked;
         else ++s.report.copied;
-        s.cache[rel] = CacheEntry{kind_name(kind), hex(h), {}};
+        s.cache[rel] = CacheEntry{kind_name(kind), hex(h), {}, {}};
     }
 }
 
@@ -432,7 +473,8 @@ void write_cook_cache(CookSession& s) {
     std::sort(keys.begin(), keys.end());
     for (const std::string& rel : keys) {
         const CacheEntry& e = s.cache[rel];
-        if (e.hash.empty()) continue; // could not hash: cook again next time
+        // Entries with an empty hash are kept too (they cook again next time): the next cook must still
+        // know their outputs exist, so it can remove them when the source goes away.
         Json j = Json::object();
         j["kind"] = e.kind;
         j["hash"] = e.hash;
@@ -440,6 +482,11 @@ void write_cook_cache(CookSession& s) {
             Json& list = j["deps"];
             list = Json::array();
             for (const std::string& d : e.deps) list.push_back(d);
+        }
+        if (!e.outputs.empty()) {
+            Json& list = j["outputs"];
+            list = Json::array();
+            for (const std::string& d : e.outputs) list.push_back(d);
         }
         entries[rel] = std::move(j);
     }
@@ -467,7 +514,9 @@ CookReport cook_directory(const CookOptions& o) {
                                     ";q" + std::to_string(o.textures.bc7_quality);
     s.seed = detail::hash_bytes(std::span(reinterpret_cast<const std::uint8_t*>(options_key.data()), options_key.size()));
     s.old_cache = read_cook_cache(o.output / cache_name);
-    s.sources = scan_source_files(o.source);
+    bool scan_complete = true;
+    s.sources = scan_source_files(o.source, scan_complete);
+    if (!scan_complete) s.error("cannot list every source file; stale outputs are kept this time");
 
     cook_models(s);
     for (const std::string& rel : s.sources) {
@@ -476,9 +525,17 @@ CookReport cook_directory(const CookOptions& o) {
     }
     cook_remaining_files(s);
 
-    // Outputs whose source is gone (or became a dependency) go away.
+    // Outputs whose source is gone (or became a dependency) go away. A source that is still there but
+    // failed to cook keeps its last good output (and its cache entry, so it cooks again next time).
     for (const auto& [rel, entry] : s.old_cache) {
+        if (!scan_complete) break;
         if (s.cache.count(rel)) continue;
+        if (std::binary_search(s.sources.begin(), s.sources.end(), rel) && !s.deps.count(rel)) {
+            CacheEntry kept = entry;
+            kept.hash.clear();
+            s.cache[rel] = std::move(kept);
+            continue;
+        }
         if (std::filesystem::remove(o.output / rel, ec)) ++report.removed;
         if (entry.kind == kind_name(Kind::World)) std::filesystem::remove_all(o.output / (world_stem(rel) + ".cells"), ec);
         if (entry.kind == kind_name(Kind::Terrain)) std::filesystem::remove_all(o.output / (rel + ".tiles"), ec);
