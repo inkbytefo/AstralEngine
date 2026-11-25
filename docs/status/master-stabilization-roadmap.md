@@ -11,6 +11,17 @@ Yedi denetim raporundaki 75 kaynak kusuru, 38 koşullu risk, 18 geliştirme öne
 
 **Editor/AI:** Kullanıcı mevcut implementasyonun ayrıntılı denetimini ve yamalanmasını erteledi. S2/S3 [Studio & Intelligence rebuild](../editor/studio-intelligence-target-architecture.md) üzerinden kabul testlerine taşınır. Önceki kusurlar kapatılmış sayılmaz; motor tarafındaki ortak root resolver, asset, runtime ve RHI düzeltmeleri ertelenmez.
 
+## Revalidation — 25 Kasım 2026, HEAD 6a46d34
+
+Kayıtlar kaynak koda karşı yeniden doğrulandı (statik okuma; build/test bu adımda yapılmadı).
+
+- **Rapor SHA'sından beri değişmeyen modüller:** `gpu`, `render`, `world`, `core`, `assets`, `shader`, `physics`, `script`, `platform`, `audio`. Bu modüllerdeki kayıtların satır referansları hâlâ geçerli; örneklenen kayıtlar (A01, A11, A12, G01, G02, G04–G09, REN02, REN03, REN05–REN08, C02–C04, AS04, AS05, PH09, AG01, AG05, AG07, AG08, AG10–AG12) kaynakta doğrulandı.
+- **Değişen modül:** yalnız `modules/app` (6a46d34 refactor). `modules/app` dosyalarına referans veren kayıtlar tek tek kontrol edildi:
+  - Zaten düzeltilmiş, regression testi var (`modules/app/tests/refactor_regression_test.cpp`): **AG02** (tmp + rename), **AG03** (raw edge aggregation), **AG04** (tam key name tablosu), **AG06** (action layer composition), **AG13** (doğrulama `close()` öncesi).
+  - Zaten düzeltilmiş: **AS12** (`MaterialLibrary::retire_shader` kullanılan shader'ı material rebind edilene kadar tutuyor).
+  - Hâlâ geçerli: **A09** (`map_runtime.cpp:199–202`), **A10** (`audio_bridge.cpp:71`), **C01** (ScopedTick yalnız `system_scheduler.cpp:44` üst job'da), **PH03** (`PhysicsBridge::shift_origin` bekleyen komutları taşımıyor), **PH04** (`physics_bridge.cpp:571` `time_.elapsed`), **PH05**, **PH08**, **AS01/AS02** (asıl kusur `gltf.cpp`'de).
+- Kalan kayıtlar değişmeyen kodda olduğu için `open` kalır; fix sırasında failing test ile ayrıca kanıtlanır.
+
 ## İş paketleri
 
 | Paket | Kapsam | Ön koşul | Kayıt sayısı | Durum |
@@ -245,7 +256,7 @@ Aşağıdaki 137 satır yedi rapordan ID bazında çıkarıldı. Her kayıt yaln
 | PHR03 | risk | P1 | S4.2 | open | [Cooked ASSH integrity](physics-jolt-deep-audit-2026-11-25.md) |
 | AS06 | defect | P1 | S4.3 | open | [GPU upload başarısız model reload'da son çalışan sürüm korunmuyor](assets-shader-deep-audit-2026-11-25.md) |
 | AS07 | defect | P2 | S4.3 | open | [Async model hot reload yükleme sırasında gerçekleşen değişikliği kaçırabiliyor](assets-shader-deep-audit-2026-11-25.md) |
-| AS12 | defect | P1 | S4.3 | open | [Shader hot reload eski pipeline'ı material rebuild başarılı olmadan yok ediyor](assets-shader-deep-audit-2026-11-25.md) |
+| AS12 | defect | P1 | S4.3 | already-fixed (6a46d34) | [Shader hot reload eski pipeline'ı material rebuild başarılı olmadan yok ediyor](assets-shader-deep-audit-2026-11-25.md) |
 | ASR06 | risk | P2 | S4.3 | open | [Imported shader cache and sampler parity:](assets-shader-deep-audit-2026-11-25.md) |
 | ASP02 | proposal | P3 | S4.3 | open | [Transactional Asset Publishing](assets-shader-deep-audit-2026-11-25.md) |
 | AS08 | defect | P1 | S4.4 | open | [Cooker embedded dependency ile bağımsız runtime dependency'yi ayırmıyor](assets-shader-deep-audit-2026-11-25.md) |
@@ -286,13 +297,13 @@ Aşağıdaki 137 satır yedi rapordan ID bazında çıkarıldı. Her kayıt yaln
 | A09 | defect | P1 | S5.3 | open | [Başarısız cell load, streaming tarafından Attached kabul ediliyor](master-code-audit-2026-11-25.md) |
 | A10 | defect | P1 | S5.3 | open | [Entity silinince looping sesin ownership'i kayboluyor](master-code-audit-2026-11-25.md) |
 | AG01 | defect | P1 | S5.3 | open | [Save load doğrulamadan önce mevcut entity'leri yok ediyor](app-gameplay-deep-audit-2026-11-25.md) |
-| AG02 | defect | P1 | S5.3 | open | [Save slot üzerine doğrudan truncate ile yazılıyor](app-gameplay-deep-audit-2026-11-25.md) |
-| AG13 | defect | P1 | S5.3 | open | [Başarısız world open eski dünyayı önce kapatıyor](app-gameplay-deep-audit-2026-11-25.md) |
+| AG02 | defect | P1 | S5.3 | already-fixed (6a46d34) | [Save slot üzerine doğrudan truncate ile yazılıyor](app-gameplay-deep-audit-2026-11-25.md) |
+| AG13 | defect | P1 | S5.3 | already-fixed (6a46d34) | [Başarısız world open eski dünyayı önce kapatıyor](app-gameplay-deep-audit-2026-11-25.md) |
 | AGP02 | proposal | P3 | S5.3 | open | [Transactional Game State: validated save schema with version migrations, atomic storage/recovery, prepared scene/world transitions, entity reference r](app-gameplay-deep-audit-2026-11-25.md) |
-| AG03 | defect | P1 | S5.4 | open | [Named button action aynı karede basılıp bırakılan input'u kaybediyor](app-gameplay-deep-audit-2026-11-25.md) |
-| AG04 | defect | P2 | S5.4 | open | [Key enum genişletilmiş ama action name tablosu eksik](app-gameplay-deep-audit-2026-11-25.md) |
+| AG03 | defect | P1 | S5.4 | already-fixed (6a46d34) | [Named button action aynı karede basılıp bırakılan input'u kaybediyor](app-gameplay-deep-audit-2026-11-25.md) |
+| AG04 | defect | P2 | S5.4 | already-fixed (6a46d34) | [Key enum genişletilmiş ama action name tablosu eksik](app-gameplay-deep-audit-2026-11-25.md) |
 | AG05 | defect | P2 | S5.4 | open | [Desteklenmeyen mouse button Left click'e dönüştürülüyor](app-gameplay-deep-audit-2026-11-25.md) |
-| AG06 | defect | P1 | S5.4 | open | [FeatureSet her action dosyasında önceki feature action'larını siliyor](app-gameplay-deep-audit-2026-11-25.md) |
+| AG06 | defect | P1 | S5.4 | already-fixed (6a46d34) | [FeatureSet her action dosyasında önceki feature action'larını siliyor](app-gameplay-deep-audit-2026-11-25.md) |
 | AGR01 | risk | P1 | S5.4 | open | [Fixed input consumption:](app-gameplay-deep-audit-2026-11-25.md) |
 | AGR02 | risk | P2 | S5.4 | open | [Fixed script clock:](app-gameplay-deep-audit-2026-11-25.md) |
 | AGR03 | risk | P2 | S5.4 | open | [Feature install failure & retry:](app-gameplay-deep-audit-2026-11-25.md) |
