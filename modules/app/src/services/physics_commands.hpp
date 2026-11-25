@@ -30,6 +30,7 @@ enum class PhysicsCommandKind : std::uint8_t {
 
 struct PhysicsCommand {
     std::uint64_t order_key = 0;
+    std::uint64_t producer = 0; ///< detail::current_command_producer() at enqueue (ADR-0043).
     std::uint64_t sequence = 0;
     Entity entity{};
     PhysicsCommandKind kind = PhysicsCommandKind::Impulse;

@@ -50,8 +50,9 @@ private:
     };
 
     static void rebuild_waves(PhaseBucket& bucket, bool allow_parallel);
-    static void run_serial_system(System& sys, Context& ctx);
-    static void run_parallel_wave(std::span<const std::unique_ptr<System>> wave_systems, Context& ctx);
+    static void run_serial_system(System& sys, Context& ctx, std::uint64_t producer);
+    static void run_parallel_wave(std::span<const std::unique_ptr<System>> wave_systems, Context& ctx, std::size_t phase,
+                                  std::size_t first_index);
     void flush_pending();
 
     std::array<PhaseBucket, 4> buckets_;

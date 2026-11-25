@@ -2,6 +2,7 @@
 
 #include <doctest/doctest.h>
 
+#include <bit>
 #include <map>
 
 using namespace astral;
@@ -99,13 +100,14 @@ void surface() {}
     REQUIRE(m.ok());
     const UniformValues v = evaluate_uniforms(p.source, layout, m);
     REQUIRE(v.params.size() == layout.words);
-    CHECK(v.params[layout.offsets[0]] == doctest::Approx(3.5f));
-    CHECK(v.params[layout.offsets[1] + 0] == doctest::Approx(1.0f)); // overridden
-    CHECK(v.params[layout.offsets[1] + 1] == doctest::Approx(0.0f));
-    CHECK(v.params[layout.offsets[4] + 0] == doctest::Approx(1.0f)); // wrong type: default kept
-    CHECK(v.params[layout.offsets[4] + 1] == doctest::Approx(2.0f));
-    CHECK(v.params[layout.offsets[5]] == doctest::Approx(4.0f));      // default
-    CHECK(v.params[layout.offsets[6]] == doctest::Approx(1.0f));      // true
+    auto f = [&](std::uint32_t i) { return std::bit_cast<float>(v.params[i]); }; // float words (ADR-0042)
+    CHECK(f(layout.offsets[0]) == doctest::Approx(3.5f));
+    CHECK(f(layout.offsets[1] + 0) == doctest::Approx(1.0f)); // overridden
+    CHECK(f(layout.offsets[1] + 1) == doctest::Approx(0.0f));
+    CHECK(f(layout.offsets[4] + 0) == doctest::Approx(1.0f)); // wrong type: default kept
+    CHECK(f(layout.offsets[4] + 1) == doctest::Approx(2.0f));
+    CHECK(v.params[layout.offsets[5]] == 4u); // int default, exact
+    CHECK(v.params[layout.offsets[6]] == 1u); // bool true
     REQUIRE(v.textures.size() == 2);
     CHECK(v.textures[0].path == "tex/a.png");
     CHECK(v.textures[0].offset == layout.offsets[2]);
@@ -123,6 +125,6 @@ TEST_CASE("defaults fill what the material leaves out") {
     MaterialFile m;
     m.shader = "s.ashader";
     const UniformValues v = evaluate_uniforms(p.source, layout_uniforms(p.source), m);
-    CHECK(v.params[3] == doctest::Approx(0.4f));
+    CHECK(std::bit_cast<float>(v.params[3]) == doctest::Approx(0.4f));
     CHECK(v.warnings.empty());
 }

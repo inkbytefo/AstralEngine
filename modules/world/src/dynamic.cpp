@@ -164,4 +164,15 @@ const EventRegistry::Entry* EventRegistry::find(std::string_view name) const noe
     return nullptr;
 }
 
+void TypeRegistry::rollback_dynamic(std::size_t entry_count) {
+    while (entries_.size() > entry_count) {
+        retired_.push_back(std::move(entries_.back()));
+        entries_.pop_back();
+    }
+}
+
+void EventRegistry::rollback_dynamic(std::size_t entry_count) {
+    if (entries_.size() > entry_count) entries_.erase(entries_.begin() + static_cast<std::ptrdiff_t>(entry_count), entries_.end());
+}
+
 } // namespace astral

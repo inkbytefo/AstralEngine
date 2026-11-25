@@ -148,6 +148,19 @@ template <class T> bool read_number_or_enum(const Json& j, T& v, const LoadConte
             if (enum_name(value).empty()) return ctx.error("unknown enumerator " + j.dump()), false;
         }
         v = value;
+    } else if constexpr (std::is_integral_v<T>) {
+        // Read the exact integer (ADR-0041); a double gives the same answer only below 2^53.
+        bool fits = false;
+        if constexpr (std::is_signed_v<T>) {
+            const auto i = j.as_int64();
+            fits = i && *i >= std::numeric_limits<T>::lowest() && *i <= std::numeric_limits<T>::max();
+            if (fits) v = static_cast<T>(*i);
+        } else {
+            const auto u = j.as_uint64();
+            fits = u && *u <= std::numeric_limits<T>::max();
+            if (fits) v = static_cast<T>(*u);
+        }
+        if (!fits) return ctx.error("number " + j.dump() + " does not fit the field"), false;
     } else {
         if (!number_fits<T>(d)) return ctx.error("number " + j.dump() + " does not fit the field"), false;
         v = static_cast<T>(d);
@@ -184,6 +197,10 @@ template <class T> Json to_json(const T& v, const SaveContext& ctx) {
         return static_cast<double>(static_cast<std::underlying_type_t<T>>(v));
     } else if constexpr (std::is_same_v<T, float>) {
         return detail::float_value(v);
+    } else if constexpr (std::is_integral_v<T> && std::is_signed_v<T>) {
+        return static_cast<std::int64_t>(v); // exact (ADR-0041)
+    } else if constexpr (std::is_integral_v<T>) {
+        return static_cast<std::uint64_t>(v);
     } else if constexpr (std::is_arithmetic_v<T>) {
         return static_cast<double>(v);
     } else if constexpr (std::is_same_v<T, std::string>) {
@@ -334,6 +351,9 @@ public:
     /// know it. Null with `*error` set if the name is taken or the schema is invalid. The pointer stays
     /// valid until the next add; keep the Entry's index (entries()) for longer.
     const Entry* add_dynamic(std::string_view name, std::vector<FieldDef> fields, std::string* error = nullptr);
+    /// Undoes the entries added since entries().size() was `entry_count` (a failed script load, ADR-0044).
+    /// Their storage is kept alive (retired), so a ComponentId is never reused by a later definition.
+    void rollback_dynamic(std::size_t entry_count);
 
     /// Adds a copy of an entry of another registry (a subset registry for partial saves). No-op if the name exists.
     void add_copy(const Entry& entry) {
@@ -356,6 +376,7 @@ public:
 private:
     std::vector<Entry> entries_;
     std::deque<std::string> owned_names_; // names of script-defined components
+    std::vector<Entry> retired_;          // rolled back (ADR-0044): keeps their ComponentIds unique
     std::vector<bool (*)(World&, Entity)> excluded_;
 };
 

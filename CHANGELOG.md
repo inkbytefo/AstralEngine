@@ -4,6 +4,14 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+### Fixed (MSR Dalga 3 — ADR-0041–0044)
+- `core`/`world`: `Json` 64-bit tamsayıları kayıpsız tutar (metin, AJB `TagUInt64`, typed serialize, 8-byte field); 64-bit field doyurmasındaki UB giderildi (C05, ADR-0041). **API:** `Json::as_int64()`, `as_uint64()`, `is_integer()`; sayılar değerle karşılaştırılır (`Json(1) == Json(1.0)`).
+- `shader`/`render`: parametre bloğu tipli 32-bit word; `int` uniform tam int32 aralığını korur, kesirli/aralık dışı değer reddedilir (AS13, ADR-0042). **API:** `MaterialDesc::params` ve `UniformValues::params` → `std::vector<std::uint32_t>`, `ShaderUniform::default_value` → `std::vector<double>`, `uniform_word()`.
+- `app`: aynı entity'ye paralel sistemlerden gelen çakışan fizik komutları kayıt sırasıyla deterministik uygulanır (PH05, ADR-0043).
+- `script`: başarısız modül yüklemesi dünyayı ve tip/event registry'lerini değiştirmez; top-level kodda world değiştiren çağrılar reddedilir, commit sonrası `on_load()` çağrılır; `astral.spawn` hatada entity bırakmaz (AG09, ADR-0044). **API:** `TypeRegistry/EventRegistry::rollback_dynamic`. **Davranış:** top-level `spawn`/`send`/physics komutu kullanan script'ler `on_load`'a taşınmalı.
+- `assets`: cook sürümü `astral-cook 7`; ilk cook her şeyi yeniden üretir.
+- `tools`: `check_sizes.py` istisna `max` üst sınırı, eskimiş istisna (`[STALE]`, `--strict`'i düşürür) ve sınıra yakın (`[NEAR]`, `--near`) raporu; `json.cpp` → `json.cpp` + `json_binary.cpp`.
+
 ### Fixed (MSR Dalga 2)
 - `gpu`: bırakılan listenin layout geçişi, ona dayanan sonraki listeler için fix-up barrier ile çalışır (G03, ADR-0040); bindless kapasitesi stage başına limitlere bağlı (G10).
 - `physics`: karakter ve silinmiş gövdelerin contact End kimliği (PH01), overlap'te karakterler (PH02), origin kaymasında bekleyen teleport'lar (PH03), field kuvvetlerinde simülasyon zamanı (PH04), sıradan bağımsız hull hacim kontrolü (PH06), değişmeyen motor hedefinde gövde uyandırmama (PH08).

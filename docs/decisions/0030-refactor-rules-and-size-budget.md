@@ -35,6 +35,7 @@
 
 6. **Otomatik denetim ve kabul kapısı (gate):**
    - `tools/check_sizes.py` (yalnızca Python 3 standart kütüphanesi, Windows + Linux) yorumları ve ham dizgiler dâhil string sabitlerini ayıklayıp bütçe ihlallerini raporlar.
+   - Ek (2026-11-25): istisna girdisi isteğe bağlı `max` taşır; istisnalı değer bu üst sınırı aşarsa yeniden `[OVER]` sayılır (istisna sessizce büyüyemez). Hiçbir bulguyla eşleşmeyen girdi `[STALE]` olarak raporlanır ve `--strict`'i düşürür (düzeltilen yerin istisnası silinir). Sınırın `--near` oranına (varsayılan 0,9) ulaşan dosya/fonksiyon/yapılar `[NEAR]` olarak listelenir; bu liste kapıyı düşürmez, bölme planı içindir. `[OVER]` satırları türe göre bölme ipucu verir.
    - CTest `code_size_check` varsayılan olarak uyarır (`ASTRAL_SIZE_BUDGET_STRICT=OFF`); M13.5 R1–R3 tamamlandığında `--strict` (`ASTRAL_SIZE_BUDGET_STRICT=ON`) sert kapı olarak açılır. CI'da Linux GCC işi her koşuda `--summary` özetini (en çok 3 satır) basar.
    - Include hijyeni için CI'da Clang 18 üzerinde engelleyici olmayan (`continue-on-error: true`) bir `clang-tidy` `misc-include-cleaner` işi yalnızca motor/örnek kaynaklarını denetler.
    - Her refaktör adımının kabul kapısı: tüm birim ve bütünleştirme testleri kendi kodumuzda 0 derleyici uyarısıyla geçer ve lavapipe görüntü testleri (golden) **bayt bayt aynı** kalır.

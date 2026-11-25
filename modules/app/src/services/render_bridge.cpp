@@ -46,7 +46,7 @@ std::uint64_t fnv1a_mix(std::uint64_t h, std::uint32_t word) noexcept {
 std::uint64_t hash_material_extras(const MaterialDesc& d) noexcept {
     std::uint64_t extra = 14695981039346656037ull;
     extra = fnv1a_mix(extra, static_cast<std::uint32_t>(d.params.size()));
-    for (float p : d.params) extra = fnv1a_mix(extra, float_bits(p));
+    for (std::uint32_t w : d.params) extra = fnv1a_mix(extra, w);
     extra = fnv1a_mix(extra, static_cast<std::uint32_t>(d.textures.size()));
     for (const auto& pt : d.textures) {
         extra = fnv1a_mix(extra, pt.offset);

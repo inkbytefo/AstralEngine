@@ -56,6 +56,7 @@ ScriptStorage& require_storage(lua_State* L, Impl& impl) {
 }
 
 int astral_save(lua_State* L) {
+    forbid_while_loading(L, "astral.save");
     Impl& impl = Impl::of(L);
     const std::string slot = luaL_checkstring(L, 1);
     std::vector<std::string> names;
@@ -79,6 +80,7 @@ int astral_has_save(lua_State* L) {
 
 /// Replaces the entities that have any saved component with the slot's: they are destroyed, then loaded again.
 int astral_load(lua_State* L) {
+    forbid_while_loading(L, "astral.load");
     Impl& impl = Impl::of(L);
     const std::string slot = luaL_checkstring(L, 1);
     const auto text = require_storage(L, impl).read(slot);
@@ -225,14 +227,17 @@ int physics_overlap_box(lua_State* L) {
 }
 
 int physics_impulse(lua_State* L) {
+    forbid_while_loading(L, "astral.physics.impulse");
     require_physics(L, Impl::of(L)).impulse(check_entity(L, 1), check_vec3(L, 2));
     return 0;
 }
 int physics_force(lua_State* L) {
+    forbid_while_loading(L, "astral.physics.force");
     require_physics(L, Impl::of(L)).force(check_entity(L, 1), check_vec3(L, 2));
     return 0;
 }
 int physics_set_velocity(lua_State* L) {
+    forbid_while_loading(L, "astral.physics.set_velocity");
     require_physics(L, Impl::of(L)).set_velocity(check_entity(L, 1), check_vec3(L, 2));
     return 0;
 }
@@ -277,6 +282,7 @@ int physics_raycast_batch(lua_State* L) {
 }
 
 int physics_move_character(lua_State* L) {
+    forbid_while_loading(L, "astral.physics.move_character");
     if (!lua_isnoneornil(L, 3)) luaL_checktype(L, 3, LUA_TBOOLEAN);
     const bool accepted = require_physics(L, Impl::of(L)).move_character(
         check_entity(L, 1), check_vec3(L, 2), lua_toboolean(L, 3));
@@ -299,32 +305,39 @@ int physics_character_state(lua_State* L) {
 }
 
 int physics_teleport(lua_State* L) {
+    forbid_while_loading(L, "astral.physics.teleport");
     Quat rot{};
     if (!lua_isnoneornil(L, 3)) rot = check_quat(L, 3);
     require_physics(L, Impl::of(L)).teleport(check_entity(L, 1), check_vec3(L, 2), rot);
     return 0;
 }
 int physics_wake(lua_State* L) {
+    forbid_while_loading(L, "astral.physics.wake");
     require_physics(L, Impl::of(L)).wake(check_entity(L, 1));
     return 0;
 }
 int physics_sleep(lua_State* L) {
+    forbid_while_loading(L, "astral.physics.sleep");
     require_physics(L, Impl::of(L)).sleep(check_entity(L, 1));
     return 0;
 }
 int physics_set_joint_motor_mode(lua_State* L) {
+    forbid_while_loading(L, "astral.physics.set_joint_motor_mode");
     require_physics(L, Impl::of(L)).set_joint_motor_mode(check_entity(L, 1), luaL_checkstring(L, 2));
     return 0;
 }
 int physics_set_joint_motor_velocity(lua_State* L) {
+    forbid_while_loading(L, "astral.physics.set_joint_motor_velocity");
     require_physics(L, Impl::of(L)).set_joint_motor_velocity(check_entity(L, 1), static_cast<float>(luaL_checknumber(L, 2)));
     return 0;
 }
 int physics_set_joint_motor_position(lua_State* L) {
+    forbid_while_loading(L, "astral.physics.set_joint_motor_position");
     require_physics(L, Impl::of(L)).set_joint_motor_position(check_entity(L, 1), static_cast<float>(luaL_checknumber(L, 2)));
     return 0;
 }
 int physics_break_joint(lua_State* L) {
+    forbid_while_loading(L, "astral.physics.break_joint");
     require_physics(L, Impl::of(L)).break_joint(check_entity(L, 1));
     return 0;
 }

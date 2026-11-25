@@ -90,6 +90,7 @@ Sistem çalıştırma önce entity'leri toplar, sonra çağırır (script yapıs
 
 ## Bilinen sınırlar
 
+- Modülün top-level kodu yalnız bildirim yapar (ADR-0044): `astral.spawn`, `astral.send`, entity değişikliği, `astral.save/load` ve `astral.physics` komutları orada hata verir; bunlar `on_load()` içinde veya callback'lerde yapılır. Başarısız yükleme tanımladığı tip ve event'leri geri alır; `on_load` hatası yüklemeyi geri almaz.
 - luau-lsp için hazır proje ayarı yok (tip tanımı üretiliyor, bkz. aşağıdaki denetim).
 - Tween/durum makinesi Luau'da yazılmış yardımcılar (`src/prelude.hpp`): durumları closure'da; sıcak döngüde değil, oyun mantığında kullan.
 - Kayıt yalnız listelenen component'leri saklar; entity referansları kayıt içinde yeniden eşlenir, kayıt dışındaki entity'ye giden referans `nil` olur.

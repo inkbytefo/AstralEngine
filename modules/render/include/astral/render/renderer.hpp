@@ -112,8 +112,8 @@ struct MaterialDesc {
     float wetness = 0.0f; ///< [0, 1]: darkens porous surfaces, smooths roughness, adds water clearcoat.
     /// A custom surface shader (ADR-0022). Invalid = the standard PBR shader with the values above.
     ShaderHandle shader{};
-    /// The shader's uniform block (layout_uniforms words; numbers as float). Textures go in `textures`.
-    std::vector<float> params{};
+    /// The shader's uniform block (layout_uniforms words, typed per ADR-0042: float bits, int32, bool 0/1). Textures go in `textures`.
+    std::vector<std::uint32_t> params{};
     struct ParamTexture {
         std::uint32_t offset = 0;   ///< Word of the sampler2D uniform.
         TextureHandle texture{};    ///< Invalid = white (or a flat normal when `normal`).

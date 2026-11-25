@@ -1,6 +1,5 @@
 #include <astral/core/json.hpp>
 
-#include <astral/core/bytes.hpp>
 #include <algorithm>
 
 #include <charconv>
@@ -60,7 +59,11 @@ void write(std::string& out, const Json& j, int indent, int depth) {
     switch (j.type()) {
     case Json::Type::Null: out += "null"; break;
     case Json::Type::Bool: out += j.as_bool() ? "true" : "false"; break;
-    case Json::Type::Number: number(out, j.as_number()); break;
+    case Json::Type::Number:
+        if (const auto i = j.as_int64(); i && j.is_integer()) out += std::to_string(*i);
+        else if (const auto u = j.as_uint64(); u && j.is_integer()) out += std::to_string(*u);
+        else number(out, j.as_number());
+        break;
     case Json::Type::String: escape(out, j.as_string()); break;
     case Json::Type::Array: {
         const auto& a = j.as_array();
@@ -178,8 +181,20 @@ private:
             if (pos_ < text_.size() && (text_[pos_] == '+' || text_[pos_] == '-')) ++pos_;
             if (!digits()) return fail("invalid number");
         }
+        const char* first = text_.data() + start;
+        const char* last = text_.data() + pos_;
+        if (std::find_if(first, last, [](char ch) { return ch == '.' || ch == 'e' || ch == 'E'; }) == last) {
+            // A plain integer literal: keep it exact when it fits 64 bits (ADR-0041).
+            if (*first == '-') {
+                std::int64_t i = 0;
+                if (const auto r = std::from_chars(first, last, i); r.ec == std::errc{} && r.ptr == last) return out = i, true;
+            } else {
+                std::uint64_t u = 0;
+                if (const auto r = std::from_chars(first, last, u); r.ec == std::errc{} && r.ptr == last) return out = u, true;
+            }
+        }
         double v = 0;
-        const auto [end, ec] = std::from_chars(text_.data() + start, text_.data() + pos_, v);
+        const auto [end, ec] = std::from_chars(first, last, v);
         if (ec != std::errc{} || end != text_.data() + pos_) {
             pos_ = start;
             return fail("invalid number");
@@ -333,8 +348,49 @@ bool Json::as_bool(bool fallback) const noexcept {
 }
 
 double Json::as_number(double fallback) const noexcept {
-    const double* d = std::get_if<double>(&value_);
-    return d ? *d : fallback;
+    if (const double* d = std::get_if<double>(&value_)) return *d;
+    if (const std::int64_t* i = std::get_if<std::int64_t>(&value_)) return static_cast<double>(*i);
+    if (const std::uint64_t* u = std::get_if<std::uint64_t>(&value_)) return static_cast<double>(*u);
+    return fallback;
+}
+
+std::optional<std::int64_t> Json::as_int64() const noexcept {
+    if (const std::int64_t* i = std::get_if<std::int64_t>(&value_)) return *i;
+    if (const std::uint64_t* u = std::get_if<std::uint64_t>(&value_)) {
+        if (*u <= static_cast<std::uint64_t>(INT64_MAX)) return static_cast<std::int64_t>(*u);
+        return std::nullopt;
+    }
+    if (const double* d = std::get_if<double>(&value_)) {
+        // [-2^63, 2^63): both bounds are exact doubles, so the cast below is defined.
+        if (std::isfinite(*d) && *d == std::trunc(*d) && *d >= -9223372036854775808.0 && *d < 9223372036854775808.0) {
+            return static_cast<std::int64_t>(*d);
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<std::uint64_t> Json::as_uint64() const noexcept {
+    if (const std::uint64_t* u = std::get_if<std::uint64_t>(&value_)) return *u;
+    if (const std::int64_t* i = std::get_if<std::int64_t>(&value_)) {
+        if (*i >= 0) return static_cast<std::uint64_t>(*i);
+        return std::nullopt;
+    }
+    if (const double* d = std::get_if<double>(&value_)) {
+        if (std::isfinite(*d) && *d == std::trunc(*d) && *d >= 0.0 && *d < 18446744073709551616.0) {
+            return static_cast<std::uint64_t>(*d);
+        }
+    }
+    return std::nullopt;
+}
+
+bool operator==(const Json& a, const Json& b) noexcept {
+    if (a.type() != b.type()) return false;
+    if (a.type() != Json::Type::Number) return a.value_ == b.value_;
+    if (!a.is_integer() && !b.is_integer()) return a.as_number() == b.as_number();
+    // At least one side is an integer: equal only when both hold exactly the same whole number.
+    if (const auto ai = a.as_int64()) return b.as_int64() == ai;
+    if (const auto au = a.as_uint64()) return b.as_uint64() == au;
+    return false; // a is a non-integral or out-of-range double, b is an integer
 }
 
 const std::string& Json::as_string() const noexcept {
@@ -421,123 +477,4 @@ std::optional<Json> Json::parse(std::string_view text, std::string* error) {
     return Parser(text).run(error);
 }
 
-// --- binary form ---------------------------------------------------------------------------------
-
-namespace {
-
-constexpr std::uint8_t binary_magic[4] = {'A', 'J', 'B', '1'};
-enum Tag : std::uint8_t { TagNull, TagFalse, TagTrue, TagNumber, TagInteger, TagString, TagArray, TagObject };
-constexpr int max_binary_depth = 512;
-
-void write_binary(ByteWriter& w, const Json& j) {
-    switch (j.type()) {
-    case Json::Type::Null: w.u8(TagNull); break;
-    case Json::Type::Bool: w.u8(j.as_bool() ? TagTrue : TagFalse); break;
-    case Json::Type::Number: {
-        const double v = j.as_number();
-        // Whole numbers (ids, counts, most colours' 0/1) as zigzag varints: 1-3 bytes instead of 9.
-        if (std::isfinite(v) && v == std::floor(v) && std::fabs(v) < 9007199254740992.0 && !(v == 0 && std::signbit(v))) {
-            const auto i = static_cast<std::int64_t>(v);
-            w.u8(TagInteger);
-            w.varint((static_cast<std::uint64_t>(i) << 1) ^ static_cast<std::uint64_t>(i >> 63));
-        } else {
-            w.u8(TagNumber);
-            w.f64(v);
-        }
-        break;
-    }
-    case Json::Type::String:
-        w.u8(TagString);
-        w.string(j.as_string());
-        break;
-    case Json::Type::Array:
-        w.u8(TagArray);
-        w.varint(j.size());
-        for (const Json& item : j.as_array()) write_binary(w, item);
-        break;
-    case Json::Type::Object:
-        w.u8(TagObject);
-        w.varint(j.size());
-        for (const auto& [key, value] : j.as_object()) {
-            w.string(key);
-            write_binary(w, value);
-        }
-        break;
-    }
-}
-
-bool read_binary(ByteReader& r, Json& out, int depth, std::string& error) {
-    if (depth > max_binary_depth) {
-        error = "nesting deeper than " + std::to_string(max_binary_depth);
-        return false;
-    }
-    const std::uint8_t tag = r.u8();
-    if (!r.ok()) return error = "truncated", false;
-    switch (tag) {
-    case TagNull: out = nullptr; return true;
-    case TagFalse: out = false; return true;
-    case TagTrue: out = true; return true;
-    case TagNumber: out = r.f64(); break;
-    case TagInteger: {
-        const std::uint64_t z = r.varint();
-        out = static_cast<double>(static_cast<std::int64_t>((z >> 1) ^ (~(z & 1) + 1)));
-        break;
-    }
-    case TagString: out = r.string(); break;
-    case TagArray: {
-        const std::uint64_t n = r.varint();
-        if (n > r.remaining()) return error = "array count beyond the data", false; // each item takes >= 1 byte
-        out = Json::array();
-        for (std::uint64_t i = 0; i < n; ++i) {
-            Json item;
-            if (!read_binary(r, item, depth + 1, error)) return false;
-            out.push_back(std::move(item));
-        }
-        break;
-    }
-    case TagObject: {
-        const std::uint64_t n = r.varint();
-        if (n > r.remaining()) return error = "member count beyond the data", false;
-        out = Json::object();
-        for (std::uint64_t i = 0; i < n; ++i) {
-            std::string key = r.string();
-            Json value;
-            if (!r.ok() || !read_binary(r, value, depth + 1, error)) return error.empty() ? (error = "truncated", false) : false;
-            out[key] = std::move(value);
-        }
-        break;
-    }
-    default: error = "unknown value tag " + std::to_string(tag); return false;
-    }
-    if (!r.ok()) return error = "truncated", false;
-    return true;
-}
-
-} // namespace
-
-std::vector<std::uint8_t> Json::to_binary() const {
-    ByteWriter w;
-    w.bytes(binary_magic);
-    write_binary(w, *this);
-    return w.take();
-}
-
-bool Json::is_binary(std::span<const std::uint8_t> data) noexcept {
-    return data.size() >= 4 && std::equal(data.begin(), data.begin() + 4, binary_magic);
-}
-
-std::optional<Json> Json::from_binary(std::span<const std::uint8_t> data, std::string* error) {
-    std::string message;
-    if (!is_binary(data)) message = "not binary JSON (no AJB1 header)";
-    ByteReader r(data.subspan(std::min<std::size_t>(4, data.size())));
-    Json value;
-    if (message.empty() && read_binary(r, value, 0, message)) {
-        if (r.remaining() == 0) return value;
-        message = "unexpected bytes after the value";
-    }
-    if (error) *error = "binary JSON: " + message;
-    return std::nullopt;
-}
-
 } // namespace astral
-

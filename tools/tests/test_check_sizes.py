@@ -221,6 +221,49 @@ class CliAndDiscoveryTests(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("over budget: 1, exceptions: 1", summary)
 
+    def test_exception_cap_stale_entries_and_near_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            src = root / "modules" / "demo" / "src"
+            src.mkdir(parents=True)
+            (src / "grow.cpp").write_text(_make_function("grow_fn", 90), encoding="utf-8")
+            (src / "close.cpp").write_text(_make_function("close_fn", 75), encoding="utf-8")
+            budget = root / "tools" / "size_budget.json"
+            budget.parent.mkdir(parents=True)
+
+            # An exception with room under its cap passes.
+            entry = {"path": "modules/demo/src/grow.cpp", "kind": "function", "name": "grow_fn", "reason": "t", "max": 95}
+            budget.write_text(json.dumps([entry]), encoding="utf-8")
+            code, out = self._run_cli(["--root", str(root), "--strict"])
+            self.assertEqual(code, 0)
+            self.assertIn("[EXCEPT]", out)
+            # Grown beyond its cap: over budget again.
+            entry["max"] = 85
+            budget.write_text(json.dumps([entry]), encoding="utf-8")
+            code, out = self._run_cli(["--root", str(root), "--strict"])
+            self.assertEqual(code, 1)
+            self.assertIn("exception cap 85 exceeded", out)
+
+            # A function under its limit but within 90% is listed as near, without failing.
+            self.assertIn("[NEAR]   function modules/demo/src/close.cpp", out)
+            code, out = self._run_cli(["--root", str(root), "--near", "1"])
+            self.assertNotIn("[NEAR]", out)
+
+            # Fixed offender: its exception is stale and --strict fails until it is removed.
+            (src / "grow.cpp").write_text(_make_function("grow_fn", 10), encoding="utf-8")
+            code, out = self._run_cli(["--root", str(root), "--strict"])
+            self.assertEqual(code, 1)
+            self.assertIn("[STALE]", out)
+            self.assertIn("stale exceptions: 1", out)
+            budget.write_text("[]", encoding="utf-8")
+            code, _ = self._run_cli(["--root", str(root), "--strict"])
+            self.assertEqual(code, 0)
+
+    def test_near_findings_are_not_over(self) -> None:
+        near = check_sizes.analyze_source(_make_function("f", 76), "modules/core/src/n.cpp", near_ratio=0.9)
+        self.assertEqual([(f.kind, f.over) for f in near], [("function", False)])
+        self.assertEqual(check_sizes.analyze_source(_make_function("f", 76), "modules/core/src/n.cpp"), [])
+
 
 if __name__ == "__main__":
     unittest.main()

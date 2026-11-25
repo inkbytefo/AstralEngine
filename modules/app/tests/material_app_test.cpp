@@ -3,6 +3,7 @@
 #include <astral/astral.hpp>
 #include <doctest/doctest.h>
 
+#include <bit>
 #include <chrono>
 #include <thread>
 
@@ -60,7 +61,11 @@ TEST_CASE("a .material file draws, follows edits while the game runs and survive
         explicit G(const std::filesystem::path& d) : dir(d) {}
         static std::vector<float> params(Context& ctx, MaterialHandle m) {
             const MaterialDesc* d = ctx.renderer->material(m);
-            return d ? std::vector<float>(d->params.begin(), d->params.begin() + 3) : std::vector<float>{};
+            std::vector<float> out;
+            if (d) {
+                for (std::size_t i = 0; i < 3 && i < d->params.size(); ++i) out.push_back(std::bit_cast<float>(d->params[i])); // float words (ADR-0042)
+            }
+            return out;
         }
         void on_start(Context& ctx) override {
             red = ctx.materials().load_material("materials/base.material");

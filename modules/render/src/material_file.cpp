@@ -72,7 +72,7 @@ MaterialFile resolve_material(std::string_view path, const MaterialReader& read)
 
 UniformValues evaluate_uniforms(const ShaderSource& shader, const UniformLayout& layout, const MaterialFile& material) {
     UniformValues out;
-    out.params.assign(layout.words, 0.0f);
+    out.params.assign(layout.words, 0u);
     for (std::size_t i = 0; i < shader.uniforms.size(); ++i) {
         const ShaderUniform& u = shader.uniforms[i];
         const std::uint32_t offset = layout.offsets[i];
@@ -87,26 +87,35 @@ UniformValues evaluate_uniforms(const ShaderSource& shader, const UniformLayout&
             continue;
         }
         const std::size_t n = component_count(u.type);
-        std::vector<float> values = u.default_value;
-        values.resize(n, 0.0f);
+        // Words through the same check as the .ashader defaults (ADR-0042); defaults already passed it.
+        std::vector<std::uint32_t> words(n, uniform_word(u.type, 0.0).value_or(0u));
+        for (std::size_t k = 0; k < n && k < u.default_value.size(); ++k) words[k] = uniform_word(u.type, u.default_value[k]).value_or(0u);
         if (v) {
-            std::vector<float> given;
+            std::vector<std::uint32_t> given;
             bool ok = false;
+            auto word = [&](const Json& c) {
+                const std::optional<double> x = c.is_bool() ? std::optional<double>(c.as_bool() ? 1.0 : 0.0)
+                                                : c.is_number() ? std::optional<double>(c.as_number())
+                                                                : std::nullopt;
+                return x ? uniform_word(u.type, *x) : std::nullopt;
+            };
             if (v->is_number() || v->is_bool()) {
-                const auto x = static_cast<float>(v->is_bool() ? (v->as_bool() ? 1.0 : 0.0) : v->as_number());
-                given.assign(n, x); // a single number fills every component
-                ok = true;
+                if (const auto w = word(*v)) {
+                    given.assign(n, *w); // a single number fills every component
+                    ok = true;
+                }
             } else if (v->is_array() && v->size() == n) {
                 ok = true;
                 for (const Json& c : v->as_array()) {
-                    ok = ok && c.is_number();
-                    given.push_back(static_cast<float>(c.as_number()));
+                    const auto w = c.is_number() ? word(c) : std::nullopt;
+                    ok = ok && w.has_value();
+                    given.push_back(w.value_or(0u));
                 }
             }
-            if (ok) values = std::move(given);
+            if (ok) words = std::move(given);
             else out.warnings.push_back("'" + u.name + "': expected " + std::string(to_string(u.type)) + ", got something else");
         }
-        std::copy(values.begin(), values.end(), out.params.begin() + offset);
+        std::copy(words.begin(), words.end(), out.params.begin() + offset);
     }
     for (const auto& [name, value] : material.values) {
         (void)value;

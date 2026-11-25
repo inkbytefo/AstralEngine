@@ -22,6 +22,20 @@ Kayıtlar kaynak koda karşı yeniden doğrulandı (statik okuma; build/test bu 
   - Hâlâ geçerli: **A09** (`map_runtime.cpp:199–202`), **A10** (`audio_bridge.cpp:71`), **C01** (ScopedTick yalnız `system_scheduler.cpp:44` üst job'da), **PH03** (`PhysicsBridge::shift_origin` bekleyen komutları taşımıyor), **PH04** (`physics_bridge.cpp:571` `time_.elapsed`), **PH05**, **PH08**, **AS01/AS02** (asıl kusur `gltf.cpp`'de).
 - Kalan kayıtlar değişmeyen kodda olduğu için `open` kalır; fix sırasında failing test ile ayrıca kanıtlanır.
 
+## Dalga 3 uygulama durumu — 25 Kasım 2026, branch `fix/msr-wave3`
+
+ADR gerektiren son dört motor kusuru kapatıldı. Doğrulama: Windows 11, MSVC 19.51 Debug, RTX 3060: 91 testten 84'ü geçti; kalan 7 `golden_hw_*` hatası master ile aynı. Testler düzeltmeyle aynı anda yazıldı, düzeltme öncesi kırmızı oldukları koşturularak gösterilmedi. Release, sanitizer ve lavapipe golden çalıştırılmadı.
+
+- **Araç:** `tools/check_sizes.py` istisna `max` üst sınırı, `[STALE]` istisna ve `[NEAR]` (sınırın %90'ı) raporu kazandı (ADR-0030 eki). `json.cpp` 600 satırı aştığı için AJB kodu `json_binary.cpp`'ye ayrıldı.
+
+- **fixed, local tests:**
+  - **C05** ([ADR-0041](../decisions/0041-lossless-json-integers.md)): `Json` tamsayıları `int64`/`uint64` olarak tam saklar; metin, AJB (`TagUInt64`), typed serialize ve 8-byte reflection field'ları 2^53 üstünde kayıpsız. Ek bulgu: `store_clamped<int64/uint64>` üst sınırı `(double)max` = 2^63/2^64 olduğu için UB'ydi; artık doyurma tamsayı tarafında.
+  - **AS13** ([ADR-0042](../decisions/0042-typed-shader-parameter-words.md)): parametre bloğu `uint32_t` word; int `int(astral_pu())`, bool `astral_pu() != 0u`. `.ashader` default'ları `double`; ortak `uniform_word()` doğrulayıcısı kesirli/aralık dışı/sonsuz int'i reddeder.
+  - **PH05** ([ADR-0043](../decisions/0043-deterministic-physics-command-producers.md)): fizik komutları `(order_key, producer, sequence)` ile sıralanır; `producer` = faz + sistem kayıt sırası. Paralel ve seri zamanlama aynı sonucu verir.
+  - **AG09** ([ADR-0044](../decisions/0044-staged-script-module-load.md)): top-level yükleme bildirim aşaması; world değiştiren çağrılar reddedilir, başarısız yüklemede tip/event registry geri alınır, commit sonrası `on_load()`. `astral.spawn` hatada entity bırakmaz.
+- **Sözleşme değişiklikleri:** `MaterialDesc::params` / `UniformValues::params` → `std::vector<std::uint32_t>`; `ShaderUniform::default_value` → `std::vector<double>`; `Json::as_int64/as_uint64/is_integer`; `TypeRegistry/EventRegistry::rollback_dynamic`. Cook sürümü `astral-cook 7` (ilk cook her şeyi yeniden üretir). Top-level `spawn`/`send`/physics komutu kullanan script'ler `on_load`'a taşınmalı.
+- **Bilinen artık risk:** Luau sayıları double olduğundan script'e verilen 64-bit değerler 2^53 üstünde hâlâ kayıplı. PH05: bir sistemin kendi paralel job'larından gelen çakışan komutlar açık `order_key` ister. AG09: `on_load` hatası commit'i geri almaz.
+
 ## Dalga 2 uygulama durumu — 25 Kasım 2026, branch `fix/msr-wave2`
 
 Doğrulama: Windows 11, MSVC 19.51 Debug, RTX 3060. Golden dışı 62 test geçiyor; golden'da master ile aynı 7 `golden_hw_*` hatası var. Release, sanitizer ve lavapipe golden çalıştırılmadı.
@@ -31,7 +45,7 @@ Doğrulama: Windows 11, MSVC 19.51 Debug, RTX 3060. Golden dışı 62 test geçi
 - **Sözleşme değişikliği:** başarısız cook artık son iyi çıktıyı siler yerine korur ve hata raporlar (AS09). `terrain_test` bu sözleşmeye güncellendi. Cook cache sürümü 2 oldu; ilk cook her şeyi yeniden üretir.
 - **Bilinen artık risk:** AS06'da yerinde güncellenen (`update_*`) kaynaklar başarısız reload'da yeni içerikle kalabilir; yalnız yeni yaratılanlar geri alınır. AG10'da Script'in aynı kare içinde kaldırılıp geri eklenmesi yeni instance sayılmaz. REN01'de aynı kare içinde submit'ten önce iki view kaydedilirse ikisi aynı history'yi görür.
 
-Hâlâ açık ve ADR gerektiren: **C05** (Json 64-bit tamsayı), **AS13** (shader int ABI), **PH05** (aynı entity'ye paralel noncommutative komut sırası), **AG09** (transactional Luau reload).
+Bu dalgada ADR bekleyen C05, AS13, PH05 ve AG09, Dalga 3'te ADR-0041–0044 ile kapatıldı.
 
 ## Dalga 1 uygulama durumu — 25 Kasım 2026, branch `fix/msr-revalidation`
 
@@ -262,9 +276,9 @@ Aşağıdaki 137 satır yedi rapordan ID bazında çıkarıldı. Her kayıt yaln
 | R03 | risk | P2 | S3 | deferred replacement | [Harici provider yaşam döngüsü ve scratch dosyası:](master-code-audit-2026-11-25.md) |
 | C03 | defect | P1 | S4.1 | fixed, local tests | [Schema version doğrulamasından önce daraltıcı dönüşüm](core-ecs-deep-audit-2026-11-25.md) |
 | C04 | defect | P1 | S4.1 | fixed, local tests | [Typed reflection sayı/enum yüklemesi aralık kontrolü yapmıyor](core-ecs-deep-audit-2026-11-25.md) |
-| C05 | defect | P1 | S4.1 | open | [64-bit integer serialization ve reflection clamp tam aralığı korumuyor](core-ecs-deep-audit-2026-11-25.md) |
+| C05 | defect | P1 | S4.1 | fixed, local tests | [64-bit integer serialization ve reflection clamp tam aralığı korumuyor](core-ecs-deep-audit-2026-11-25.md) |
 | AS04 | defect | P1 | S4.1 | fixed, local tests | [Opsiyonel glTF indekslerinde negatif floating-point sentinel unsigned'a cast ediliyor](assets-shader-deep-audit-2026-11-25.md) |
-| AS13 | defect | P2 | S4.1 | open | [ashader int uniform float32 üzerinden taşındığı için tam int32 aralığı korunmuyor](assets-shader-deep-audit-2026-11-25.md) |
+| AS13 | defect | P2 | S4.1 | fixed, local tests | [ashader int uniform float32 üzerinden taşındığı için tam int32 aralığı korunmuyor](assets-shader-deep-audit-2026-11-25.md) |
 | ASR04 | risk | P2 | S4.1 | open | [Shader parser grammar/type validation:](assets-shader-deep-audit-2026-11-25.md) |
 | ASP03 | proposal | P3 | S4.1 | open | [Shader ABI + build cache](assets-shader-deep-audit-2026-11-25.md) |
 | A11 | defect | P1 | S4.2 | fixed, local tests | [Cooked model index bounds kontrolünde unsigned çarpım taşması](master-code-audit-2026-11-25.md) |
@@ -306,7 +320,7 @@ Aşağıdaki 137 satır yedi rapordan ID bazında çıkarıldı. Her kayıt yaln
 | PH02 | defect | P1 | S5.2 | fixed, local tests | [Overlap queries karakterleri atlıyor](physics-jolt-deep-audit-2026-11-25.md) |
 | PH03 | defect | P1 | S5.2 | fixed, local tests | [Floating origin bekleyen teleport komutlarını yeni koordinat sistemine taşımıyor](physics-jolt-deep-audit-2026-11-25.md) |
 | PH04 | defect | P1 | S5.2 | implemented, no fault test | [Zaman bağımlı fizik alanları fixed-step yerine render frame zamanını kullanıyor](physics-jolt-deep-audit-2026-11-25.md) |
-| PH05 | defect | P1 | S5.2 | open | [Aynı entity'nin paralel noncommutative komutları deterministik sıralanmıyor](physics-jolt-deep-audit-2026-11-25.md) |
+| PH05 | defect | P1 | S5.2 | fixed, local tests | [Aynı entity'nin paralel noncommutative komutları deterministik sıralanmıyor](physics-jolt-deep-audit-2026-11-25.md) |
 | PH06 | defect | P2 | S5.2 | fixed, local tests | [Convex hull ön doğrulaması bazı geçerli nokta dizilerini reddediyor](physics-jolt-deep-audit-2026-11-25.md) |
 | PH07 | defect | P2 | S5.2 | fixed, local tests | [Field noise sayısal dönüşüm sınırları korunmuyor](physics-jolt-deep-audit-2026-11-25.md) |
 | PH08 | defect | P2 | S5.2 | implemented, no fault test | [Değişmemiş joint motor ayarları her fixed step'te gövdeyi yeniden uyandırıyor](physics-jolt-deep-audit-2026-11-25.md) |
@@ -337,7 +351,7 @@ Aşağıdaki 137 satır yedi rapordan ID bazında çıkarıldı. Her kayıt yaln
 | AGP01 | proposal | P3 | S5.4 | open | [Gameplay Runtime Contract: frame vs simulation clocks, tick input queue, deterministic event/command boundaries, explicit system and feature ownership](app-gameplay-deep-audit-2026-11-25.md) |
 | AG07 | defect | P1 | S5.5 | fixed, local tests | [Luau runtime'da listener/system kaydı aktif iterasyonu geçersizleştirebilir](app-gameplay-deep-audit-2026-11-25.md) |
 | AG08 | defect | P2 | S5.5 | implemented, no fault test | [Hatalı registration Lua registry ref'lerini sahiplik kaydından önce bırakıyor](app-gameplay-deep-audit-2026-11-25.md) |
-| AG09 | defect | P1 | S5.5 | open | [Failed script reload live world ve registry yan etkilerini geri almıyor](app-gameplay-deep-audit-2026-11-25.md) |
+| AG09 | defect | P1 | S5.5 | fixed, local tests | [Failed script reload live world ve registry yan etkilerini geri almıyor](app-gameplay-deep-audit-2026-11-25.md) |
 | AG10 | defect | P2 | S5.5 | fixed, local tests | [Behaviour on_start durumu script path/generation yerine yalnız entity ile takip ediliyor](app-gameplay-deep-audit-2026-11-25.md) |
 | AG11 | defect | P2 | S5.5 | fixed, local tests | [Aynı timer batch'inde module failure sonrası diğer callback'ler çalışmaya devam edebilir](app-gameplay-deep-audit-2026-11-25.md) |
 | AG12 | defect | P1 | S5.5 | fixed, local tests | [Luau cyclic table serialization için recursion guard yok](app-gameplay-deep-audit-2026-11-25.md) |

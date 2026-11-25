@@ -42,6 +42,7 @@ if (auto hit = physics.raycast(origin, direction, 100.0f)) { /* hit->body, posit
 
 ## Bilinen sınırlar
 
+- Fizik komut kuyruğu eşit `order_key`'de üreticiye göre sıralar (ADR-0043): sistem dışı kod, sonra sistemler kayıt sırasıyla (çakışan setter'da sonra kaydedilen kazanır). Bir sistem kendi paralel job'larından çakışan komut gönderiyorsa açık `order_key` vermelidir.
 - `CharacterDesc::height` kapsülün toplam boyudur; `height < 2 * radius + 0.02` olan karakter reddedilir (eskiden
   sessizce daha uzun bir kapsül oluşuyordu, MSR PH09).
 

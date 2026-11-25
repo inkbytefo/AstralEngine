@@ -5,7 +5,10 @@
 #include <astral/astral.hpp>
 #include <doctest/doctest.h>
 
+#include <atomic>
+#include <chrono>
 #include <cmath>
+#include <thread>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -339,4 +342,61 @@ TEST_CASE("P0 streaming detach emits JointDetached (not JointBroken) and re-atta
     REQUIRE(j != nullptr);
     CHECK_FALSE(j->broken);
     CHECK(app.context().physics->valid(j->handle));
+}
+
+namespace {
+// PH05 (ADR-0043): two parallel systems set the same body's velocity. The first-registered one waits
+// until the second has queued its command, so lock order is the opposite of registration order.
+struct Ph05Sync {
+    std::atomic<bool> second_queued{false};
+};
+class SetVelocityFirst final : public System {
+public:
+    explicit SetVelocityFirst(Ph05Sync& s) : sync_(s) {}
+    void configure(SystemAccess& access) override { access.reads<TagA>(); }
+    void update(Context& ctx) override {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
+        while (!sync_.second_queued.load() && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+        ctx.world.each<const TagA>([&](Entity e, const TagA&) { ctx.physics_service().set_linear_velocity(e, {1.0f, 0.0f, 0.0f}); });
+    }
+
+private:
+    Ph05Sync& sync_;
+};
+class SetVelocitySecond final : public System {
+public:
+    explicit SetVelocitySecond(Ph05Sync& s) : sync_(s) {}
+    void configure(SystemAccess& access) override { access.reads<TagB>(); }
+    void update(Context& ctx) override {
+        ctx.world.each<const TagB>([&](Entity e, const TagB&) { ctx.physics_service().set_linear_velocity(e, {2.0f, 0.0f, 0.0f}); });
+        sync_.second_queued.store(true);
+    }
+
+private:
+    Ph05Sync& sync_;
+};
+} // namespace
+
+TEST_CASE("PH05: competing velocity setters from parallel systems resolve by registration order, not lock order") {
+    auto run_sim = [](bool parallel) {
+        App app({.headless = true, .fixed_timestep = 1.0f / 60.0f, .physics_rate = 60.0f, .parallel_systems = parallel});
+        struct SimGame final : Game {
+            Ph05Sync sync;
+            Entity body{};
+            float vx = 0.0f;
+            void on_update(Context& ctx) override { vx = ctx.physics_service().linear_velocity(body).x; }
+            void on_start(Context& ctx) override {
+                body = ctx.world.create(Transform{.position = {0.0f, 50.0f, 0.0f}},
+                                        RigidBody{.desc = {.shape = ShapeDesc::sphere(0.5f), .mass = 1.0f}}, TagA{0}, TagB{0});
+                ctx.add_system<SetVelocityFirst>(Phase::FixedUpdate, sync);
+                ctx.add_system<SetVelocitySecond>(Phase::FixedUpdate, sync);
+            }
+        } game;
+        app.run_frames(game, 3);
+        return game.vx;
+    };
+    const float serial = run_sim(false);
+    const float parallel = run_sim(true);
+    CHECK(serial == doctest::Approx(2.0f).epsilon(0.05)); // the later-registered system's value wins
+    CHECK(parallel == serial);
 }

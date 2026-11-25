@@ -3,6 +3,7 @@
     "path": "modules/app/include/astral/app/app.hpp",
     "kind": "members",
     "name": "Context",
-    "reason": "M13.5 R2: public Context fields kept for source compatibility until M14"
+    "reason": "M13.5 R2: public Context fields kept for source compatibility until M14",
+    "max": 31
   }
 ]

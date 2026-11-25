@@ -136,29 +136,51 @@ std::vector<std::string> ScriptHost::load(std::string_view name, std::string_vie
         loaded = luau_load(T, chunk.c_str(), bytecode, size, 0);
         std::free(bytecode);
     }
+    // Top-level code only declares (ADR-0044): world changes are refused while it runs, and the
+    // types/events it defines are undone if it fails, so a failed load changes nothing.
+    const std::size_t type_mark = impl.env.types.entries().size();
+    const std::size_t event_mark = impl.env.events.entries().size();
     std::string failure;
     if (loaded != 0) {
         failure = lua_tostring(T, -1) ? lua_tostring(T, -1) : "cannot load";
     } else {
         Module* previous = impl.active;
+        const bool was_loading = impl.loading;
         impl.active = module.get();
+        impl.loading = true;
         if (lua_pcall(T, 0, 0, 0) != 0) failure = lua_tostring(T, -1) ? lua_tostring(T, -1) : "script error";
+        impl.loading = was_loading;
         impl.active = previous;
     }
     if (!failure.empty()) {
         impl.release(*module);
+        impl.env.types.rollback_dynamic(type_mark);
+        impl.env.events.rollback_dynamic(event_mark);
         impl.env.log.log(LogLevel::Error, "script: " + failure);
         return {failure};
     }
+    Module* committed = module.get();
+    bool replaced = false;
     for (auto& existing : impl.modules) {
         if (existing->name == module->name) { // hot reload: the new version takes the old one's place
             impl.release(*existing);
             existing = std::move(module);
-            return {};
+            replaced = true;
+            break;
         }
     }
-    impl.modules.push_back(std::move(module));
-    return {};
+    if (!replaced) impl.modules.push_back(std::move(module));
+    // After the commit: on_load() may change the world. Its error does not undo the load.
+    lua_getglobal(T, "on_load");
+    if (!lua_isfunction(T, -1)) {
+        lua_pop(T, 1);
+        return {};
+    }
+    lua_xmove(T, L, 1);
+    const std::size_t errors_before = impl.errors.size();
+    if (impl.protected_call(committed, 0)) return {};
+    if (impl.errors.size() > errors_before) return {impl.errors.back()};
+    return {"on_load failed"};
 }
 
 void ScriptHost::unload(std::string_view name) {

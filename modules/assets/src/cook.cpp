@@ -21,7 +21,7 @@ namespace {
 constexpr std::string_view cache_name = ".astral-cook.json";
 constexpr int cache_version = 2; // 2: world entries list their cell outputs
 /// Bump when cooked formats or the cook's decisions change: everything is cooked again.
-constexpr std::string_view cook_version = "astral-cook 6";
+constexpr std::string_view cook_version = "astral-cook 7"; // 7: AJB uint64 tag, typed shader words (ADR-0041/0042)
 
 enum class Kind { Model, World, Terrain, Shader, Document, Script, Copy };
 
