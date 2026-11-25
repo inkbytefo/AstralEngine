@@ -6,6 +6,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 
+#include <optional>
 #include <string>
 
 namespace astral {
@@ -82,11 +83,13 @@ bool to_pad_button(Uint8 button, GamepadButton& out) {
     }
 }
 
-MouseButton to_button(Uint8 button) {
+/// Left, right and middle only; other buttons (X1/X2, ...) have no MouseButton and are ignored.
+std::optional<MouseButton> to_button(Uint8 button) {
     switch (button) {
+    case SDL_BUTTON_LEFT: return MouseButton::Left;
     case SDL_BUTTON_RIGHT: return MouseButton::Right;
     case SDL_BUTTON_MIDDLE: return MouseButton::Middle;
-    default: return MouseButton::Left;
+    default: return std::nullopt;
     }
 }
 
@@ -145,8 +148,9 @@ bool Window::poll(Input& input) {
             break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
         case SDL_EVENT_MOUSE_BUTTON_UP:
-            input.set_mouse_button(to_button(event.button.button),
-                                   event.type == SDL_EVENT_MOUSE_BUTTON_DOWN);
+            if (const auto button = to_button(event.button.button)) {
+                input.set_mouse_button(*button, event.type == SDL_EVENT_MOUSE_BUTTON_DOWN);
+            }
             break;
         case SDL_EVENT_MOUSE_MOTION:
             input.add_mouse_motion({event.motion.x, event.motion.y},

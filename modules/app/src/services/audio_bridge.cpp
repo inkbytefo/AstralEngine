@@ -67,6 +67,13 @@ void AudioBridge::update_listener() {
 void AudioBridge::sync() {
     update_listener();
 
+    // Destroyed entities take their AudioVoice with them: stop what they were playing (a looping
+    // voice would otherwise play forever).
+    for (const auto& [e, voice] : owned_voices_) {
+        const AudioVoice* v = world_.alive(e) ? world_.get<const AudioVoice>(e) : nullptr;
+        if (!v || v->voice != voice) audio_->stop(voice, 0.05f);
+    }
+
     gone_voices_.clear();
     world_.query<const AudioVoice>().without<AudioSource>().each(
         [&](Entity e, const AudioVoice&) { gone_voices_.push_back(e); });
@@ -120,6 +127,10 @@ void AudioBridge::sync() {
         }
     });
     for (auto& [e, voice] : new_voices_) world_.add(e, std::move(voice));
+    owned_voices_.clear();
+    world_.each<const AudioVoice>([&](Entity e, const AudioVoice& v) {
+        if (v.voice.valid()) owned_voices_.emplace_back(e, v.voice);
+    });
     audio_->update();
 }
 

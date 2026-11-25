@@ -48,6 +48,9 @@ private:
     std::unordered_map<std::string, SoundHandle, StringHash, std::equal_to<>> sounds_;
     std::vector<Entity> gone_voices_;
     std::vector<std::pair<Entity, AudioVoice>> new_voices_;
+    /// Voices started for entities, as of the end of the last sync: a voice whose entity (or
+    /// AudioVoice component) disappeared since is stopped here, since no query can find it anymore.
+    std::vector<std::pair<Entity, VoiceHandle>> owned_voices_;
 };
 
 } // namespace astral

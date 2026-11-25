@@ -61,3 +61,31 @@ TEST_CASE("AudioSource components play, follow their entity, end and stop; ctx.s
     CHECK_FALSE(game.blip_playing_at_20); // ...and says so
     CHECK(game.voices_at_30 == 0);        // the loop stopped with its component
 }
+
+TEST_CASE("A10: destroying an entity stops its looping voice") {
+    const auto dir = test::temp_dir("app_audio_destroy");
+    std::filesystem::create_directories(dir / "sounds");
+    test::write_bytes(dir / "sounds" / "loop.wav", tone_wav(0.5f));
+    App app({.headless = true, .fixed_timestep = 1.0f / 60.0f, .asset_root = dir.string(), .hot_reload = false});
+    struct G final : Game {
+        Entity loop{};
+        int frame = 0;
+        std::uint32_t voices_before = 0, voices_after = 0;
+        void on_start(Context& ctx) override {
+            loop = ctx.world.create(Transform{}, AudioSource{.sound = "sounds/loop.wav", .loop = true});
+        }
+        void on_update(Context& ctx) override {
+            ++frame;
+            std::vector<float> mix(static_cast<std::size_t>(ctx.audio->sample_rate() / 60) * ctx.audio->channels());
+            ctx.audio->read(mix);
+            if (frame == 5) {
+                voices_before = ctx.audio->voice_count();
+                ctx.world.destroy(loop); // the AudioVoice goes with it
+            }
+            if (frame == 15) voices_after = ctx.audio->voice_count();
+        }
+    } game;
+    app.run_frames(game, 16);
+    CHECK(game.voices_before == 1);
+    CHECK(game.voices_after == 0); // stopped (with its short fade), not orphaned
+}
