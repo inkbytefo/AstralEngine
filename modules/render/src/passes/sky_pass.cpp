@@ -65,7 +65,7 @@ std::uint64_t SkyPass::environment_key(const RenderScene& scene, const RenderSet
                           scene.sun.color.x, scene.sun.color.y, scene.sun.color.z, scene.sun.intensity}) {
         hash(std::bit_cast<std::uint32_t>(v));
     }
-    for (const float v : material->params) hash(std::bit_cast<std::uint32_t>(v));
+    for (const std::uint32_t word : material->params) hash(word); // parameter words (ADR-0042)
     for (const auto& texture : material->textures) {
         hash(texture.offset);
         hash(texture.texture.index);
