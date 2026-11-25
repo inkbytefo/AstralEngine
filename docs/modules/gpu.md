@@ -112,6 +112,11 @@ testleri lavapipe'ta `ctest -L '^golden$'`, donanım GPU'sunda `ctest -L '^golde
   yalnız BC5/BC7 (BC1/BC4/BC6H, ASTC yok).
 - Mesh shader sadece `supports()` ile sorgulanabiliyor, kullanılmıyor.
 - BLAS'lar statik (refit/compaction yok); skinned mesh'ler için güncellenebilir BLAS sonraki iş.
+- Aynı anda birden fazla `CommandList` kaydedilebilir; kayıt sırasında `destroy` edilen kaynak, o an açık her liste
+  submit ya da drop edilene kadar yaşar (MSR G02). Ancak drop edilen bir listenin layout geri alımı, aynı texture'a
+  ondan sonra geçiş kaydetmiş başka bir açık listenin barrier'ını geçersiz kılar (MSR G03, ADR bekliyor): aynı
+  texture'a dokunan listeleri sırayla kaydet/submit et.
+- `submit` başka bir `Device`'a ait listeyi reddeder ve listeyi tüketmez (MSR G09).
 
 ## Timestamp sorguları (M8)
 
