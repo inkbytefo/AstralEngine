@@ -11,6 +11,23 @@ option(ASTRAL_INSTALL "Generate install rules" ${PROJECT_IS_TOP_LEVEL})
 option(ASTRAL_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
 option(ASTRAL_SIZE_BUDGET_STRICT "Fail code_size_check when unexcepted offenders exceed the M13.5 size budget" ON)
 
+# Ninja: the heaviest translation units (Jolt) compile in a capped pool so a fully parallel build
+# does not exhaust compiler heap on low-memory machines (MSVC C1060). Scheduling only, same output.
+if(CMAKE_GENERATOR MATCHES "Ninja")
+    cmake_host_system_information(RESULT _astral_cores QUERY NUMBER_OF_LOGICAL_CORES)
+    math(EXPR _astral_heavy_jobs "${_astral_cores} / 2")
+    if(_astral_heavy_jobs LESS 1)
+        set(_astral_heavy_jobs 1)
+    endif()
+    set(ASTRAL_HEAVY_COMPILE_JOBS ${_astral_heavy_jobs} CACHE STRING
+        "Ninja: parallel compile jobs for heavy translation units (Jolt)")
+    if(NOT ASTRAL_HEAVY_COMPILE_JOBS MATCHES "^[1-9][0-9]*$")
+        message(FATAL_ERROR "ASTRAL_HEAVY_COMPILE_JOBS must be a positive integer, got '${ASTRAL_HEAVY_COMPILE_JOBS}'")
+    endif()
+    set_property(GLOBAL APPEND PROPERTY JOB_POOLS heavy_compile=${ASTRAL_HEAVY_COMPILE_JOBS})
+    set(ASTRAL_HEAVY_COMPILE_POOL heavy_compile)
+endif()
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(AstralWarnings)
 include(AstralModule)
@@ -74,6 +91,10 @@ if(ASTRAL_BUILD_TESTS)
                     --manifest "${ASTRAL_MODULE_GRAPH_FILE}")
     else()
         message(STATUS "Python3 interpreter not found: skipping shared_features_in_sync, code_size_check, and layer_check")
+    endif()
+    if(ASTRAL_HEAVY_COMPILE_POOL)
+        add_test(NAME heavy_compile_pool_check
+            COMMAND ${CMAKE_COMMAND} -DBUILD_DIR=${CMAKE_BINARY_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/CheckJobPools.cmake)
     endif()
     add_test(NAME astral_public_headers_clean
         COMMAND ${CMAKE_COMMAND} -DROOT=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/CheckPublicHeaders.cmake)

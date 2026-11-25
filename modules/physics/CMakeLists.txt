@@ -26,6 +26,9 @@ FetchContent_Declare(JoltPhysics
     SOURCE_SUBDIR Build
     SYSTEM)
 FetchContent_MakeAvailable(JoltPhysics)
+if(ASTRAL_HEAVY_COMPILE_POOL)
+    set_property(TARGET Jolt PROPERTY JOB_POOL_COMPILE ${ASTRAL_HEAVY_COMPILE_POOL})
+endif()
 
 astral_add_module(NAME physics
     SOURCES
