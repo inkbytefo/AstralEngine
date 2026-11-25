@@ -2,7 +2,7 @@
 
 **Tarih:** 2026-11-25 · **Taban:** [a29338b](https://github.com/inkbytefo/AstralEngine/commit/a29338bb17d9e275a76895ee692e7a362dd29df5)
 **Durum:** Önerilen hedef tasarım. Kullanıcı kararıyla Editor & AI derin bug avı atlandı; mevcut editör daha sonra bu rapora göre yeniden inşa edilecek. Bu belge implementasyon, onaylanmış yeni ADR veya çalışma zamanı doğrulaması değildir.
-**İlişkiler:** [GDX E3–E10](../game-development-experience-roadmap.md), [ADR-0035](../decisions/0035-standalone-ai-assisted-editor-core.md), [ADR-0036](../decisions/0036-world-authoring-and-level-instances.md), [ADR-0037](../decisions/0037-ai-first-native-editor-v2.md), [Master audit](../status/master-code-audit-2026-11-25.md), [Stabilization backlog](../status/master-stabilization-backlog.md).
+**İlişkiler:** [GDX E3–E10](../game-development-experience-roadmap.md), [ADR-0035](../decisions/0035-standalone-ai-assisted-editor-core.md), [ADR-0036](../decisions/0036-world-authoring-and-level-instances.md), [ADR-0037](../decisions/0037-ai-first-native-editor-v2.md), [Master audit](../archive/audits/master-code-audit-2026-11-25.md), [Stabilization backlog](../archive/msr/master-stabilization-backlog.md).
 
 ## 1. Ürün ve kapsam
 

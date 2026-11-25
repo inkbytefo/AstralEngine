@@ -1,6 +1,6 @@
 # AstralEngine Yetenek Envanteri (F0)
 
-**Tarih:** 2026-11-23 · **Taban SHA:** `eeeeea1` (+ F0 doğrulama değişiklikleri) · **Kanıt raporu:** [f0-verification-report.md](f0-verification-report.md)
+**Tarih:** 2026-11-23 · **Taban SHA:** `eeeeea1` (+ F0 doğrulama değişiklikleri) · **Kanıt raporu:** [f0-verification-report.md](../archive/audits/f0-verification-report.md)
 
 **Durum anahtarı:** `implemented` (kaynak + test doğrulandı) · `partial` (temel mevcut, kapsam/özellik eksik) · `planned` (yol haritasında) · `unsupported` (bilinçli kapsam dışı)
 

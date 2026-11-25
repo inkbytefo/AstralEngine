@@ -1,6 +1,6 @@
 # ADR-0011: Donanımsal ray query ile hibrit fotogerçekçi aydınlatma
 
-**Durum:** Kabul · 2026-11-21 · Araştırma: [research/rage.md](../research/rage.md)
+**Durum:** Kabul · 2026-11-21 · Araştırma: [research/rage.md](../archive/research/rage.md)
 
 **Bağlam:** Hedef RAGE seviyesi (GTA 6) gerçek zamanlı fotogerçekçilik. GTA 6 rasterize G-buffer üzerine
 RT global illumination, RT yansıma ve (üst donanımda) RT gölge koyuyor. M3 renderer'ı tek gölge haritası,

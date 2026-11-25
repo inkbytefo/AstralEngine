@@ -9,16 +9,16 @@ kurallar [process.md](process.md)'de.
 | [roadmap.md](roadmap.md) | Fazlar, her fazın durumu ve bitiş kriterleri |
 | [technology-labs-roadmap.md](technology-labs-roadmap.md) | Oyun odaklı teknoloji lab'leri, native Game API, reusable FeatureSet paketleri ve performans kabulü |
 | [editor/studio-intelligence-target-architecture.md](editor/studio-intelligence-target-architecture.md) | Studio/Intelligence hedef mimarisi ve sıfırdan refaktör sözleşmesi (öneri) |
-| [status/app-gameplay-deep-audit-2026-11-25.md](status/app-gameplay-deep-audit-2026-11-25.md) | App/Gameplay statik denetimi: input, feature composition, Luau lifecycle, save ve world transition |
-| [status/assets-shader-deep-audit-2026-11-25.md](status/assets-shader-deep-audit-2026-11-25.md) | Assets/Shader statik denetimi: glTF, cook, dependency graph, hot reload ve ABI |
-| [status/physics-jolt-deep-audit-2026-11-25.md](status/physics-jolt-deep-audit-2026-11-25.md) | Physics/Jolt statik denetimi: contact identity, fixed step, origin, joints ve shape validation |
-| [status/rendering-deep-audit-2026-11-25.md](status/rendering-deep-audit-2026-11-25.md) | Rendering statik denetimi: RenderGraph, history, assets, M14 VFX |
-| [status/gpu-rhi-deep-audit-2026-11-25.md](status/gpu-rhi-deep-audit-2026-11-25.md) | GPU/Vulkan RHI statik denetimi: lifetime, WSI, RT, descriptor ve bounds |
-| [status/core-ecs-deep-audit-2026-11-25.md](status/core-ecs-deep-audit-2026-11-25.md) | Core/ECS derin statik denetim: scheduler, events, serialization, lifecycle |
-| [status/master-code-audit-2026-11-25.md](status/master-code-audit-2026-11-25.md) | Master teknik denetimi: kaynak bulguları, CI, riskler ve kanıt sınırları |
-| [status/master-stabilization-roadmap.md](status/master-stabilization-roadmap.md) | Merkezi stabilizasyon roadmap'i: 137 kayıt, bağımlılık ve kabul kapıları |
+| [archive/audits/app-gameplay-deep-audit-2026-11-25.md](archive/audits/app-gameplay-deep-audit-2026-11-25.md) | App/Gameplay statik denetimi: input, feature composition, Luau lifecycle, save ve world transition |
+| [archive/audits/assets-shader-deep-audit-2026-11-25.md](archive/audits/assets-shader-deep-audit-2026-11-25.md) | Assets/Shader statik denetimi: glTF, cook, dependency graph, hot reload ve ABI |
+| [archive/audits/physics-jolt-deep-audit-2026-11-25.md](archive/audits/physics-jolt-deep-audit-2026-11-25.md) | Physics/Jolt statik denetimi: contact identity, fixed step, origin, joints ve shape validation |
+| [archive/audits/rendering-deep-audit-2026-11-25.md](archive/audits/rendering-deep-audit-2026-11-25.md) | Rendering statik denetimi: RenderGraph, history, assets, M14 VFX |
+| [archive/audits/gpu-rhi-deep-audit-2026-11-25.md](archive/audits/gpu-rhi-deep-audit-2026-11-25.md) | GPU/Vulkan RHI statik denetimi: lifetime, WSI, RT, descriptor ve bounds |
+| [archive/audits/core-ecs-deep-audit-2026-11-25.md](archive/audits/core-ecs-deep-audit-2026-11-25.md) | Core/ECS derin statik denetim: scheduler, events, serialization, lifecycle |
+| [archive/audits/master-code-audit-2026-11-25.md](archive/audits/master-code-audit-2026-11-25.md) | Master teknik denetimi: kaynak bulguları, CI, riskler ve kanıt sınırları |
+| [archive/msr/master-stabilization-roadmap.md](archive/msr/master-stabilization-roadmap.md) | Merkezi stabilizasyon roadmap'i: 137 kayıt, bağımlılık ve kabul kapıları |
 | [guides/game-architecture.md](guides/game-architecture.md) | World/Scene/Prefab/Entity/Component ve gerçek gameplay geliştirme akışı |
-| [status/master-stabilization-backlog.md](status/master-stabilization-backlog.md) | Denetim bulgularının öncelikli düzeltme ve test planı |
+| [archive/msr/master-stabilization-backlog.md](archive/msr/master-stabilization-backlog.md) | Denetim bulgularının öncelikli düzeltme ve test planı |
 | [game-development-experience-roadmap.md](game-development-experience-roadmap.md) | **GDX (E3–E10)** — proje oluşturma, editör, AI, gerçek Play, export ve bitmiş referans oyun |
 | [process.md](process.md) | Geliştirme akışı ve "faz bitti" tanımı |
 | [../templates/blank/](../templates/blank/README.md) | **Boş oyun şablonu** — yeni oyun için klasörü kopyala |

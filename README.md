@@ -54,7 +54,7 @@ module (core, gpu, platform, world, render) is also usable directly as a plain l
 | Advanced PBR, deferred decals and progressive path tracer reference | ✅ M13 |
 | Module refactor, layer and size checks, portable golden test suite | ✅ M13.5 |
 | Parallel system scheduling and transforms, worker-side cell I/O, runtime benchmarks | ✅ M13.6 |
-| Revalidate the baseline and inventory public capabilities ([report](docs/status/f0-verification-report.md), [matrix](docs/status/capabilities.md)) | ✅ F0 |
+| Revalidate the baseline and inventory public capabilities ([report](docs/archive/audits/f0-verification-report.md), [matrix](docs/status/capabilities.md)) | ✅ F0 |
 | Gameplay API, unified discovery, identity/schema contracts and deterministic physics step queue ([ADR-0034](docs/decisions/0034-gameplay-api-and-physics-step-contract.md)) | ✅ F1 |
 | Standalone AI-assisted desktop editor core (`Astral::Editor_core`, `Astral::Editor`, `examples/world_editor`, [ADR-0035](docs/decisions/0035-standalone-ai-assisted-editor-core.md)) | ✅ E0 |
 | World authoring & Level Instances (`.world`/`.ent` editing, `LevelInstanceMember`/`CrossCellRef`, Edit-in-Context vs Instance Override, data-driven placement + `IHeightSampler`, [ADR-0036](docs/decisions/0036-world-authoring-and-level-instances.md)) | ✅ E1 |

@@ -137,7 +137,7 @@ Bu bölüm kaynakta eksik görünen kontrolleri listeler; exploit doğrulaması 
 
 ## 5. Bilinen TODO / dokümantasyon ve doğrulama borcu
 
-[Capability matrix](capabilities.md) ve [F0 report](f0-verification-report.md) önceki tarihsel kanıtları içerir. GDX tabanına otomatik taşınmaz.
+[Capability matrix](../../status/capabilities.md) ve [F0 report](f0-verification-report.md) önceki tarihsel kanıtları içerir. GDX tabanına otomatik taşınmaz.
 
 | ID | Öncelik | Takip ve öneri |
 |---|---|---|
@@ -176,4 +176,4 @@ Bu deneyler mantıksal reproducer'dır; gerçek engine API'si linklenmedi ve GPU
 
 ## 8. Düzeltme stratejisi ve kapanış
 
-Ayrıntılı sıra: [Master Stabilization Backlog](master-stabilization-backlog.md). Önce V01; ardından GPU submit ve transaction journal/asset overlay, AI review/cancel, parser hardening, streaming/audio. Her bulgu ayrı test-first commit veya küçük ilişkili PR. Sonra Debug/Release/TSan/ASan/UBSan + ilgili golden/hardware ve clean standalone package. Her kayıt için status, fix SHA, test adı, test logu ve platform ekle. Bu audit commit'i yalnız dokümantasyon; hiçbir bulgu kapatılmış değildir.
+Ayrıntılı sıra: [Master Stabilization Backlog](../msr/master-stabilization-backlog.md). Önce V01; ardından GPU submit ve transaction journal/asset overlay, AI review/cancel, parser hardening, streaming/audio. Her bulgu ayrı test-first commit veya küçük ilişkili PR. Sonra Debug/Release/TSan/ASan/UBSan + ilgili golden/hardware ve clean standalone package. Her kayıt için status, fix SHA, test adı, test logu ve platform ekle. Bu audit commit'i yalnız dokümantasyon; hiçbir bulgu kapatılmış değildir.

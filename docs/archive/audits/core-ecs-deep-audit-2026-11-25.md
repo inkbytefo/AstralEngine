@@ -75,7 +75,7 @@ Test: const üye taşıyan veya move assignment deleted component, create/add/re
 4. C06 + CR03: lifecycle ve exception policy.
 5. CR02/CR06 ve CP01–03: uzun oturum, thread-affinity ve ölçüm.
 
-Her kayıt için önce test case, sonra fix, kaynak SHA, test/inceleme sonucu. Derleme daha sonra yetkili ortamda yapılmalı; mevcut audit hiçbir şeyi verified fixed saymaz. Önceki [stabilizasyon backlog'u](master-stabilization-backlog.md) yürürlükte kalır.
+Her kayıt için önce test case, sonra fix, kaynak SHA, test/inceleme sonucu. Derleme daha sonra yetkili ortamda yapılmalı; mevcut audit hiçbir şeyi verified fixed saymaz. Önceki [stabilizasyon backlog'u](../msr/master-stabilization-backlog.md) yürürlükte kalır.
 
 ## Kapsam sınırı
 

@@ -1,4 +1,4 @@
-// Regression tests for the Master Stabilization Roadmap (docs/status/master-stabilization-roadmap.md).
+// Regression tests for the Master Stabilization Roadmap (docs/archive/msr/master-stabilization-roadmap.md).
 #include <astral/core/json.hpp>
 #include <doctest/doctest.h>
 

@@ -2,7 +2,7 @@
 
 **25 Kasım 2026 · Plan v1 · Taban:** [ddb097e](https://github.com/inkbytefo/AstralEngine/commit/ddb097e1c3627e9cfc743e1b128f7c6243106cf3)
 **Durum:** Kullanıcı kararıyla roadmap'e eklenen geliştirme programı; tüm yeni teslimler planlıdır. Implementasyon veya benchmark sonucu değildir.
-**Bağlantılar:** [Motor roadmap](roadmap.md), [MSR](status/master-stabilization-roadmap.md), [GDX](game-development-experience-roadmap.md), [Game Architecture](guides/game-architecture.md).
+**Bağlantılar:** [Motor roadmap](roadmap.md), [MSR](archive/msr/master-stabilization-roadmap.md), [GDX](game-development-experience-roadmap.md), [Game Architecture](guides/game-architecture.md).
 **Kapsam dışı:** XR/VR, OpenXR, body tracking ve sanal evren platformu süresiz ertelendi. Aktif görev, bağımlılık, lab, SDK veya kabul bütçesi yok. Ayrı bir kullanıcı kararıyla yeniden ele alınabilir.
 
 ## 1. Ürün sözleşmesi
