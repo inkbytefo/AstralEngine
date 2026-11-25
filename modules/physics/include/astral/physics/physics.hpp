@@ -123,6 +123,9 @@ struct RayHit {
 struct QueryFilter {
     std::uint32_t layers = all_layers; ///< layer_bit(a) | layer_bit(b) | ...
     BodyHandle ignore{};
+    /// More bodies to skip (ADR-0045). Not owned: must stay valid for the query call (for a
+    /// batch, until raycast_batch returns).
+    std::span<const BodyHandle> ignore_list{};
     bool include_sensors = false;
 };
 
@@ -298,6 +301,8 @@ public:
     void add_force_at(BodyHandle body, Vec3 force, Vec3 point);
     void set_angular_velocity(BodyHandle body, Vec3 velocity);
     void add_torque(BodyHandle body, Vec3 torque);
+    /// Changes the angular velocity at once (N·m·s), like add_impulse for spin.
+    void add_angular_impulse(BodyHandle body, Vec3 impulse);
     void wake(BodyHandle body);
     void sleep(BodyHandle body);
     void set_gravity(Vec3 gravity);

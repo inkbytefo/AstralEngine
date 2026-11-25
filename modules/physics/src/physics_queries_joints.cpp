@@ -27,6 +27,16 @@ JPH::Ref<JPH::Shape> resolve_query_shape(const PhysicsWorld::Impl& m, ShapeHandl
     return shape_needs_static(fallback) ? nullptr : make_jolt_shape(fallback);
 }
 
+RayBodyFilter make_body_filter(const PhysicsWorld::Impl& m, const QueryFilter& filter) {
+    std::vector<JPH::BodyID> ids;
+    ids.reserve(1 + filter.ignore_list.size());
+    if (const auto* r = m.record(filter.ignore)) ids.push_back(r->id);
+    for (BodyHandle h : filter.ignore_list) {
+        if (const auto* r = m.record(h)) ids.push_back(r->id);
+    }
+    return RayBodyFilter(std::move(ids), filter.include_sensors);
+}
+
 std::optional<ShapeHit> cast_jolt_shape(const PhysicsWorld::Impl& m, const JPH::Shape* shape, Vec3 position, Quat rotation,
                                         Vec3 displacement, const QueryFilter& filter) {
     if (!shape || length(displacement) <= 0.0f) return std::nullopt;
@@ -35,8 +45,7 @@ std::optional<ShapeHit> cast_jolt_shape(const PhysicsWorld::Impl& m, const JPH::
     JPH::ShapeCastSettings settings;
     settings.mReturnDeepestPoint = false;
     JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
-    const auto* ignored = m.record(filter.ignore);
-    const RayBodyFilter body_filter(ignored ? ignored->id : JPH::BodyID(), filter.include_sensors);
+    const RayBodyFilter body_filter = make_body_filter(m, filter);
     const LayerMask layer_filter(filter.layers);
     m.system->GetNarrowPhaseQuery().CastShape(cast, settings, JPH::RVec3::sZero(), collector, {}, layer_filter, body_filter);
     if (!collector.HadHit()) return std::nullopt;
@@ -62,8 +71,7 @@ std::vector<OverlapHit> overlap_jolt_shape(const PhysicsWorld::Impl& m, const JP
     const JPH::RMat44 transform = JPH::RMat44::sRotationTranslation(to_jph(rotation), JPH::RVec3(to_jph(position)));
     JPH::CollideShapeSettings settings;
     JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> collector;
-    const auto* ignored = m.record(filter.ignore);
-    const RayBodyFilter body_filter(ignored ? ignored->id : JPH::BodyID(), filter.include_sensors);
+    const RayBodyFilter body_filter = make_body_filter(m, filter);
     const LayerMask layer_filter(filter.layers);
     m.system->GetNarrowPhaseQuery().CollideShape(shape, JPH::Vec3::sReplicate(1.0f), transform, settings, JPH::RVec3::sZero(),
                                                  collector, {}, layer_filter, body_filter);
@@ -90,8 +98,7 @@ std::optional<RayHit> PhysicsWorld::raycast(Vec3 origin, Vec3 direction, float m
     if (max_distance <= 0.0f || length(dir) == 0.0f) return std::nullopt;
     const JPH::RRayCast ray{JPH::RVec3(to_jph(origin)), to_jph(dir * max_distance)};
     JPH::RayCastResult result;
-    const auto* ignored = m.record(filter.ignore);
-    const RayBodyFilter body_filter(ignored ? ignored->id : JPH::BodyID(), filter.include_sensors);
+    const RayBodyFilter body_filter = make_body_filter(m, filter);
     const LayerMask layer_filter(filter.layers);
     if (!m.system->GetNarrowPhaseQuery().CastRay(ray, result, {}, layer_filter, body_filter)) return std::nullopt;
 

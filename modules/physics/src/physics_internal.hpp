@@ -90,14 +90,18 @@ private:
 };
 
 /// Query filter: skips one optional body, and sensors unless asked for.
+/// Query body filter: skips the ignored bodies (QueryFilter::ignore + ignore_list) and, unless
+/// asked for, sensors.
 class RayBodyFilter final : public JPH::BodyFilter {
 public:
-    RayBodyFilter(JPH::BodyID ignore, bool sensors) : ignore_(ignore), sensors_(sensors) {}
-    bool ShouldCollide(const JPH::BodyID& id) const override { return id != ignore_; }
+    RayBodyFilter(std::vector<JPH::BodyID> ignore, bool sensors) : ignore_(std::move(ignore)), sensors_(sensors) {}
+    bool ShouldCollide(const JPH::BodyID& id) const override {
+        return std::find(ignore_.begin(), ignore_.end(), id) == ignore_.end();
+    }
     bool ShouldCollideLocked(const JPH::Body& body) const override { return sensors_ || !body.IsSensor(); }
 
 private:
-    JPH::BodyID ignore_;
+    std::vector<JPH::BodyID> ignore_;
     bool sensors_;
 };
 

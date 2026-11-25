@@ -69,6 +69,13 @@ struct ScriptRayQuery {
     std::uint32_t layers = 0xFFFFFFFFu;
     Entity ignore{};
 };
+/// Filter for raycast_filtered / spherecast_filtered: several ignored bodies and sensors (ADR-0045).
+/// `ignore` is not owned and only valid during the call.
+struct ScriptQueryFilter {
+    std::uint32_t layers = 0xFFFFFFFFu;
+    std::span<const Entity> ignore{};
+    bool sensors = false; ///< Also hit sensor (trigger) bodies.
+};
 struct ScriptWater {
     bool inside = false;
     float surface = 0.0f;
@@ -91,12 +98,27 @@ public:
         return out;
     }
     [[nodiscard]] virtual std::optional<ScriptHit> spherecast(Vec3 origin, float radius, Vec3 displacement, std::uint32_t layers, Entity ignore) const = 0;
+    /// Filtered queries (what astral.physics.raycast / spherecast call). The defaults keep only the
+    /// first ignored entity and never see sensors; the App implements the full filter.
+    [[nodiscard]] virtual std::optional<ScriptHit> raycast_filtered(Vec3 origin, Vec3 direction, float max_distance,
+                                                                    const ScriptQueryFilter& filter) const {
+        return raycast(origin, direction, max_distance, filter.layers, filter.ignore.empty() ? Entity{} : filter.ignore.front());
+    }
+    [[nodiscard]] virtual std::optional<ScriptHit> spherecast_filtered(Vec3 origin, float radius, Vec3 displacement,
+                                                                       const ScriptQueryFilter& filter) const {
+        return spherecast(origin, radius, displacement, filter.layers, filter.ignore.empty() ? Entity{} : filter.ignore.front());
+    }
     [[nodiscard]] virtual std::vector<Entity> overlap_sphere(Vec3 center, float radius, std::uint32_t layers) const = 0;
     [[nodiscard]] virtual std::vector<Entity> overlap_box(Vec3 center, Vec3 half_extents, Quat rotation, std::uint32_t layers) const = 0;
     virtual void impulse(Entity body, Vec3 impulse) = 0;
     virtual void force(Entity body, Vec3 force) = 0;
     virtual void set_velocity(Entity body, Vec3 velocity) = 0;
     [[nodiscard]] virtual Vec3 velocity(Entity body) const = 0;
+    virtual void force_at(Entity, Vec3 /*force*/, Vec3 /*world_point*/) {}
+    virtual void torque(Entity, Vec3) {}
+    virtual void angular_impulse(Entity, Vec3) {}
+    virtual void set_angular_velocity(Entity, Vec3) {}
+    [[nodiscard]] virtual Vec3 angular_velocity(Entity) const { return {}; }
     virtual bool move_character(Entity, Vec3, bool) { return false; }
     [[nodiscard]] virtual std::optional<ScriptCharacterState> character_state(Entity) const { return std::nullopt; }
     virtual void teleport(Entity, Vec3, Quat) {}
