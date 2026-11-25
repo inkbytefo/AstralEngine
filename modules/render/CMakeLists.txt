@@ -109,6 +109,8 @@ astral_add_tests(MODULE render
         tests/renderer_test.cpp
         tests/render_audit_test.cpp
         tests/m13_pbr_test.cpp
+        tests/renderer_busy_test.cpp
+        tests/mips_reference_test.cpp
         tests/stores_test.cpp
         tests/passes_test.cpp
         tests/render_graph_test.cpp

@@ -213,7 +213,7 @@ struct AssetManager::Impl {
         if (inserted) {
             auto parsed = parse_ashader(detail::imported_surface_source(source));
             if (parsed.errors.empty()) {
-                const auto build = compile_surface_shader(parsed.source, "glTF surface");
+                const auto build = compile_surface_shader(parsed.source, "glTF surface", desc.renderer->shader_compile_services());
                 if (build.ok()) {
                     shader.handle = desc.renderer->create_shader(build, "gltf.surface");
                     shader.layout = build.layout;

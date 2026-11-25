@@ -66,7 +66,7 @@ float DENSITY, TIME, AGE;
     return s;
 }
 
-ScreenShaderBuild compile_effect_shader(const ShaderSource& source, std::string_view name) {
+ScreenShaderBuild compile_effect_shader(const ShaderSource& source, std::string_view name, const ShaderCompileServices& services) {
     ScreenShaderBuild out;
     out.type = source.type;
     const bool particle = source.type == ShaderType::Particle;
@@ -82,6 +82,7 @@ ScreenShaderBuild compile_effect_shader(const ShaderSource& source, std::string_
             out.samplers.push_back({out.layout.offsets[i], source.uniforms[i].hints.hint_normal});
     }
     std::string code;
+    std::vector<GlslRequest> requests;
     if (particle) {
         code = detail::embedded_text(embedded::astral_particle_frag, embedded::astral_particle_frag_size);
         code.insert(code.find('\n') + 1, "#extension GL_GOOGLE_include_directive : require\n");
@@ -98,16 +99,19 @@ ScreenShaderBuild compile_effect_shader(const ShaderSource& source, std::string_
             motion += "vec3 WORLD_POSITION, ORIGIN, WIND; float AGE, LIFETIME, LIFE_T, RANDOM, SIZE;\n";
             motion += detail::wrap_body(source, out.layout, source.body_without("particle"));
             replace_all(vertex, "// ASTRAL_PARTICLE_BODY", motion);
-            auto compiled = compile_glsl(vertex, ShaderStage::Vertex, detail::engine_includes(), name);
-            detail::collect_errors(compiled, out.errors, "motion");
-            out.vertex = std::move(compiled.spirv);
+            requests.push_back({std::move(vertex), ShaderStage::Vertex, std::string(name)});
         }
     } else {
         code = volume_compute(source, out.layout);
     }
-    auto compiled = compile_glsl(code, particle ? ShaderStage::Fragment : ShaderStage::Compute, detail::engine_includes(), name);
-    detail::collect_errors(compiled, out.errors, entry);
-    (particle ? out.fragment : out.compute) = std::move(compiled.spirv);
+    requests.push_back({std::move(code), particle ? ShaderStage::Fragment : ShaderStage::Compute, std::string(name)});
+    std::vector<GlslCompile> built = compile_glsl_batch(requests, detail::engine_includes(), services);
+    if (requests.size() == 2) {
+        detail::collect_errors(built[0], out.errors, "motion");
+        out.vertex = std::move(built[0].spirv);
+    }
+    detail::collect_errors(built.back(), out.errors, entry);
+    (particle ? out.fragment : out.compute) = std::move(built.back().spirv);
     return out;
 }
 
@@ -199,7 +203,7 @@ std::string compose_rt_surfaces(std::span<const RtSurface> surfaces) {
     return s;
 }
 
-RtVariants compile_rt_variants(std::span<const RtSurface> surfaces) {
+RtVariants compile_rt_variants(std::span<const RtSurface> surfaces, const ShaderCompileServices& services) {
     RtVariants out;
     std::vector<GlslInclude> includes = detail::engine_includes();
     includes.push_back({"astral/rt.glsl", detail::embedded_text(embedded::astral_rt_glsl, embedded::astral_rt_glsl_size)});
@@ -211,34 +215,47 @@ RtVariants compile_rt_variants(std::span<const RtSurface> surfaces) {
     bool any_alpha_test = false;
     for (const RtSurface& surface : surfaces) any_alpha_test = any_alpha_test || (surface.alpha_test && !surface.chunk.empty());
 
-    auto build = [&](const std::uint8_t* data, std::size_t size, std::vector<std::uint32_t>& spirv, const char* name) {
-        std::string text = detail::embedded_text(data, size);
+    struct Variant {
+        const std::uint8_t* data;
+        std::size_t size;
+        const char* name;
+        std::vector<std::uint32_t>* spirv;
+    };
+    const Variant variants[] = {
+        {embedded::astral_rt_lighting_comp, embedded::astral_rt_lighting_comp_size, "rt_lighting", &out.lighting},
+        {embedded::astral_ddgi_trace_comp, embedded::astral_ddgi_trace_comp_size, "ddgi_trace", &out.ddgi_trace},
+        {embedded::astral_restir_di_temporal_comp, embedded::astral_restir_di_temporal_comp_size, "restir_di_temporal",
+         &out.restir_temporal},
+        {embedded::astral_restir_di_spatial_comp, embedded::astral_restir_di_spatial_comp_size, "restir_di_spatial",
+         &out.restir_spatial},
+        {embedded::astral_path_tracer_comp, embedded::astral_path_tracer_comp_size, "path_tracer", &out.path_tracer},
+    };
+    std::vector<GlslRequest> requests;
+    for (const Variant& v : variants) {
+        std::string text = detail::embedded_text(v.data, v.size);
         const std::string header = "#version 460\n";
         std::string defs = "#extension GL_GOOGLE_include_directive : require\n#define ASTRAL_RT_CUSTOM\n";
         if (any_alpha_test) defs += "#define ASTRAL_RT_ALPHA_TEST\n";
         if (text.starts_with(header)) text.insert(header.size(), defs);
-        GlslCompile c = compile_glsl(text, ShaderStage::Compute, includes, name);
+        requests.push_back({std::move(text), ShaderStage::Compute, v.name});
+    }
+    // Five independent compute shaders: the slowest compiles in the engine, so run them side by side.
+    std::vector<GlslCompile> built = compile_glsl_batch(requests, includes, services);
+    for (std::size_t i = 0; i < built.size(); ++i) {
         std::vector<ShaderError> errors;
-        detail::collect_errors(c, errors, name);
+        detail::collect_errors(built[i], errors, variants[i].name);
         for (ShaderError& e : errors) {
             e.message = std::string("ray-traced variant: ") + e.message;
             out.errors.push_back(std::move(e));
         }
-        out.log += c.log;
-        spirv = std::move(c.spirv);
-    };
-    build(embedded::astral_rt_lighting_comp, embedded::astral_rt_lighting_comp_size, out.lighting, "rt_lighting");
-    build(embedded::astral_ddgi_trace_comp, embedded::astral_ddgi_trace_comp_size, out.ddgi_trace, "ddgi_trace");
-    build(embedded::astral_restir_di_temporal_comp, embedded::astral_restir_di_temporal_comp_size, out.restir_temporal,
-          "restir_di_temporal");
-    build(embedded::astral_restir_di_spatial_comp, embedded::astral_restir_di_spatial_comp_size, out.restir_spatial,
-          "restir_di_spatial");
-    build(embedded::astral_path_tracer_comp, embedded::astral_path_tracer_comp_size, out.path_tracer, "path_tracer");
+        out.log += built[i].log;
+        *variants[i].spirv = std::move(built[i].spirv);
+    }
     return out;
 }
 
-ScreenShaderBuild compile_screen_shader(const ShaderSource& source, std::string_view name) {
-    if (source.type == ShaderType::Particle || source.type == ShaderType::Volume) return compile_effect_shader(source, name);
+ScreenShaderBuild compile_screen_shader(const ShaderSource& source, std::string_view name, const ShaderCompileServices& services) {
+    if (source.type == ShaderType::Particle || source.type == ShaderType::Volume) return compile_effect_shader(source, name, services);
     ScreenShaderBuild out;
     out.type = source.type;
     if (source.type != ShaderType::Post && source.type != ShaderType::Sky) {
@@ -255,17 +272,18 @@ ScreenShaderBuild compile_screen_shader(const ShaderSource& source, std::string_
         if (source.uniforms[i].type == UniformType::Sampler2D) out.samplers.push_back({out.layout.offsets[i], source.uniforms[i].hints.hint_normal});
     }
     const std::vector<GlslInclude> includes = detail::engine_includes();
-    GlslCompile frag = compile_glsl(screen_fragment(source, out.layout, sky), ShaderStage::Fragment, includes, name);
-    detail::collect_errors(frag, out.errors, "fragment");
-    GlslCompile vert = compile_glsl(screen_vertex(sky), ShaderStage::Vertex, includes, name);
-    detail::collect_errors(vert, out.errors, "vertex");
+    std::vector<GlslRequest> requests = {{screen_fragment(source, out.layout, sky), ShaderStage::Fragment, std::string(name)},
+                                         {screen_vertex(sky), ShaderStage::Vertex, std::string(name)}};
+    if (sky) requests.push_back({screen_fragment(source, out.layout, true, true), ShaderStage::Fragment, std::string(name)});
+    std::vector<GlslCompile> built = compile_glsl_batch(requests, includes, services);
+    detail::collect_errors(built[0], out.errors, "fragment");
+    detail::collect_errors(built[1], out.errors, "vertex");
     if (!out.errors.empty()) return out;
-    out.fragment = std::move(frag.spirv);
-    out.vertex = std::move(vert.spirv);
+    out.fragment = std::move(built[0].spirv);
+    out.vertex = std::move(built[1].spirv);
     if (sky) {
-        auto capture = compile_glsl(screen_fragment(source, out.layout, true, true), ShaderStage::Fragment, includes, name);
-        detail::collect_errors(capture, out.errors, "sky capture");
-        out.sky_capture = std::move(capture.spirv);
+        detail::collect_errors(built[2], out.errors, "sky capture");
+        out.sky_capture = std::move(built[2].spirv);
         out.sky_uses_time = source.body.find("TIME") != std::string::npos;
     }
     return out;

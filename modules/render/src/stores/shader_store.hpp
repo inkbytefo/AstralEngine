@@ -51,6 +51,9 @@ public:
     [[nodiscard]] const RtPipelines& rt_pipelines() const noexcept { return rt_; }
     [[nodiscard]] std::string_view error() const noexcept { return rt_surface_error_; }
 
+    void set_compile_services(const ShaderCompileServices& services) noexcept { services_ = services; }
+    [[nodiscard]] const ShaderCompileServices& compile_services() const noexcept { return services_; }
+
 private:
     gpu::Device& device_;
     gpu::Format target_format_;
@@ -59,6 +62,7 @@ private:
     bool rt_surfaces_dirty_ = false;
     bool rt_custom_active_ = false;
     std::string rt_surface_error_;
+    ShaderCompileServices services_{};
 };
 
 } // namespace astral

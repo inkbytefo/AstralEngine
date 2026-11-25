@@ -1,6 +1,9 @@
 #include "stores/texture_store.hpp"
 
+#include <astral/core/jobs.hpp>
+
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <utility>
@@ -13,39 +16,105 @@ namespace {
 float srgb_to_linear(float c) { return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f); }
 float linear_to_srgb(float c) { return c <= 0.0031308f ? c * 12.92f : 1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f; }
 
+/// What a stored byte means as a filter input: byte / 255, decoded to linear light for colour channels.
+struct ChannelTables {
+    std::array<float, 256> plain{};
+    std::array<float, 256> srgb{};
+};
+const ChannelTables& channel_tables() {
+    static const ChannelTables tables = [] {
+        ChannelTables t;
+        for (std::size_t i = 0; i < 256; ++i) {
+            const float v = static_cast<float>(i) / 255.0f;
+            t.plain[i] = v;
+            t.srgb[i] = srgb_to_linear(v);
+        }
+        return t;
+    }();
+    return tables;
+}
+
+std::uint8_t encode_channel(double average, bool srgb) {
+    float avg = static_cast<float>(average);
+    if (srgb) avg = linear_to_srgb(avg);
+    return static_cast<std::uint8_t>(std::clamp(avg, 0.0f, 1.0f) * 255.0f + 0.5f);
+}
+
+/// One mip level of an exact 2:1 reduction (both sides even): every output texel is the plain average of a 2x2 block.
+void halve_even(const std::vector<std::uint8_t>& src, std::uint32_t w, std::vector<std::uint8_t>& dst, std::uint32_t nw,
+                std::uint32_t row_begin, std::uint32_t row_end, bool srgb_image) {
+    const ChannelTables& tables = channel_tables();
+    for (std::uint32_t y = row_begin; y < row_end; ++y) {
+        const std::uint8_t* row0 = &src[std::size_t{2 * y} * w * 4];
+        const std::uint8_t* row1 = row0 + std::size_t{w} * 4;
+        for (std::uint32_t x = 0; x < nw; ++x) {
+            for (std::uint32_t c = 0; c < 4; ++c) {
+                const bool colour = srgb_image && c < 3;
+                const std::array<float, 256>& table = colour ? tables.srgb : tables.plain;
+                const std::size_t i = std::size_t{2 * x} * 4 + c;
+                double sum = 0;
+                sum += table[row0[i]];
+                sum += table[row0[i + 4]];
+                sum += table[row1[i]];
+                sum += table[row1[i + 4]];
+                dst[(std::size_t{y} * nw + x) * 4 + c] = encode_channel(sum / 4.0, colour);
+            }
+        }
+    }
+}
+
+/// Any other size: each destination texel averages the source area it covers, weighted by overlap, so odd sizes
+/// (3 -> 1) keep their last row/column instead of dropping it.
+void reduce_weighted(const std::vector<std::uint8_t>& src, std::uint32_t w, std::uint32_t h, std::vector<std::uint8_t>& dst,
+                     std::uint32_t nw, std::uint32_t nh, std::uint32_t row_begin, std::uint32_t row_end, bool srgb_image) {
+    const ChannelTables& tables = channel_tables();
+    const double fx = static_cast<double>(w) / nw, fy = static_cast<double>(h) / nh;
+    for (std::uint32_t y = row_begin; y < row_end; ++y) {
+        const double y0 = y * fy, y1 = (y + 1) * fy;
+        for (std::uint32_t x = 0; x < nw; ++x) {
+            const double x0 = x * fx, x1 = (x + 1) * fx;
+            for (std::uint32_t c = 0; c < 4; ++c) {
+                const bool colour = srgb_image && c < 3;
+                const std::array<float, 256>& table = colour ? tables.srgb : tables.plain;
+                double sum = 0, area = 0;
+                for (auto sy = static_cast<std::uint32_t>(y0); sy < h && sy < y1; ++sy) {
+                    const double wy = std::min<double>(sy + 1, y1) - std::max<double>(sy, y0);
+                    for (auto sx = static_cast<std::uint32_t>(x0); sx < w && sx < x1; ++sx) {
+                        const double wx = std::min<double>(sx + 1, x1) - std::max<double>(sx, x0);
+                        sum += wx * wy * table[src[(std::size_t{sy} * w + sx) * 4 + c]];
+                        area += wx * wy;
+                    }
+                }
+                dst[(std::size_t{y} * nw + x) * 4 + c] = encode_channel(sum / area, colour);
+            }
+        }
+    }
+}
+
 } // namespace
 
 /// Box-filtered mip chain (colour images are averaged in linear space, then re-encoded).
-std::vector<std::vector<std::uint8_t>> build_mips(const ImageData& image) {
+std::vector<std::vector<std::uint8_t>> build_mips(const ImageData& image, JobSystem* jobs) {
     std::vector<std::vector<std::uint8_t>> mips{image.rgba};
     std::uint32_t w = image.width, h = image.height;
     while (w > 1 || h > 1) {
         const std::uint32_t nw = std::max(1u, w / 2), nh = std::max(1u, h / 2);
-        const std::vector<std::uint8_t>& src = mips.back();
         std::vector<std::uint8_t> dst(std::size_t{nw} * nh * 4);
-        // Area filter: each destination texel averages the source area it covers, weighted by
-        // overlap, so odd sizes (3 -> 1) keep their last row/column instead of dropping it.
-        const double fx = static_cast<double>(w) / nw, fy = static_cast<double>(h) / nh;
-        for (std::uint32_t y = 0; y < nh; ++y) {
-            const double y0 = y * fy, y1 = (y + 1) * fy;
-            for (std::uint32_t x = 0; x < nw; ++x) {
-                const double x0 = x * fx, x1 = (x + 1) * fx;
-                for (std::uint32_t c = 0; c < 4; ++c) {
-                    double sum = 0, area = 0;
-                    for (auto sy = static_cast<std::uint32_t>(y0); sy < h && sy < y1; ++sy) {
-                        const double wy = std::min<double>(sy + 1, y1) - std::max<double>(sy, y0);
-                        for (auto sx = static_cast<std::uint32_t>(x0); sx < w && sx < x1; ++sx) {
-                            const double wx = std::min<double>(sx + 1, x1) - std::max<double>(sx, x0);
-                            const float v = src[(std::size_t{sy} * w + sx) * 4 + c] / 255.0f;
-                            sum += wx * wy * ((image.srgb && c < 3) ? srgb_to_linear(v) : v);
-                            area += wx * wy;
-                        }
-                    }
-                    float avg = static_cast<float>(sum / area);
-                    if (image.srgb && c < 3) avg = linear_to_srgb(avg);
-                    dst[(std::size_t{y} * nw + x) * 4 + c] = static_cast<std::uint8_t>(std::clamp(avg, 0.0f, 1.0f) * 255.0f + 0.5f);
-                }
-            }
+        const std::vector<std::uint8_t>& src = mips.back();
+        const bool even = w == 2 * nw && h == 2 * nh;
+        // Output rows are independent: big levels are split over the job system, with the same bytes as a serial pass.
+        const auto rows = [&](std::size_t begin, std::size_t end) {
+            const auto b = static_cast<std::uint32_t>(begin), e = static_cast<std::uint32_t>(end);
+            if (even) halve_even(src, w, dst, nw, b, e, image.srgb);
+            else reduce_weighted(src, w, h, dst, nw, nh, b, e, image.srgb);
+        };
+        constexpr std::size_t kParallelTexels = 128 * 128; // below this the job overhead is not worth it
+        if (jobs && std::size_t{nw} * nh >= kParallelTexels) {
+            JobCounter counter;
+            jobs->parallel_for(counter, nh, 8, rows);
+            jobs->wait(counter);
+        } else {
+            rows(0, nh);
         }
         mips.push_back(std::move(dst));
         w = nw;
@@ -80,7 +149,7 @@ gpu::TextureHandle TextureStore::upload(const ImageData& image) {
     } else if (image.rgba.size() != std::size_t{image.width} * image.height * 4) {
         return {};
     }
-    const auto mips = image.levels.empty() ? build_mips(image) : image.levels;
+    const auto mips = image.levels.empty() ? build_mips(image, jobs_) : image.levels;
     const gpu::TextureHandle t = device_.create_texture({.width = image.width, .height = image.height,
                                                          .format = format,
                                                          .usage = gpu::TextureUsage::Sampled,

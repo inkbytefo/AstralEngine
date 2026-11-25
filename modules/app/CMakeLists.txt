@@ -55,6 +55,7 @@ astral_add_module(NAME app
         src/panels/world_panel.cpp
         src/map_runtime.cpp
         src/material_library.cpp
+        src/shader_cache_location.cpp
     DEPS
         Astral::Core
         Astral::Platform
@@ -97,9 +98,11 @@ astral_add_tests(MODULE app
         tests/feature_test.cpp
         tests/shell_test.cpp
         tests/material_app_test.cpp
-        tests/refactor_regression_test.cpp)
+        tests/refactor_regression_test.cpp
+        tests/shader_cache_location_test.cpp)
 if(TARGET astral_app_tests)
     FetchContent_GetProperties(stb)
     target_include_directories(astral_app_tests SYSTEM PRIVATE ${stb_SOURCE_DIR})
+    target_include_directories(astral_app_tests PRIVATE src)
     set_tests_properties(astral_app_tests PROPERTIES TIMEOUT 300)
 endif()

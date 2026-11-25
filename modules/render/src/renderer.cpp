@@ -32,6 +32,10 @@ struct Renderer::Impl {
     RenderGraph graph;
     TextureStore textures;
     ShaderStore shaders;
+    std::function<void()> busy; ///< Renderer::set_busy_callback
+    void notify_busy() const {
+        if (busy) busy();
+    }
     MeshStore meshes;
     MaterialStore materials;
     FrameInstances frame_instances;
@@ -90,18 +94,32 @@ Renderer::~Renderer() {
 
 bool Renderer::supports(ImageFormat format) const noexcept { return impl_->textures.supports(format); }
 ShaderHandle Renderer::create_shader(const SurfaceShaderBuild& build, std::string_view debug_name) {
-    return impl_->shaders.create(build, debug_name);
+    const ShaderHandle handle = impl_->shaders.create(build, debug_name);
+    impl_->notify_busy();
+    return handle;
 }
 ShaderHandle Renderer::create_shader(const ScreenShaderBuild& build, std::string_view debug_name) {
-    return impl_->shaders.create(build, debug_name);
+    const ShaderHandle handle = impl_->shaders.create(build, debug_name);
+    impl_->notify_busy();
+    return handle;
 }
 void Renderer::destroy(ShaderHandle shader) {
     impl_->shaders.destroy(shader);
     impl_->passes.path_tracer.reset();
 }
 std::string_view Renderer::shader_error() const noexcept { return impl_->shaders.error(); }
+void Renderer::set_busy_callback(std::function<void()> callback) { impl_->busy = std::move(callback); }
+void Renderer::set_job_system(JobSystem* jobs) noexcept { impl_->textures.set_job_system(jobs); }
+void Renderer::set_shader_compile_services(const ShaderCompileServices& services) noexcept {
+    impl_->shaders.set_compile_services(services);
+}
+const ShaderCompileServices& Renderer::shader_compile_services() const noexcept { return impl_->shaders.compile_services(); }
 
-TextureHandle Renderer::create_texture(const ImageData& image) { return impl_->textures.create(image); }
+TextureHandle Renderer::create_texture(const ImageData& image) {
+    const TextureHandle handle = impl_->textures.create(image);
+    impl_->notify_busy();
+    return handle;
+}
 TextureHandle Renderer::create_render_target(std::uint32_t width, std::uint32_t height) {
     return impl_->textures.create_render_target(width, height, impl_->target_format);
 }
@@ -115,6 +133,7 @@ gpu::Format Renderer::target_format() const noexcept { return impl_->target_form
 bool Renderer::update_texture(TextureHandle texture, const ImageData& image) {
     const bool updated = impl_->textures.update(texture, image);
     if (updated) impl_->passes.path_tracer.reset();
+    impl_->notify_busy();
     return updated;
 }
 void Renderer::destroy(TextureHandle texture) {
@@ -122,15 +141,24 @@ void Renderer::destroy(TextureHandle texture) {
     impl_->passes.path_tracer.reset();
 }
 
-MeshHandle Renderer::create_mesh(const MeshData& data) { return impl_->meshes.create(data, impl_->rt); }
+MeshHandle Renderer::create_mesh(const MeshData& data) {
+    const MeshHandle handle = impl_->meshes.create(data, impl_->rt);
+    impl_->notify_busy();
+    return handle;
+}
 bool Renderer::update_mesh(MeshHandle handle, const MeshData& data) {
     const bool updated = impl_->meshes.update(handle, data, impl_->rt);
     if (updated) impl_->passes.path_tracer.reset();
+    impl_->notify_busy();
     return updated;
 }
 void Renderer::destroy(MeshHandle handle) { impl_->meshes.destroy(handle); }
 
-MaterialHandle Renderer::create_material(const MaterialDesc& desc) { return impl_->materials.create(desc); }
+MaterialHandle Renderer::create_material(const MaterialDesc& desc) {
+    const MaterialHandle handle = impl_->materials.create(desc);
+    impl_->notify_busy();
+    return handle;
+}
 bool Renderer::update_material(MaterialHandle material, const MaterialDesc& desc) {
     const bool updated = impl_->materials.update(material, desc);
     if (updated) impl_->passes.path_tracer.reset();

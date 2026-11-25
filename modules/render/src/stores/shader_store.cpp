@@ -189,7 +189,7 @@ void ShaderStore::rebuild_rt_surfaces_if_dirty() {
     RtPipelines next{};
     rt_surface_error_.clear();
     if (!surfaces.empty()) {
-        const RtVariants v = compile_rt_variants(surfaces);
+        const RtVariants v = compile_rt_variants(surfaces, services_);
         if (v.ok()) {
             next.rt_lighting = device_.create_compute_pipeline({.shader = {v.lighting}, .debug_name = "astral.rt_lighting.custom"});
             next.ddgi_trace = device_.create_compute_pipeline({.shader = {v.ddgi_trace}, .debug_name = "astral.ddgi_trace.custom"});

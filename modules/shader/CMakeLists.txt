@@ -19,6 +19,8 @@ astral_add_module(NAME shader
     SOURCES
         src/ashader.cpp
         src/compile.cpp
+        src/sha256.cpp
+        src/spirv_cache.cpp
     DEPS
         Astral::Core
     PRIVATE_DEPS
@@ -30,4 +32,9 @@ astral_add_tests(MODULE shader
         ${CMAKE_SOURCE_DIR}/modules/core/tests/test_main.cpp
         tests/ashader_test.cpp
         tests/ashader_crlf_test.cpp
-        tests/compile_test.cpp)
+        tests/compile_test.cpp
+        tests/spirv_cache_test.cpp)
+if(ASTRAL_BUILD_TESTS)
+    # The cache tests check the private SHA-256 against its known answers.
+    target_include_directories(astral_shader_tests PRIVATE src)
+endif()

@@ -33,6 +33,17 @@ TEST_CASE("window reports its size and keeps running until closed") {
     CHECK_FALSE(window->poll(input));
 }
 
+TEST_CASE("keeping the window responsive neither fails nor loses a pending close request") {
+    auto window = make_window();
+    if (!window) return;
+    Input input;
+    for (int i = 0; i < 100; ++i) window->keep_responsive();
+    CHECK(window->poll(input));
+    window->request_close();
+    window->keep_responsive();
+    CHECK_FALSE(window->poll(input));
+}
+
 TEST_CASE("window can lend itself to the gpu as a surface source") {
     auto window = make_window();
     if (!window) return;

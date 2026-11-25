@@ -10,6 +10,7 @@
 // Uniforms live in the material's parameter block (layout_uniforms); textures are bindless indices.
 
 #include <astral/shader/ashader.hpp>
+#include <astral/shader/compile.hpp>
 
 #include <cstdint>
 #include <span>
@@ -59,10 +60,13 @@ struct ScreenShaderBuild {
     std::vector<ShaderError> errors;
     [[nodiscard]] bool ok() const noexcept { return errors.empty() && (!fragment.empty() || !compute.empty()); }
 };
-[[nodiscard]] ScreenShaderBuild compile_screen_shader(const ShaderSource& source, std::string_view name);
+[[nodiscard]] ScreenShaderBuild compile_screen_shader(const ShaderSource& source, std::string_view name,
+                                                      const ShaderCompileServices& services = {});
 
-/// Generates and compiles every stage. Thread-safe (compile in a job for hot reload).
-[[nodiscard]] SurfaceShaderBuild compile_surface_shader(const ShaderSource& source, std::string_view name);
+/// Generates and compiles every stage. Thread-safe (compile in a job for hot reload). With `services` the stages are
+/// compiled concurrently and/or answered from the SPIR-V cache; the result is identical either way.
+[[nodiscard]] SurfaceShaderBuild compile_surface_shader(const ShaderSource& source, std::string_view name,
+                                                        const ShaderCompileServices& services = {});
 
 /// One shader's part of the ray-traced include: `slot` is its ShaderHandle index.
 struct RtSurface {
@@ -86,6 +90,6 @@ struct RtVariants {
                !restir_spatial.empty() && !path_tracer.empty();
     }
 };
-[[nodiscard]] RtVariants compile_rt_variants(std::span<const RtSurface> surfaces);
+[[nodiscard]] RtVariants compile_rt_variants(std::span<const RtSurface> surfaces, const ShaderCompileServices& services = {});
 
 } // namespace astral

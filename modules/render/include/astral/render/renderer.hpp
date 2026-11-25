@@ -14,6 +14,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -36,8 +37,11 @@ using TextureHandle = Handle<RenderTextureTag>;
 /// A compiled .ashader surface shader (Renderer::create_shader); materials point at it.
 using ShaderHandle = Handle<ShaderTag>;
 
-/// Box-filtered RGBA8 mip chain of an image (level 0 = `rgba`); colour images average in linear space.
-std::vector<std::vector<std::uint8_t>> build_mips(const ImageData& image);
+class JobSystem;
+
+/// Box-filtered RGBA8 mip chain of an image (level 0 = `rgba`); colour images average in linear space. With `jobs`
+/// the big levels are filtered concurrently; the bytes are the same either way.
+std::vector<std::vector<std::uint8_t>> build_mips(const ImageData& image, JobSystem* jobs = nullptr);
 
 /// Optional clearcoat dielectric top layer (M13, IOR 1.5).
 struct ClearcoatDesc {
@@ -354,6 +358,16 @@ public:
     /// A post or sky shader (shader_type post / sky); a material points at it, RenderScene::post / sky use it.
     ShaderHandle create_shader(const ScreenShaderBuild& build, std::string_view debug_name = {});
     void destroy(ShaderHandle shader);
+    /// The SPIR-V cache and job system that shader compiles use (borrowed: the owner keeps them alive, normally the
+    /// App; null = compile serially, no cache). The ray-traced variants recompile through them whenever custom
+    /// surface shaders change, and loaders that compile shaders for this Renderer pass them on.
+    void set_shader_compile_services(const ShaderCompileServices& services) noexcept;
+    /// Workers for CPU-heavy resource work (mip chains of uploaded textures). Borrowed; null = on the calling thread.
+    void set_job_system(JobSystem* jobs) noexcept;
+    [[nodiscard]] const ShaderCompileServices& shader_compile_services() const noexcept;
+    /// Called (on the creating thread) after every texture, mesh, material or shader this Renderer creates or
+    /// updates, so a long load can keep its window answering the OS. Keep it cheap; empty = none.
+    void set_busy_callback(std::function<void()> callback);
     /// Why the last attempt to compile the custom surfaces into the ray-traced shaders failed ("" = fine).
     /// While it fails, custom materials show their base values in ray-traced reflections and GI.
     [[nodiscard]] std::string_view shader_error() const noexcept;

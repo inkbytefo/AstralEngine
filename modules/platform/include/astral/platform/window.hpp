@@ -43,6 +43,9 @@ public:
 
     /// Processes pending OS events into `input`. Returns false once closing was requested.
     bool poll(Input& input);
+    /// Answers the OS without consuming events: the window stays "responsive" while the caller is busy for a
+    /// while (loading). Events stay queued for the next poll(). Cheap; call from the thread that polls.
+    void keep_responsive();
     void request_close() noexcept { close_requested_ = true; }
     [[nodiscard]] bool close_requested() const noexcept { return close_requested_; }
 
