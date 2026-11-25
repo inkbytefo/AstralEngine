@@ -3,7 +3,7 @@
 - **Durum:** Kabul edildi
 - **Tarih:** 2026-11-25
 - **Kapsam:** `shader` (`.ashader` default'ları), `render` (`evaluate_uniforms`, `MaterialDesc`), `app`/`assets` tüketicileri, MSR AS13
-- **İlişkili:** [Master Stabilization Roadmap](../status/master-stabilization-roadmap.md), [Assets & Shader denetimi](../status/assets-shader-deep-audit-2026-11-25.md)
+- **İlişkili:** [Master Stabilization Roadmap](../archive/msr/master-stabilization-roadmap.md), [Assets & Shader denetimi](../archive/audits/assets-shader-deep-audit-2026-11-25.md)
 
 ## Bağlam
 

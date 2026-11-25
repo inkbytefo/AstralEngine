@@ -3,7 +3,7 @@
 - **Durum:** Kabul edildi
 - **Tarih:** 2026-11-25
 - **Kapsam:** `core` (`Json`, AJB), `world` (reflection field'ları, typed serialize), MSR C05
-- **İlişkili:** [Master Stabilization Roadmap](../status/master-stabilization-roadmap.md), [Core & ECS denetimi](../status/core-ecs-deep-audit-2026-11-25.md)
+- **İlişkili:** [Master Stabilization Roadmap](../archive/msr/master-stabilization-roadmap.md), [Core & ECS denetimi](../archive/audits/core-ecs-deep-audit-2026-11-25.md)
 
 ## Bağlam
 

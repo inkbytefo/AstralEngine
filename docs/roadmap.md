@@ -195,7 +195,7 @@ Kullanıcı kararı: motor teknolojileri, gerçek oyun senaryolarını temsil ed
 | REND0–2 | M14–M18/M22 | render/terrain labs, city_lab | Planlı |
 | AUD0–1 | M8, MSR S5.3 | competitive_lab, driving_lab | Planlı |
 
-Bu takip programları mevcut fazları yeniden numaralandırmaz veya tamamlandı göstermez. [Master Stabilization](status/master-stabilization-roadmap.md) ön koşulları korunur. VR/XR süresiz raf kaldırıldı; aktif görev ve bağımlılık değildir. Yeni Studio/AI çalışması beklemeden native SDK/headless API geliştirilebilir.
+Bu takip programları mevcut fazları yeniden numaralandırmaz veya tamamlandı göstermez. [Master Stabilization](archive/msr/master-stabilization-roadmap.md) ön koşulları korunur. VR/XR süresiz raf kaldırıldı; aktif görev ve bağımlılık değildir. Yeni Studio/AI çalışması beklemeden native SDK/headless API geliştirilebilir.
 
 ## Kabul sahneleri
 
@@ -469,7 +469,7 @@ Luau bytecode cook'u, luau-analyze doğrulaması, iç içe reflection'ın script
 
 ## M12 — Fizik altyapısı ve alanlar ✅
 
-**Sonuç (0.17.0):** Karar: [ADR-0029](decisions/0029-physics-fields-and-joints.md). Modül: [physics.md](modules/physics.md). Plan: `superpowers/plans/2026-11-22-m12-physics.md`.
+**Sonuç (0.17.0):** Karar: [ADR-0029](decisions/0029-physics-fields-and-joints.md). Modül: [physics.md](modules/physics.md). Plan: `archive/plans/2026-11-22-m12-physics.md`.
 - **Fizik çekirdeği:** 16 çarpışma katmanı + matris, `QueryFilter`; `shape_cast`, `overlap`; yüzey kimliği; convex hull, mesh, heightfield, compound; Fixed/Point/Hinge/Slider/Distance eklemleri
   (bağlı gövdeler çarpışmaz); sensör bayraklı temas olayları.
 - **Alanlar:** `FieldWorld` (rüzgâr: küresel + hacimler, gust, türbülans; su: yüzey, dalga, akış, yoğunluk), saf işlevler; `fields.glsl` aynı sayıları GPU'da verir (parite testi).

@@ -3,7 +3,7 @@
 - **Durum:** Kabul edildi
 - **Tarih:** 2026-11-25
 - **Kapsam:** `app` (`PhysicsCommandQueue`, `SystemScheduler`), ADR-0034 §3'ü günceller, MSR PH05
-- **İlişkili:** [ADR-0034](0034-gameplay-api-and-physics-step-contract.md), [Physics denetimi](../status/physics-jolt-deep-audit-2026-11-25.md)
+- **İlişkili:** [ADR-0034](0034-gameplay-api-and-physics-step-contract.md), [Physics denetimi](../archive/audits/physics-jolt-deep-audit-2026-11-25.md)
 
 ## Bağlam
 

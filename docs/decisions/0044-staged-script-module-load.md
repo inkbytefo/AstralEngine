@@ -3,7 +3,7 @@
 - **Durum:** Kabul edildi
 - **Tarih:** 2026-11-25
 - **Kapsam:** `script` (`ScriptHost::load`, `astral.*` binding'leri), `world` (`TypeRegistry`/`EventRegistry::rollback_dynamic`), MSR AG09
-- **İlişkili:** [ADR-0028](0028-script-tooling-and-shared-features.md), [App & Gameplay denetimi](../status/app-gameplay-deep-audit-2026-11-25.md)
+- **İlişkili:** [ADR-0028](0028-script-tooling-and-shared-features.md), [App & Gameplay denetimi](../archive/audits/app-gameplay-deep-audit-2026-11-25.md)
 
 ## Bağlam
 

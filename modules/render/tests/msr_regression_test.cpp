@@ -1,4 +1,4 @@
-// Regression tests for the Master Stabilization Roadmap (docs/status/master-stabilization-roadmap.md).
+// Regression tests for the Master Stabilization Roadmap (docs/archive/msr/master-stabilization-roadmap.md).
 #include "frame/frame_slot.hpp"
 #include "gpu_test_support.hpp"
 #include "stores/material_store.hpp"

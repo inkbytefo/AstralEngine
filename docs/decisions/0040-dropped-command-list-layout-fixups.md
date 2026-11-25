@@ -3,7 +3,7 @@
 - **Durum:** Kabul edildi
 - **Tarih:** 2026-11-25
 - **Kapsam:** `gpu` modülü, MSR G03 / G02
-- **İlişkili:** [Master Stabilization Roadmap](../status/master-stabilization-roadmap.md), [GPU/RHI denetimi](../status/gpu-rhi-deep-audit-2026-11-25.md)
+- **İlişkili:** [Master Stabilization Roadmap](../archive/msr/master-stabilization-roadmap.md), [GPU/RHI denetimi](../archive/audits/gpu-rhi-deep-audit-2026-11-25.md)
 
 ## Bağlam
 

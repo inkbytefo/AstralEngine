@@ -1,7 +1,7 @@
 # Master Stabilization Backlog
 
 **25 Kasım 2026 — açık işler**  
-Kaynak ve kanıt: [Master Code Audit](master-code-audit-2026-11-25.md). Bu backlog resmi motor/GDX fazlarının yerine geçmez. Tüm A/R/V kayıtları açık; D kayıtlarında F0'nun güncel kapanış kanıtı aranır.
+Kaynak ve kanıt: [Master Code Audit](../audits/master-code-audit-2026-11-25.md). Bu backlog resmi motor/GDX fazlarının yerine geçmez. Tüm A/R/V kayıtları açık; D kayıtlarında F0'nun güncel kapanış kanıtı aranır.
 
 ## Sıralama
 
@@ -41,31 +41,31 @@ Her ID için: **durum (open / in progress / verified fixed / deferred)**, kaynak
 
 ## Ek denetim: Core / ECS
 
-[Core & ECS Deep Audit](core-ecs-deep-audit-2026-11-25.md): C01–C06 kaynak kusurları, CR01–CR06 riskler, CP01–CP03 öneriler. C01–C05 yüksek öncelikli çalışma kuyruğuna alınır; mevcut S0–S6 paketleri korunur. CI durumu kullanıcı tarafından altyapı engeli olarak bildirilmiştir; bağımsız kök neden logu yoktur. Yerel derleme bu inceleme kapsamı dışındadır.
+[Core & ECS Deep Audit](../audits/core-ecs-deep-audit-2026-11-25.md): C01–C06 kaynak kusurları, CR01–CR06 riskler, CP01–CP03 öneriler. C01–C05 yüksek öncelikli çalışma kuyruğuna alınır; mevcut S0–S6 paketleri korunur. CI durumu kullanıcı tarafından altyapı engeli olarak bildirilmiştir; bağımsız kök neden logu yoktur. Yerel derleme bu inceleme kapsamı dışındadır.
 
 ## Ek denetim: GPU / Vulkan RHI
 
-[GPU & Vulkan RHI Deep Audit](gpu-rhi-deep-audit-2026-11-25.md): G01–G10 kaynak kusurları, GR01–GR05 riskler, GP01–GP03 öneriler. S1 kapsamı A01, G01–G10 ile genişler; G01–G05 ve G07–G09 P1. A01 immediate submit takip notu yeni bulgu sayılmaz. GPU validation ve fault injection ileride, bu faz sadece statik analiz. Mevcut motor/GDX fazları değişmedi.
+[GPU & Vulkan RHI Deep Audit](../audits/gpu-rhi-deep-audit-2026-11-25.md): G01–G10 kaynak kusurları, GR01–GR05 riskler, GP01–GP03 öneriler. S1 kapsamı A01, G01–G10 ile genişler; G01–G05 ve G07–G09 P1. A01 immediate submit takip notu yeni bulgu sayılmaz. GPU validation ve fault injection ileride, bu faz sadece statik analiz. Mevcut motor/GDX fazları değişmedi.
 
 ## Ek denetim: Rendering
 
-[Rendering Deep Audit](rendering-deep-audit-2026-11-25.md): REN01–REN10 kaynak kusurları, RR01–RR06 koşullu riskler, RP01–RP03 öneriler. REN01–05, REN07–08 P1; öncelik A01/G01–G03 ile ortak submit/resource/history sözleşmesi, sonra input validation ve M14 pass ordering. S1/S4 ve rendering stabilizasyon görevleriyle koordine et; GDX ve motor fazları değişmedi. Statik inceleme, runtime testleri açık.
+[Rendering Deep Audit](../audits/rendering-deep-audit-2026-11-25.md): REN01–REN10 kaynak kusurları, RR01–RR06 koşullu riskler, RP01–RP03 öneriler. REN01–05, REN07–08 P1; öncelik A01/G01–G03 ile ortak submit/resource/history sözleşmesi, sonra input validation ve M14 pass ordering. S1/S4 ve rendering stabilizasyon görevleriyle koordine et; GDX ve motor fazları değişmedi. Statik inceleme, runtime testleri açık.
 
 ## Ek denetim: Physics / Jolt
 
-[Physics & Jolt Deep Audit](physics-jolt-deep-audit-2026-11-25.md): PH01–PH09 kaynak kusurları, PHR01–PHR06 koşullu riskler, PHP01–PHP03 öneriler. PH01–05 P1; S5 runtime reliability, C/CR scheduler ve S4 parser hardening ile koordine. Contact/character ownership, fixed-step clock, origin ve deterministic producer order öncelikli; M21/M23 öncesi joint/pose sözleşmesi doğrulansın. Derleme ve runtime testleri kapsam dışı, bütün kayıtlar açık.
+[Physics & Jolt Deep Audit](../audits/physics-jolt-deep-audit-2026-11-25.md): PH01–PH09 kaynak kusurları, PHR01–PHR06 koşullu riskler, PHP01–PHP03 öneriler. PH01–05 P1; S5 runtime reliability, C/CR scheduler ve S4 parser hardening ile koordine. Contact/character ownership, fixed-step clock, origin ve deterministic producer order öncelikli; M21/M23 öncesi joint/pose sözleşmesi doğrulansın. Derleme ve runtime testleri kapsam dışı, bütün kayıtlar açık.
 
 ## Ek denetim: Assets / Shader Compiler
 
-[Assets & Shader Compiler Deep Audit](assets-shader-deep-audit-2026-11-25.md): AS01–AS13 kaynak kusurları, ASR01–ASR06 koşullu riskler, ASP01–ASP03 öneriler. AS01, AS03–04, AS06, AS08–12 P1; S4 parser hardening, S1 GPU publish/lifetime ve E4/E9 asset/cook sözleşmeleriyle koordineli. Dependency graph, atomic asset/shader publication, cook output closure, typed ABI. Derleme ve runtime testleri kapsam dışı, tüm kayıtlar açık.
+[Assets & Shader Compiler Deep Audit](../audits/assets-shader-deep-audit-2026-11-25.md): AS01–AS13 kaynak kusurları, ASR01–ASR06 koşullu riskler, ASP01–ASP03 öneriler. AS01, AS03–04, AS06, AS08–12 P1; S4 parser hardening, S1 GPU publish/lifetime ve E4/E9 asset/cook sözleşmeleriyle koordineli. Dependency graph, atomic asset/shader publication, cook output closure, typed ABI. Derleme ve runtime testleri kapsam dışı, tüm kayıtlar açık.
 
 ## Ek denetim: App / Gameplay
 
-[App & Gameplay Deep Audit](app-gameplay-deep-audit-2026-11-25.md): AG01–AG13 kaynak kusurları, AGR01–AGR06 koşullu riskler, AGP01–AGP03 öneriler. AG01–03, AG06–07, AG09, AG12–13 P1. S5 runtime reliability, S2 transactional data, C/PH deterministic scheduling ile koordine. Save/load ve world switch veri bütünlüğü, named input edges/feature composition, Luau callbacks/reload/serialization öncelikli. Derleme ve runtime testleri kapsam dışı; tüm kayıtlar açık.
+[App & Gameplay Deep Audit](../audits/app-gameplay-deep-audit-2026-11-25.md): AG01–AG13 kaynak kusurları, AGR01–AGR06 koşullu riskler, AGP01–AGP03 öneriler. AG01–03, AG06–07, AG09, AG12–13 P1. S5 runtime reliability, S2 transactional data, C/PH deterministic scheduling ile koordine. Save/load ve world switch veri bütünlüğü, named input edges/feature composition, Luau callbacks/reload/serialization öncelikli. Derleme ve runtime testleri kapsam dışı; tüm kayıtlar açık.
 
 ## Editor / AI — hedef mimari ve kapsam kararı
 
-Kullanıcı kararıyla mevcut Editor/AI üzerinde derin statik bug avı atlandı; [Studio & Intelligence hedef mimarisi](../editor/studio-intelligence-target-architecture.md) sonraki yeniden inşa için tasarım referansıdır. S2/S3 ve önceki A02–A08, A13–A14, R01–R03 açık kalır; replacement implementation için regresyon kabul kriterlerine eşlendi. Yeni kaynak kusuru/risk sayısı eklenmedi. Motor kodu ve mevcut E0–E2 implementasyonu değişmedi. GDX fazları korunur; refaktör ADR ve uygulama planı ayrıca hazırlanır.
+Kullanıcı kararıyla mevcut Editor/AI üzerinde derin statik bug avı atlandı; [Studio & Intelligence hedef mimarisi](../../editor/studio-intelligence-target-architecture.md) sonraki yeniden inşa için tasarım referansıdır. S2/S3 ve önceki A02–A08, A13–A14, R01–R03 açık kalır; replacement implementation için regresyon kabul kriterlerine eşlendi. Yeni kaynak kusuru/risk sayısı eklenmedi. Motor kodu ve mevcut E0–E2 implementasyonu değişmedi. GDX fazları korunur; refaktör ADR ve uygulama planı ayrıca hazırlanır.
 
 ## Merkezi roadmap
 

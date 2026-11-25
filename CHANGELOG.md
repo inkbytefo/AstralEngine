@@ -19,7 +19,7 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 - `assets`: başarısız reload son iyi modeli korur (AS06), yükleme sırasında yapılan düzenleme kaçmaz (AS07), dokümanların adını verdiği gömülü dosyalar da paketlenir (AS08), başarısız cook son iyi çıktıyı korur (AS09), eksik world cell çıktısı yeniden cook edilir (AS10). **Davranış:** cook cache v2.
 - `render`: temporal history submit'te ilerler (REN01), başarısız history allocation yeniden denenir (REN04), GPU timing yalnız submit edilen karelerden (REN09), partikül çarpışmasında birleşik derinlikte SDF normali (REN10).
 
-### Fixed (MSR Dalga 1 — docs/status/master-stabilization-roadmap.md)
+### Fixed (MSR Dalga 1 — docs/archive/msr/master-stabilization-roadmap.md)
 - `gpu`: başarısız submit sonrası present (A01), `CommandList` move-assign yaşam süresi (G01), açık listelerin kullandığı kaynakların erken serbest bırakılması (G02), AS backing buffer double destroy (G04), BC kopya boyut kontrolü (G05), timestamp aralık taşması (G06), başarısız swapchain yeniden oluşturma (G07), image view/semaphore hataları (G08), başka cihazın listesini submit (G09).
 - `assets`: glTF index/aralık/stride kontrolleri, bozuk URI escape, node döngüsü ve çift ebeveyn, ayna matris işareti; AMDL index taşması ve dosyaya sığmayan kayıt sayıları (A11, A12, AS01–AS05).
 - `world`: `parallel_each` worker'larına `ScopedTick` taşınması (C01), okuma sırasında aynı olay türünü gönderme (C02), sayı/enum yüklemede aralık kontrolü (C03, C04), move-assign edilemeyen component'lere `add` (C06); başarısız hücre yüklemesi artık Attached sayılmıyor, geri çekilmeyle yeniden deneniyor (A09). **API:** `CellLoader::attach` artık `bool` döner; `StreamingStats::failed_last_update`.
@@ -67,7 +67,7 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ### Added (F0 — Doğrulama ve capability envanteri)
 - `docs/status/capabilities.md`: CMake modül grafiği, public API, loader'lar, testler ve ADR sapmalarıyla tam yetenek matrisi.
-- `docs/status/f0-verification-report.md`: Windows MSVC Debug/Release (`-Werror`), kurulu paket/tüketici, `templates/blank`, `golden-hw`, `astral-bench` ve `astral-render-bench` (RTX 3060) taban raporu ile 5 takip kaydı (`F0-TRACK-01..05`).
+- `docs/archive/audits/f0-verification-report.md`: Windows MSVC Debug/Release (`-Werror`), kurulu paket/tüketici, `templates/blank`, `golden-hw`, `astral-bench` ve `astral-render-bench` (RTX 3060) taban raporu ile 5 takip kaydı (`F0-TRACK-01..05`).
 - `bench/main.cpp`: p50/p95/p99 yüzdelikleri, RSS bellek raporu ve 16×16 hücreli gerçek uçuş profilli arka plan streaming worker decode ölçümü.
 - `.github/workflows/ci.yml`: `tsan` işine `astral_app_tests` headless paralel zamanlayıcı alt kümesi eklendi.
 
@@ -321,7 +321,7 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
   `near_gi_radius`, `max_ray_distance`, `debug_view`. `PointLight::source_radius`,
   `DirectionalLight::angular_radius`, `RenderScene::rect_lights`.
 - App: `RectLight` component'i, `AppDesc::render`.
-- `examples/rt_showcase` (RGB oda; pencere veya `--capture` ile headless görüntü), `docs/research/rage.md`.
+- `examples/rt_showcase` (RGB oda; pencere veya `--capture` ile headless görüntü), `docs/archive/research/rage.md`.
 
 ### Changed
 - RT destekli cihazlarda varsayılan yol ray-traced; `RenderSettings::ray_tracing = false` raster yolu verir.
