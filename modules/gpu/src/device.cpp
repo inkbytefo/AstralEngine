@@ -35,6 +35,54 @@ void Device::Impl::retire(std::function<void()> destroy) {
     garbage.push_back(std::move(g));
 }
 
+bool Device::Impl::record_layout_fixups(CommandSlot& slot) {
+    std::vector<VkImageMemoryBarrier2> barriers;
+    for (const LayoutFixup& f : recording.fixups) {
+        const TextureRecord* r = textures.get(f.texture);
+        if (!r) continue;
+        const bool depth = is_depth(r->desc.format);
+        const StateInfo from = state_info(f.from, depth);
+        const StateInfo to = state_info(f.to, depth);
+        VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+        b.srcStageMask = from.stages ? from.stages : VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+        b.srcAccessMask = from.access;
+        b.dstStageMask = to.stages;
+        b.dstAccessMask = to.access;
+        b.oldLayout = from.layout;
+        b.newLayout = to.layout;
+        b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = r->image;
+        b.subresourceRange = {static_cast<VkImageAspectFlags>(depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT),
+                              0, VK_REMAINING_MIP_LEVELS, 0, 1};
+        barriers.push_back(b);
+    }
+    if (barriers.empty()) {
+        recording.fixups.clear();
+        return false;
+    }
+    if (!slot.fixup) {
+        VkCommandBufferAllocateInfo alloc{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+        alloc.commandPool = command_pool;
+        alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        alloc.commandBufferCount = 1;
+        if (vkAllocateCommandBuffers(device, &alloc, &slot.fixup) != VK_SUCCESS) {
+            slot.fixup = VK_NULL_HANDLE;
+            log_error("layout fix-up: cannot allocate a command buffer");
+            return false;
+        }
+    }
+    vkResetCommandBuffer(slot.fixup, 0);
+    VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(slot.fixup, &begin);
+    VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.imageMemoryBarrierCount = static_cast<std::uint32_t>(barriers.size());
+    dep.pImageMemoryBarriers = barriers.data();
+    vkCmdPipelineBarrier2(slot.fixup, &dep);
+    vkEndCommandBuffer(slot.fixup);
+    return true;
+}
+
 void Device::Impl::release_slot(std::uint32_t slot, std::uint64_t ticket) {
     for (Garbage& g : garbage) {
         const auto it = std::find(g.open_slots.begin(), g.open_slots.end(), slot);
@@ -291,7 +339,9 @@ CommandList Device::begin_commands() {
                             &s.bindless.descriptor_set, 0, nullptr);
     vkCmdBindDescriptorSets(c.buffer, VK_PIPELINE_BIND_POINT_COMPUTE, s.bindless.pipeline_layout, 0, 1,
                             &s.bindless.descriptor_set, 0, nullptr);
-    return CommandList(this, c.buffer, slot);
+    CommandList list(this, c.buffer, slot);
+    list.serial_ = s.recording.next_serial++;
+    return list;
 }
 
 SubmitTicket Device::submit(CommandList& commands) {
@@ -311,8 +361,12 @@ SubmitTicket Device::submit_internal(CommandList& commands, const void* waits, s
     vkEndCommandBuffer(slot.buffer);
 
     const std::uint64_t value = s.last_submitted + 1;
-    VkCommandBufferSubmitInfo cmd_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
-    cmd_info.commandBuffer = slot.buffer;
+    VkCommandBufferSubmitInfo cmd_infos[2]{{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO},
+                                           {VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO}};
+    std::uint32_t cmd_count = 0;
+    const bool fixups = !s.recording.fixups.empty() && s.record_layout_fixups(slot);
+    if (fixups) cmd_infos[cmd_count++].commandBuffer = slot.fixup;
+    cmd_infos[cmd_count++].commandBuffer = slot.buffer;
     std::vector<VkSemaphoreSubmitInfo> signal_infos;
     if (signal_count) {
         auto* begin = static_cast<const VkSemaphoreSubmitInfo*>(signals);
@@ -327,8 +381,8 @@ SubmitTicket Device::submit_internal(CommandList& commands, const void* waits, s
     VkSubmitInfo2 submit{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
     submit.waitSemaphoreInfoCount = wait_count;
     submit.pWaitSemaphoreInfos = static_cast<const VkSemaphoreSubmitInfo*>(waits);
-    submit.commandBufferInfoCount = 1;
-    submit.pCommandBufferInfos = &cmd_info;
+    submit.commandBufferInfoCount = cmd_count;
+    submit.pCommandBufferInfos = cmd_infos;
     submit.signalSemaphoreInfoCount = static_cast<std::uint32_t>(signal_infos.size());
     submit.pSignalSemaphoreInfos = signal_infos.data();
     slot.recording = false;
@@ -344,6 +398,7 @@ SubmitTicket Device::submit_internal(CommandList& commands, const void* waits, s
     }
     s.last_submitted = value;
     slot.ticket = value;
+    if (fixups) s.recording.fixups.clear();
     s.release_slot(commands.slot_, value);
     for (auto& callback : callbacks) callback({value});
     return {value};

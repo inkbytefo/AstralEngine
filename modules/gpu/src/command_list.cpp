@@ -25,7 +25,7 @@ CommandList::CommandList(Device* device, void* native_buffer, std::uint32_t slot
 
 CommandList::CommandList(CommandList&& other) noexcept
     : device_(std::exchange(other.device_, nullptr)), native_(other.native_), slot_(other.slot_),
-      rendering_(other.rendering_), bound_pipeline_(other.bound_pipeline_),
+      serial_(other.serial_), rendering_(other.rendering_), bound_pipeline_(other.bound_pipeline_),
       compute_bound_(other.compute_bound_), touched_(std::move(other.touched_)),
       on_submitted_(std::move(other.on_submitted_)) {}
 
@@ -35,6 +35,7 @@ CommandList& CommandList::operator=(CommandList&& other) noexcept {
         device_ = std::exchange(other.device_, nullptr);
         native_ = other.native_;
         slot_ = other.slot_;
+        serial_ = other.serial_;
         rendering_ = other.rendering_;
         bound_pipeline_ = other.bound_pipeline_;
         compute_bound_ = other.compute_bound_;
@@ -54,9 +55,19 @@ void CommandList::abandon() noexcept {
     vkEndCommandBuffer(native(native_));
     s.command_slots[slot_].recording = false;
     s.release_slot(slot_, 0); // nothing it recorded will run
-    // Its transitions never execute: restore the states they assumed (latest first).
+    // Its transitions never execute. A texture no later recording touched goes back to its old
+    // state. One that a later, still open list moved on from our state keeps that list's state,
+    // and the GPU gets a fix-up barrier (our `before` -> our `after`) ahead of the next submit,
+    // so the later list's barriers start from the layout they assumed.
     for (auto it = touched_.rbegin(); it != touched_.rend(); ++it) {
-        if (TextureRecord* r = s.textures.get(it->first)) r->state = it->second;
+        TextureRecord* r = s.textures.get(it->texture);
+        if (!r) continue;
+        if (r->last_recorder == serial_) {
+            r->state = it->before;
+            r->last_recorder = 0;
+        } else if (it->before != it->after) {
+            s.recording.fixups.push_back({it->texture, it->before, it->after});
+        }
     }
     device_ = nullptr;
     rendering_ = false;
@@ -66,11 +77,14 @@ void CommandList::abandon() noexcept {
     on_submitted_.clear();
 }
 
-void CommandList::remember_state(TextureHandle texture, ResourceState previous) {
-    for (const auto& [t, state] : touched_) {
-        if (t == texture) return; // only the first (original) state matters
+void CommandList::remember_state(TextureHandle texture, ResourceState previous, ResourceState next) {
+    for (Touched& t : touched_) {
+        if (t.texture == texture) { // the first (original) state stays; the latest one moves on
+            t.after = next;
+            return;
+        }
     }
-    touched_.emplace_back(texture, previous);
+    touched_.push_back({texture, previous, next});
 }
 
 void CommandList::transition(TextureHandle texture, ResourceState state) {
@@ -105,8 +119,9 @@ void CommandList::transition(TextureHandle texture, ResourceState state) {
     dep.imageMemoryBarrierCount = 1;
     dep.pImageMemoryBarriers = &b;
     vkCmdPipelineBarrier2(native(native_), &dep);
-    remember_state(texture, r->state);
+    remember_state(texture, r->state, state);
     r->state = state;
+    r->last_recorder = serial_;
 }
 
 void CommandList::memory_barrier() {

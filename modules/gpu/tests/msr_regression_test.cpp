@@ -90,3 +90,38 @@ TEST_CASE("G09: a list from another device is refused and not consumed") {
     CHECK(cmd.valid()); // still owned by `first`
     first->wait(first->submit(cmd));
 }
+
+TEST_CASE("G03: dropping a list that a later open list built on keeps the later list's layouts valid") {
+    auto device = test::make_device();
+    if (!device) return;
+    auto tex = device->create_texture({.width = 4, .height = 4, .format = gpu::Format::RGBA8Unorm,
+                                       .usage = gpu::TextureUsage::ColorTarget | gpu::TextureUsage::Sampled});
+    auto b = device->begin_commands();
+    {
+        auto a = device->begin_commands();
+        a.transition(tex, gpu::ResourceState::ColorTarget);
+        b.transition(tex, gpu::ResourceState::ShaderRead); // barrier from ColorTarget, which only `a` set up
+    } // `a` dropped: the GPU never runs its transition
+    device->wait(device->submit(b)); // a fix-up barrier runs first: no layout mismatch
+    auto c = device->begin_commands();
+    c.transition(tex, gpu::ResourceState::ColorTarget); // and the tracked state is right afterwards
+    device->wait(device->submit(c));
+}
+
+TEST_CASE("G03: dropping both lists in turn leaves a consistent state") {
+    auto device = test::make_device();
+    if (!device) return;
+    auto tex = device->create_texture({.width = 4, .height = 4, .format = gpu::Format::RGBA8Unorm,
+                                       .usage = gpu::TextureUsage::ColorTarget | gpu::TextureUsage::Sampled});
+    {
+        auto b = device->begin_commands();
+        {
+            auto a = device->begin_commands();
+            a.transition(tex, gpu::ResourceState::ColorTarget);
+            b.transition(tex, gpu::ResourceState::ShaderRead);
+        }
+    } // both dropped
+    auto c = device->begin_commands();
+    c.transition(tex, gpu::ResourceState::ShaderRead);
+    device->wait(device->submit(c));
+}

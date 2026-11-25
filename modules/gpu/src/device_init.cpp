@@ -310,13 +310,28 @@ bool create_sync_and_commands(Device::Impl& s) {
     return vkCreateCommandPool(s.device, &pool, nullptr, &s.command_pool) == VK_SUCCESS;
 }
 
-bool create_bindless(Device::Impl& s) {
-    auto& b = s.bindless;
+/// Entries per bindless image array. Both arrays and the 3 samplers are visible to every stage, so
+/// the per-stage limits and the per-stage total (2 * N + 3 resources) bound N as well as the per-set limits.
+std::uint32_t bindless_capacity(VkPhysicalDevice physical) {
     VkPhysicalDeviceVulkan12Properties p12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES};
     VkPhysicalDeviceProperties2 p2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &p12};
-    vkGetPhysicalDeviceProperties2(s.physical, &p2);
-    b.max_textures = std::min({16384u, p12.maxDescriptorSetUpdateAfterBindSampledImages,
-                               p12.maxDescriptorSetUpdateAfterBindStorageImages});
+    vkGetPhysicalDeviceProperties2(physical, &p2);
+    const std::uint32_t per_stage_total = p12.maxPerStageUpdateAfterBindResources > 3
+                                              ? (p12.maxPerStageUpdateAfterBindResources - 3) / 2
+                                              : 0u;
+    return std::min({16384u, p12.maxDescriptorSetUpdateAfterBindSampledImages,
+                     p12.maxDescriptorSetUpdateAfterBindStorageImages,
+                     p12.maxPerStageDescriptorUpdateAfterBindSampledImages,
+                     p12.maxPerStageDescriptorUpdateAfterBindStorageImages, per_stage_total});
+}
+
+bool create_bindless(Device::Impl& s) {
+    auto& b = s.bindless;
+    b.max_textures = bindless_capacity(s.physical);
+    if (b.max_textures == 0) {
+        s.log_error("bindless: the device's update-after-bind descriptor limits are too small");
+        return false;
+    }
 
     VkDescriptorSetLayoutBinding bindings[3]{};
     bindings[0] = {0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, b.max_textures, VK_SHADER_STAGE_ALL, nullptr};
