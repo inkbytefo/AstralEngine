@@ -330,6 +330,7 @@ void PhysicsBridge::flush_commands() {
 
 void PhysicsBridge::shift_origin(Vec3 offset) {
     physics_->shift_origin(offset);
+    commands_.shift_positions(offset); // teleports queued in the old coordinates
     for (KinematicBodyLink& link : links_.kinematics) link.previous_position = link.previous_position - offset;
     for (DynamicBodyLink& link : links_.dynamics) link.step_position = link.step_position - offset;
     world_.each<Joint>([&](Joint& j) {
@@ -568,7 +569,8 @@ void PhysicsBridge::step(float delta, FixedStepCallback on_fixed_update, void* u
         move_kinematics(alpha, fixed);
         update_characters(fixed, terrain);
         if (config_.interpolation) snapshot_interpolation();
-        apply_physics_field_forces(world_, *physics_, fields_, time_.elapsed, fixed);
+        // Simulation time, not frame time: several steps in one frame sample wind/waves at their own t.
+        apply_physics_field_forces(world_, *physics_, fields_, sim_time_, fixed);
         {
             ASTRAL_PROFILE_SCOPE(profiler_, "physics.step");
             physics_->step(fixed);

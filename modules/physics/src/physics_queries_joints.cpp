@@ -67,11 +67,15 @@ std::vector<OverlapHit> overlap_jolt_shape(const PhysicsWorld::Impl& m, const JP
     const LayerMask layer_filter(filter.layers);
     m.system->GetNarrowPhaseQuery().CollideShape(shape, JPH::Vec3::sReplicate(1.0f), transform, settings, JPH::RVec3::sZero(),
                                                  collector, {}, layer_filter, body_filter);
+    std::vector<JPH::BodyID> seen;
     for (const JPH::CollideShapeResult& r : collector.mHits) {
+        if (std::find(seen.begin(), seen.end(), r.mBodyID2) != seen.end()) continue;
+        seen.push_back(r.mBodyID2);
+        // Characters' inner bodies have no BodyHandle: report them by user data (body stays invalid).
         const BodyHandle h = m.handle_of(r.mBodyID2);
-        if (!h.valid()) continue;
-        if (std::any_of(out.begin(), out.end(), [&](const OverlapHit& o) { return o.body == h; })) continue;
-        out.push_back({h, m.user_data_of(h)});
+        const auto* info = m.info_of(r.mBodyID2);
+        if (!h.valid() && !info) continue;
+        out.push_back({h, h.valid() ? m.user_data_of(h) : info->user_data});
     }
     return out;
 }
@@ -206,12 +210,18 @@ CharacterHandle PhysicsWorld::create_character(const CharacterDesc& desc) {
         new JPH::CharacterVirtual(settings, JPH::RVec3(to_jph(desc.position)), JPH::Quat::sIdentity(), desc.user_data, m.system.get());
     character->SetCharacterVsCharacterCollision(&m.character_collision);
     m.character_collision.Add(character);
+    if (!character->GetInnerBodyID().IsInvalid()) {
+        m.info_by_id[character->GetInnerBodyID().GetIndexAndSequenceNumber()] = {desc.user_data, 0, false};
+    }
     return m.characters.create({character});
 }
 
 void PhysicsWorld::destroy(CharacterHandle character) {
     auto& m = *impl_;
     if (auto* r = m.characters.get(character)) {
+        if (!r->character->GetInnerBodyID().IsInvalid()) {
+            m.retired_info.push_back(r->character->GetInnerBodyID().GetIndexAndSequenceNumber());
+        }
         m.character_collision.Remove(r->character);
         m.characters.destroy(character);
     }

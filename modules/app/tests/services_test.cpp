@@ -308,3 +308,22 @@ TEST_CASE("DevTools loads default font, draws overlays, and assembles HUD layers
     hud.rect({0, 0}, {10, 10}, {1, 1, 1, 1});
     CHECK(tools.overlay_layers(hud).size() == 1);
 }
+
+TEST_CASE("PH03: queued teleports move with the floating origin") {
+    PhysicsCommandQueue queue;
+    const Entity e{1, 1};
+    queue.enqueue({.entity = e, .kind = PhysicsCommandKind::SetBodyTransform, .value = {2005, 1, -3000}});
+    queue.enqueue({.entity = e, .kind = PhysicsCommandKind::Impulse, .value = {5, 0, 0}});
+    queue.shift_positions({2000, 0, -3000});
+    std::vector<PhysicsCommand> out;
+    queue.drain_sorted(out);
+    REQUIRE(out.size() == 2);
+    for (const PhysicsCommand& c : out) {
+        if (c.kind == PhysicsCommandKind::SetBodyTransform) {
+            CHECK(c.value.x == doctest::Approx(5.0f));
+            CHECK(c.value.z == doctest::Approx(0.0f));
+        } else {
+            CHECK(c.value.x == doctest::Approx(5.0f)); // a vector, not a position: unchanged
+        }
+    }
+}

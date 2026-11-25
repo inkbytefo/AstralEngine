@@ -1,5 +1,6 @@
 #include "physics_internal.hpp"
 
+#include <utility>
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyLock.h>
@@ -193,6 +194,7 @@ BodyHandle PhysicsWorld::create_body(const BodyDesc& desc) {
     }
     const BodyHandle handle = m.bodies.create({id, desc.user_data, desc.surface, desc.sensor});
     m.handle_by_index[id.GetIndex()] = {handle, id};
+    m.info_by_id[id.GetIndexAndSequenceNumber()] = {desc.user_data, desc.surface, desc.sensor};
     return handle;
 }
 
@@ -209,6 +211,7 @@ void PhysicsWorld::destroy(BodyHandle body) {
     m.bi().RemoveBody(id);
     m.bi().DestroyBody(id);
     m.handle_by_index[id.GetIndex()] = {};
+    m.retired_info.push_back(id.GetIndexAndSequenceNumber());
     m.bodies.destroy(body);
 }
 
@@ -307,7 +310,10 @@ void PhysicsWorld::step(float dt, int collision_steps) {
     m.contacts.clear();
     m.broken_joints.clear();
     if (dt <= 0.0f) return;
+    // Bodies destroyed before this step: their removed contacts are reported during it.
+    const std::vector<std::uint32_t> expiring = std::exchange(m.retired_info, {});
     const JPH::EPhysicsUpdateError error = m.system->Update(dt, std::max(collision_steps, 1), m.temp.get(), m.jobs.get());
+    for (std::uint32_t key : expiring) m.info_by_id.erase(key);
     if (error != JPH::EPhysicsUpdateError::None) {
         m.error("physics step overflow: raise PhysicsDesc::max_body_pairs / max_contact_constraints");
     }
