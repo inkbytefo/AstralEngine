@@ -178,6 +178,25 @@ M19 yıkım olayını ortak fragment yaşam döngüsüne bağla. Önceden kırı
 
 **Çıkış** `examples/coop_lab` içinde dedicated server ve iki istemci, hücre geçişi, geç katılım, paket kaybı/gecikme simülasyonu, authority ve düzeltme raporu.
 
+
+## Technology Labs ve yerleşik Game API programı (25 Kasım 2026)
+
+Kullanıcı kararı: motor teknolojileri, gerçek oyun senaryolarını temsil eden oynanabilir lab'lerle paralel geliştirilecek. Her genel yetenek motorun public C++ API'si, uygun Luau yüzeyi, reflection/cook ve bağımsız tüketici testleriyle açılacak; oyun kuralları FeatureSet paketlerinde kalacak. Ayrıntılı görevler, bağımlılıklar, API sınırları ve kabul ölçümleri: [Technology Labs & Native Game API Roadmap](technology-labs-roadmap.md).
+
+| Program | Mevcut faz bağlantısı | Referans örnek | Durum |
+|---|---|---|---|
+| BASE0–1 | MSR, GDX E8 | Blank/Pong/TRIALS, competitive_lab | Planlı |
+| AN0–2 / CH0–1 | M20/A0, M21/S1, P0 | character_lab, football_lab | Planlı |
+| NAV0–1 | M9/M15, MSR S5 | city_lab, football_lab | Planlı |
+| NET0–2 | N0 + competitive/large-scale | coop_lab, competitive_lab, battlefield_lab | Planlı |
+| VEH0–1 / DEF0–1 | M23/V0/V1/S2 | driving_lab, crash_lab | Planlı |
+| DEST0–1 | M19/M23 | destruction_lab, battlefield_lab | Planlı |
+| WLD0–1 | M9/M15/M22 | open_world, city_lab | Planlı |
+| REND0–2 | M14–M18/M22 | render/terrain labs, city_lab | Planlı |
+| AUD0–1 | M8, MSR S5.3 | competitive_lab, driving_lab | Planlı |
+
+Bu takip programları mevcut fazları yeniden numaralandırmaz veya tamamlandı göstermez. [Master Stabilization](status/master-stabilization-roadmap.md) ön koşulları korunur. VR/XR süresiz raf kaldırıldı; aktif görev ve bağımlılık değildir. Yeni Studio/AI çalışması beklemeden native SDK/headless API geliştirilebilir.
+
 ## Kabul sahneleri
 
 Her örnek `templates/blank`/standart oyun kabuğu ve feature sınırlarını izler. Editör örneği bağımsız editör hedefini açar. İlk kapsam için mevcut sahneler genişletilebilir.

@@ -7,6 +7,7 @@ kurallar [process.md](process.md)'de.
 |---|---|
 | [architecture.md](architecture.md) | Katmanlar, SOLID kuralları, bağımlılık yönü, klasör yapısı |
 | [roadmap.md](roadmap.md) | Fazlar, her fazın durumu ve bitiş kriterleri |
+| [technology-labs-roadmap.md](technology-labs-roadmap.md) | Oyun odaklı teknoloji lab'leri, native Game API, reusable FeatureSet paketleri ve performans kabulü |
 | [editor/studio-intelligence-target-architecture.md](editor/studio-intelligence-target-architecture.md) | Studio/Intelligence hedef mimarisi ve sıfırdan refaktör sözleşmesi (öneri) |
 | [status/app-gameplay-deep-audit-2026-11-25.md](status/app-gameplay-deep-audit-2026-11-25.md) | App/Gameplay statik denetimi: input, feature composition, Luau lifecycle, save ve world transition |
 | [status/assets-shader-deep-audit-2026-11-25.md](status/assets-shader-deep-audit-2026-11-25.md) | Assets/Shader statik denetimi: glTF, cook, dependency graph, hot reload ve ABI |

@@ -18,3 +18,7 @@ python3 tools/sync_features.py --check  # kopyalar farklıysa hata verir (CTest:
 oyun kendi paketini taşır (tek klasör, tek `.apak`), bağımlılık yönetimi gerektirmez; denetim kopyaların kaymasını önler.
 
 Özellikler: `fly_camera` (WASD, Q/E, Shift, sağ fare; `autopilot` ile görüntü testleri için sabit uçuş).
+
+## Planlanan Game Framework paketleri
+
+[Technology Labs roadmap](../docs/technology-labs-roadmap.md) kapsamında mevcut shared feature mekanizması, tekrar kullanılabilir isteğe bağlı gameplay paketleri için genişletilecek: kamera/locomotion, interaction, health/abilities, inventory/equipment, team/match, vehicle control ve UI widget'ları. Native simülasyon ve genel servisler motor modüllerinde, oyuna özgü kurallar oyun feature'larında kalır. Bu liste planlıdır; mevcut paket veya tamamlanmış API iddiası değildir. Source-of-truth ve sync check korunur.
