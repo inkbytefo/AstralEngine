@@ -9,6 +9,7 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
+#include <deque>
 #include <functional>
 #include <span>
 #include <map>
@@ -52,16 +53,21 @@ public:
         current_.clear();
     }
     /// Calls fn for events with id >= cursor (oldest first) and moves the cursor past them.
+    /// fn may send events of the same type: they are not part of this read (the next read gets
+    /// them), and the deque keeps the event being read in place while the queue grows.
     template <class Fn> std::size_t read(std::uint64_t& cursor, Fn&& fn) const {
+        const std::uint64_t end_id = next_id_;
         std::size_t n = 0;
         for (const auto* list : {&previous_, &current_}) {
-            for (const Item& item : *list) {
-                if (item.id < cursor) continue;
+            const std::size_t count = list->size();
+            for (std::size_t i = 0; i < count; ++i) {
+                const Item& item = (*list)[i];
+                if (item.id < cursor || item.id >= end_id) continue;
                 fn(item.value);
                 ++n;
             }
         }
-        cursor = next_id_;
+        cursor = end_id;
         return n;
     }
     [[nodiscard]] std::size_t size() const noexcept { return previous_.size() + current_.size(); }
@@ -71,7 +77,7 @@ private:
         std::uint64_t id;
         T value;
     };
-    std::vector<Item> previous_, current_;
+    std::deque<Item> previous_, current_;
     std::uint64_t next_id_ = 0;
 };
 
@@ -383,8 +389,13 @@ template <class T> std::remove_cvref_t<T>& World::add(Entity entity, T&& compone
     // Copy first: `component` may live inside a column that the move below reallocates.
     C value(std::forward<T>(component));
     if (C* existing = get<C>(entity)) { // get<C> (non-const) marks it changed
-        *existing = std::move(value);
-        return *existing;
+        if constexpr (std::is_move_assignable_v<C>) {
+            *existing = std::move(value);
+            return *existing;
+        } else { // same fallback as the type-erased move_assign: components only need nothrow move construction
+            existing->~C();
+            return *::new (static_cast<void*>(existing)) C(std::move(value));
+        }
     }
     detail::Archetype* to = with_component(s->archetype, component_info<C>());
     const std::size_t row = move_entity(entity, *s, to);
@@ -503,8 +514,13 @@ template <class Fn>
 void QueryView<Cs...>::parallel_each(JobSystem& jobs, Fn&& fn, std::size_t batch) {
     World::IterationGuard guard(world_);
     JobCounter counter;
+    // Workers have their own thread-local tick state: carry the caller's (a system's ScopedTick)
+    // so change stamps and added/changed filters agree with the serial path.
+    const Tick baseline = world_.change_baseline();
+    const Tick write_tick = world_.tick();
     for_matches([&](detail::Archetype& a) {
-        jobs.parallel_for(counter, a.size(), batch, [this, &a, &fn](std::size_t begin, std::size_t end) {
+        jobs.parallel_for(counter, a.size(), batch, [this, &a, &fn, baseline, write_tick](std::size_t begin, std::size_t end) {
+            World::ScopedTick scope(world_, baseline, write_tick);
             run_rows(a, fn, begin, end, std::index_sequence_for<Cs...>{});
         });
     });

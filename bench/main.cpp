@@ -278,7 +278,7 @@ public:
         const auto it = pending_.find(cell);
         return it != pending_.end() && it->second->done.load(std::memory_order_acquire);
     }
-    void attach(CellKey cell) override {
+    bool attach(CellKey cell) override {
         std::shared_ptr<Pending> state;
         {
             std::scoped_lock lock(mu_);
@@ -287,11 +287,11 @@ public:
                 pending_.erase(it);
             }
         }
-        if (state) {
-            decode_samples.push_back(state->decode_ms);
-            attached_entities += state->entities.size();
-            ++attached_cells;
-        }
+        if (!state) return false;
+        decode_samples.push_back(state->decode_ms);
+        attached_entities += state->entities.size();
+        ++attached_cells;
+        return true;
     }
     void detach(CellKey) override { ++detached_cells; }
     void cancel(CellKey cell) override {

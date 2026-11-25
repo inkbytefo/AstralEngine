@@ -190,16 +190,20 @@ bool MapRuntime::ready(CellKey cell) {
     return it != pending_.end() && it->second->counter.done();
 }
 
-void MapRuntime::attach(CellKey cell) {
+bool MapRuntime::attach(CellKey cell) {
     auto it = pending_.find(cell);
-    if (it == pending_.end()) return;
+    if (it == pending_.end()) return false;
     std::shared_ptr<Pending> pending = std::move(it->second);
     pending_.erase(it);
     jobs_.wait(pending->counter);
-    if (!pending->error.empty()) log_.log(LogLevel::Error, "world cell " + cell_name(map_, cell) + ": " + pending->error);
+    if (!pending->error.empty()) { // unreadable or unparsable cell: nothing to attach, the streamer retries
+        log_.log(LogLevel::Error, "world cell " + cell_name(map_, cell) + ": " + pending->error);
+        return false;
+    }
     const LoadResult r = state_.spawn_cell(world_, prefabs_, cell, pending->entities, *layers_);
     for (const std::string& e : r.errors) log_.log(LogLevel::Error, "world cell " + cell_name(map_, cell) + ": " + e);
     attached_.push_back(cell);
+    return true;
 }
 
 void MapRuntime::detach(CellKey cell) {

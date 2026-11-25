@@ -24,7 +24,7 @@ bool TypeRegistry::prepare_schema(const Entry& entry, const Json& input, Json& o
     std::uint32_t doc_ver = 1;
     if (const Json* sv = input.find("$schema_version")) {
         const double num = sv->as_number(-1.0);
-        if (!sv->is_number() || num < 1.0 || num != static_cast<double>(static_cast<std::uint32_t>(num))) {
+        if (!sv->is_number() || num < 1.0 || !detail::number_fits<std::uint32_t>(num)) {
             ctx.error("invalid $schema_version " + sv->dump());
             return false;
         }

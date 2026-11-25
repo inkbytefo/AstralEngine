@@ -33,4 +33,5 @@ astral_add_tests(MODULE world
         tests/map_state_test.cpp
         tests/origin_test.cpp
         tests/identity_schema_test.cpp
-        tests/level_instance_test.cpp)
+        tests/level_instance_test.cpp
+        tests/msr_regression_test.cpp)

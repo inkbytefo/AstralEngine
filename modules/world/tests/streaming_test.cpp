@@ -21,10 +21,16 @@ struct FakeLoader final : CellLoader {
     int cancelled = 0;
     void begin_load(CellKey k) override { loading.insert({k.x, k.z}); }
     bool ready(CellKey k) override { return ready_set.count({k.x, k.z}) > 0; }
-    void attach(CellKey k) override {
+    std::set<Key> broken; ///< attach() fails for these (bad cell file).
+    bool attach(CellKey k) override {
+        loading.erase({k.x, k.z});
+        if (broken.count({k.x, k.z})) {
+            ready_set.erase({k.x, k.z});
+            return false;
+        }
         attached.insert({k.x, k.z});
         attach_order.push_back({k.x, k.z});
-        loading.erase({k.x, k.z});
+        return true;
     }
     void detach(CellKey k) override { attached.erase({k.x, k.z}); ready_set.erase({k.x, k.z}); }
     void cancel(CellKey k) override {
@@ -125,4 +131,24 @@ TEST_CASE("unload_all detaches everything") {
     streamer.unload_all();
     CHECK(loader.attached.empty());
     CHECK(streamer.stats().attached == 0);
+}
+
+TEST_CASE("A09: a cell whose load failed is not attached and is retried after a back-off") {
+    FakeLoader loader;
+    loader.broken.insert({0, 0});
+    CellStreamer streamer(one_grid(), row(0, 0), loader);
+    const StreamingPoint source{50, 50};
+    streamer.update(std::span(&source, 1), 100); // begin_load
+    loader.finish_all();
+    streamer.update(std::span(&source, 1), 100); // attach fails
+    CHECK_FALSE(streamer.is_attached({0, 0, 0}));
+    CHECK(streamer.stats().attached == 0);
+    CHECK(streamer.stats().failed_last_update == 1);
+    // The file is fixed; after the back-off the cell loads and attaches.
+    loader.broken.clear();
+    for (int i = 0; i < 4 && !streamer.is_attached({0, 0, 0}); ++i) {
+        streamer.update(std::span(&source, 1), 100);
+        loader.finish_all();
+    }
+    CHECK(streamer.is_attached({0, 0, 0}));
 }
