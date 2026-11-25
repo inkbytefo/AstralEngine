@@ -1,6 +1,4 @@
-#include <astral/app/gameplay_smoke.hpp>
 #include "render_bridge.hpp"
-#include "vfx_runtime.hpp"
 
 #include "../material_library.hpp"
 
@@ -13,16 +11,14 @@
 #include <astral/world/world.hpp>
 
 #include <algorithm>
+#include <bit>
+#include <cassert>
 #include <utility>
 
 namespace astral {
 
 namespace {
 
-/// Internal component: the transform a MeshRenderer entity was drawn with last frame.
-struct RenderHistory {
-    Mat4 previous;
-};
 /// Internal: on a ModelRef entity, which model (and version) its pieces were spawned from.
 struct SpawnedModel {
     AssetId id;
@@ -36,28 +32,113 @@ struct ModelPiece {
 /// Internal: this entity's MeshRenderer was made from its PrimitiveMesh.
 struct PrimitiveDrawn {};
 
-/// Builds the camera from the first active Camera entity (or a default one).
-CameraData find_camera(World& world, float aspect) {
-    CameraData data;
-    data.position = {0, 2, 6};
-    data.view = look_at(data.position, {0, 0, 0}, {0, 1, 0});
-    data.projection = perspective(radians(70.0f), aspect, 0.1f, 1000.0f);
-    bool found = false;
-    world.each<const Camera, const WorldTransform>([&](const Camera& cam, const WorldTransform& w) {
-        if (found || !cam.active) return;
-        found = true;
-        data.position = {w.matrix[3].x, w.matrix[3].y, w.matrix[3].z};
-        data.view = inverse(w.matrix);
-        data.projection = perspective(cam.fov_y, aspect, cam.near_plane, cam.far_plane);
-    });
-    return data;
+std::uint32_t float_bits(float v) noexcept {
+    if (v == 0.0f) v = 0.0f; // normalize -0.0f to +0.0f
+    return std::bit_cast<std::uint32_t>(v);
+}
+
+std::uint64_t fnv1a_mix(std::uint64_t h, std::uint32_t word) noexcept {
+    h ^= word;
+    h *= 1099511628211ull;
+    return h;
+}
+
+std::uint64_t hash_material_extras(const MaterialDesc& d) noexcept {
+    std::uint64_t extra = 14695981039346656037ull;
+    extra = fnv1a_mix(extra, static_cast<std::uint32_t>(d.params.size()));
+    for (float p : d.params) extra = fnv1a_mix(extra, float_bits(p));
+    extra = fnv1a_mix(extra, static_cast<std::uint32_t>(d.textures.size()));
+    for (const auto& pt : d.textures) {
+        extra = fnv1a_mix(extra, pt.offset);
+        extra = fnv1a_mix(extra, pt.texture.index);
+        extra = fnv1a_mix(extra, pt.texture.generation);
+        extra = fnv1a_mix(extra, pt.normal ? 1u : 0u);
+    }
+    return extra;
+}
+
+PrimitiveMaterialKey make_primitive_material_key(const MaterialDesc& d) noexcept {
+    PrimitiveMaterialKey key{};
+    std::size_t idx = 0;
+    auto push_u32 = [&](std::uint32_t w) { assert(idx < key.words.size()); key.words[idx++] = w; };
+    auto push_f32 = [&](float f) { push_u32(float_bits(f)); };
+    auto push_vec3 = [&](Vec3 v) {
+        push_f32(v.x);
+        push_f32(v.y);
+        push_f32(v.z);
+    };
+    auto push_vec4 = [&](Vec4 v) {
+        push_f32(v.x);
+        push_f32(v.y);
+        push_f32(v.z);
+        push_f32(v.w);
+    };
+    auto push_tex = [&](TextureHandle t) {
+        push_u32(t.index);
+        push_u32(t.generation);
+    };
+
+    push_vec4(d.base_color);
+    push_f32(d.roughness);
+    push_f32(d.metallic);
+    push_vec3(d.emissive);
+    push_tex(d.base_color_texture);
+    push_tex(d.metallic_roughness_texture);
+    push_tex(d.normal_texture);
+    push_tex(d.emissive_texture);
+    push_f32(d.normal_scale);
+    push_u32(static_cast<std::uint32_t>(d.shading_model));
+    push_f32(d.clearcoat.strength);
+    push_f32(d.clearcoat.roughness);
+    push_vec3(d.sheen.color);
+    push_f32(d.sheen.roughness);
+    push_f32(d.anisotropy.strength);
+    push_f32(d.anisotropy.rotation);
+    push_f32(d.transmission.strength);
+    push_f32(d.transmission.ior);
+    push_f32(d.transmission.thickness);
+    push_vec3(d.transmission.attenuation_color);
+    push_f32(d.transmission.attenuation_distance);
+    push_f32(d.subsurface.strength);
+    push_vec3(d.subsurface.color);
+    push_f32(d.subsurface.radius);
+    push_tex(d.detail.albedo_texture);
+    push_tex(d.detail.normal_texture);
+    push_tex(d.detail.height_texture);
+    push_f32(d.detail.uv_scale);
+    push_f32(d.detail.normal_scale);
+    push_f32(d.detail.parallax_scale);
+    push_u32(static_cast<std::uint32_t>(d.mapping.projection));
+    push_f32(d.mapping.uv_scale.x);
+    push_f32(d.mapping.uv_scale.y);
+    push_f32(d.mapping.uv_offset.x);
+    push_f32(d.mapping.uv_offset.y);
+    push_f32(d.mapping.uv_rotation);
+    push_f32(d.mapping.tile_size_m);
+    push_f32(d.mapping.blend_sharpness);
+    push_u32(d.mapping.world_space ? 1u : 0u);
+    push_f32(d.wetness);
+    push_u32(d.shader.index);
+    push_u32(d.shader.generation);
+
+    const std::uint64_t extra = hash_material_extras(d);
+    push_u32(static_cast<std::uint32_t>(extra & 0xFFFFFFFFu));
+    push_u32(static_cast<std::uint32_t>(extra >> 32));
+    return key;
 }
 
 } // namespace
 
+std::size_t PrimitiveMaterialKeyHash::operator()(const PrimitiveMaterialKey& k) const noexcept {
+    std::uint64_t h = 14695981039346656037ull;
+    for (std::uint32_t w : k.words) h = fnv1a_mix(h, w);
+    return static_cast<std::size_t>(h);
+}
+
 Vec3 RenderBridge::camera_position() const {
     if (viewport_.has_camera_override) return viewport_.camera_override.position;
-    return find_camera(world_, 1.0f).position;
+    World& active = viewport_.alt_world ? *viewport_.alt_world : world_;
+    return find_active_camera(active, 1.0f).position;
 }
 
 void RenderBridge::register_types(TypeRegistry& types) { types.exclude<ModelPiece>(); }
@@ -91,13 +172,24 @@ RenderBridge::RenderBridge(World& world, AssetManager& assets, Logger& log, gpu:
 }
 
 RenderBridge::~RenderBridge() {
-    if (renderer_ && viewport_.target.valid()) renderer_->destroy(viewport_.target);
+    if (renderer_) {
+        if (viewport_.target.valid()) renderer_->destroy(viewport_.target);
+        for (const auto& [key, handle] : primitive_materials_) {
+            if (handle.valid()) renderer_->destroy(handle);
+        }
+        primitive_materials_.clear();
+        if (builtin_meshes_.cube.valid()) renderer_->destroy(builtin_meshes_.cube);
+        if (builtin_meshes_.sphere.valid()) renderer_->destroy(builtin_meshes_.sphere);
+        if (builtin_meshes_.plane.valid()) renderer_->destroy(builtin_meshes_.plane);
+    }
     material_library_.reset();
+    if (device_) {
+        if (offscreen_target_.valid()) device_->destroy(offscreen_target_);
+        if (offscreen_readback_.valid()) device_->destroy(offscreen_readback_);
+    }
 }
 
-void RenderBridge::set_size(std::uint32_t width, std::uint32_t height) {
-    viewport_.requested = {width, height};
-}
+void RenderBridge::set_size(std::uint32_t width, std::uint32_t height) { viewport_.requested = {width, height}; }
 
 void RenderBridge::set_camera_override(const CameraData* camera) noexcept {
     if (camera) {
@@ -169,26 +261,23 @@ void RenderBridge::update_materials(double elapsed) {
 }
 
 void RenderBridge::shift_origin(Vec3 offset) {
-    world_.each<RenderHistory>([&](RenderHistory& h) {
-        h.previous[3].x -= offset.x;
-        h.previous[3].y -= offset.y;
-        h.previous[3].z -= offset.z;
-    });
+    shift_render_history(world_, offset);
     if (renderer_) renderer_->reset_history();
 }
 
 void RenderBridge::sync_primitives() { sync_primitives_in(world_, true); }
 
 void RenderBridge::sync_primitives_in(World& w, bool incremental) {
-    std::vector<Entity> gone;
+    sync_scratch_.gone.clear();
     w.query<const PrimitiveDrawn>().without<PrimitiveMesh>().each([&](Entity e, const PrimitiveDrawn&) {
-        gone.push_back(e);
+        sync_scratch_.gone.push_back(e);
     });
-    for (Entity e : gone) {
+    for (Entity e : sync_scratch_.gone) {
         w.remove<PrimitiveDrawn>(e);
         w.remove<MeshRenderer>(e);
     }
-    std::vector<std::pair<Entity, MeshRenderer>> updates;
+
+    sync_scratch_.updates.clear();
     auto collect = [&](Entity e, const PrimitiveMesh& p) {
         const MeshHandle mesh = p.shape == Primitive::Sphere ? builtin_meshes_.sphere
                                 : p.shape == Primitive::Plane ? builtin_meshes_.plane
@@ -197,29 +286,28 @@ void RenderBridge::sync_primitives_in(World& w, bool incremental) {
         if (renderer_ && !p.material_file.empty()) {
             material = material_library_ ? material_library_->get(p.material_file) : MaterialHandle{};
         } else if (renderer_) {
-            const MaterialDesc& d = p.material;
-            std::string key = to_json(d, {}).dump();
-            for (TextureHandle t : {d.base_color_texture, d.metallic_roughness_texture, d.normal_texture,
-                                    d.emissive_texture, d.detail.albedo_texture, d.detail.normal_texture,
-                                    d.detail.height_texture}) {
-                key += "/" + std::to_string(t.index) + "." + std::to_string(t.generation);
-            }
+            const PrimitiveMaterialKey key = make_primitive_material_key(p.material);
             auto [it, inserted] = primitive_materials_.try_emplace(key);
-            if (inserted) it->second = renderer_->create_material(d);
+            if (inserted) it->second = renderer_->create_material(p.material);
             material = it->second;
         }
-        updates.emplace_back(e, MeshRenderer{mesh, material});
+        const auto* current = w.get<const MeshRenderer>(e);
+        if (current && current->mesh == mesh && current->material == material && w.has<PrimitiveDrawn>(e)) return;
+        sync_scratch_.updates.emplace_back(e, MeshRenderer{mesh, material});
     };
+
     if (incremental) {
         w.set_change_baseline(primitives_seen_);
         w.query<const PrimitiveMesh>().changed<PrimitiveMesh>().each(collect);
     } else {
         w.each<const PrimitiveMesh>(collect);
     }
-    for (const auto& [e, r] : updates) {
+
+    for (const auto& [e, r] : sync_scratch_.updates) {
         w.add(e, r);
         w.add(e, PrimitiveDrawn{});
     }
+
     if (incremental) {
         primitives_seen_ = w.tick();
         w.advance_tick();
@@ -281,32 +369,38 @@ void RenderBridge::spawn_model(Entity owner, const Model& model, const ModelRef&
 }
 
 void RenderBridge::sync_models() {
-    // Pieces whose owner is gone (destroyed, or its ModelRef removed / changed) are cleared first.
-    std::vector<Entity> stale;
-    world_.each<const ModelPiece>([&](Entity e, const ModelPiece& p) {
-        const SpawnedModel* s = world_.get<const SpawnedModel>(p.owner);
-        if (!s || !world_.has<ModelRef>(p.owner)) stale.push_back(e);
-    });
-    std::vector<std::pair<Entity, AssetId>> todo;
+    if (world_.count<ModelRef>() == 0 && world_.count<ModelPiece>() == 0 && world_.count<SpawnedModel>() == 0) return;
+
+    sync_scratch_.todo_models.clear();
+    sync_scratch_.todo_owners.clear();
     world_.each<const ModelRef>([&](Entity e, const ModelRef& ref) {
-        const AssetId id = assets_.load_model(ref.path); // idempotent
+        const AssetId id = assets_.load_model(ref.path);
         const Model* model = assets_.model(id);
         const SpawnedModel* s = world_.get<const SpawnedModel>(e);
-        if (model && (!s || s->id != id || s->version != model->version || s->material_overrides != ref.material_overrides)) todo.emplace_back(e, id);
+        if (model && (!s || s->id != id || s->version != model->version || s->material_overrides != ref.material_overrides)) {
+            sync_scratch_.todo_models.emplace_back(e, id);
+            sync_scratch_.todo_owners.insert(to_user_data(e));
+        }
     });
-    // Owners whose ModelRef was removed keep a SpawnedModel marker: drop it (their pieces are stale above).
-    std::vector<Entity> orphans;
-    world_.query<const SpawnedModel>().without<ModelRef>().each([&](Entity e, const SpawnedModel&) { orphans.push_back(e); });
-    for (Entity e : orphans) world_.remove<SpawnedModel>(e);
-    for (const auto& [owner, id] : todo) {
-        world_.each<const ModelPiece>([&](Entity e, const ModelPiece& p) {
-            if (p.owner == owner) stale.push_back(e);
-        });
+
+    sync_scratch_.orphan_models.clear();
+    world_.query<const SpawnedModel>().without<ModelRef>().each(
+        [&](Entity e, const SpawnedModel&) { sync_scratch_.orphan_models.push_back(e); });
+    for (Entity e : sync_scratch_.orphan_models) world_.remove<SpawnedModel>(e);
+
+    sync_scratch_.stale_pieces.clear();
+    world_.each<const ModelPiece>([&](Entity e, const ModelPiece& p) {
+        const SpawnedModel* s = world_.get<const SpawnedModel>(p.owner);
+        if (!s || !world_.has<ModelRef>(p.owner) || sync_scratch_.todo_owners.contains(to_user_data(p.owner))) {
+            sync_scratch_.stale_pieces.push_back(e);
+        }
+    });
+
+    for (Entity e : sync_scratch_.stale_pieces) {
+        if (world_.alive(e)) world_.destroy(e);
     }
-    std::sort(stale.begin(), stale.end(), [](Entity a, Entity b) { return a.index < b.index; });
-    stale.erase(std::unique(stale.begin(), stale.end()), stale.end());
-    for (Entity e : stale) world_.destroy(e);
-    for (const auto& [owner, id] : todo) {
+
+    for (const auto& [owner, id] : sync_scratch_.todo_models) {
         const Model* model = assets_.model(id);
         const ModelRef ref = *world_.get<const ModelRef>(owner);
         spawn_model(owner, *model, ref);
@@ -314,103 +408,11 @@ void RenderBridge::sync_models() {
     }
 }
 
-void RenderBridge::extract_meshes(World& w) {
-    scratch_.draw_items.clear();
-    scratch_.new_histories.clear();
-    w.each<const MeshRenderer, const WorldTransform>([&](Entity e, const MeshRenderer& r, const WorldTransform& wt) {
-        MeshInstance inst{.mesh = r.mesh, .material = r.material, .transform = wt.matrix};
-        if (RenderHistory* h = w.get<RenderHistory>(e)) {
-            inst.previous_transform = h->previous;
-            h->previous = wt.matrix;
-        } else {
-            scratch_.new_histories.emplace_back(e, wt.matrix);
-        }
-        scratch_.draw_items.push_back(inst);
-    });
-    for (const auto& [e, matrix] : scratch_.new_histories) w.add(e, RenderHistory{matrix});
-}
-
-void RenderBridge::extract_sdfs(World& w) {
-    scratch_.sdf_sorted.clear();
-    w.each<const Sdf>([&](Entity e, const Sdf& s) {
-        SdfShape shape = s.shape;
-        if (const WorldTransform* wt = w.get<WorldTransform>(e)) {
-            shape.position = {wt->matrix[3].x, wt->matrix[3].y, wt->matrix[3].z};
-            shape.rotation = rotation_of(wt->matrix);
-        }
-        scratch_.sdf_sorted.emplace_back(s.order, shape);
-    });
-    std::stable_sort(scratch_.sdf_sorted.begin(), scratch_.sdf_sorted.end(),
-                     [](const auto& a, const auto& b) { return a.first < b.first; });
-    scratch_.sdf_shapes.clear();
-    for (const auto& [order, shape] : scratch_.sdf_sorted) scratch_.sdf_shapes.push_back(shape);
-}
-
-void RenderBridge::extract_lights(World& w) {
-    scratch_.point_lights.clear();
-    w.each<const PointLight>([&](Entity e, const PointLight& l) {
-        PointLight light = l;
-        if (const WorldTransform* wt = w.get<WorldTransform>(e)) {
-            light.position = {wt->matrix[3].x, wt->matrix[3].y, wt->matrix[3].z};
-        }
-        scratch_.point_lights.push_back(light);
-    });
-    scratch_.rect_lights.clear();
-    w.each<const RectLight>([&](Entity e, const RectLight& l) {
-        RectLight light = l;
-        if (const WorldTransform* wt = w.get<WorldTransform>(e)) {
-            light.position = {wt->matrix[3].x, wt->matrix[3].y, wt->matrix[3].z};
-            const Vec4 r = wt->matrix * Vec4{l.right.x, l.right.y, l.right.z, 0};
-            const Vec4 u = wt->matrix * Vec4{l.up.x, l.up.y, l.up.z, 0};
-            light.right = {r.x, r.y, r.z};
-            light.up = {u.x, u.y, u.z};
-        }
-        scratch_.rect_lights.push_back(light);
-    });
-    scratch_.decals.clear();
-    w.each<const Decal>([&](Entity e, const Decal& d) {
-        Decal decal = d;
-        if (const WorldTransform* wt = w.get<WorldTransform>(e)) decal.transform = wt->matrix;
-        scratch_.decals.push_back(decal);
-    });
-}
-
-namespace {
-std::vector<ParticleBurst> extract_particles(World& world) {
-    std::vector<ParticleBurst> bursts;
-    world.each<const VfxEmitter, const Transform>([&](Entity entity, const VfxEmitter& emitter, const Transform& transform) {
-        auto burst = emitter.burst;
-        burst.position = transform.position;
-        burst.simulation_id = (std::uint64_t{entity.generation} << 32) | entity.index;
-        bursts.push_back(burst);
-    });
-    return bursts;
-}
-
-std::vector<SmokeVolumeView> extract_volumes(World& world) {
-    std::vector<SmokeVolumeView> volumes;
-    world.each<const GameplaySmoke, const Transform>([&](Entity e, const GameplaySmoke& cloud, const Transform& t) {
-        if (!world.has<Parent>(e) && cloud.extinction_per_m() > 0) {
-            const auto* appearance = world.get<const SmokeAppearance>(e);
-            volumes.push_back({t.position, cloud.cell_size_m(), cloud.extinction_per_m(), cloud.side(), cloud.occupancy(),
-                               appearance ? appearance->material : MaterialHandle{}});
-        }
-    });
-    world.each<const VfxVolume, const Transform>([&](const VfxVolume& volume, const Transform& t) {
-        if (volume.material.valid()) {
-            volumes.push_back({t.position, volume.cell_size_m, volume.strength, VfxVolume::side, {},
-                               volume.material, volume.age});
-        }
-    });
-    return volumes;
-}
-} // namespace
-
 void RenderBridge::render_frame(const RenderFrameInput& input) {
     const bool offscreen = offscreen_target_.valid();
     if (!renderer_ || (!offscreen && (!swapchain_ || (window_ && window_->minimized())))) return;
     ensure_viewport_target();
-    gpu::TextureHandle image = offscreen ? offscreen_target_ : swapchain_->acquire();
+    const gpu::TextureHandle image = offscreen ? offscreen_target_ : swapchain_->acquire();
     if (!image.valid()) return;
 
     World& active_world = viewport_.alt_world ? *viewport_.alt_world : world_;
@@ -418,57 +420,43 @@ void RenderBridge::render_frame(const RenderFrameInput& input) {
         update_transforms(active_world);
         sync_primitives_in(active_world, false);
     }
-    extract_meshes(active_world);
-    extract_sdfs(active_world);
-    extract_lights(active_world);
-    const auto smoke = extract_volumes(active_world);
-    const auto particles = extract_particles(active_world);
+    extract_render_scene(active_world, scratch_);
+
     auto cmd = device_->begin_commands();
-    const gpu::TextureHandle vp_native = viewport_.target.valid() ? renderer_->native_target(viewport_.target) : gpu::TextureHandle{};
+    const gpu::TextureHandle vp_native =
+        viewport_.target.valid() ? renderer_->native_target(viewport_.target) : gpu::TextureHandle{};
+    const gpu::Extent2D target_size = vp_native.valid() ? viewport_.actual : extent();
+    const float aspect =
+        target_size.height ? static_cast<float>(target_size.width) / static_cast<float>(target_size.height) : 1.0f;
+    const CameraData camera =
+        viewport_.has_camera_override ? viewport_.camera_override : find_active_camera(active_world, aspect);
+
+    RenderScene scene{
+        .meshes = scratch_.draw_items,
+        .sdf = scratch_.sdf_shapes,
+        .lights = scratch_.point_lights,
+        .rect_lights = scratch_.rect_lights,
+        .decals = scratch_.decals,
+        .sun = input.sun,
+        .environment = input.environment,
+        .debug_lines = input.debug_lines,
+        .ui = vp_native.valid() ? std::span<const UiLayer>{} : input.ui_layers,
+        .time = input.time,
+        .sky = input.sky,
+        .post = input.post,
+        .world_origin = input.world_origin,
+        .smoke = scratch_.smoke_volumes,
+        .particles = scratch_.particle_bursts,
+    };
+
     if (vp_native.valid()) {
-        const float vp_aspect = viewport_.actual.height
-                                    ? static_cast<float>(viewport_.actual.width) / static_cast<float>(viewport_.actual.height)
-                                    : 1.0f;
-        const CameraData camera = viewport_.has_camera_override ? viewport_.camera_override : find_camera(active_world, vp_aspect);
-        renderer_->render(cmd, vp_native, camera,
-                          {.meshes = scratch_.draw_items,
-                           .sdf = scratch_.sdf_shapes,
-                           .lights = scratch_.point_lights,
-                           .rect_lights = scratch_.rect_lights,
-                           .decals = scratch_.decals,
-                           .sun = input.sun,
-                           .environment = input.environment,
-                           .debug_lines = input.debug_lines,
-                           .ui = {},
-                           .time = input.time,
-                           .sky = input.sky,
-                           .post = input.post,
-                           .world_origin = input.world_origin,
-                           .smoke = smoke,
-                           .particles = particles});
+        renderer_->render(cmd, vp_native, camera, scene);
         cmd.transition(vp_native, gpu::ResourceState::ShaderRead);
         renderer_->render_ui(cmd, image, input.ui_layers, viewport_.clear_color);
     } else {
-        const gpu::Extent2D size = extent();
-        const float aspect = size.height ? static_cast<float>(size.width) / static_cast<float>(size.height) : 1.0f;
-        const CameraData camera = viewport_.has_camera_override ? viewport_.camera_override : find_camera(active_world, aspect);
-        renderer_->render(cmd, image, camera,
-                          {.meshes = scratch_.draw_items,
-                           .sdf = scratch_.sdf_shapes,
-                           .lights = scratch_.point_lights,
-                           .rect_lights = scratch_.rect_lights,
-                           .decals = scratch_.decals,
-                           .sun = input.sun,
-                           .environment = input.environment,
-                           .debug_lines = input.debug_lines,
-                           .ui = input.ui_layers,
-                           .time = input.time,
-                           .sky = input.sky,
-                           .post = input.post,
-                           .world_origin = input.world_origin,
-                           .smoke = smoke,
-                           .particles = particles});
+        renderer_->render(cmd, image, camera, scene);
     }
+
     if (offscreen) {
         cmd.transition(image, gpu::ResourceState::TransferSrc);
         cmd.copy_texture_to_buffer(image, offscreen_readback_);

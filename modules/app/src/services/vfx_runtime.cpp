@@ -14,29 +14,13 @@
 namespace astral {
 namespace {
 
-enum class TrackKind { Smoke, Volume, Particles, Light, Decal, Sound };
-struct Track {
-    TrackKind kind;
-    float start, duration;
-    Vec3 offset{}, color{1, 0.6f, 0.3f};
-    float size = 0, strength = 0, soft_distance_m = 0, restitution = 0.45f, lighting = 0;
-    std::uint32_t count;
-    std::string sound, material;
-};
-struct Playback {
-    std::vector<Track> tracks;
-    std::string tag;
-    std::size_t next = 0;
-    float age = 0, end = 0;
-};
-
-std::optional<TrackKind> track_kind(std::string_view name) {
-    if (name == "smoke") return TrackKind::Smoke;
-    if (name == "volume") return TrackKind::Volume;
-    if (name == "particles") return TrackKind::Particles;
-    if (name == "light") return TrackKind::Light;
-    if (name == "decal") return TrackKind::Decal;
-    if (name == "sound") return TrackKind::Sound;
+std::optional<VfxTrackKind> track_kind(std::string_view name) {
+    if (name == "smoke") return VfxTrackKind::Smoke;
+    if (name == "volume") return VfxTrackKind::Volume;
+    if (name == "particles") return VfxTrackKind::Particles;
+    if (name == "light") return VfxTrackKind::Light;
+    if (name == "decal") return VfxTrackKind::Decal;
+    if (name == "sound") return VfxTrackKind::Sound;
     return std::nullopt;
 }
 
@@ -56,164 +40,207 @@ bool read_xyz(const Json& obj, const char* key, Vec3& out, double low, double hi
     float components[3];
     for (unsigned i = 0; i < 3; ++i) {
         const auto& component = (*value)[static_cast<std::size_t>(i)];
+        if (!component.is_number()) return false;
         const double n = component.as_number();
-        if (!component.is_number() || !std::isfinite(n) || n < low || n > high) return false;
+        if (!std::isfinite(n) || n < low || n > high) return false;
         components[i] = static_cast<float>(n);
     }
     out = {components[0], components[1], components[2]};
     return true;
 }
 
-std::optional<Playback> parse_vfx(const Json& json) {
+struct ParsedVfx {
+    std::vector<VfxTrack> tracks;
+    float end = 0;
+};
+
+std::optional<ParsedVfx> parse_vfx(const Json& json) {
+    if (!json.is_object()) return {};
     const auto& tracks = json["tracks"];
     if (json["format"].as_string() != "astral.vfx" || !json["version"].is_number() ||
-        json["version"].as_number() != 1 || !tracks.is_array() || tracks.size() == 0 || tracks.size() > 32) return {};
-    Playback result;
+        json["version"].as_number() != 1 || !tracks.is_array() || tracks.size() == 0 || tracks.size() > 32) {
+        return {};
+    }
+    ParsedVfx result;
     for (const auto& node : tracks.as_array()) {
+        if (!node.is_object()) return {};
         const auto kind = track_kind(node["type"].as_string());
         if (!kind) return {};
-        Track t{.kind = *kind, .start = 0, .duration = 0, .count = 0, .sound = {}, .material = {}};
-        float count;
+        VfxTrack t{.kind = *kind};
+        float count = 0;
         if (!read_scalar(node, "start", t.start, 0, 0, 60) ||
             !read_scalar(node, "duration", t.duration, 1, 0.05, 60) ||
-            !read_scalar(node, "size", t.size, *kind == TrackKind::Particles ? 0.05 : 2.0, 0.01, 100) ||
+            !read_scalar(node, "size", t.size, *kind == VfxTrackKind::Particles ? 0.05 : 2.0, 0.01, 100) ||
             !read_scalar(node, "strength", t.strength, 1, 0, 100) ||
-            (*kind == TrackKind::Particles && !read_scalar(node, "soft_distance_m", t.soft_distance_m, 0, 0, 20)) ||
-            (*kind == TrackKind::Particles && !read_scalar(node, "restitution", t.restitution, 0.45, 0, 1)) ||
-            (*kind == TrackKind::Particles && !read_scalar(node, "lighting", t.lighting, 0, 0, 1)) ||
+            (*kind == VfxTrackKind::Particles && !read_scalar(node, "soft_distance_m", t.soft_distance_m, 0, 0, 20)) ||
+            (*kind == VfxTrackKind::Particles && !read_scalar(node, "restitution", t.restitution, 0.45, 0, 1)) ||
+            (*kind == VfxTrackKind::Particles && !read_scalar(node, "lighting", t.lighting, 0, 0, 1)) ||
             !read_scalar(node, "count", count, 64, 1, 1024) || count != std::floor(count) ||
-            !read_xyz(node, "offset", t.offset, -1000, 1000) || !read_xyz(node, "color", t.color, 0, 100)) return {};
+            !read_xyz(node, "offset", t.offset, -1000, 1000) || !read_xyz(node, "color", t.color, 0, 100)) {
+            return {};
+        }
         t.count = static_cast<std::uint32_t>(count);
         if (const auto* material = node.find("material")) {
             if (!material->is_string()) return {};
             t.material = material->as_string();
         }
-        if (*kind == TrackKind::Volume && t.material.empty()) return {};
-        if (*kind == TrackKind::Sound) {
+        if (*kind == VfxTrackKind::Volume && t.material.empty()) return {};
+        if (*kind == VfxTrackKind::Sound) {
             t.sound = node["asset"].as_string();
             if (t.sound.empty()) return {};
         }
         result.end = std::max(result.end, t.start + t.duration);
         result.tracks.push_back(std::move(t));
     }
-    std::stable_sort(result.tracks.begin(), result.tracks.end(), [](const Track& a, const Track& b) { return a.start < b.start; });
+    std::stable_sort(result.tracks.begin(), result.tracks.end(),
+                     [](const VfxTrack& a, const VfxTrack& b) { return a.start < b.start; });
     return result;
 }
 
-} // namespace
-
-struct VfxChild {
-    Entity owner;
-    float start, end;
-};
-
-namespace {
-void spawn_track(Context& ctx, Entity owner, Vec3 position, const Track& t, float age, std::uint32_t sequence) {
+void spawn_track(Context& ctx, Entity owner, Vec3 position, const VfxTrack& t, float age, std::uint32_t sequence) {
     const VfxChild child{owner, t.start, t.start + t.duration};
     Transform transform{.position = position + t.offset};
     const auto material = t.material.empty() ? MaterialHandle{} : ctx.materials().load_material(t.material);
     switch (t.kind) {
-    case TrackKind::Smoke:
-        ctx.world.create(transform, child, SmokeAppearance{material}, GameplaySmoke({
-            .cell_size_m = t.size / 17.0f, .extinction_per_m = t.strength, .spread_interval_steps = 1,
-            .spread_steps = static_cast<unsigned>(t.duration * 0.75f / ctx.time.fixed_delta),
-            .fade_steps = static_cast<unsigned>(t.duration * 0.25f / ctx.time.fixed_delta)}));
+    case VfxTrackKind::Smoke:
+        ctx.world.create(transform, child, SmokeAppearance{material},
+                         GameplaySmoke({.cell_size_m = t.size / 17.0f,
+                                        .extinction_per_m = t.strength,
+                                        .spread_interval_steps = 1,
+                                        .spread_steps = static_cast<unsigned>(t.duration * 0.75f / ctx.time.fixed_delta),
+                                        .fade_steps = static_cast<unsigned>(t.duration * 0.25f / ctx.time.fixed_delta)}));
         break;
-    case TrackKind::Volume:
+    case VfxTrackKind::Volume:
         ctx.world.create(transform, child, VfxVolume{t.size / VfxVolume::side, t.strength, age - t.start, material});
         break;
-    case TrackKind::Particles:
-        ctx.world.create(transform, child, VfxEmitter{{
-            .age = age - t.start, .drift = ctx.fields.wind_at(transform.position, ctx.time.elapsed),
-            .duration = t.duration, .color = t.color * t.strength, .size_m = t.size,
-            .count = t.count, .seed = owner.index * 37u + sequence, .material = material,
-            .soft_distance_m = t.soft_distance_m, .restitution = t.restitution, .lighting = t.lighting}});
+    case VfxTrackKind::Particles:
+        ctx.world.create(transform, child,
+                         VfxEmitter{{.age = age - t.start,
+                                     .drift = ctx.fields.wind_at(transform.position, ctx.time.elapsed),
+                                     .duration = t.duration,
+                                     .color = t.color * t.strength,
+                                     .size_m = t.size,
+                                     .count = t.count,
+                                     .seed = owner.index * 37u + sequence,
+                                     .material = material,
+                                     .soft_distance_m = t.soft_distance_m,
+                                     .restitution = t.restitution,
+                                     .lighting = t.lighting}});
         break;
-    case TrackKind::Light:
+    case VfxTrackKind::Light:
         ctx.world.create(transform, child, PointLight{.color = t.color, .intensity = t.strength, .radius = t.size});
         break;
-    case TrackKind::Decal:
+    case VfxTrackKind::Decal:
         transform.scale = {t.size, t.size * 0.25f, t.size};
         ctx.world.create(transform, child, Decal{.color = {t.color.x, t.color.y, t.color.z, std::min(1.0f, t.strength)}});
         break;
-    case TrackKind::Sound:
+    case VfxTrackKind::Sound:
         ctx.world.create(transform, child, AudioSource{.sound = t.sound, .volume = std::min(1.0f, t.strength), .loop = false});
         break;
     }
 }
+
 } // namespace
 
-Entity play_vfx(Context& ctx, std::string_view asset, Vec3 position) {
-    if (ctx.world.count<Playback>() >= 64 || !std::isfinite(position.x) ||
-        !std::isfinite(position.y) || !std::isfinite(position.z)) return {};
+Entity VfxRuntime::play(Context& ctx, std::string_view asset, Vec3 position) {
+    if (ctx.world.count<VfxPlayback>() >= 64 || !std::isfinite(position.x) ||
+        !std::isfinite(position.y) || !std::isfinite(position.z)) {
+        return {};
+    }
     const auto id = ctx.assets->load_document(asset);
     const auto* doc = ctx.assets->document(id);
-    auto playback = doc ? parse_vfx(doc->json) : std::nullopt;
-    if (!playback) {
+    if (!doc) {
         ctx.log.warn("vfx: could not load a valid v1 timeline from {}", asset);
         return {};
     }
-    return ctx.world.create(Transform{.position = position}, std::move(*playback));
+    const auto it = template_cache_.find(asset);
+    if (it != template_cache_.end() && it->second.version == doc->version) {
+        return ctx.world.create(Transform{.position = position},
+                                VfxPlayback{.tracks = it->second.tracks, .end = it->second.end});
+    }
+    auto parsed = parse_vfx(doc->json);
+    if (!parsed) {
+        if (it != template_cache_.end()) template_cache_.erase(it);
+        ctx.log.warn("vfx: could not load a valid v1 timeline from {}", asset);
+        return {};
+    }
+    auto shared_tracks = std::make_shared<const std::vector<VfxTrack>>(std::move(parsed->tracks));
+    const float end = parsed->end;
+    if (it != template_cache_.end()) {
+        it->second = CachedTemplate{doc->version, shared_tracks, end};
+    } else {
+        template_cache_.emplace(std::string(asset), CachedTemplate{doc->version, shared_tracks, end});
+    }
+    return ctx.world.create(Transform{.position = position}, VfxPlayback{.tracks = std::move(shared_tracks), .end = end});
 }
 
 void stop_vfx(Context& ctx, Entity instance) {
-    if (ctx.world.has<Playback>(instance)) ctx.world.destroy(instance);
+    if (ctx.world.has<VfxPlayback>(instance)) ctx.world.destroy(instance);
 }
 
 void register_vfx_types(TypeRegistry& types, EventRegistry& events) {
     events.add<PlayVfx>();
     events.add<StopVfx>();
     events.add<DisperseSmoke>();
-    types.exclude<Playback>();
+    types.exclude<VfxPlayback>();
     types.exclude<VfxChild>();
     types.exclude<VfxVolume>();
+    types.exclude<VfxEmitter>();
+    types.exclude<SmokeAppearance>();
 }
 
 void VfxRuntime::update(Context& ctx, float delta) {
     World& world = ctx.world;
-    plays_.read(world, [&](const PlayVfx& play) {
-        const auto entity = play_vfx(ctx, play.asset, play.position);
-        if (auto* playback = world.get<Playback>(entity)) playback->tag = play.tag;
+    plays_.read(world, [&](const PlayVfx& play_evt) {
+        const auto entity = play(ctx, play_evt.asset, play_evt.position);
+        if (auto* playback = world.get<VfxPlayback>(entity)) playback->tag = play_evt.tag;
     });
-    std::vector<Entity> expired;
+    expired_scratch_.clear();
     stops_.read(world, [&](const StopVfx& stop) {
         if (stop.tag.empty()) return;
-        world.each<const Playback>([&](Entity e, const Playback& playback) {
-            if (playback.tag == stop.tag) expired.push_back(e);
+        world.each<const VfxPlayback>([&](Entity e, const VfxPlayback& playback) {
+            if (playback.tag == stop.tag) expired_scratch_.push_back(e);
         });
     });
-    for (const Entity e : expired) {
+    for (const Entity e : expired_scratch_) {
         if (world.alive(e)) world.destroy(e);
     }
-    expired.clear();
-    struct Start { Entity owner; Vec3 position; Track track; float age; std::uint32_t sequence; };
-    std::vector<Start> starts;
-    world.each<Playback, const Transform>([&](Entity e, Playback& playback, const Transform& transform) {
+    expired_scratch_.clear();
+    starts_scratch_.clear();
+    world.each<VfxPlayback, const Transform>([&](Entity e, VfxPlayback& playback, const Transform& transform) {
         const float age = playback.age;
-        while (playback.next < playback.tracks.size() && playback.tracks[playback.next].start <= age) {
-            const auto i = playback.next++;
-            const auto& t = playback.tracks[i];
-            if (age < t.start + t.duration) starts.push_back({e, transform.position, t, age, static_cast<std::uint32_t>(i)});
+        if (playback.tracks) {
+            const auto& tracks = *playback.tracks;
+            while (playback.next < tracks.size() && tracks[playback.next].start <= age) {
+                const auto i = playback.next++;
+                const auto& t = tracks[i];
+                if (age < t.start + t.duration) {
+                    starts_scratch_.push_back({e, transform.position, t, age, static_cast<std::uint32_t>(i)});
+                }
+            }
         }
-        if (age >= playback.end) expired.push_back(e);
+        if (age >= playback.end) expired_scratch_.push_back(e);
         playback.age += delta;
     });
     world.each<const VfxChild>([&](Entity e, const VfxChild& child) {
-        const auto* playback = world.get<const Playback>(child.owner);
+        const auto* playback = world.get<const VfxPlayback>(child.owner);
         if (!playback || playback->age - delta >= child.end) {
-            expired.push_back(e);
+            expired_scratch_.push_back(e);
         } else if (auto* emitter = world.get<VfxEmitter>(e)) {
             emitter->burst.age = playback->age - delta - child.start;
-            if (const auto* transform = world.get<const Transform>(e))
+            if (const auto* transform = world.get<const Transform>(e)) {
                 emitter->burst.drift = ctx.fields.wind_at(transform->position, ctx.time.elapsed);
+            }
         } else if (auto* volume = world.get<VfxVolume>(e)) {
             volume->age = playback->age - delta - child.start;
         }
     });
-    for (const auto& start : starts) {
+    for (const auto& start : starts_scratch_) {
         spawn_track(ctx, start.owner, start.position, start.track, start.age, start.sequence);
     }
-    for (const Entity e : expired) world.destroy(e);
+    for (const Entity e : expired_scratch_) {
+        if (world.alive(e)) world.destroy(e);
+    }
 }
 
 void VfxRuntime::apply_smoke_events(World& world) {

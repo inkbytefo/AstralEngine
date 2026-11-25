@@ -6,42 +6,47 @@ Rehber: [writing-a-game.md](../guides/writing-a-game.md).
 `App` şunları kurar ve sahiplenir: Logger (konsol), JobSystem, World, Input, Clock, Window, Device,
 Swapchain, Renderer, hazır mesh'ler. `Game` + `System`'ler bunlara `Context` üzerinden erişir.
 
-## Dosya düzeni (M13.5 R2)
+## Dosya düzeni (M13.5 R2+)
 
-`modules/app/src/app.cpp` yalnızca sahip ve bağlayıcıdır (`App::App` servisleri bağımlılık sırasıyla kurar, `App::~App` belgelenmiş sırada yıkar, `Context` gruplu erişicileri ilgili servis arayüzünü döndürür). Her sorumluluk kendi iç servisinde (`modules/app/src/services/`) ve debug UI panelleri kendi klasöründe (`modules/app/src/panels/`) yaşar; kurucular yalnızca kullandıkları bağımlılıkları alır:
+`modules/app/src/app.cpp` yalnızca sahip ve bağlayıcıdır (`App::App` yapılandırmayı doğrulayıp servisleri bağımlılık sırasıyla kurar, `App::~App` belgelenmiş ters sırada yıkar, `Context` gruplu erişicileri ilgili servis arayüzünü döndürür). Her sorumluluk kendi iç servisinde (`modules/app/src/services/`), alt yardımcılarında (`graphics_backend`, `physics_commands`, `physics_fields`, `render_extract`, `terrain_mesh`, `debug_overlays`) ve debug UI panellerinde (`modules/app/src/panels/`) yaşar; kurucular yalnızca kullandıkları bağımlılıkları alır:
 
 | Dosya | Sorumluluk |
 |---|---|
-| `include/astral/app/{scene,map,material,audio,script,physics}_service.hpp` | `Context` üzerinden erişilen küçük public servis arayüzleri (`SceneService`, `MapService`, `MaterialService`, `AudioService`, `ScriptService`, `PhysicsService`) |
-| `src/app.cpp` | `App` yaşam döngüsü, grafik yığını kurulum/yıkım sırası, `Context` servis bağlamaları, `SystemAccess` ve dalga tabanlı paralel sistem zamanlayıcısı (`App::run_phase`, [ADR-0032](../decisions/0032-scalable-runtime-and-parallel-scheduler.md)) |
-| `src/services/frame_loop.{hpp,cpp}` | Sıralı kare boru hattı (`run_frame`), sistem fazları, `System::configure(SystemAccess&)`, paralel transform yayılımı, kare saati |
-| `src/services/render_bridge.{hpp,cpp}` | `PrimitiveMesh`/`ModelRef` senkronizasyonu, sahne çıkarma, kamera, `MaterialLibrary`, offscreen okuma (`MaterialService`) |
-| `src/services/physics_bridge.{hpp,cpp}` | `RigidBody`/`CharacterController`/`Joint` senkronizasyonu, alan kuvvetleri, sabit adım, temas olayları, `ScriptPhysics` (`PhysicsService`) |
-| `src/services/audio_bridge.{hpp,cpp}` | `AudioSource`/`AudioListener` senkronizasyonu, ses önbelleği (`AudioService`) |
-| `src/services/script_bridge.{hpp,cpp}` | `ScriptHost`, eylem/kayıt bağdaştırıcıları, girdi yönlendirme, script/eylem hot-reload |
-| `src/services/world_bridge.{hpp,cpp}` | `MapRuntime` açık dünya streaming'i, kayan orijin, sahne/prefab G/Ç |
-| `src/services/dev_tools.{hpp,cpp}` | `Profiler`, `DebugUi`, `DebugPanelRegistry`, varsayılan font, debug katman çizimleri, UI katman birleştirme |
-| `src/debug_ui.{hpp,cpp}` | Dear ImGui backend'i, ana menü çubuğu ve açık panelleri çağıran döngü |
-| `src/panels/debug_panel.{hpp,cpp}` | `DebugPanel` arayüzü, `DebugPanelRegistry`, yerleşik panel kaydı ve `entity_label` yardımcısı |
-| `src/panels/json_editor.{hpp,cpp}` | Reflect edilmiş `Json` alanları için tür başına düzenleyici yardımcılar (`edit_json`) |
-| `src/panels/{performance,scene,inspector,render,world,materials,demo}_panel.cpp` | Her biri tek pencereden sorumlu yerleşik debug UI panelleri |
-| `src/map_runtime.*`, `src/material_library.*`, `src/input_actions.*` | Köprülerin kullandığı yardımcı alt bileşenler |
+| `include/astral/app/{scene,map,material,audio,script,physics,viewport}_service.hpp` | `Context` üzerinden erişilen dar public servis arayüzleri (`SceneService`, `MapService`, `MaterialService`, `AudioService`, `ScriptService`, `PhysicsService`, `ViewportService`) |
+| `include/astral/app/system.hpp` | `Phase`, sıralı O(R+W) `SystemAccess`, `System` ve hafif `FunctionSystem` soyutlamaları |
+| `src/app.cpp`, `src/graphics_backend.{hpp,cpp}` | `App` yaşam döngüsü, `AppDesc` sınır/NaN doğrulaması, grafik yığını (`Window`/`Device`/`Swapchain`/`Renderer`) kurulum-yıkım sırası ve `Context` bağlamaları |
+| `src/services/system_scheduler.{hpp,cpp}` | Önbellekli dalga (wave) tabanlı paralel sistem zamanlayıcısı ve yeniden giriş (re-entrant) güvenli ekleme kuyruğu ([ADR-0032](../decisions/0032-scalable-runtime-and-parallel-scheduler.md)) |
+| `src/services/frame_loop.{hpp,cpp}` | Sıralı kare boru hattı (`run_frame`), sistem fazları, yeniden kullanılabilir `streaming_sources_` tamponu, paralel transform yayılımı, kare saati |
+| `src/services/render_bridge.{hpp,cpp}`, `src/services/render_extract.{hpp,cpp}` | GPU kaynak yaşam döngüsü, ikili 64-kelimelik `PrimitiveMaterialKey` önbelleği, tek geçişli `sync_models`, alt-dünya/kamera desteği, sahne çıkarma (`Mesh`, `SDF`, ışık, VFX) |
+| `src/services/physics_bridge.{hpp,cpp}`, `physics_commands.{hpp,cpp}`, `physics_fields.{hpp,cpp}`, `script_physics.cpp` | Hareket türüne göre bölümlenmiş gövde/eklem kayıtları (O(1) eklem ekleme/çıkarma), deterministik komut kuyruğu, alan kuvvetleri, uyuyan gövde/eklem motor farkı optimizasyonu |
+| `src/services/audio_bridge.{hpp,cpp}` | `AudioSource`/`AudioListener` senkronizasyonu, durdur-başlat ses kolu yönetimi ve heterojen ses önbelleği (`AudioService`) |
+| `src/services/script_bridge.{hpp,cpp}` | `ScriptHost`, eylem/kayıt bağdaştırıcıları, girdi yönlendirme, çözümlemeli `.apak` kontrolüyle tek okumalı script/eylem hot-reload |
+| `src/services/world_bridge.{hpp,cpp}` | `MapRuntime` açık dünya streaming'i, kayan orijin, tahsissiz kaynak toplama ve sahne/prefab G/Ç |
+| `src/services/terrain_bridge.{hpp,cpp}`, `src/services/terrain_mesh.{hpp,cpp}` | Asenkron karo streaming'i, O(1) yerleşik karo arama, sabit kamera/orijinde LOD önbellekleme ve kenar dikişli mesh üretimi |
+| `src/services/vfx_runtime.{hpp,cpp}`, `src/services/gameplay_smoke.cpp` | Sürüm denetimli paylaşılan VFX şablon önbelleği, çalışma zamanı bileşen dışlamaları, AABB sınırlı kapsül duman dağıtımı |
+| `src/services/dev_tools.{hpp,cpp}`, `src/services/debug_overlays.{hpp,cpp}` | `Profiler`, başsız modda paylaşılan salt-okunur varsayılan font atlası, `DebugPanelRegistry`, fizik/eklem/alan/ışık/hücre katman çizimi |
+| `src/debug_ui.{hpp,cpp}` | Dear ImGui backend'i (`Key::Count`/`MouseButton::Count` tam tuş/fare dizileri), ana menü çubuğu (`Physics joints`, `Fields`), açık panel döngüsü |
+| `src/panels/debug_panel.{hpp,cpp}`, `src/panels/json_editor.{hpp,cpp}`, `src/panels/*_panel.cpp` | `DebugPanel` arayüzü ve yerleşik debug UI panelleri (`Performance`, `Scene`, `Inspector`, `Render`, `World`, `Materials`, `Demo`) |
+| `src/map_runtime.*`, `src/material_library.*`, `src/input_actions.*`, `src/shell.cpp`, `src/feature_check.cpp` | Alt bileşenler (ertelenmiş shader emekliliği, tüm `Key` adları + ikili arama eylem indeksi, güvenli argüman ve tamponlu PPM yazımı) |
 
-## Gruplu `Context` arayüzü ve kaldırma planı
+## Gruplu `Context` arayüzü
 
-`Context` doğrudan temel alanları (`world`, `input`, `time`, `log`, `jobs`, `screen_size()`, `quit()`, `add_system()`) taşır; servis işlemleri küçük public arayüzler üzerinden gruplanır:
+`Context` doğrudan temel alanları (`world`, `input`, `time`, `log`, `jobs`, `screen_size()`, `quit()`, `add_system()`, `singleton<T>()`, `singleton_mut<T>()`) taşır; servis işlemleri küçük public arayüzler üzerinden gruplanır:
 
 | Erişici | Arayüz | Metotlar |
 |---|---|---|
 | `ctx.scenes()` | `SceneService` | `load_scene`, `save_scene`, `spawn_prefab` |
-| `ctx.maps()` | `MapService` | `open_world`, `close_world`, `finish_world_loading`, `world_layers`, `world_streaming`, `world_origin` |
+| `ctx.maps()` | `MapService` | `open_world`, `close_world`, `finish_world_loading`, `world_layers`, `world_streaming`, `world_origin`, `resolve_map_entity` |
 | `ctx.materials()` | `MaterialService` | `create_mesh`, `create_material`, `update_material`, `load_material`, `shader_error` |
 | `ctx.audio_service()` | `AudioService` | `sound` |
 | `ctx.script_service()` | `ScriptService` | `load_script`, `write_script_api`, `load_actions` |
-| `ctx.physics_service()` | `PhysicsService` | `contacts` |
+| `ctx.physics_service()` | `PhysicsService` | `contacts`, `query_state`, `capabilities`, sorgular ve deterministik komut kuyruğu |
+| `ctx.viewport()` | `ViewportService` | `set_size`, `texture`, `size`, `set_render_world`, `render_world`, `set_camera_override`, `set_clear_color` |
 
-- Mevcut public işaretçi alanları `ctx.audio` (`AudioEngine*`), `ctx.scripts` (`ScriptHost*`) ve `ctx.physics` (`PhysicsWorld*`) kaynak uyumluluğu için aynı ad ve tiplerle korunur; servis erişicileri `audio_service()`, `script_service()` ve `physics_service()` adlarını kullanır.
-- **Kaldırma planı (M14):** Eski düz metotlar (`ctx.load_scene`, `ctx.open_world`, `ctx.create_material`, `ctx.sound`, `ctx.load_script`, `ctx.contacts` vb.) `[[deprecated("use ctx.<group>().<fn>")]]` tek satırlık yönlendiriciler olarak bir faz boyunca korunur ve **M14** başında kaldırılır.
+- `Context::add_system` hem `System` türevi sınıfları (`ctx.add_system<MySystem>(Phase::Update, ...)`) hem de hafif adsız/adlandırılmış lambda fonksiyonlarını (`ctx.add_system(Phase::Update, "ad", fn, access)`) destekler (boş ad verilirse `"FunctionSystem"` kullanılır).
+- `Context::singleton<T>()` sahnede tekil olarak bulunan ilk `T` bileşenini değişiklik damgasını (`changed<T>()`) kirletmeden `const T*` olarak döndürür; yazılabilir erişim gerektiğinde `Context::singleton_mut<T>()` yalnız bulunan ilk entity'yi işaretleyerek `T*` döndürür.
+
+- Mevcut public işaretçi alanları `ctx.audio` (`AudioEngine*`), `ctx.scripts` (`ScriptHost*`) ve `ctx.physics` (`PhysicsWorld*`) kaynak uyumluluğu için aynı ad ve tiplerle korunur; `ctx.font` (`const Font*`) başsız paylaşılan atlas güvenliği için salt-okunurdur. Eski düz `Context` yönlendiricileri (`ctx.load_scene`, `ctx.open_world` vb.) kaldırılmıştır.
 
 ## Debug UI panelleri ve kayıt (`DebugPanelRegistry`)
 
@@ -125,7 +130,7 @@ Karar: [ADR-0029](../decisions/0029-physics-fields-and-joints.md); ayrıntı [ph
 
 - Pencere yeniden boyutlanınca swapchain kendini yeniler; olay callback'i yok.
 - Offscreen modda her kare GPU'yu bekler (yakalama için basit; gerçek zamanlı kullanım için değil).
-- `PrimitiveMesh` materyalleri önbellekte kalır, hiç silinmez (tanım başına bir materyal).
+- `PrimitiveMesh` materyalleri `RenderBridge` ömrü boyunca ikili `PrimitiveMaterialKey` önbelleğinde paylaşılır ve `~RenderBridge()` sırasında temizlenir.
 - Sahne dosyası render kalite ayarlarını taşımaz (GI hacmi mesh'lere kendiliğinden oturur).
 
 ## ECS entegrasyonu (M5a / M13.6)

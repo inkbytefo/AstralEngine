@@ -36,7 +36,7 @@ public:
     DevTools& operator=(const DevTools&) = delete;
 
     [[nodiscard]] Profiler& profiler() noexcept { return profiler_; }
-    [[nodiscard]] Font* font() noexcept { return font_.get(); }
+    [[nodiscard]] const Font* font() const noexcept { return font_; }
     [[nodiscard]] DebugPanelRegistry& panels() noexcept { return panels_; }
     [[nodiscard]] const DebugPanelRegistry& panels() const noexcept { return panels_; }
     DebugPanel* register_panel(std::unique_ptr<DebugPanel> panel) { return panels_.add(std::move(panel)); }
@@ -56,7 +56,8 @@ private:
     Profiler profiler_;
     DebugPanelRegistry panels_;
     std::unique_ptr<DebugUi> debug_ui_;
-    std::unique_ptr<Font> font_;
+    std::unique_ptr<Font> owned_font_;
+    const Font* font_ = nullptr;
     UiLayer ui_layer_{};
     std::array<UiLayer, 2> layers_{};
     bool restore_mouse_capture_ = false;

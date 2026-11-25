@@ -53,17 +53,24 @@ void GameplaySmoke::step(const PhysicsService& physics, Vec3 centre) {
     const int middle = side / 2;
     std::vector<RayQuery> rays;
     std::vector<std::size_t> targets;
+    rays.reserve(128);
+    targets.reserve(128);
     for (int z = 0; z < side; ++z) {
         for (int y = 0; y < side; ++y) {
             for (int x = 0; x < side; ++x) {
                 if (!occupied_[index_of(x, y, z, side_)]) continue;
-                const Vec3 origin = centre + Vec3{static_cast<float>(x - middle), static_cast<float>(y - middle),
-                                                  static_cast<float>(z - middle)} * desc_.cell_size_m;
+                bool has_origin = false;
+                Vec3 origin{};
                 for (const auto& n : neighbors) {
                     const int nx = x + n[0], ny = y + n[1], nz = z + n[2];
                     if (nx < 0 || nx >= side || ny < 0 || ny >= side || nz < 0 || nz >= side) continue;
                     const auto target = index_of(nx, ny, nz, side_);
                     if (occupied_[target] || (!restore_at_.empty() && restore_at_[target] != 0)) continue;
+                    if (!has_origin) {
+                        origin = centre + Vec3{static_cast<float>(x - middle), static_cast<float>(y - middle),
+                                               static_cast<float>(z - middle)} * desc_.cell_size_m;
+                        has_origin = true;
+                    }
                     rays.push_back({origin, {static_cast<float>(n[0]), static_cast<float>(n[1]), static_cast<float>(n[2])},
                                     desc_.cell_size_m, {.layers = desc_.obstacle_layers}});
                     targets.push_back(target);
@@ -98,9 +105,19 @@ void GameplaySmoke::disperse(Vec3 centre, Vec3 from, Vec3 to, float radius_m, un
     const auto restore = std::min(tick_ + hold_steps, static_cast<std::uint64_t>(desc_.spread_steps) + desc_.fade_steps);
     const int side = static_cast<int>(side_);
     const int middle = side / 2;
-    for (int z = 0; z < side; ++z) {
-        for (int y = 0; y < side; ++y) {
-            for (int x = 0; x < side; ++x) {
+    const auto axis_range = [&](float a, float b) -> std::pair<int, int> {
+        const float lo = (std::min(a, b) - radius_m) / desc_.cell_size_m;
+        const float hi = (std::max(a, b) + radius_m) / desc_.cell_size_m;
+        const int min_k = std::clamp(static_cast<int>(std::floor(lo)) + middle - 1, 0, side - 1);
+        const int max_k = std::clamp(static_cast<int>(std::ceil(hi)) + middle + 1, 0, side - 1);
+        return {min_k, max_k};
+    };
+    const auto [min_x, max_x] = axis_range(start.x, end.x);
+    const auto [min_y, max_y] = axis_range(start.y, end.y);
+    const auto [min_z, max_z] = axis_range(start.z, end.z);
+    for (int z = min_z; z <= max_z; ++z) {
+        for (int y = min_y; y <= max_y; ++y) {
+            for (int x = min_x; x <= max_x; ++x) {
                 const auto i = index_of(x, y, z, side_);
                 if (!occupied_[i] && (restore_at_.empty() || restore_at_[i] == 0)) continue;
                 const Vec3 offset = Vec3{static_cast<float>(x - middle), static_cast<float>(y - middle),

@@ -3,13 +3,18 @@
 // Loads on first use, keeps every MaterialHandle stable across hot reloads (the material is updated in
 // place), and keeps the last good version when an edited file does not compile.
 
+#include "string_hash.hpp"
+
 #include <astral/render/material_file.hpp>
 #include <astral/render/renderer.hpp>
 
 #include <filesystem>
+#include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace astral {
@@ -71,11 +76,13 @@ private:
         std::vector<std::pair<std::string, std::filesystem::file_time_type>> watched;
     };
 
-    Shader* load_shader(const std::string& path, bool reload);
+    Shader* load_shader(const std::string& path, bool reload, ShaderHandle* retired_old = nullptr);
     bool build(Material& material, bool create);
     bool build_pbr(const MaterialFile& file, MaterialDesc& desc, std::vector<std::string>& errors);
     bool reload_texture(Texture& texture);
     void update_textures();
+    void retire_shader(ShaderHandle old_handle);
+    void sweep_retired_shaders();
     TextureHandle texture(const std::string& path, bool srgb);
     std::optional<Json> read_document(std::string_view path, std::string* error);
     std::filesystem::file_time_type time_of(const std::string& path) const;
@@ -88,8 +95,11 @@ private:
     Logger& log_;
     double next_check_ = 0.0;
     std::vector<std::unique_ptr<Shader>> shaders_;
+    std::unordered_map<std::string, std::size_t, StringHash, std::equal_to<>> shader_index_;
     std::vector<std::unique_ptr<Material>> materials_;
-    std::unordered_map<std::string, Texture> textures_;
+    std::unordered_map<std::string, std::size_t, StringHash, std::equal_to<>> material_index_;
+    std::unordered_map<std::string, Texture, StringHash, std::equal_to<>> textures_;
+    std::vector<ShaderHandle> retired_shaders_;
 };
 
 } // namespace astral

@@ -41,7 +41,7 @@ void PongGame::on_start(Context& ctx) {
 }
 
 void PongGame::on_update(Context& ctx) {
-    const Match* m = match(ctx.world);
+    const Match* m = ctx.singleton<Match>();
     if (!m) return;
     draw_hud(ctx, *m);
     if (!ctx.window) return;
@@ -55,6 +55,7 @@ void PongGame::on_update(Context& ctx) {
 
 /// Score at the top, the result when a match ends, controls at the bottom.
 void PongGame::draw_hud(Context& ctx, const Match& m) const {
+    if (!ctx.font) return;
     const Font& font = *ctx.font;
     const Vec2 screen = ctx.screen_size();
     const float unit = screen.y / 720.0f; // the HUD scales with the window

@@ -8,6 +8,7 @@
 #include <astral/app/physics_service.hpp>
 #include <astral/app/scene_service.hpp>
 #include <astral/app/script_service.hpp>
+#include <astral/app/system.hpp>
 #include <astral/app/viewport_service.hpp>
 #include <astral/core/jobs.hpp>
 #include <astral/core/log.hpp>
@@ -26,6 +27,7 @@
 #include <astral/world/transform.hpp>
 #include <astral/world/world.hpp>
 
+#include <concepts>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -43,72 +45,6 @@ namespace gpu {
 class Device;
 }
 class Context;
-
-/// When a system runs inside a frame:
-/// input → PreUpdate → Game::on_update → Update → physics (FixedUpdate systems + step, 0..n
-/// times at a fixed rate) → PostUpdate → transforms → render. Commands are applied after each.
-enum class Phase : std::uint8_t { PreUpdate, Update, FixedUpdate, PostUpdate };
-
-/// Declares which components a System reads and writes so non-conflicting systems can run in parallel (ADR-0032).
-/// A system that declares nothing (or calls mark_exclusive()) runs alone on the main thread.
-class SystemAccess {
-public:
-    template <class... Cs> SystemAccess& reads() {
-        (add_read(component_id<Cs>()), ...);
-        return *this;
-    }
-    template <class... Cs> SystemAccess& writes() {
-        (add_write(component_id<Cs>()), ...);
-        return *this;
-    }
-    /// Infers reads (const T) and writes (non-const T) from a query signature: `access.query<const Vel, Pos>()`.
-    template <class... Cs> SystemAccess& query() {
-        ((std::is_const_v<Cs> ? add_read(component_id<Cs>()) : add_write(component_id<Cs>())), ...);
-        return *this;
-    }
-    SystemAccess& mark_exclusive() noexcept {
-        exclusive_ = true;
-        return *this;
-    }
-
-    void add_read(ComponentId id);
-    void add_write(ComponentId id);
-    [[nodiscard]] bool exclusive() const noexcept { return exclusive_ || (reads_.empty() && writes_.empty()); }
-    [[nodiscard]] std::span<const ComponentId> read_ids() const noexcept { return reads_; }
-    [[nodiscard]] std::span<const ComponentId> write_ids() const noexcept { return writes_; }
-    [[nodiscard]] bool conflicts_with(const SystemAccess& other) const noexcept;
-
-private:
-    std::vector<ComponentId> reads_;
-    std::vector<ComponentId> writes_;
-    bool exclusive_ = false;
-};
-
-/// Game logic that runs every frame. Read and write components through ctx.world.
-/// Inside update(), `added<T>()`/`changed<T>()` query filters mean "since this system last ran".
-/// Declare component access with `reads<...>()` / `writes<...>()` (or override `configure`) to allow
-/// parallel execution alongside non-conflicting systems in the same phase (ADR-0032).
-class System {
-public:
-    virtual ~System() = default;
-    virtual void configure(SystemAccess&) {}
-    virtual void update(Context& ctx) = 0;
-    /// Its type name ("PlayerControl"): how the profiler and debug UI show it.
-    [[nodiscard]] const std::string& name() const noexcept { return name_; }
-    [[nodiscard]] const SystemAccess& access() const noexcept { return access_; }
-
-protected:
-    template <class... Cs> void reads() { access_.reads<Cs...>(); }
-    template <class... Cs> void writes() { access_.writes<Cs...>(); }
-
-private:
-    friend class App;
-    friend class Context;
-    friend class FrameLoop;
-    Tick last_run_ = 0;
-    std::string name_;
-    SystemAccess access_;
-};
 
 /// Your game. Override what you need; spawn entities and add systems in on_start().
 class Game {
@@ -159,8 +95,8 @@ public:
     /// The game's 2D overlay for this frame: text, rectangles, images (pixels, origin top-left).
     /// Cleared after every frame; drawn over the 3D image, under the debug UI.
     UiCanvas hud;
-    /// The built-in font (Roboto Medium, Turkish letters included). Always available.
-    Font* font = nullptr;
+    /// The built-in font (Roboto Medium, Turkish letters included). Always available; read-only.
+    const Font* font = nullptr;
     /// Size of the image being rendered, pixels (the window's, or AppDesc width x height).
     [[nodiscard]] Vec2 screen_size() const;
     /// What the App draws into `debug` by itself every frame.
@@ -194,11 +130,43 @@ public:
     /// Which feature owns a component or event (filled by FeatureSet::install; shown in API.md).
     std::map<std::string, std::string> api_owners;
 
-    template <class S, class... Args> S& add_system(Phase phase, Args&&... args) {
+    template <class S, class... Args>
+        requires std::derived_from<S, System>
+    S& add_system(Phase phase, Args&&... args) {
         auto system = std::make_unique<S>(std::forward<Args>(args)...);
         S& ref = *system;
         register_system(phase, std::move(system));
         return ref;
+    }
+
+    /// Registers a lightweight function/lambda as a named System in `phase`.
+    template <class Fn>
+        requires std::invocable<Fn&, Context&> && (!std::derived_from<std::remove_cvref_t<Fn>, System>)
+    System& add_system(Phase phase, std::string_view name, Fn&& fn, SystemAccess access = {}) {
+        auto system = std::make_unique<FunctionSystem>(std::forward<Fn>(fn), std::move(access));
+        System& ref = *system;
+        register_named_system(phase, std::string(name), std::move(system));
+        return ref;
+    }
+
+    /// Returns the first component of type `T` in `world` without marking it changed, or nullptr if none exists.
+    template <class T> [[nodiscard]] const std::remove_const_t<T>* singleton() const {
+        using C = std::remove_const_t<T>;
+        const C* found = nullptr;
+        world.each<const C>([&](const C& component) {
+            if (!found) found = &component;
+        });
+        return found;
+    }
+
+    /// Returns a mutable pointer to the first component of type `T` in `world` (marks `T` changed), or nullptr.
+    template <class T> [[nodiscard]] std::remove_const_t<T>* singleton_mut() {
+        using C = std::remove_const_t<T>;
+        Entity target{};
+        world.each<const C>([&](Entity entity, const C&) {
+            if (!target.valid()) target = entity;
+        });
+        return target.valid() ? world.get<C>(target) : nullptr;
     }
 
     /// Grouped engine services.
@@ -227,9 +195,11 @@ public:
 
 private:
     friend class App;
+    friend Entity play_vfx(Context& context, std::string_view asset, Vec3 position);
     Context(World& w, const Input& i, const Time& t, Logger& l, JobSystem& j, class App& app)
         : world(w), input(i), time(t), log(l), jobs(j), app_(app) {}
     void register_system(Phase phase, std::unique_ptr<System> system);
+    void register_named_system(Phase phase, std::string name, std::unique_ptr<System> system);
     class App& app_;
     bool quit_requested_ = false;
 };
@@ -307,8 +277,8 @@ public:
 
 private:
     friend class Context;
+    friend Entity play_vfx(Context& context, std::string_view asset, Vec3 position);
     struct Impl;
-    static void run_phase(std::vector<std::unique_ptr<System>>& systems, Context& ctx);
     std::unique_ptr<Impl> impl_;
 };
 

@@ -75,8 +75,12 @@ ImTextureID pack(TextureHandle h) { return static_cast<ImTextureID>(pack_ui_text
 TextureHandle unpack(ImTextureID id) { return unpack_ui_texture(static_cast<std::uint64_t>(id)); }
 
 ImageData to_image(ImTextureData& t) {
-    ImageData img{.width = static_cast<std::uint32_t>(t.Width), .height = static_cast<std::uint32_t>(t.Height), .rgba = {},
-                  .srgb = false, .format = ImageFormat::RGBA8, .levels = {}};
+    ImageData img{.width = static_cast<std::uint32_t>(t.Width),
+                  .height = static_cast<std::uint32_t>(t.Height),
+                  .rgba = {},
+                  .srgb = false,
+                  .format = ImageFormat::RGBA8,
+                  .levels = {}};
     const auto* px = static_cast<const std::uint8_t*>(t.GetPixels());
     const std::size_t n = std::size_t{img.width} * img.height;
     if (t.Format == ImTextureFormat_Alpha8) {
@@ -102,12 +106,15 @@ void draw_main_menu_bar(Context& ctx, DebugPanelRegistry& panels) {
     }
     if (ImGui::BeginMenu("Debug draw")) {
         ImGui::MenuItem("Physics shapes", nullptr, &ctx.debug_show.physics);
+        ImGui::MenuItem("Physics joints", nullptr, &ctx.debug_show.physics_joints);
+        ImGui::MenuItem("Fields", nullptr, &ctx.debug_show.fields);
         ImGui::MenuItem("Lights", nullptr, &ctx.debug_show.lights);
         ImGui::MenuItem("World cells", nullptr, &ctx.debug_show.world_cells);
         ImGui::EndMenu();
     }
     ImGui::SameLine(ImGui::GetWindowWidth() - 200);
-    ImGui::TextDisabled("F1 hides | %.1f ms", static_cast<double>(ctx.profiler->last_frame_ms()));
+    const double ms = ctx.profiler ? static_cast<double>(ctx.profiler->last_frame_ms()) : 0.0;
+    ImGui::TextDisabled("F1 hides | %.1f ms", ms);
     ImGui::EndMainMenuBar();
 }
 
@@ -143,7 +150,7 @@ DebugUi::DebugUi(Renderer& renderer, Window* window, std::string_view ini_path)
 
     const auto font = default_font_ttf();
     ImFontConfig config;
-    config.FontDataOwnedByAtlas = false; // embedded in the binary
+    config.FontDataOwnedByAtlas = false;
     io.Fonts->AddFontFromMemoryTTF(const_cast<std::uint8_t*>(font.data()), static_cast<int>(font.size()), 15.0f, &config);
     ImGui::StyleColorsDark();
     ImGuiStyle& style = ImGui::GetStyle();
@@ -171,13 +178,13 @@ void DebugUi::begin(const Input& input, float delta, gpu::Extent2D size, float d
 
     const Vec2 mouse = input.mouse_position();
     io.AddMousePosEvent(mouse.x, mouse.y);
-    for (int b = 0; b < 3; ++b) {
+    for (std::size_t b = 0; b < mouse_down_.size(); ++b) {
         const bool down = input.down(static_cast<MouseButton>(b));
-        if (down != mouse_down_[b]) io.AddMouseButtonEvent(b, down);
+        if (down != mouse_down_[b]) io.AddMouseButtonEvent(static_cast<int>(b), down);
         mouse_down_[b] = down;
     }
     if (input.scroll().x != 0.0f || input.scroll().y != 0.0f) io.AddMouseWheelEvent(input.scroll().x, input.scroll().y);
-    for (int k = 1; k < static_cast<int>(Key::Count) && k < 256; ++k) {
+    for (std::size_t k = 1; k < keys_down_.size(); ++k) {
         const bool down = input.down(static_cast<Key>(k));
         if (down == keys_down_[k]) continue;
         keys_down_[k] = down;
@@ -187,7 +194,10 @@ void DebugUi::begin(const Input& input, float delta, gpu::Extent2D size, float d
     io.AddKeyEvent(ImGuiMod_Shift, input.down(Key::LeftShift) || input.down(Key::RightShift));
     io.AddKeyEvent(ImGuiMod_Alt, input.down(Key::LeftAlt) || input.down(Key::RightAlt));
     io.AddKeyEvent(ImGuiMod_Super, input.down(Key::LeftSuper) || input.down(Key::RightSuper));
-    if (!input.text().empty()) io.AddInputCharactersUTF8(std::string(input.text()).c_str());
+    if (!input.text().empty()) {
+        text_input_scratch_.assign(input.text());
+        io.AddInputCharactersUTF8(text_input_scratch_.c_str());
+    }
     ImGui::NewFrame();
 }
 
@@ -223,6 +233,8 @@ void DebugUi::end() {
     commands_.clear();
     const ImDrawData* data = ImGui::GetDrawData();
     if (!data) return;
+    vertices_.reserve(static_cast<std::size_t>(data->TotalVtxCount));
+    indices_.reserve(static_cast<std::size_t>(data->TotalIdxCount));
     const float sx = data->FramebufferScale.x;
     const float sy = data->FramebufferScale.y;
     for (const ImDrawList* list : data->CmdLists) {
@@ -230,12 +242,14 @@ void DebugUi::end() {
         const auto index_base = static_cast<std::uint32_t>(indices_.size());
         for (const ImDrawVert& v : list->VtxBuffer) {
             vertices_.push_back({{(v.pos.x - data->DisplayPos.x) * sx, (v.pos.y - data->DisplayPos.y) * sy},
-                                 {v.uv.x, v.uv.y}, v.col});
+                                 {v.uv.x, v.uv.y},
+                                 v.col});
         }
         for (ImDrawIdx i : list->IdxBuffer) indices_.push_back(i);
         for (const ImDrawCmd& c : list->CmdBuffer) {
             if (c.UserCallback || c.ElemCount == 0) continue;
-            commands_.push_back({.first_index = index_base + c.IdxOffset, .index_count = c.ElemCount,
+            commands_.push_back({.first_index = index_base + c.IdxOffset,
+                                 .index_count = c.ElemCount,
                                  .vertex_offset = vertex_base + static_cast<std::int32_t>(c.VtxOffset),
                                  .texture = unpack(c.GetTexID()),
                                  .clip = {(c.ClipRect.x - data->DisplayPos.x) * sx, (c.ClipRect.y - data->DisplayPos.y) * sy,

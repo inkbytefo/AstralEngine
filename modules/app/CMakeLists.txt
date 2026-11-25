@@ -19,17 +19,24 @@ endif()
 astral_add_module(NAME app
     SOURCES
         src/app.cpp
+        src/graphics_backend.cpp
         src/services/audio_bridge.cpp
         src/services/atmosphere.cpp
+        src/services/debug_overlays.cpp
         src/services/gameplay_smoke.cpp
         src/services/vfx_runtime.cpp
         src/services/dev_tools.cpp
         src/services/frame_loop.cpp
         src/services/physics_bridge.cpp
+        src/services/physics_commands.cpp
+        src/services/physics_fields.cpp
         src/services/script_physics.cpp
         src/services/render_bridge.cpp
+        src/services/render_extract.cpp
         src/services/terrain_bridge.cpp
+        src/services/terrain_mesh.cpp
         src/services/script_bridge.cpp
+        src/services/system_scheduler.cpp
         src/services/world_bridge.cpp
         src/input_actions.cpp
         src/feature.cpp
@@ -86,7 +93,8 @@ astral_add_tests(MODULE app
         tests/fields_app_test.cpp
         tests/feature_test.cpp
         tests/shell_test.cpp
-        tests/material_app_test.cpp)
+        tests/material_app_test.cpp
+        tests/refactor_regression_test.cpp)
 if(TARGET astral_app_tests)
     FetchContent_GetProperties(stb)
     target_include_directories(astral_app_tests SYSTEM PRIVATE ${stb_SOURCE_DIR})

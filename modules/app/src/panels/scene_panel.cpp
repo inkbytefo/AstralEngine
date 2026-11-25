@@ -26,19 +26,20 @@ public:
             char buffer[128];
             std::snprintf(buffer, sizeof buffer, "%s", filter_.c_str());
             if (ImGui::InputTextWithHint("##filter", "filter by name", buffer, sizeof buffer)) filter_ = buffer;
-            std::vector<Entity> shown;
+
+            shown_.clear();
             world.for_each_entity([&](Entity e) {
                 if (world.has<PrefabPart>(e)) return; // parts are listed under their instance in the inspector
                 if (!filter_.empty() && entity_label(world, e).find(filter_) == std::string::npos) return;
-                shown.push_back(e);
+                shown_.push_back(e);
             });
-            ImGui::TextDisabled("%zu entities", shown.size());
+            ImGui::TextDisabled("%zu entities", shown_.size());
             if (ImGui::BeginChild("list")) {
                 ImGuiListClipper clipper;
-                clipper.Begin(static_cast<int>(shown.size()));
+                clipper.Begin(static_cast<int>(shown_.size()));
                 while (clipper.Step()) {
                     for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
-                        const Entity e = shown[static_cast<std::size_t>(i)];
+                        const Entity e = shown_[static_cast<std::size_t>(i)];
                         ImGui::PushID(static_cast<int>(e.index));
                         if (ImGui::Selectable(entity_label(world, e).c_str(), e == state.selected)) state.selected = e;
                         ImGui::PopID();
@@ -52,6 +53,7 @@ public:
 
 private:
     std::string filter_;
+    std::vector<Entity> shown_;
 };
 
 } // namespace

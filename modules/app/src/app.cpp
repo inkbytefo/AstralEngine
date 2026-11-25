@@ -1,22 +1,24 @@
 #include <astral/app/app.hpp>
 
+#include "graphics_backend.hpp"
+#include "services/atmosphere.hpp"
 #include "services/audio_bridge.hpp"
 #include "services/dev_tools.hpp"
 #include "services/frame_loop.hpp"
-#include "services/terrain_bridge.hpp"
-#include "services/vfx_runtime.hpp"
 #include "services/physics_bridge.hpp"
 #include "services/render_bridge.hpp"
 #include "services/script_bridge.hpp"
+#include "services/system_scheduler.hpp"
+#include "services/terrain_bridge.hpp"
+#include "services/vfx_runtime.hpp"
 #include "services/world_bridge.hpp"
 
-#include <astral/gpu/device.hpp>
-#include <astral/gpu/swapchain.hpp>
 #include <astral/platform/paths.hpp>
 #include <astral/platform/window.hpp>
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <thread>
 #include <typeinfo>
@@ -25,6 +27,17 @@
 namespace astral {
 
 namespace {
+
+AppDesc sanitize_desc(AppDesc desc) {
+    if (desc.width == 0) desc.width = 1280;
+    if (desc.height == 0) desc.height = 720;
+    if (!std::isfinite(desc.physics_rate) || desc.physics_rate <= 0.0f) desc.physics_rate = 60.0f;
+    else desc.physics_rate = std::max(desc.physics_rate, 1.0f);
+    if (!std::isfinite(desc.fixed_timestep) || desc.fixed_timestep < 0.0f) desc.fixed_timestep = 0.0f;
+    if (!std::isfinite(desc.origin_shift_distance) || desc.origin_shift_distance <= 0.0f) desc.origin_shift_distance = 2000.0f;
+    if (!std::isfinite(desc.world_stream_budget_ms) || desc.world_stream_budget_ms < 0.0f) desc.world_stream_budget_ms = 1.0f;
+    return desc;
+}
 
 void register_app_types(Context& ctx) {
     TypeRegistry& types = ctx.types;
@@ -78,44 +91,6 @@ std::unique_ptr<PrefabLibrary> make_prefab_library(TypeRegistry& types, AssetMan
         return SourceDocument{.json = nullptr, .version = 0, .error = std::string(assets.error(id))};
     });
 }
-
-/// Owns the display and GPU stack in strict reverse-teardown order (renderer -> swapchain -> device -> window).
-struct GraphicsBackend {
-    std::unique_ptr<Window> window;
-    gpu::SurfaceSource surface;
-    std::unique_ptr<gpu::Device> device;
-    std::unique_ptr<gpu::Swapchain> swapchain;
-    std::unique_ptr<Renderer> renderer;
-
-    void init(const AppDesc& desc, Logger& log) {
-        if (!desc.headless && desc.offscreen) {
-            device = gpu::Device::create({.app_name = desc.title, .validation = desc.validation, .logger = &log});
-            if (device) renderer = std::make_unique<Renderer>(*device, gpu::Format::RGBA8Unorm, desc.render);
-            else log.error("App: no usable GPU for offscreen rendering; running without rendering");
-        } else if (!desc.headless) {
-            window = Window::create({.title = desc.title, .width = desc.width, .height = desc.height});
-            if (!window) {
-                log.error("App: could not create a window; running headless");
-                return;
-            }
-            surface = window->surface_source();
-            device = gpu::Device::create({.app_name = desc.title, .validation = desc.validation, .surface = &surface, .logger = &log});
-            if (!device) {
-                log.error("App: no usable GPU; running without rendering");
-                return;
-            }
-            swapchain = gpu::Swapchain::create(*device, surface, {.vsync = desc.vsync});
-            if (swapchain) renderer = std::make_unique<Renderer>(*device, swapchain->format(), desc.render);
-        }
-    }
-
-    void shutdown() {
-        renderer.reset();
-        swapchain.reset();
-        device.reset();
-        window.reset();
-    }
-};
 
 /// Context-bound adapters for grouped services whose operations combine Context fields or multiple bridges.
 struct ContextServices {
@@ -176,8 +151,9 @@ struct ContextServices {
         const std::map<std::string, std::string>& api_owners_;
     };
 
-    ContextServices(WorldBridge& world_bridge, FrameLoop& frame_loop, ScriptBridge& script_bridge, Context& ctx)
-        : scenes(world_bridge, frame_loop.atmosphere(), ctx),
+    ContextServices(WorldBridge& world_bridge, AtmosphereController& atmosphere, FrameLoop& frame_loop,
+                    ScriptBridge& script_bridge, Context& ctx)
+        : scenes(world_bridge, atmosphere, ctx),
           maps(world_bridge, frame_loop),
           scripts(script_bridge, ctx.api_owners) {}
 
@@ -201,34 +177,94 @@ struct App::Impl {
     std::unique_ptr<PrefabLibrary> prefabs;
     std::unique_ptr<Context> context;
 
+    std::unique_ptr<SystemScheduler> scheduler;
     std::unique_ptr<DevTools> dev_tools;
     std::unique_ptr<AudioBridge> audio_bridge;
     std::unique_ptr<PhysicsBridge> physics_bridge;
     std::unique_ptr<RenderBridge> render_bridge;
+    std::unique_ptr<AtmosphereController> atmosphere;
+    std::unique_ptr<VfxRuntime> vfx;
+    std::unique_ptr<TerrainBridge> terrain_bridge;
     std::unique_ptr<WorldBridge> world_bridge;
     std::unique_ptr<ScriptBridge> script_bridge;
     std::unique_ptr<FrameLoop> frame_loop;
     std::unique_ptr<ContextServices> services;
 
     explicit Impl(unsigned worker_threads) : jobs(worker_threads) {}
+
+    void init_runtime(const AppDesc& desc, const std::filesystem::path& asset_root, const std::filesystem::path& pack) {
+        const bool audio_device = desc.audio && !desc.headless && !desc.offscreen; // captures and tests mix silently
+        audio_bridge = std::make_unique<AudioBridge>(world, *assets, log, audio_device);
+        context->audio = audio_bridge->engine();
+
+        physics_bridge = std::make_unique<PhysicsBridge>(
+            world, context->fields, time, context->profiler, log,
+            PhysicsBridgeConfig{.max_steps = desc.max_physics_steps, .interpolation = desc.physics_interpolation, .jobs = &jobs});
+        context->physics = physics_bridge->world();
+
+        render_bridge = std::make_unique<RenderBridge>(
+            world, *assets, log, graphics.device(), graphics.swapchain(), graphics.window(), graphics.renderer(),
+            RenderBridgeConfig{.width = desc.width,
+                               .height = desc.height,
+                               .offscreen = !desc.headless && desc.offscreen,
+                               .asset_root = asset_root,
+                               .watch_materials = desc.hot_reload && pack.empty()});
+        context->meshes = render_bridge->builtin_meshes();
+
+        atmosphere = std::make_unique<AtmosphereController>();
+        vfx = std::make_unique<VfxRuntime>();
+        terrain_bridge = std::make_unique<TerrainBridge>(world, *assets, log, *render_bridge, graphics.renderer(),
+                                                         *physics_bridge->world(), jobs, dev_tools->profiler());
+        world_bridge = std::make_unique<WorldBridge>(world, *prefabs, *assets, jobs, log, asset_root,
+                                                     desc.origin_shift_distance, desc.world_stream_budget_ms);
+
+        script_bridge = std::make_unique<ScriptBridge>(
+            world, *assets, context->types, context->events, context->actions, time, context->profiler, log,
+            physics_bridge->script_physics(), std::filesystem::path(std::string(desc.save_folder)),
+            desc.hot_reload && pack.empty());
+        context->scripts = script_bridge->host();
+
+        frame_loop = std::make_unique<FrameLoop>(FrameLoop::Services{
+            .world = world,
+            .context = *context,
+            .raw_input = input,
+            .game_input = game_input,
+            .time = time,
+            .assets = *assets,
+            .log = log,
+            .scheduler = *scheduler,
+            .dev_tools = *dev_tools,
+            .world_bridge = *world_bridge,
+            .render_bridge = *render_bridge,
+            .atmosphere = *atmosphere,
+            .vfx = *vfx,
+            .physics_bridge = *physics_bridge,
+            .terrain_bridge = *terrain_bridge,
+            .audio_bridge = *audio_bridge,
+            .script_bridge = *script_bridge,
+            .fixed_timestep = desc.fixed_timestep,
+        });
+        services = std::make_unique<ContextServices>(*world_bridge, *atmosphere, *frame_loop, *script_bridge, *context);
+    }
 };
 
-App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc.worker_threads)) {
+App::App(const AppDesc& raw_desc) : impl_(std::make_unique<Impl>(raw_desc.worker_threads)) {
+    const AppDesc desc = sanitize_desc(raw_desc);
     auto& m = *impl_;
     m.log.add_sink(std::make_shared<ConsoleSink>());
     m.context.reset(new Context(m.world, m.game_input, m.time, m.log, m.jobs, *this));
     register_app_types(*m.context);
-    m.time.fixed_delta = 1.0f / std::max(desc.physics_rate, 1.0f);
+    m.time.fixed_delta = 1.0f / desc.physics_rate;
 
     m.graphics.init(desc, m.log);
-    m.context->window = m.graphics.window.get();
-    m.context->device = m.graphics.device.get();
-    m.context->renderer = m.graphics.renderer.get();
+    m.context->window = m.graphics.window();
+    m.context->device = m.graphics.device();
+    m.context->renderer = m.graphics.renderer();
 
     const std::filesystem::path asset_root(desc.asset_root);
     const std::filesystem::path pack = resolve_pack_path(desc.pack, m.log);
     m.assets = std::make_unique<AssetManager>(AssetManagerDesc{.root = asset_root,
-                                                               .renderer = m.graphics.renderer.get(),
+                                                               .renderer = m.graphics.renderer(),
                                                                .jobs = &m.jobs,
                                                                .logger = &m.log,
                                                                .hot_reload = desc.hot_reload,
@@ -238,178 +274,68 @@ App::App(const AppDesc& desc) : impl_(std::make_unique<Impl>(desc.worker_threads
     m.prefabs = make_prefab_library(m.context->types, *m.assets);
     m.context->prefabs = m.prefabs.get();
 
-    m.dev_tools = std::make_unique<DevTools>(m.world, m.graphics.window.get(), m.graphics.renderer.get(), desc.debug_ui,
+    m.scheduler = std::make_unique<SystemScheduler>(desc.parallel_systems);
+    m.dev_tools = std::make_unique<DevTools>(m.world, m.graphics.window(), m.graphics.renderer(), desc.debug_ui,
                                              desc.debug_ui_builtin_panels, desc.debug_ui_ini_path);
     m.context->profiler = &m.dev_tools->profiler();
     m.context->font = m.dev_tools->font();
-
-    const bool audio_device = desc.audio && !desc.headless && !desc.offscreen; // captures and tests mix silently
-    m.audio_bridge = std::make_unique<AudioBridge>(m.world, *m.assets, m.log, audio_device);
-    m.context->audio = m.audio_bridge->engine();
-
-    m.physics_bridge = std::make_unique<PhysicsBridge>(
-        m.world, m.context->fields, m.time, m.context->profiler, m.log,
-        PhysicsBridgeConfig{.max_steps = desc.max_physics_steps, .interpolation = desc.physics_interpolation, .jobs = &m.jobs});
-    m.context->physics = m.physics_bridge->world();
-
-    m.render_bridge = std::make_unique<RenderBridge>(
-        m.world, *m.assets, m.log, m.graphics.device.get(), m.graphics.swapchain.get(), m.graphics.window.get(),
-        m.graphics.renderer.get(),
-        RenderBridgeConfig{.width = desc.width,
-                           .height = desc.height,
-                           .offscreen = !desc.headless && desc.offscreen,
-                           .asset_root = asset_root,
-                           .watch_materials = desc.hot_reload && pack.empty()});
-    m.context->meshes = m.render_bridge->builtin_meshes();
-
-    m.world_bridge = std::make_unique<WorldBridge>(m.world, *m.prefabs, *m.assets, m.jobs, m.log, asset_root,
-                                                   desc.origin_shift_distance, desc.world_stream_budget_ms);
-
-    m.script_bridge = std::make_unique<ScriptBridge>(
-        m.world, *m.assets, m.context->types, m.context->events, m.context->actions, m.time, m.context->profiler, m.log,
-        m.physics_bridge->script_physics(), std::filesystem::path(std::string(desc.save_folder)),
-        desc.hot_reload && desc.pack.empty());
-    m.context->scripts = m.script_bridge->host();
-
-    m.frame_loop = std::make_unique<FrameLoop>(FrameLoop::Services{
-        .world = m.world,
-        .context = *m.context,
-        .raw_input = m.input,
-        .game_input = m.game_input,
-        .time = m.time,
-        .assets = *m.assets,
-        .log = m.log,
-        .dev_tools = *m.dev_tools,
-        .world_bridge = *m.world_bridge,
-        .render_bridge = *m.render_bridge,
-        .physics_bridge = *m.physics_bridge,
-        .audio_bridge = *m.audio_bridge,
-        .script_bridge = *m.script_bridge,
-        .run_phase = &App::run_phase,
-        .fixed_timestep = desc.fixed_timestep,
-        .parallel_systems = desc.parallel_systems,
-    });
-    m.services = std::make_unique<ContextServices>(*m.world_bridge, *m.frame_loop, *m.script_bridge, *m.context);
+    m.init_runtime(desc, asset_root, pack);
 }
 
 App::~App() {
     auto& m = *impl_;
-    if (m.graphics.device) m.graphics.device->wait_idle();
-    // Systems may release GPU resources in their destructors: they go first, while the
-    // renderer and device still exist. Then the services, device last, window after it.
-    m.frame_loop->clear_systems();
+    m.graphics.wait_idle();
+    // Systems may release GPU or service resources in destructors: destroy them first in phase order
+    // while every service, renderer, and device still exists.
+    if (m.scheduler) m.scheduler->clear();
     m.services.reset();
     m.frame_loop.reset();
     m.context->scripts = nullptr;
     m.script_bridge.reset();
-    m.world_bridge.reset();  // waits for cell reads in flight
-    m.render_bridge.reset(); // materials and shaders belong to the renderer
+    m.terrain_bridge.reset();
+    m.vfx.reset();
+    m.atmosphere.reset();
+    m.world_bridge.reset();
+    m.render_bridge.reset();
     m.context->physics = nullptr;
     m.physics_bridge.reset();
     m.context->font = nullptr;
     m.context->profiler = nullptr;
-    m.dev_tools.reset(); // debug_ui owns renderer textures; font before renderer
+    m.dev_tools.reset();
     m.context->audio = nullptr;
     m.audio_bridge.reset();
     m.context->prefabs = nullptr;
     m.prefabs.reset();
     m.context->assets = nullptr;
-    m.assets.reset();    // owns renderer resources: before the renderer
-    m.graphics.shutdown(); // renderer, swapchain, device, window
-}
-
-void SystemAccess::add_read(ComponentId id) {
-    if (std::find(writes_.begin(), writes_.end(), id) != writes_.end()) return;
-    if (std::find(reads_.begin(), reads_.end(), id) == reads_.end()) reads_.push_back(id);
-}
-
-void SystemAccess::add_write(ComponentId id) {
-    std::erase(reads_, id);
-    if (std::find(writes_.begin(), writes_.end(), id) == writes_.end()) writes_.push_back(id);
-}
-
-bool SystemAccess::conflicts_with(const SystemAccess& other) const noexcept {
-    if (exclusive() || other.exclusive()) return true;
-    const auto overlaps = [](std::span<const ComponentId> a, std::span<const ComponentId> b) {
-        return std::any_of(a.begin(), a.end(), [&](ComponentId id) {
-            return std::find(b.begin(), b.end(), id) != b.end();
-        });
-    };
-    return overlaps(writes_, other.writes_) || overlaps(writes_, other.reads_) || overlaps(reads_, other.writes_);
-}
-
-/// Each system sees changes made since it last ran (its own writes are stamped with the tick it
-/// ran at, so it does not see them next time). Non-conflicting access-declaring systems run in
-/// parallel waves on ctx.jobs while preserving registration-order change ticks (ADR-0032).
-void App::run_phase(std::vector<std::unique_ptr<System>>& systems, Context& ctx) {
-    const bool allow_parallel = ctx.parallel_systems();
-    std::size_t i = 0;
-    while (i < systems.size()) {
-        std::size_t end = i + 1;
-        if (allow_parallel && !systems[i]->access().exclusive()) {
-            while (end < systems.size() && !systems[end]->access().exclusive()) {
-                bool conflict = false;
-                for (std::size_t k = i; k < end && !conflict; ++k) {
-                    conflict = systems[end]->access().conflicts_with(systems[k]->access());
-                }
-                if (conflict) break;
-                ++end;
-            }
-        }
-        if (end - i == 1) {
-            auto& s = systems[i];
-            ASTRAL_PROFILE_SCOPE(ctx.profiler, s->name_.c_str());
-            ctx.world.set_change_baseline(s->last_run_);
-            s->update(ctx);
-            s->last_run_ = ctx.world.tick();
-            ctx.world.advance_tick();
-        } else {
-            ASTRAL_PROFILE_SCOPE(ctx.profiler, "parallel_systems");
-            const Tick base_tick = ctx.world.tick();
-            JobCounter counter;
-            for (std::size_t k = i; k < end; ++k) {
-                System* sys = systems[k].get();
-                const Tick baseline = sys->last_run_;
-                const Tick write_tick = base_tick + static_cast<Tick>(k - i);
-                ctx.jobs.submit(counter, [&ctx, sys, baseline, write_tick] {
-                    World::ScopedTick scope(ctx.world, baseline, write_tick);
-                    sys->update(ctx);
-                });
-            }
-            ctx.jobs.wait(counter);
-            for (std::size_t k = i; k < end; ++k) {
-                systems[k]->last_run_ = base_tick + static_cast<Tick>(k - i);
-            }
-            ctx.world.set_tick(base_tick + static_cast<Tick>(end - i));
-        }
-        i = end;
-    }
+    m.assets.reset();
+    m.scheduler.reset();
+    m.graphics.shutdown();
 }
 
 void App::run_frames(Game& game, std::uint32_t frames) {
     auto& m = *impl_;
     if (!m.frame_loop->start(game)) return;
     for (std::uint32_t i = 0; i < frames && !m.context->quit_requested(); ++i) {
-        if (m.graphics.window && !m.graphics.window->poll(m.input)) break;
+        if (m.graphics.window() && !m.graphics.window()->poll(m.input)) break;
         m.frame_loop->run_frame(game, m.frame_loop->next_delta());
     }
     game.on_shutdown(*m.context);
-    if (m.graphics.device) m.graphics.device->wait_idle();
+    m.graphics.wait_idle();
 }
 
 int App::run(Game& game) {
     auto& m = *impl_;
     if (!m.frame_loop->start(game)) return 1;
     while (!m.context->quit_requested()) {
-        if (m.graphics.window && !m.graphics.window->poll(m.input)) break;
-        if (m.graphics.window && m.graphics.window->minimized()) {
+        if (m.graphics.window() && !m.graphics.window()->poll(m.input)) break;
+        if (m.graphics.window() && m.graphics.window()->minimized()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(16)); // don't spin while hidden
             continue;
         }
         m.frame_loop->run_frame(game, m.frame_loop->next_delta());
     }
     game.on_shutdown(*m.context);
-    if (m.graphics.device) m.graphics.device->wait_idle();
+    m.graphics.wait_idle();
     return 0;
 }
 
@@ -418,20 +344,26 @@ World& App::world() noexcept { return impl_->world; }
 const Time& App::time() const noexcept { return impl_->time; }
 bool App::read_frame(std::vector<std::uint8_t>& rgba) const { return impl_->render_bridge->read_frame(rgba); }
 
-// --- Context grouped service accessors ---------------------------------------------------------
+// --- Context grouped service accessors & helpers -------------------------------------------------
+
+Entity play_vfx(Context& context, std::string_view asset, Vec3 position) {
+    return context.app_.impl_->vfx->play(context, asset, position);
+}
 
 void Context::register_system(Phase phase, std::unique_ptr<System> system) {
-    system->name_ = demangle(typeid(*system).name());
-    app_.impl_->frame_loop->add_system(phase, std::move(system));
+    if (!system) return;
+    if (system->name_.empty()) system->name_ = demangle(typeid(*system).name());
+    app_.impl_->scheduler->add(phase, std::move(system));
 }
 
-void Context::set_parallel_systems(bool enabled) noexcept {
-    app_.impl_->frame_loop->set_parallel_systems(enabled);
+void Context::register_named_system(Phase phase, std::string name, std::unique_ptr<System> system) {
+    if (!system) return;
+    system->name_ = name.empty() ? std::string("FunctionSystem") : std::move(name);
+    app_.impl_->scheduler->add(phase, std::move(system));
 }
 
-bool Context::parallel_systems() const noexcept {
-    return app_.impl_->frame_loop->parallel_systems();
-}
+void Context::set_parallel_systems(bool enabled) noexcept { app_.impl_->scheduler->set_parallel(enabled); }
+bool Context::parallel_systems() const noexcept { return app_.impl_->scheduler->parallel(); }
 
 Vec2 Context::screen_size() const { return app_.impl_->render_bridge->screen_size(); }
 

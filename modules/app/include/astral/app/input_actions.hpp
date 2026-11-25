@@ -66,9 +66,11 @@ private:
         // State of this frame.
         Vec2 current{};
         bool is_down = false, was_down = false;
+        bool just_pressed = false, just_released = false;
     };
     [[nodiscard]] const Action* find(std::string_view name) const noexcept;
     std::vector<Action> actions_;
+    std::vector<std::size_t> sorted_index_;
 };
 
 /// Key by its name in .actions files ("A", "Space", "Left", "F5", "LeftShift"...); Key::Unknown if unknown.

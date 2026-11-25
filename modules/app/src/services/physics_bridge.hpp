@@ -2,6 +2,8 @@
 // Internal to Astral::App: bridges RigidBody, CharacterController, Joint, JointMotor, fields,
 // queued commands, streaming detach/attach, and contacts to PhysicsWorld (ADR-0029, ADR-0034, ADR-0038).
 
+#include "physics_commands.hpp"
+
 #include <astral/app/components.hpp>
 #include <astral/app/physics_service.hpp>
 #include <astral/physics/fields.hpp>
@@ -9,21 +11,22 @@
 
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <span>
+#include <unordered_map>
 #include <vector>
 
 namespace astral {
 
 class JobSystem;
 class Logger;
+class PhysicsBridge;
 class Profiler;
 class ScriptPhysics;
 class TerrainBridge;
 class World;
 
-std::unique_ptr<ScriptPhysics> make_app_script_physics(World& world, PhysicsService& service,
+std::unique_ptr<ScriptPhysics> make_app_script_physics(World& world, PhysicsBridge& bridge,
                                                        const FieldWorld& fields, const Time& time);
 
 struct PhysicsBridgeConfig {
@@ -44,6 +47,7 @@ public:
 
     [[nodiscard]] PhysicsWorld* world() noexcept { return physics_.get(); }
     [[nodiscard]] ScriptPhysics* script_physics() noexcept { return script_physics_.get(); }
+    [[nodiscard]] BodyHandle resolve_body(Entity e) const noexcept;
 
     // PhysicsService
     [[nodiscard]] std::span<const ContactEvent> contacts() const noexcept override;
@@ -74,41 +78,25 @@ public:
     void break_joint(Entity joint, std::uint64_t order_key = 0) override;
     [[nodiscard]] std::size_t pending_command_count() const noexcept override;
 
-    void step(float delta, FixedStepCallback on_fixed_update = nullptr, void* user = nullptr, const TerrainBridge* terrain = nullptr);
+    void step(float delta, FixedStepCallback on_fixed_update = nullptr, void* user = nullptr,
+              const TerrainBridge* terrain = nullptr);
     void shift_origin(Vec3 offset);
 
 private:
-    enum class CommandKind : std::uint8_t {
-        Impulse,
-        Force,
-        SetLinearVelocity,
-        SetAngularVelocity,
-        SetBodyTransform,
-        WakeBody,
-        SleepBody,
-        SetJointMotorMode,
-        SetJointMotorVelocity,
-        SetJointMotorPosition,
-        SetJointMotorAngularVelocity,
-        SetJointMotorRotation,
-        BreakJoint,
-    };
-    struct QueuedCommand {
-        std::uint64_t order_key = 0;
-        std::uint64_t sequence = 0;
-        Entity entity{};
-        CommandKind kind = CommandKind::Impulse;
-        Vec3 value{};
-        Quat quat{};
-        float scalar = 0.0f;
-        JointMotorMode motor_mode = JointMotorMode::Off;
-    };
-    struct BodyLink {
+    struct StaticBodyLink {
         Entity entity;
         BodyHandle body;
-        Vec3 previous_position{}; // kinematic bodies: pose at the start of the frame
+    };
+    struct KinematicBodyLink {
+        Entity entity;
+        BodyHandle body;
+        Vec3 previous_position{};
         Quat previous_rotation{};
-        Vec3 step_position{};     // physics_interpolation: simulated pose before the last step
+    };
+    struct DynamicBodyLink {
+        Entity entity;
+        BodyHandle body;
+        Vec3 step_position{};
         Quat step_rotation{};
     };
     struct CharacterLink {
@@ -120,22 +108,34 @@ private:
         JointHandle joint;
         Entity a{};
         Entity b{};
+        bool motor_synced = false;
+        JointMotor last_motor{};
+    };
+    struct LinkRegistry {
+        std::vector<StaticBodyLink> statics;
+        std::vector<KinematicBodyLink> kinematics;
+        std::vector<DynamicBodyLink> dynamics;
+        std::vector<CharacterLink> characters;
+        std::vector<JointLink> joints;
+        std::unordered_map<std::uint64_t, std::size_t> joint_by_entity;
+        std::unordered_map<std::uint64_t, std::size_t> joint_by_handle;
     };
 
-    [[nodiscard]] BodyHandle body_of(Entity e) const noexcept;
     [[nodiscard]] JointHandle joint_of(Entity e) const noexcept;
-    void enqueue(QueuedCommand cmd);
-    void apply_command(const QueuedCommand& cmd);
+    [[nodiscard]] JointLink* find_joint_link(Entity e) noexcept;
+    void add_joint_link(JointLink link);
+    void remove_joint_link(std::size_t idx);
+
+    void apply_joint_command(const PhysicsCommand& cmd);
+    void apply_command(const PhysicsCommand& cmd);
     void flush_commands();
     void sync_bodies();
     void sync_joints();
     void sync_joint_motors();
     void collect_broken_joints();
-    void update_fields();
     void move_kinematics(float alpha, float fixed);
     void update_characters(float fixed, const TerrainBridge* terrain);
     void snapshot_interpolation();
-    void apply_field_forces(float dt);
     void emit_contact_events();
     void write_simulated_transforms(float blend);
 
@@ -152,12 +152,9 @@ private:
     double sim_time_ = 0.0;
     std::vector<ContactEvent> frame_contacts_;
     std::vector<JointBroken> frame_broken_joints_;
-    std::vector<BodyLink> body_links_;
-    std::vector<CharacterLink> character_links_;
-    std::vector<JointLink> joint_links_;
-    mutable std::mutex command_mutex_;
-    std::vector<QueuedCommand> pending_commands_;
-    std::uint64_t next_command_seq_ = 0;
+    LinkRegistry links_;
+    PhysicsCommandQueue commands_;
+    std::vector<PhysicsCommand> command_scratch_;
     bool in_fixed_update_ = false;
 };
 

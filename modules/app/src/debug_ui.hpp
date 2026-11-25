@@ -4,7 +4,9 @@
 #include "panels/debug_panel.hpp"
 
 #include <astral/app/app.hpp>
+#include <astral/platform/input.hpp>
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -46,11 +48,12 @@ private:
     ImGuiContext* context_ = nullptr;
     std::string ini_path_;
     std::string clipboard_cache_;
+    std::string text_input_scratch_;
     std::vector<UiVertex> vertices_;
     std::vector<std::uint32_t> indices_;
     std::vector<UiCommand> commands_;
-    bool keys_down_[256] = {};
-    bool mouse_down_[3] = {};
+    std::array<bool, static_cast<std::size_t>(Key::Count)> keys_down_{};
+    std::array<bool, static_cast<std::size_t>(MouseButton::Count)> mouse_down_{};
     DebugPanelState panel_state_{};
 };
 

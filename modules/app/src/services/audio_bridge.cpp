@@ -6,18 +6,14 @@
 #include <astral/world/transform.hpp>
 #include <astral/world/world.hpp>
 
-#include <utility>
-#include <vector>
-
 namespace astral {
 
 namespace {
 
-/// Internal: the voice an AudioSource plays.
-struct AudioVoice {
-    VoiceHandle voice;
-    std::string sound;
-};
+Vec3 entity_position(World& world, Entity e) noexcept {
+    const WorldTransform* w = world.get<const WorldTransform>(e);
+    return w ? Vec3{w->matrix[3].x, w->matrix[3].y, w->matrix[3].z} : Vec3{};
+}
 
 } // namespace
 
@@ -34,10 +30,11 @@ AudioBridge::AudioBridge(World& world, AssetManager& assets, Logger& log, bool e
 AudioBridge::~AudioBridge() = default;
 
 SoundHandle AudioBridge::sound(std::string_view path) {
+    if (const auto it = sounds_.find(path); it != sounds_.end()) return it->second;
     auto [it, inserted] = sounds_.try_emplace(std::string(path));
     if (!inserted) return it->second;
     std::string error;
-    if (auto bytes = assets_.read(path, &error)) {
+    if (const auto bytes = assets_.read(path, &error)) {
         it->second = audio_->load(*bytes, path);
         if (!it->second.valid()) {
             log_.log(LogLevel::Error, "sound " + std::string(path) + ": cannot decode (WAV, FLAC or MP3)");
@@ -60,53 +57,69 @@ void AudioBridge::update_listener() {
     world_.each<const AudioListener, const WorldTransform>([&](const AudioListener&, const WorldTransform& w) {
         if (!listener) listen_from(w.matrix);
     });
-    world_.each<const Camera, const WorldTransform>([&](const Camera& c, const WorldTransform& w) {
-        if (!listener && c.active) listen_from(w.matrix);
-    });
+    if (!listener) {
+        world_.each<const Camera, const WorldTransform>([&](const Camera& c, const WorldTransform& w) {
+            if (!listener && c.active) listen_from(w.matrix);
+        });
+    }
 }
 
-/// AudioSource -> voices (started, moved with the entity, stopped); the listener follows its entity.
 void AudioBridge::sync() {
-    auto position = [&](Entity e) {
-        const WorldTransform* w = world_.get<WorldTransform>(e);
-        return w ? Vec3{w->matrix[3].x, w->matrix[3].y, w->matrix[3].z} : Vec3{};
-    };
     update_listener();
 
-    // Removed sources stop.
-    std::vector<Entity> gone;
-    world_.query<const AudioVoice>().without<AudioSource>().each([&](Entity e, const AudioVoice&) { gone.push_back(e); });
-    for (Entity e : gone) {
-        audio_->stop(world_.get<AudioVoice>(e)->voice, 0.05f);
+    gone_voices_.clear();
+    world_.query<const AudioVoice>().without<AudioSource>().each(
+        [&](Entity e, const AudioVoice&) { gone_voices_.push_back(e); });
+    for (Entity e : gone_voices_) {
+        if (const AudioVoice* v = world_.get<AudioVoice>(e); v && v->voice.valid()) {
+            audio_->stop(v->voice, 0.05f);
+        }
         world_.remove<AudioVoice>(e);
     }
-    std::vector<std::pair<Entity, AudioVoice>> new_voices;
+
+    new_voices_.clear();
     world_.each<AudioSource>([&](Entity e, AudioSource& src) {
         AudioVoice* v = world_.get<AudioVoice>(e);
-        const bool alive = v && audio_->playing(v->voice);
-        if (v && (v->sound != src.sound || !src.playing)) { // stopped, or another sound
-            audio_->stop(v->voice, 0.05f);
+        const bool alive = v && v->voice.valid() && audio_->playing(v->voice);
+        if (v && (v->sound != src.sound || !src.playing)) {
+            if (v->voice.valid()) {
+                audio_->stop(v->voice, 0.05f);
+                // Clear handle immediately so an immediate restart on the next frame is not mistaken for an ended voice.
+                v->voice = {};
+            }
             if (!src.playing) return;
         }
-        if (alive && v->sound == src.sound) { // keep it in step with the component
+        if (alive && v->sound == src.sound) {
             audio_->set_volume(v->voice, src.volume);
             audio_->set_pitch(v->voice, src.pitch);
-            if (src.spatial) audio_->set_position(v->voice, position(e));
+            if (src.spatial) audio_->set_position(v->voice, entity_position(world_, e));
             return;
         }
-        if (v && v->sound == src.sound && v->voice.valid() && !alive) { // a one-shot ended
+        if (v && v->sound == src.sound && v->voice.valid() && !alive) { // a one-shot ended naturally
             src.playing = false;
             v->voice = {};
             return;
         }
         if (!src.playing || src.sound.empty()) return;
+
         const SoundHandle handle = sound(src.sound);
-        const VoiceHandle voice = audio_->play(handle, {.bus = src.bus, .volume = src.volume, .pitch = src.pitch,
-                                                        .loop = src.loop, .spatial = src.spatial, .position = position(e),
-                                                        .min_distance = src.min_distance, .max_distance = src.max_distance});
-        new_voices.emplace_back(e, AudioVoice{voice, src.sound});
+        const VoiceHandle voice = audio_->play(
+            handle, {.bus = src.bus,
+                     .volume = src.volume,
+                     .pitch = src.pitch,
+                     .loop = src.loop,
+                     .spatial = src.spatial,
+                     .position = entity_position(world_, e),
+                     .min_distance = src.min_distance,
+                     .max_distance = src.max_distance});
+        if (v) {
+            v->voice = voice;
+            v->sound = src.sound;
+        } else {
+            new_voices_.emplace_back(e, AudioVoice{voice, src.sound});
+        }
     });
-    for (auto& [e, v] : new_voices) world_.add(e, std::move(v));
+    for (auto& [e, voice] : new_voices_) world_.add(e, std::move(voice));
     audio_->update();
 }
 

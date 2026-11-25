@@ -29,7 +29,7 @@ public:
                     }
                 }
             } else {
-                ImGui::TextDisabled("No map open (ctx.open_world).");
+                ImGui::TextDisabled("No map open (ctx.maps().open_world()).");
             }
         }
         ImGui::End();

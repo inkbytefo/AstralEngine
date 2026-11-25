@@ -7,7 +7,6 @@
 #include <string>
 #include <string_view>
 #include <utility>
-#include <vector>
 
 namespace astral {
 
@@ -63,13 +62,13 @@ bool edit_array(const char* label, Json& j, int depth) {
     if (numbers) return edit_numeric_array(label, j);
     if (!ImGui::TreeNode(label, "%s [%zu]", label, a.size())) return false;
     bool changed = false;
-    Json copy = j;
-    for (std::size_t i = 0; i < copy.size(); ++i) {
-        Json item = copy[i];
+    for (std::size_t i = 0; i < j.as_array().size(); ++i) {
+        Json item = j.as_array()[i];
         const std::string name = "[" + std::to_string(i) + "]";
         if (edit_json(name.c_str(), item, depth + 1)) {
             Json out = Json::array();
-            for (std::size_t k = 0; k < copy.size(); ++k) out.push_back(k == i ? item : copy[k]);
+            const auto& cur = j.as_array();
+            for (std::size_t k = 0; k < cur.size(); ++k) out.push_back(k == i ? std::move(item) : cur[k]);
             j = std::move(out);
             changed = true;
         }
@@ -82,9 +81,10 @@ bool edit_object(const char* label, Json& j, int depth) {
     const bool open = depth == 0 || ImGui::TreeNode(label);
     if (!open) return false;
     bool changed = false;
-    const std::vector<std::pair<std::string, Json>> members(j.as_object().begin(), j.as_object().end());
-    for (const auto& [key, value] : members) {
-        Json v = value;
+    const std::size_t count = j.as_object().size();
+    for (std::size_t i = 0; i < count; ++i) {
+        const std::string key = j.as_object()[i].first;
+        Json v = j.as_object()[i].second;
         if (edit_json(key.c_str(), v, depth + 1)) {
             j[key] = std::move(v);
             changed = true;

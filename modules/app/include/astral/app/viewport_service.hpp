@@ -14,6 +14,8 @@ class World;
 class ViewportService {
 public:
     virtual ~ViewportService() = default;
+    ViewportService(const ViewportService&) = delete;
+    ViewportService& operator=(const ViewportService&) = delete;
 
     /// Requests rendering the 3D scene into an offscreen target of `width x height` pixels.
     /// Pass 0x0 to disable offscreen viewport mode and render directly to the swapchain.
@@ -34,6 +36,9 @@ public:
 
     /// Background clear color for the swapchain behind UI layers when viewport mode is active.
     virtual void set_clear_color(Vec4 rgba) noexcept = 0;
+
+protected:
+    ViewportService() = default;
 };
 
 } // namespace astral

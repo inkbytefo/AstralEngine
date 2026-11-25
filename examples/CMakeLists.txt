@@ -8,11 +8,15 @@
 #   physics_lab      P0: motorized SixDOF/SwingTwist/Hinge joints, breakable joints, materials, cooked shapes, batched queries
 #   rt_showcase      the ray-traced "RGB room"
 #   material_showcase M13 advanced PBR studio: clearcoat, sheen, anisotropy, glass, SSS, wetness, decals & path tracer
+#   material_workflow material hot-reload & UV inspection scene workflow
 #   model_viewer     a glTF model in a studio, with hot reload
 #   scene_viewer     scenes and prefabs, reloaded live
 #   shader_showcase  .ashader / .material: leaf, glass, lava, hologram, sky, post
 #   pong             3D Pong: three feature packages, rules in Luau
 #   open_world       a 4 x 4 km streamed map, floating origin, day and night
+#   world_editor     standalone AI-first native desktop editor (E0/E1/E2)
+#   terrain_lab      chunked terrain LOD & collision streaming lab
+#   vfx_lab          volumetric atmosphere, smoke, and VFX timeline lab
 add_subdirectory(hello_headless)
 add_subdirectory(hello_triangle)
 add_subdirectory(spinning_cubes)

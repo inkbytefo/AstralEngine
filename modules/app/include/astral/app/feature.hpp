@@ -17,10 +17,12 @@
 
 #include <astral/app/app.hpp>
 
+#include <concepts>
 #include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace astral {
@@ -55,8 +57,15 @@ public:
         declare(Reflect<T>::name, events_, manifest.events, "events");
         game.events.add<T>();
     }
-    template <class S, class... Args> S& system(Phase phase, Args&&... args) {
+    template <class S, class... Args>
+        requires std::derived_from<S, System>
+    S& system(Phase phase, Args&&... args) {
         return game.add_system<S>(phase, std::forward<Args>(args)...);
+    }
+    template <class Fn>
+        requires std::invocable<Fn&, Context&> && (!std::derived_from<std::remove_cvref_t<Fn>, System>)
+    System& system(Phase phase, std::string_view name, Fn&& fn, SystemAccess access = {}) {
+        return game.add_system(phase, name, std::forward<Fn>(fn), std::move(access));
     }
     /// settings[key] as a number / string / bool, or `fallback`.
     [[nodiscard]] double number(std::string_view key, double fallback) const;

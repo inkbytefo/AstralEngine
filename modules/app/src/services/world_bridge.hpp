@@ -53,6 +53,7 @@ public:
     [[nodiscard]] MapEntityLookup resolve_map_entity(std::uint64_t id) const;
 
     [[nodiscard]] std::vector<Vec3> streaming_sources() const;
+    void collect_streaming_sources(std::vector<Vec3>& out) const;
     [[nodiscard]] std::optional<Vec3> begin_origin_shift(std::span<const Vec3> sources);
     void complete_origin_shift(Vec3 offset, std::vector<Vec3>& sources);
     void stream(std::span<const Vec3> sources, bool finish);

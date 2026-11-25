@@ -43,7 +43,10 @@ std::optional<FeatureManifest> parse_feature_manifest(const Json& doc, std::stri
     m.events = string_list(doc, "events", &problem, m.name);
     m.scripts = string_list(doc, "scripts", &problem, m.name);
     m.actions = string_list(doc, "actions", &problem, m.name);
-    if (const Json* exports = doc.find("exports")) m.headers = string_list(*exports, "headers", &problem, m.name);
+    if (const Json* exports = doc.find("exports")) {
+        if (!exports->is_object()) return fail(m.name + ": \"exports\" must be an object");
+        m.headers = string_list(*exports, "headers", &problem, m.name);
+    }
     if (!problem.empty()) return fail(problem);
     if (const Json* settings = doc.find("settings")) {
         if (!settings->is_object()) return fail(m.name + ": \"settings\" must be an object");

@@ -21,6 +21,7 @@ private:
     bool debug_ = false;
     bool ui_ = false;
     std::vector<astral::Entity> loaded_;
+    astral::AssetId doc_id_{};
     std::uint32_t version_ = 0;
 };
 

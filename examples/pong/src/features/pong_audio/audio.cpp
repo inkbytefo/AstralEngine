@@ -13,8 +13,7 @@ class MatchAudio final : public System {
 public:
     void update(Context& ctx) override {
         World& w = ctx.world;
-        const Sounds* sounds = nullptr;
-        w.each<const Sounds>([&](const Sounds& s) { sounds = &s; });
+        const Sounds* sounds = ctx.singleton<Sounds>();
         if (!sounds || !ctx.audio) {
             bounces_.read(w, [](const Bounced&) {});
             scores_.read(w, [](const Scored&) {});
@@ -42,8 +41,7 @@ public:
                 break;
             }
         });
-        const Match* match = nullptr;
-        w.each<const Match>([&](const Match& m) { match = &m; });
+        const Match* match = ctx.singleton<Match>();
         scores_.read(w, [&](const Scored& e) {
             const bool won = e.by == Side::Player;
             if (match && match->game_over_timer > 0) play(match->player > match->opponent ? s.match_won : s.match_lost, {.bus = AudioBus::Interface});

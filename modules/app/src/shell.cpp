@@ -2,14 +2,28 @@
 #include <astral/gpu/device.hpp>
 
 #include <algorithm>
+#include <charconv>
 #include <cstdio>
-#include <cstdlib>
-#include <cstring>
+#include <optional>
+#include <string>
+#include <string_view>
 #if defined(_MSC_VER)
 #include <share.h>
 #endif
 
 namespace astral {
+
+namespace {
+
+std::optional<std::uint32_t> parse_uint32(std::string_view text) noexcept {
+    if (text.empty()) return std::nullopt;
+    std::uint32_t value = 0;
+    const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), value);
+    if (ec != std::errc{} || ptr != text.data() + text.size()) return std::nullopt;
+    return value;
+}
+
+} // namespace
 
 bool ShellOptions::has(std::string_view flag) const noexcept {
     for (const std::string& a : args) {
@@ -40,18 +54,33 @@ std::vector<std::string> ShellOptions::positional(const std::vector<std::string>
 ShellOptions parse_shell_args(int argc, const char* const* argv) {
     ShellOptions o;
     for (int i = 1; i < argc; ++i) {
-        const std::string a = argv[i];
-        const auto next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : std::string("0"); };
-        if (a == "--capture") o.capture = next();
-        else if (a == "--frames") o.frames = static_cast<std::uint32_t>(std::atoi(next().c_str()));
-        else if (a == "--width") o.width = static_cast<std::uint32_t>(std::atoi(next().c_str()));
-        else if (a == "--height") o.height = static_cast<std::uint32_t>(std::atoi(next().c_str()));
-        else if (a == "--script-api") o.script_api = next();
-        else if (a == "--script-api-only") {
-            o.script_api = next();
+        const std::string_view a = argv[i];
+        const auto next_arg = [&]() -> std::optional<std::string_view> {
+            if (i + 1 >= argc) return std::nullopt;
+            return std::string_view(argv[++i]);
+        };
+        if (a == "--capture") {
+            if (const auto v = next_arg()) o.capture = std::string(*v);
+        } else if (a == "--frames") {
+            if (const auto v = next_arg()) {
+                if (const auto n = parse_uint32(*v)) o.frames = *n;
+            }
+        } else if (a == "--width") {
+            if (const auto v = next_arg()) {
+                if (const auto n = parse_uint32(*v)) o.width = *n;
+            }
+        } else if (a == "--height") {
+            if (const auto v = next_arg()) {
+                if (const auto n = parse_uint32(*v)) o.height = *n;
+            }
+        } else if (a == "--script-api") {
+            if (const auto v = next_arg()) o.script_api = std::string(*v);
+        } else if (a == "--script-api-only") {
             o.script_api_only = true;
+            if (const auto v = next_arg()) o.script_api = std::string(*v);
+        } else {
+            o.args.emplace_back(a);
         }
-        else o.args.push_back(a);
     }
     return o;
 }
@@ -95,10 +124,21 @@ bool write_ppm(const std::string& path, const std::vector<std::uint8_t>& rgba, s
     std::FILE* f = std::fopen(path.c_str(), "wb");
 #endif
     if (!f) return false;
-    std::fprintf(f, "P6\n%u %u\n255\n", w, h);
-    for (std::size_t p = 0; p < std::size_t{w} * h; ++p) std::fwrite(&rgba[p * 4], 1, 3, f);
-    std::fclose(f);
-    return true;
+    const std::size_t pixel_count = std::size_t{w} * h;
+    if (rgba.size() < pixel_count * 4) {
+        std::fclose(f);
+        return false;
+    }
+    std::vector<std::uint8_t> rgb(pixel_count * 3);
+    for (std::size_t p = 0; p < pixel_count; ++p) {
+        rgb[p * 3 + 0] = rgba[p * 4 + 0];
+        rgb[p * 3 + 1] = rgba[p * 4 + 1];
+        rgb[p * 3 + 2] = rgba[p * 4 + 2];
+    }
+    const bool header_ok = std::fprintf(f, "P6\n%u %u\n255\n", w, h) > 0;
+    const bool data_ok = rgb.empty() || std::fwrite(rgb.data(), 1, rgb.size(), f) == rgb.size();
+    const bool close_ok = std::fclose(f) == 0;
+    return header_ok && data_ok && close_ok;
 }
 
 } // namespace

@@ -16,16 +16,18 @@ JointMotorMode parse_motor_mode(std::string_view mode) noexcept {
     return JointMotorMode::Off;
 }
 
-/// What scripts may do with physics: routes queries and queued commands through PhysicsService.
+/// What scripts may do with physics: routes queries and queued commands through PhysicsBridge.
 class AppScriptPhysics final : public ScriptPhysics {
 public:
-    AppScriptPhysics(World& world, PhysicsService& service, const FieldWorld& fields, const Time& time)
-        : world_(world), service_(service), fields_(fields), time_(time) {}
+    AppScriptPhysics(World& world, PhysicsBridge& bridge, const FieldWorld& fields, const Time& time)
+        : world_(world), bridge_(bridge), fields_(fields), time_(time) {}
 
     std::optional<ScriptHit> raycast(Vec3 origin, Vec3 direction, float max_distance, std::uint32_t layers,
                                      Entity ignore) const override {
-        const auto hit = service_.raycast(origin, direction, max_distance, {.layers = layers, .ignore = body_of(ignore)});
-        return hit ? std::optional<ScriptHit>(to_script(hit->user_data, hit->position, hit->normal, hit->distance, hit->surface))
+        const auto hit =
+            bridge_.raycast(origin, direction, max_distance, {.layers = layers, .ignore = bridge_.resolve_body(ignore)});
+        return hit ? std::optional<ScriptHit>(
+                         to_script(hit->user_data, hit->position, hit->normal, hit->distance, hit->surface))
                    : std::nullopt;
     }
 
@@ -33,14 +35,16 @@ public:
         std::vector<RayQuery> native;
         native.reserve(queries.size());
         for (const ScriptRayQuery& q : queries) {
-            native.push_back({q.origin, q.direction, q.max_distance, {.layers = q.layers, .ignore = body_of(q.ignore)}});
+            native.push_back(
+                {q.origin, q.direction, q.max_distance, {.layers = q.layers, .ignore = bridge_.resolve_body(q.ignore)}});
         }
         std::vector<std::optional<RayHit>> hits(native.size());
-        service_.raycast_batch(native, hits);
+        bridge_.raycast_batch(native, hits);
         std::vector<std::optional<ScriptHit>> out(hits.size());
         for (std::size_t i = 0; i < hits.size(); ++i) {
             if (hits[i]) {
-                out[i] = to_script(hits[i]->user_data, hits[i]->position, hits[i]->normal, hits[i]->distance, hits[i]->surface);
+                out[i] =
+                    to_script(hits[i]->user_data, hits[i]->position, hits[i]->normal, hits[i]->distance, hits[i]->surface);
             }
         }
         return out;
@@ -48,23 +52,26 @@ public:
 
     std::optional<ScriptHit> spherecast(Vec3 origin, float radius, Vec3 displacement, std::uint32_t layers,
                                         Entity ignore) const override {
-        const auto hit = service_.spherecast(origin, radius, displacement, {.layers = layers, .ignore = body_of(ignore)});
-        return hit ? std::optional<ScriptHit>(to_script(hit->user_data, hit->position, hit->normal, hit->distance, hit->surface))
+        const auto hit = bridge_.spherecast(origin, radius, displacement,
+                                            {.layers = layers, .ignore = bridge_.resolve_body(ignore)});
+        return hit ? std::optional<ScriptHit>(
+                         to_script(hit->user_data, hit->position, hit->normal, hit->distance, hit->surface))
                    : std::nullopt;
     }
 
     std::vector<Entity> overlap_sphere(Vec3 center, float radius, std::uint32_t layers) const override {
-        return entities(service_.overlap_sphere(center, radius, {.layers = layers}));
+        return entities(bridge_.overlap_sphere(center, radius, {.layers = layers}));
     }
 
     std::vector<Entity> overlap_box(Vec3 center, Vec3 half_extents, Quat rotation, std::uint32_t layers) const override {
-        return entities(service_.overlap_box(center, half_extents, rotation, {.layers = layers}));
+        return entities(bridge_.overlap_box(center, half_extents, rotation, {.layers = layers}));
     }
 
-    void impulse(Entity body, Vec3 v) override { service_.add_impulse(body, v); }
-    void force(Entity body, Vec3 v) override { service_.add_force(body, v); }
-    void set_velocity(Entity body, Vec3 v) override { service_.set_linear_velocity(body, v); }
-    Vec3 velocity(Entity body) const override { return service_.linear_velocity(body); }
+    void impulse(Entity body, Vec3 v) override { bridge_.add_impulse(body, v); }
+    void force(Entity body, Vec3 v) override { bridge_.add_force(body, v); }
+    void set_velocity(Entity body, Vec3 v) override { bridge_.set_linear_velocity(body, v); }
+    Vec3 velocity(Entity body) const override { return bridge_.linear_velocity(body); }
+
     bool move_character(Entity entity, Vec3 velocity, bool jump) override {
         if (auto* controller = world_.get<CharacterController>(entity)) {
             controller->move = {velocity.x, 0, velocity.z};
@@ -73,21 +80,24 @@ public:
         }
         return false;
     }
+
     std::optional<ScriptCharacterState> character_state(Entity entity) const override {
-        if (const auto* controller = world_.get<const CharacterController>(entity); controller && controller->handle.valid()) {
+        if (const auto* controller = world_.get<const CharacterController>(entity);
+            controller && controller->handle.valid()) {
             return ScriptCharacterState{controller->velocity, controller->on_ground};
         }
         return std::nullopt;
     }
-    void teleport(Entity body, Vec3 position, Quat rotation) override { service_.set_body_transform(body, position, rotation); }
-    void wake(Entity body) override { service_.wake_body(body); }
-    void sleep(Entity body) override { service_.sleep_body(body); }
+
+    void teleport(Entity body, Vec3 position, Quat rotation) override { bridge_.set_body_transform(body, position, rotation); }
+    void wake(Entity body) override { bridge_.wake_body(body); }
+    void sleep(Entity body) override { bridge_.sleep_body(body); }
     void set_joint_motor_mode(Entity joint, std::string_view mode) override {
-        service_.set_joint_motor_mode(joint, parse_motor_mode(mode));
+        bridge_.set_joint_motor_mode(joint, parse_motor_mode(mode));
     }
-    void set_joint_motor_velocity(Entity joint, float v) override { service_.set_joint_motor_velocity(joint, v); }
-    void set_joint_motor_position(Entity joint, float p) override { service_.set_joint_motor_position(joint, p); }
-    void break_joint(Entity joint) override { service_.break_joint(joint); }
+    void set_joint_motor_velocity(Entity joint, float v) override { bridge_.set_joint_motor_velocity(joint, v); }
+    void set_joint_motor_position(Entity joint, float p) override { bridge_.set_joint_motor_position(joint, p); }
+    void break_joint(Entity joint) override { bridge_.break_joint(joint); }
 
     Vec3 wind(Vec3 position) const override { return fields_.wind_at(position, time_.elapsed); }
     ScriptWater water(Vec3 position) const override {
@@ -96,10 +106,6 @@ public:
     }
 
 private:
-    BodyHandle body_of(Entity e) const {
-        const RigidBody* rb = (e.valid() && world_.alive(e)) ? world_.get<const RigidBody>(e) : nullptr;
-        return rb ? rb->handle : BodyHandle{};
-    }
     static ScriptHit to_script(std::uint64_t user_data, Vec3 position, Vec3 normal, float distance, int surface) {
         return {entity_from_user_data(user_data), position, normal, distance, surface};
     }
@@ -111,16 +117,16 @@ private:
     }
 
     World& world_;
-    PhysicsService& service_;
+    PhysicsBridge& bridge_;
     const FieldWorld& fields_;
     const Time& time_;
 };
 
 } // namespace
 
-std::unique_ptr<ScriptPhysics> make_app_script_physics(World& world, PhysicsService& service,
+std::unique_ptr<ScriptPhysics> make_app_script_physics(World& world, PhysicsBridge& bridge,
                                                        const FieldWorld& fields, const Time& time) {
-    return std::make_unique<AppScriptPhysics>(world, service, fields, time);
+    return std::make_unique<AppScriptPhysics>(world, bridge, fields, time);
 }
 
 } // namespace astral

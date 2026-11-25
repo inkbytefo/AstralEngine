@@ -1,1 +1,15 @@
+add_library(vfx_lab_lib STATIC src/game.cpp)
+target_include_directories(vfx_lab_lib PUBLIC src)
+target_link_libraries(vfx_lab_lib PUBLIC Astral::App)
+astral_set_warnings(vfx_lab_lib)
+
 astral_add_game(vfx_lab SOURCES src/main.cpp ASSETS assets)
+target_link_libraries(vfx_lab PRIVATE vfx_lab_lib)
+
+if(ASTRAL_BUILD_TESTS)
+    add_executable(vfx_lab_tests tests/game_test.cpp)
+    target_compile_definitions(vfx_lab_tests PRIVATE ASTRAL_GAME_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/assets")
+    target_link_libraries(vfx_lab_tests PRIVATE vfx_lab_lib doctest::doctest)
+    astral_set_warnings(vfx_lab_tests)
+    add_test(NAME vfx_lab_tests COMMAND vfx_lab_tests)
+endif()

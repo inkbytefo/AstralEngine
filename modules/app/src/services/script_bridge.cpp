@@ -10,9 +10,9 @@
 #include <astral/platform/input.hpp>
 #include <astral/script/api.hpp>
 
+#include <algorithm>
 #include <cctype>
 #include <fstream>
-#include <iterator>
 #include <optional>
 #include <utility>
 
@@ -42,15 +42,36 @@ public:
         if (!valid(slot)) return false;
         std::error_code ec;
         std::filesystem::create_directories(folder_, ec);
-        std::ofstream out(folder_ / (std::string(slot) + ".json"), std::ios::binary);
-        out.write(text.data(), static_cast<std::streamsize>(text.size()));
-        return static_cast<bool>(out);
+        const std::filesystem::path target = folder_ / (std::string(slot) + ".json");
+        const std::filesystem::path temp = folder_ / (std::string(slot) + ".json.tmp");
+        {
+            std::ofstream out(temp, std::ios::binary | std::ios::trunc);
+            if (!out) return false;
+            if (!text.empty()) out.write(text.data(), static_cast<std::streamsize>(text.size()));
+            out.flush();
+            if (!out) {
+                out.close();
+                std::filesystem::remove(temp, ec);
+                return false;
+            }
+        }
+        std::filesystem::rename(temp, target, ec);
+        if (ec) {
+            std::filesystem::remove(temp, ec);
+            return false;
+        }
+        return true;
     }
     std::optional<std::string> read(std::string_view slot) const override {
         if (!valid(slot)) return std::nullopt;
-        std::ifstream in(folder_ / (std::string(slot) + ".json"), std::ios::binary);
+        std::ifstream in(folder_ / (std::string(slot) + ".json"), std::ios::binary | std::ios::ate);
         if (!in) return std::nullopt;
-        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        const auto size = in.tellg();
+        if (size < 0) return std::nullopt;
+        std::string text(static_cast<std::size_t>(size), '\0');
+        in.seekg(0);
+        if (!text.empty() && !in.read(text.data(), size)) return std::nullopt;
+        return text;
     }
 
 private:
@@ -110,6 +131,60 @@ void ScriptBridge::run(ScriptPhase phase) {
     scripts_->run(phase, {.delta = time_.delta, .fixed_delta = time_.fixed_delta, .elapsed = time_.elapsed});
 }
 
+void ScriptBridge::record_watch(std::string_view path, std::uint64_t hash, bool is_actions) {
+    if (const auto it = watched_files_.find(path); it != watched_files_.end()) {
+        it->second = {hash, is_actions};
+        return;
+    }
+    watched_files_.emplace(std::string(path), WatchedFile{hash, is_actions});
+}
+
+std::vector<std::string> ScriptBridge::load_script_bytes(std::string_view path, const std::vector<std::uint8_t>& bytes) {
+    record_watch(path, content_hash(bytes), false);
+    return scripts_->load(path, std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()));
+}
+
+bool ScriptBridge::load_actions_bytes(std::string_view path, const std::vector<std::uint8_t>& bytes) {
+    record_watch(path, content_hash(bytes), true);
+    std::string error;
+    const auto fail = [&](const std::string& why) {
+        log_.log(LogLevel::Error, "actions " + std::string(path) + ": " + why);
+        return false;
+    };
+    const auto doc = parse_json_asset(bytes, &error);
+    if (!doc) return fail(error);
+    InputActions validated;
+    if (!validated.load(*doc, &error)) return fail(error);
+
+    const auto existing = std::find_if(action_layers_.begin(), action_layers_.end(),
+                                       [&](const auto& entry) { return entry.first == path; });
+    const std::optional<Json> previous =
+        existing != action_layers_.end() ? std::optional<Json>(existing->second) : std::nullopt;
+    if (existing != action_layers_.end()) existing->second = *doc;
+    else action_layers_.emplace_back(std::string(path), *doc);
+
+    Json merged = Json::object();
+    Json merged_actions = Json::object();
+    for (const auto& [layer_path, layer_doc] : action_layers_) {
+        (void)layer_path;
+        if (const Json* acts = layer_doc.find("actions"); acts && acts->is_object()) {
+            for (const auto& [name, spec] : acts->as_object()) merged_actions[name] = spec;
+        }
+    }
+    merged["actions"] = std::move(merged_actions);
+    if (!actions_.load(merged, &error)) {
+        if (previous) {
+            for (auto& entry : action_layers_) {
+                if (entry.first == path) entry.second = *previous;
+            }
+        } else {
+            action_layers_.pop_back();
+        }
+        return fail(error);
+    }
+    return true;
+}
+
 std::vector<std::string> ScriptBridge::load_script(std::string_view path) {
     std::string error;
     const auto bytes = assets_.read(path, &error);
@@ -117,22 +192,17 @@ std::vector<std::string> ScriptBridge::load_script(std::string_view path) {
         log_.log(LogLevel::Error, "script " + std::string(path) + ": " + error);
         return {std::string(path) + ": " + error};
     }
-    watched_files_[std::string(path)] = {content_hash(*bytes), false};
-    return scripts_->load(path, std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()));
+    return load_script_bytes(path, *bytes);
 }
 
 bool ScriptBridge::load_actions(std::string_view path) {
     std::string error;
     const auto bytes = assets_.read(path, &error);
-    const auto fail = [&](const std::string& why) {
-        log_.log(LogLevel::Error, "actions " + std::string(path) + ": " + why);
+    if (!bytes) {
+        log_.log(LogLevel::Error, "actions " + std::string(path) + ": " + error);
         return false;
-    };
-    if (!bytes) return fail(error);
-    const auto doc = parse_json_asset(*bytes, &error);
-    if (!doc) return fail(error);
-    watched_files_[std::string(path)] = {content_hash(*bytes), true};
-    return actions_.load(*doc, &error) || fail(error);
+    }
+    return load_actions_bytes(path, *bytes);
 }
 
 bool ScriptBridge::write_script_api(std::string_view folder, const std::map<std::string, std::string>& api_owners) const {
@@ -155,15 +225,17 @@ bool ScriptBridge::write_script_api(std::string_view folder, const std::map<std:
 void ScriptBridge::reload_changed() {
     if (!hot_reload_ || watched_files_.empty() || time_.elapsed < next_watch_) return;
     next_watch_ = time_.elapsed + 0.5;
-    std::vector<std::pair<std::string, bool>> changed;
-    for (auto& [path, w] : watched_files_) {
-        const auto bytes = assets_.read(path);
-        if (bytes && content_hash(*bytes) != w.hash) changed.emplace_back(path, w.is_actions);
+    reload_scratch_.clear();
+    for (const auto& [path, w] : watched_files_) {
+        auto bytes = assets_.read(path);
+        if (bytes && content_hash(*bytes) != w.hash) {
+            reload_scratch_.push_back({path, std::move(*bytes), w.is_actions});
+        }
     }
-    for (const auto& [path, is_actions] : changed) {
-        if (is_actions) load_actions(path);
-        else load_script(path);
-        log_.info("reloaded {}", path);
+    for (const auto& candidate : reload_scratch_) {
+        const bool ok = candidate.is_actions ? load_actions_bytes(candidate.path, candidate.bytes)
+                                             : load_script_bytes(candidate.path, candidate.bytes).empty();
+        if (ok) log_.info("reloaded {}", candidate.path);
     }
 }
 

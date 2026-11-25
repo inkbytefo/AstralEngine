@@ -105,8 +105,8 @@ MapEntityLookup WorldBridge::resolve_map_entity(std::uint64_t id) const {
     return is_open() ? map_->lookup(id) : MapEntityLookup{};
 }
 
-std::vector<Vec3> WorldBridge::streaming_sources() const {
-    std::vector<Vec3> out;
+void WorldBridge::collect_streaming_sources(std::vector<Vec3>& out) const {
+    out.clear();
     auto position_of = [&](Entity e) -> std::optional<Vec3> {
         // A top-level Transform is current even before this frame's transform update.
         if (!world_.has<Parent>(e)) {
@@ -127,6 +127,11 @@ std::vector<Vec3> WorldBridge::streaming_sources() const {
             if (auto p = position_of(e)) out.push_back(*p);
         });
     }
+}
+
+std::vector<Vec3> WorldBridge::streaming_sources() const {
+    std::vector<Vec3> out;
+    collect_streaming_sources(out);
     return out;
 }
 

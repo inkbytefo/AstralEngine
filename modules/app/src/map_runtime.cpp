@@ -1,5 +1,7 @@
 #include "map_runtime.hpp"
 
+#include "json_asset.hpp"
+
 #include <astral/assets/asset_manager.hpp>
 #include <astral/core/jobs.hpp>
 #include <astral/core/log.hpp>
@@ -8,7 +10,6 @@
 #include <algorithm>
 #include <chrono>
 #include <fstream>
-#include <iterator>
 
 namespace astral {
 
@@ -16,9 +17,31 @@ namespace {
 
 constexpr CellKey always_cell{0xFFFFFFFFu, 0, 0};
 
-std::optional<Json> decode(const std::vector<std::uint8_t>& bytes, std::string* error) {
-    if (Json::is_binary(bytes)) return Json::from_binary(bytes, error);
-    return Json::parse(std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()), error);
+std::vector<EntityFile> read_source_entities(const std::filesystem::path& folder, Logger& log) {
+    std::vector<EntityFile> files;
+    std::error_code ec;
+    std::vector<std::filesystem::path> list;
+    for (const auto& entry : std::filesystem::directory_iterator(folder, ec)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".ent") list.push_back(entry.path());
+    }
+    std::sort(list.begin(), list.end());
+    for (const auto& file : list) {
+        std::ifstream in(file, std::ios::binary | std::ios::ate);
+        if (!in) continue;
+        const auto size = in.tellg();
+        if (size < 0) continue;
+        std::vector<std::uint8_t> data(static_cast<std::size_t>(size));
+        in.seekg(0);
+        if (!data.empty() && !in.read(reinterpret_cast<char*>(data.data()), size)) continue;
+        std::string parse_error;
+        auto entity = parse_json_asset(data, &parse_error);
+        if (!entity) {
+            log.log(LogLevel::Error, "open_world " + file.string() + ": " + parse_error);
+            continue;
+        }
+        files.push_back({file.filename().string(), std::move(*entity)});
+    }
+    return files;
 }
 
 } // namespace
@@ -38,7 +61,6 @@ MapRuntime::~MapRuntime() {
 }
 
 bool MapRuntime::open(std::string_view path, const std::filesystem::path& asset_root) {
-    close();
     auto fail = [&](const std::string& message) {
         log_.log(LogLevel::Error, "open_world " + std::string(path) + ": " + message);
         return false;
@@ -46,7 +68,7 @@ bool MapRuntime::open(std::string_view path, const std::filesystem::path& asset_
     std::string error;
     auto bytes = assets_.read(path, &error);
     if (!bytes) return fail(error);
-    auto doc = decode(*bytes, &error);
+    auto doc = parse_json_asset(*bytes, &error);
     if (!doc) return fail(error);
     auto map = parse_map(*doc, &error);
     if (!map) return fail(error);
@@ -56,40 +78,25 @@ bool MapRuntime::open(std::string_view path, const std::filesystem::path& asset_
     std::vector<CellKey> keys;
     Json always;
     if (const Json* cells = doc->find("cells")) { // cooked index
-        cells_folder_ = stem + ".cells/";
+        std::string next_cells_folder = stem + ".cells/";
         for (const Json& c : cells->as_array()) {
             keys.push_back({static_cast<std::uint32_t>(c["grid"].as_number()), static_cast<std::int32_t>(c["x"].as_number()),
                             static_cast<std::int32_t>(c["z"].as_number())});
         }
-        auto always_bytes = assets_.read(cells_folder_ + "always.cell", &error);
+        auto always_bytes = assets_.read(next_cells_folder + "always.cell", &error);
         if (!always_bytes) return fail(error);
-        auto decoded = decode(*always_bytes, &error);
+        auto decoded = parse_json_asset(*always_bytes, &error);
         if (!decoded) return fail(error);
         always = std::move(*decoded);
+        close();
+        cells_folder_ = std::move(next_cells_folder);
     } else { // source map: cook it in memory (development)
-        std::vector<EntityFile> files;
-        const std::filesystem::path folder = asset_root / (stem + ".entities");
-        std::error_code ec;
-        std::vector<std::filesystem::path> list;
-        for (const auto& entry : std::filesystem::directory_iterator(folder, ec)) {
-            if (entry.is_regular_file() && entry.path().extension() == ".ent") list.push_back(entry.path());
-        }
-        std::sort(list.begin(), list.end());
-        for (const auto& file : list) {
-            std::ifstream in(file, std::ios::binary);
-            std::vector<std::uint8_t> data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-            std::string parse_error;
-            auto entity = decode(data, &parse_error);
-            if (!entity) {
-                log_.log(LogLevel::Error, "open_world " + file.string() + ": " + parse_error);
-                continue;
-            }
-            files.push_back({file.filename().string(), std::move(*entity)});
-        }
+        const std::vector<EntityFile> files = read_source_entities(asset_root / (stem + ".entities"), log_);
         const MapSource raw_source = read_map_source(*map, files);
         const MapSource source = expand_map_level_instances(
             raw_source, prefabs_.types(), [&](std::string_view p) { return prefabs_.document(p); });
         for (const std::string& e : source.errors) log_.log(LogLevel::Error, "open_world " + std::string(path) + ": " + e);
+        close();
         const CellAssignment assigned = assign_cells(*map, source.entities);
         for (const Cell& c : assigned.cells) {
             for (std::size_t idx : c.entities) state_.register_known(source.entities[idx].id, c.key);
@@ -172,7 +179,7 @@ void MapRuntime::begin_load(CellKey cell) {
     jobs_.submit(pending->counter, [job, assets, map, file] {
         auto bytes = assets->read(file, &job->error);
         if (!bytes) return;
-        auto doc = decode(*bytes, &job->error);
+        auto doc = parse_json_asset(*bytes, &job->error);
         if (doc) job->entities = read_cell(*map, *doc);
     });
     pending_[cell] = std::move(pending);

@@ -1,15 +1,20 @@
 #pragma once
 // Internal to Astral::App: owns ScriptHost, action/storage adapters, input routing into actions, and script hot reload.
 
+#include "../string_hash.hpp"
+
+#include <astral/core/json.hpp>
 #include <astral/script/script.hpp>
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace astral {
@@ -51,6 +56,15 @@ private:
         std::uint64_t hash = 0;
         bool is_actions = false;
     };
+    struct ReloadCandidate {
+        std::string path;
+        std::vector<std::uint8_t> bytes;
+        bool is_actions = false;
+    };
+
+    std::vector<std::string> load_script_bytes(std::string_view path, const std::vector<std::uint8_t>& bytes);
+    bool load_actions_bytes(std::string_view path, const std::vector<std::uint8_t>& bytes);
+    void record_watch(std::string_view path, std::uint64_t hash, bool is_actions);
 
     AssetManager& assets_;
     TypeRegistry& types_;
@@ -63,7 +77,9 @@ private:
     std::unique_ptr<ScriptInput> script_input_;
     std::unique_ptr<ScriptStorage> script_storage_;
     std::unique_ptr<ScriptHost> scripts_;
-    std::unordered_map<std::string, WatchedFile> watched_files_;
+    std::unordered_map<std::string, WatchedFile, StringHash, std::equal_to<>> watched_files_;
+    std::vector<std::pair<std::string, Json>> action_layers_;
+    std::vector<ReloadCandidate> reload_scratch_;
     double next_watch_ = 0.0;
 };
 

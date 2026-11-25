@@ -1,1 +1,15 @@
+add_library(material_workflow_lib STATIC src/game.cpp)
+target_include_directories(material_workflow_lib PUBLIC src)
+target_link_libraries(material_workflow_lib PUBLIC Astral::App)
+astral_set_warnings(material_workflow_lib)
+
 astral_add_game(material_workflow SOURCES src/main.cpp ASSETS assets)
+target_link_libraries(material_workflow PRIVATE material_workflow_lib)
+
+if(ASTRAL_BUILD_TESTS)
+    add_executable(material_workflow_tests tests/game_test.cpp)
+    target_compile_definitions(material_workflow_tests PRIVATE ASTRAL_GAME_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/assets")
+    target_link_libraries(material_workflow_tests PRIVATE material_workflow_lib doctest::doctest)
+    astral_set_warnings(material_workflow_tests)
+    add_test(NAME material_workflow_tests COMMAND material_workflow_tests)
+endif()

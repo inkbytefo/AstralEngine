@@ -28,13 +28,14 @@ void PhysicsGame::on_start(Context& ctx) {
     w.create(Transform{.position = {0, -0.5f, 0}, .scale = {60, 1, 60}},
              MeshRenderer{ctx.meshes.cube, ctx.materials().create_material({.base_color = {0.35f, 0.37f, 0.4f, 1}, .roughness = 0.9f})},
              RigidBody{.desc = {.shape = ShapeDesc::box({30, 0.5f, 30}), .motion = MotionType::Static}});
+    const MaterialHandle crate_mat =
+        ctx.materials().create_material({.base_color = {0.85f, 0.6f, 0.3f, 1}, .roughness = 0.7f});
     constexpr int base = 6;
     for (int row = 0; row < base; ++row) {
         for (int i = 0; i < base - row; ++i) {
             const float x = (static_cast<float>(i) - static_cast<float>(base - row - 1) * 0.5f) * 1.05f;
             const float y = 0.5f + static_cast<float>(row) * 1.0f;
-            w.create(Transform{.position = {x, y, -4}},
-                     MeshRenderer{ctx.meshes.cube, ctx.materials().create_material({.base_color = {0.85f, 0.6f, 0.3f, 1}, .roughness = 0.7f})},
+            w.create(Transform{.position = {x, y, -4}}, MeshRenderer{ctx.meshes.cube, crate_mat},
                      RigidBody{.desc = {.shape = ShapeDesc::box({0.5f, 0.5f, 0.5f}), .friction = 0.7f}});
         }
     }

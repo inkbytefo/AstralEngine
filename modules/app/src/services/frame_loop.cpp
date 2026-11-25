@@ -1,21 +1,23 @@
 #include "frame_loop.hpp"
 
+#include "atmosphere.hpp"
 #include "audio_bridge.hpp"
 #include "dev_tools.hpp"
 #include "physics_bridge.hpp"
 #include "render_bridge.hpp"
 #include "script_bridge.hpp"
-#include "world_bridge.hpp"
+#include "system_scheduler.hpp"
+#include "terrain_bridge.hpp"
 #include "vfx_runtime.hpp"
+#include "world_bridge.hpp"
 
+#include <astral/app/app.hpp>
 #include <astral/app/gameplay_smoke.hpp>
 #include <astral/assets/asset_manager.hpp>
 #include <astral/core/log.hpp>
 #include <astral/core/profiler.hpp>
 #include <astral/world/transform.hpp>
 #include <astral/world/world.hpp>
-
-#include <utility>
 
 namespace astral {
 
@@ -27,26 +29,17 @@ FrameLoop::FrameLoop(const Services& s)
       time_(s.time),
       assets_(s.assets),
       log_(s.log),
+      scheduler_(s.scheduler),
       dev_tools_(s.dev_tools),
       world_bridge_(s.world_bridge),
       render_bridge_(s.render_bridge),
+      atmosphere_(s.atmosphere),
+      vfx_(s.vfx),
       physics_bridge_(s.physics_bridge),
-      terrain_bridge_(s.world, s.assets, s.log, s.render_bridge, s.context.renderer, *s.physics_bridge.world(),
-                      s.context.jobs, s.dev_tools.profiler()),
+      terrain_bridge_(s.terrain_bridge),
       audio_bridge_(s.audio_bridge),
       script_bridge_(s.script_bridge),
-      run_phase_(s.run_phase),
-      fixed_timestep_(s.fixed_timestep),
-      parallel_systems_(s.parallel_systems) {}
-
-void FrameLoop::add_system(Phase phase, std::unique_ptr<System> system) {
-    system->configure(system->access_);
-    systems_[static_cast<std::size_t>(phase)].push_back(std::move(system));
-}
-
-void FrameLoop::clear_systems() {
-    for (auto& phase : systems_) phase.clear();
-}
+      fixed_timestep_(s.fixed_timestep) {}
 
 bool FrameLoop::start(Game& game) {
     if (started_) {
@@ -64,7 +57,8 @@ float FrameLoop::next_delta() { return fixed_timestep_ > 0.0f ? fixed_timestep_ 
 
 void FrameLoop::finish_world_loading() {
     update_world(true);
-    terrain_bridge_.sync(world_bridge_.streaming_sources(), true);
+    world_bridge_.collect_streaming_sources(streaming_sources_);
+    terrain_bridge_.sync(streaming_sources_, true);
 }
 
 void FrameLoop::run_frame(Game& game, float delta) {
@@ -80,8 +74,12 @@ void FrameLoop::run_frame(Game& game, float delta) {
     run_scripted_phase(Phase::PreUpdate, ScriptPhase::PreUpdate, "PreUpdate");
     run_game_update(game);
     run_scripted_phase(Phase::Update, ScriptPhase::Update, "Update");
-    if (terrain_bridge_.streaming_enabled()) terrain_bridge_.sync(world_bridge_.streaming_sources());
-    else terrain_bridge_.sync({});
+    if (terrain_bridge_.streaming_enabled()) {
+        world_bridge_.collect_streaming_sources(streaming_sources_);
+        terrain_bridge_.sync(streaming_sources_);
+    } else {
+        terrain_bridge_.sync({});
+    }
     run_physics(delta);
     run_scripted_phase(Phase::PostUpdate, ScriptPhase::PostUpdate, "PostUpdate");
     atmosphere_.update(context_, render_bridge_, delta);
@@ -99,13 +97,13 @@ void FrameLoop::route_input() {
 
 void FrameLoop::update_world(bool finish) {
     if (!world_bridge_.is_open() && !terrain_bridge_.streaming_enabled()) return;
-    std::vector<Vec3> sources = world_bridge_.streaming_sources();
-    if (const auto off = world_bridge_.begin_origin_shift(sources)) {
+    world_bridge_.collect_streaming_sources(streaming_sources_);
+    if (const auto off = world_bridge_.begin_origin_shift(streaming_sources_)) {
         physics_bridge_.shift_origin(*off);
         render_bridge_.shift_origin(*off);
-        world_bridge_.complete_origin_shift(*off, sources);
+        world_bridge_.complete_origin_shift(*off, streaming_sources_);
     }
-    world_bridge_.stream(sources, finish);
+    world_bridge_.stream(streaming_sources_, finish);
 }
 
 void FrameLoop::update_assets_and_scenes() {
@@ -119,7 +117,7 @@ void FrameLoop::update_assets_and_scenes() {
 
 void FrameLoop::run_scripted_phase(Phase phase, ScriptPhase script_phase, const char* scope_name) {
     ASTRAL_PROFILE_SCOPE(&dev_tools_.profiler(), scope_name);
-    run_phase_(systems_[static_cast<std::size_t>(phase)], context_);
+    scheduler_.run(phase, context_);
     script_bridge_.run(script_phase);
     world_.apply_commands();
 }
@@ -134,7 +132,7 @@ void FrameLoop::run_fixed_update_cb(void* user) { static_cast<FrameLoop*>(user)-
 
 void FrameLoop::run_fixed_update() {
     ASTRAL_PROFILE_SCOPE(&dev_tools_.profiler(), "FixedUpdate");
-    run_phase_(systems_[static_cast<std::size_t>(Phase::FixedUpdate)], context_);
+    scheduler_.run(Phase::FixedUpdate, context_);
     script_bridge_.run(ScriptPhase::FixedUpdate);
     vfx_.update(context_, time_.fixed_delta);
     world_.each<GameplaySmoke, const Transform>([&](Entity entity, GameplaySmoke& smoke, const Transform& transform) {

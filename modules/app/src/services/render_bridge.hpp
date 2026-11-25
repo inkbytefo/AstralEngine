@@ -1,16 +1,18 @@
 #pragma once
 // Internal to Astral::App: bridges ECS render components, models, primitives, materials and offscreen capture to Renderer.
 
+#include "render_extract.hpp"
+
 #include <astral/app/app.hpp>
 #include <astral/gpu/types.hpp>
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <span>
-#include <string>
-#include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -46,6 +48,15 @@ struct RenderFrameInput {
     MaterialHandle sky{};
     std::span<const MaterialHandle> post;
     std::array<double, 3> world_origin{};
+};
+
+struct PrimitiveMaterialKey {
+    std::array<std::uint32_t, 64> words{};
+    bool operator==(const PrimitiveMaterialKey&) const noexcept = default;
+};
+
+struct PrimitiveMaterialKeyHash {
+    [[nodiscard]] std::size_t operator()(const PrimitiveMaterialKey& k) const noexcept;
 };
 
 class RenderBridge final : public MaterialService, public ViewportService {
@@ -96,23 +107,19 @@ private:
         Vec4 clear_color{0.06f, 0.06f, 0.07f, 1.0f};
     };
 
-    struct FrameScratch {
-        std::vector<MeshInstance> draw_items;
-        std::vector<std::pair<Entity, Mat4>> new_histories;
-        std::vector<std::pair<std::int32_t, SdfShape>> sdf_sorted;
-        std::vector<SdfShape> sdf_shapes;
-        std::vector<PointLight> point_lights;
-        std::vector<RectLight> rect_lights;
-        std::vector<Decal> decals;
+    struct SyncScratch {
+        std::vector<Entity> gone;
+        std::vector<std::pair<Entity, MeshRenderer>> updates;
+        std::vector<Entity> stale_pieces;
+        std::vector<std::pair<Entity, AssetId>> todo_models;
+        std::vector<Entity> orphan_models;
+        std::unordered_set<std::uint64_t> todo_owners;
     };
 
     void ensure_viewport_target();
     void sync_primitives_in(World& w, bool incremental);
     void spawn_model(Entity owner, const Model& model, const ModelRef& ref);
     std::vector<MaterialHandle> resolve_model_overrides(const Model& model, const ModelRef& ref);
-    void extract_meshes(World& w);
-    void extract_sdfs(World& w);
-    void extract_lights(World& w);
 
     World& world_;
     AssetManager& assets_;
@@ -128,9 +135,10 @@ private:
     gpu::BufferHandle offscreen_readback_{};
     std::unique_ptr<MaterialLibrary> material_library_;
     Tick primitives_seen_ = 0;
-    std::unordered_map<std::string, MaterialHandle> primitive_materials_;
+    std::unordered_map<PrimitiveMaterialKey, MaterialHandle, PrimitiveMaterialKeyHash> primitive_materials_;
     ViewportState viewport_{};
-    FrameScratch scratch_;
+    RenderScratch scratch_;
+    SyncScratch sync_scratch_;
 };
 
 } // namespace astral

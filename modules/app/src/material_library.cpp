@@ -1,4 +1,5 @@
 #include "material_library.hpp"
+#include "json_asset.hpp"
 
 #include <astral/assets/asset_manager.hpp>
 #include <astral/assets/model.hpp>
@@ -16,6 +17,7 @@ MaterialLibrary::MaterialLibrary(Renderer& renderer, AssetManager& assets, std::
 MaterialLibrary::~MaterialLibrary() {
     for (auto& m : materials_) renderer_.destroy(m->handle);
     for (auto& s : shaders_) renderer_.destroy(s->handle);
+    for (ShaderHandle h : retired_shaders_) renderer_.destroy(h);
     for (auto& [key, tex] : textures_) renderer_.destroy(tex.handle);
 }
 
@@ -32,8 +34,7 @@ std::filesystem::file_time_type MaterialLibrary::time_of(const std::string& path
 std::optional<Json> MaterialLibrary::read_document(std::string_view path, std::string* error) {
     auto bytes = assets_.read(path, error);
     if (!bytes) return std::nullopt;
-    if (Json::is_binary(*bytes)) return Json::from_binary(*bytes, error);
-    return Json::parse(std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()), error);
+    return parse_json_asset(*bytes, error);
 }
 
 bool MaterialLibrary::reload_texture(Texture& tex) {
@@ -92,18 +93,36 @@ void MaterialLibrary::update_textures() {
     }
 }
 
+void MaterialLibrary::retire_shader(ShaderHandle old_handle) {
+    if (!old_handle.valid()) return;
+    const bool still_used = std::any_of(materials_.begin(), materials_.end(),
+                                        [&](const auto& m) { return m->desc.shader == old_handle; });
+    if (!still_used) renderer_.destroy(old_handle);
+    else retired_shaders_.push_back(old_handle);
+}
+
+void MaterialLibrary::sweep_retired_shaders() {
+    std::erase_if(retired_shaders_, [&](ShaderHandle h) {
+        const bool used = std::any_of(materials_.begin(), materials_.end(),
+                                      [&](const auto& m) { return m->desc.shader == h; });
+        if (!used) {
+            renderer_.destroy(h);
+            return true;
+        }
+        return false;
+    });
+}
+
 /// Compiles a .ashader. With `reload`, an existing entry gets its new pipelines only if the compile
-/// succeeds (the old handle is returned through a replaced entry for the caller to destroy).
-MaterialLibrary::Shader* MaterialLibrary::load_shader(const std::string& path, bool reload) {
+/// succeeds; any replaced handle is returned in `retired_old` so materials can be rebound before destroying it.
+MaterialLibrary::Shader* MaterialLibrary::load_shader(const std::string& path, bool reload, ShaderHandle* retired_old) {
     Shader* existing = nullptr;
-    for (auto& s : shaders_) {
-        if (s->path == path) existing = s.get();
-    }
+    if (const auto it = shader_index_.find(path); it != shader_index_.end()) existing = shaders_[it->second].get();
     if (existing && !reload) return existing;
 
     auto fail = [&](const std::string& message) -> Shader* {
         log_error("shader " + path, message);
-        return existing; // the last good version (null on first load)
+        return existing;
     };
     std::string error;
     auto bytes = assets_.read(path, &error);
@@ -140,12 +159,11 @@ MaterialLibrary::Shader* MaterialLibrary::load_shader(const std::string& path, b
     }
     if (!handle.valid()) return fail("the GPU rejected the pipelines");
     if (existing) {
-        const ShaderHandle old = existing->handle;
+        if (retired_old) *retired_old = existing->handle;
         existing->handle = handle;
         existing->source = parsed.source;
         existing->layout = layout;
         existing->time = time_of(path);
-        renderer_.destroy(old); // after the caller has pointed its materials at the new one
         return existing;
     }
     auto entry = std::make_unique<Shader>();
@@ -154,12 +172,17 @@ MaterialLibrary::Shader* MaterialLibrary::load_shader(const std::string& path, b
     entry->source = parsed.source;
     entry->layout = layout;
     entry->time = time_of(path);
+    shader_index_.emplace(entry->path, shaders_.size());
     shaders_.push_back(std::move(entry));
     return shaders_.back().get();
 }
 
 bool MaterialLibrary::build_pbr(const MaterialFile& file, MaterialDesc& desc, std::vector<std::string>& errors) {
-    struct TextureSlot { std::string_view name; TextureHandle& handle; bool srgb; };
+    struct TextureSlot {
+        std::string_view name;
+        TextureHandle& handle;
+        bool srgb;
+    };
     TextureSlot slots[] = {
         {"base_color_texture", desc.base_color_texture, true},
         {"metallic_roughness_texture", desc.metallic_roughness_texture, false},
@@ -228,12 +251,11 @@ bool MaterialLibrary::build(Material& material, bool create) {
 }
 
 MaterialHandle MaterialLibrary::get(std::string_view path) {
-    for (auto& m : materials_) {
-        if (m->path == path) return m->handle;
-    }
+    if (const auto it = material_index_.find(path); it != material_index_.end()) return materials_[it->second]->handle;
     auto material = std::make_unique<Material>();
     material->path = std::string(path);
     if (!build(*material, true)) return {};
+    material_index_.emplace(material->path, materials_.size());
     materials_.push_back(std::move(material));
     return materials_.back()->handle;
 }
@@ -242,30 +264,48 @@ void MaterialLibrary::update(double now) {
     if (!watch_ || now < next_check_) return;
     next_check_ = now + 0.25;
     update_textures();
-    // Shaders first: a new pipeline set is made, then every material using it is pointed at it.
+
+    bool any_material_rebound = false;
     for (auto& s : shaders_) {
-        if (time_of(s->path) == s->time) continue;
-        s->time = time_of(s->path); // a failed compile is not retried until the file changes again
+        const auto current_time = time_of(s->path);
+        if (current_time == s->time) continue;
+        s->time = current_time;
         const std::string path = s->path;
         const ShaderHandle before = s->handle;
-        load_shader(path, true);
+        ShaderHandle old_handle{};
+        load_shader(path, true, &old_handle);
         if (s->handle != before) {
             for (auto& m : materials_) {
-                if (m->shader == s.get()) build(*m, false);
+                if (m->shader == s.get()) {
+                    build(*m, false);
+                    any_material_rebound = true;
+                }
             }
+            retire_shader(old_handle);
         }
     }
+
     for (auto& m : materials_) {
-        const bool changed = std::any_of(m->watched.begin(), m->watched.end(),
-                                         [&](const auto& w) { return time_of(w.first) != w.second; });
-        if (!changed) continue;
-        for (auto& w : m->watched) w.second = time_of(w.first); // do not retry a broken edit every check
-        build(*m, false);
+        bool changed = false;
+        for (auto& w : m->watched) {
+            const auto t = time_of(w.first);
+            if (t != w.second) {
+                w.second = t;
+                changed = true;
+            }
+        }
+        if (changed) {
+            build(*m, false);
+            any_material_rebound = true;
+        }
     }
+
+    if (any_material_rebound && !retired_shaders_.empty()) sweep_retired_shaders();
 }
 
 std::vector<MaterialLibrary::Info> MaterialLibrary::loaded() {
     std::vector<Info> out;
+    out.reserve(materials_.size());
     for (auto& m : materials_) {
         Info info;
         info.path = m->path;
@@ -273,6 +313,7 @@ std::vector<MaterialLibrary::Info> MaterialLibrary::loaded() {
         info.source = m->shader ? &m->shader->source : nullptr;
         info.values = &m->values;
         if (m->shader) {
+            info.parameters.reserve(m->shader->source.uniforms.size());
             for (std::size_t i = 0; i < m->shader->source.uniforms.size(); ++i) {
                 info.parameters.push_back({&m->shader->source.uniforms[i], m->shader->layout.offsets[i]});
             }
@@ -283,11 +324,11 @@ std::vector<MaterialLibrary::Info> MaterialLibrary::loaded() {
 }
 
 void MaterialLibrary::apply(std::string_view path) {
-    for (auto& m : materials_) {
-        if (m->path != path) continue;
-        m->desc.params = m->values;
-        renderer_.update_material(m->handle, m->desc);
-    }
+    const auto it = material_index_.find(path);
+    if (it == material_index_.end()) return;
+    Material& m = *materials_[it->second];
+    m.desc.params = m.values;
+    renderer_.update_material(m.handle, m.desc);
 }
 
 } // namespace astral

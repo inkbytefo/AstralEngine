@@ -22,10 +22,12 @@ void SdfGame::on_start(Context& ctx) {
     auto& w = ctx.world;
     // Ground and a few metallic mesh spheres.
     w.create(Transform{.scale = {40, 1, 40}}, MeshRenderer{ctx.meshes.plane, ctx.materials().create_material({.base_color = {0.35f, 0.36f, 0.4f, 1}, .roughness = 0.8f})});
+    const MaterialHandle gold_mat = ctx.materials().create_material(
+        {.base_color = {0.95f, 0.75f, 0.35f, 1}, .roughness = 0.25f, .metallic = 1.0f});
     for (int i = 0; i < 5; ++i) {
         const float a = static_cast<float>(i) * 1.2566f;
         w.create(Transform{.position = {std::cos(a) * 6.5f, 0.6f, std::sin(a) * 6.5f}, .scale = {1.2f, 1.2f, 1.2f}},
-                 MeshRenderer{ctx.meshes.sphere, ctx.materials().create_material({.base_color = {0.95f, 0.75f, 0.35f, 1}, .roughness = 0.25f, .metallic = 1.0f})});
+                 MeshRenderer{ctx.meshes.sphere, gold_mat});
     }
 
     // Three blobs that melt together while orbiting (smooth union).

@@ -24,6 +24,8 @@ float smooth(float edge0, float edge1, float x) {
 /// The terrain as a render mesh (the physics height field is made from the same heights).
 MeshData terrain_mesh(const std::vector<float>& heights) {
     MeshData mesh;
+    mesh.vertices.reserve(std::size_t{grid} * grid);
+    mesh.indices.reserve(std::size_t{grid - 1} * (grid - 1) * 6);
     for (std::uint32_t z = 0; z < grid; ++z) {
         for (std::uint32_t x = 0; x < grid; ++x) {
             const float px = static_cast<float>(x) * cell - half_size, pz = static_cast<float>(z) * cell - half_size;
@@ -67,18 +69,22 @@ void spawn_floaters(Context& ctx) {
     World& w = ctx.world;
     // Floaters on the lake: light crates float, stones sink, beach balls drift in the wind.
     const BodyDesc crate{.shape = ShapeDesc::box({0.3f, 0.3f, 0.3f}), .friction = 0.7f, .surface = 2};
+    const MaterialHandle crate_mat =
+        ctx.materials().create_material({.base_color = {0.85f, 0.6f, 0.3f, 1}, .roughness = 0.6f});
+    const MaterialHandle stone_mat =
+        ctx.materials().create_material({.base_color = {0.45f, 0.45f, 0.5f, 1}, .roughness = 0.5f, .metallic = 0.6f});
     for (int i = 0; i < 6; ++i) {
         BodyDesc body = crate;
         body.mass = 90.0f;
         w.create(Transform{.position = {-6.0f + static_cast<float>(i) * 1.5f, 3.0f + static_cast<float>(i % 3), -4.0f}, .scale = {0.6f, 0.6f, 0.6f}},
-                 MeshRenderer{ctx.meshes.cube, ctx.materials().create_material({.base_color = {0.85f, 0.6f, 0.3f, 1}, .roughness = 0.6f})}, RigidBody{.desc = body},
+                 MeshRenderer{ctx.meshes.cube, crate_mat}, RigidBody{.desc = body},
                  Buoyant{.volume = 0.216f, .height = 0.6f, .area = 0.36f}, AirDrag{.area = 0.36f, .drag = 1.0f});
     }
     for (int i = 0; i < 3; ++i) {
         BodyDesc body = crate;
         body.mass = 420.0f; // denser than water: sinks
         w.create(Transform{.position = {4.0f + static_cast<float>(i), 4.0f, 3.0f}, .scale = {0.6f, 0.6f, 0.6f}},
-                 MeshRenderer{ctx.meshes.cube, ctx.materials().create_material({.base_color = {0.45f, 0.45f, 0.5f, 1}, .roughness = 0.5f, .metallic = 0.6f})}, RigidBody{.desc = body},
+                 MeshRenderer{ctx.meshes.cube, stone_mat}, RigidBody{.desc = body},
                  Buoyant{.volume = 0.216f, .height = 0.6f, .area = 0.36f});
     }
     for (int i = 0; i < 5; ++i) {
@@ -96,10 +102,13 @@ void spawn_bridge_and_gadgets(Context& ctx) {
     constexpr int planks = 14;
     const float plank = 2.0f;
     const float start_x = -0.5f * plank * planks;
+    const MaterialHandle plank_mat =
+        ctx.materials().create_material({.base_color = {0.5f, 0.35f, 0.2f, 1}, .roughness = 0.8f});
     std::vector<Entity> chain;
+    chain.reserve(planks);
     for (int i = 0; i < planks; ++i) {
         chain.push_back(w.create(Transform{.position = {start_x + (static_cast<float>(i) + 0.5f) * plank, bridge_y, bridge_z}, .scale = {plank, 0.15f, 1.8f}},
-                                 MeshRenderer{ctx.meshes.cube, ctx.materials().create_material({.base_color = {0.5f, 0.35f, 0.2f, 1}, .roughness = 0.8f})},
+                                 MeshRenderer{ctx.meshes.cube, plank_mat},
                                  RigidBody{.desc = {.shape = ShapeDesc::box({plank * 0.5f, 0.075f, 0.9f}), .mass = 20.0f, .friction = 1.0f, .surface = 2}}));
     }
     w.create(Joint{.type = JointType::Hinge, .b = chain.front(), .anchor = {start_x, bridge_y, bridge_z}, .axis = {0, 0, 1}});

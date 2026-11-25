@@ -1,10 +1,12 @@
 #include <astral/app/feature.hpp>
 #include <astral/app/feature_check.hpp>
 
+#include "string_hash.hpp"
+
 #include <algorithm>
 #include <fstream>
 #include <regex>
-#include <sstream>
+#include <unordered_map>
 
 namespace astral {
 
@@ -13,14 +15,23 @@ namespace fs = std::filesystem;
 namespace {
 
 std::optional<Json> read_json(const fs::path& file, std::string* error) {
-    std::ifstream in(file, std::ios::binary);
+    std::ifstream in(file, std::ios::binary | std::ios::ate);
     if (!in) {
         *error = "cannot read " + file.string();
         return std::nullopt;
     }
-    std::stringstream s;
-    s << in.rdbuf();
-    return Json::parse(s.str(), error);
+    const auto size = in.tellg();
+    if (size < 0) {
+        *error = "cannot read " + file.string();
+        return std::nullopt;
+    }
+    std::string text(static_cast<std::size_t>(size), '\0');
+    in.seekg(0);
+    if (!text.empty() && !in.read(text.data(), size)) {
+        *error = "cannot read " + file.string();
+        return std::nullopt;
+    }
+    return Json::parse(text, error);
 }
 
 bool is_source(const fs::path& p) {
@@ -54,11 +65,12 @@ std::vector<std::string> check_features(const fs::path& sources, const fs::path&
     std::string graph_error;
     if (!FeatureSet::order(all, &graph_error)) out.push_back(manifests.string() + ": " + graph_error);
 
-    const auto find = [&](const std::string& name) -> const FeatureManifest* {
-        for (const auto& m : all) {
-            if (m.name == name) return &m;
-        }
-        return nullptr;
+    std::unordered_map<std::string_view, const FeatureManifest*, StringHash, std::equal_to<>> by_name;
+    by_name.reserve(all.size());
+    for (const auto& m : all) by_name.emplace(m.name, &m);
+    const auto find = [&](std::string_view name) -> const FeatureManifest* {
+        const auto it = by_name.find(name);
+        return it != by_name.end() ? it->second : nullptr;
     };
     static const std::regex include_re(R"re(^\s*#\s*include\s*([<"])([^>"]+)[>"])re");
     // A mutable variable at namespace/class scope: `static T name = ...;` (not const, constexpr or a function).
@@ -87,12 +99,14 @@ std::vector<std::string> check_features(const fs::path& sources, const fs::path&
                     // features/<other>/<header>, or ../<other>/<header>
                     static const std::regex other_re(R"re((?:^|/)(?:features/)?([\w]+)/([\w.]+)$)re");
                     std::smatch o;
-                    if (m[1] == "\"" && std::regex_search(target, o, other_re) && o[1] != feature && find(o[1])) {
-                        const FeatureManifest* dep = find(o[1]);
-                        const bool depends = std::find(self->depends_on.begin(), self->depends_on.end(), dep->name) != self->depends_on.end();
-                        const bool exported = std::find(dep->headers.begin(), dep->headers.end(), o[2].str()) != dep->headers.end();
-                        if (!depends) out.push_back(where + "feature \"" + feature + "\" includes \"" + dep->name + "\" without depending on it (add it to \"depends_on\" in feature.json, or talk through an event)");
-                        else if (!exported) out.push_back(where + "\"" + o[2].str() + "\" is not exported by feature \"" + dep->name + "\" (list it under \"exports.headers\" or use an event)");
+                    if (m[1] == "\"" && std::regex_search(target, o, other_re) && o[1] != feature) {
+                        const std::string dep_name = o[1].str();
+                        if (const FeatureManifest* dep = find(dep_name)) {
+                            const bool depends = std::find(self->depends_on.begin(), self->depends_on.end(), dep->name) != self->depends_on.end();
+                            const bool exported = std::find(dep->headers.begin(), dep->headers.end(), o[2].str()) != dep->headers.end();
+                            if (!depends) out.push_back(where + "feature \"" + feature + "\" includes \"" + dep->name + "\" without depending on it (add it to \"depends_on\" in feature.json, or talk through an event)");
+                            else if (!exported) out.push_back(where + "\"" + o[2].str() + "\" is not exported by feature \"" + dep->name + "\" (list it under \"exports.headers\" or use an event)");
+                        }
                     }
                 }
                 if (std::regex_match(line, global_re) && line.find("astral-allow-global") == std::string::npos) {

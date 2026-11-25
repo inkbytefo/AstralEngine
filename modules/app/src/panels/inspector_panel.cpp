@@ -13,8 +13,8 @@ namespace astral {
 
 namespace {
 
-void draw_prefab_parts(World& world, DebugPanelState& state) {
-    std::vector<Entity> parts;
+void draw_prefab_parts(World& world, DebugPanelState& state, std::vector<Entity>& parts) {
+    parts.clear();
     world.each<const PrefabPart>([&](Entity p, const PrefabPart& part) {
         if (part.instance == state.selected) parts.push_back(p);
     });
@@ -34,7 +34,8 @@ void draw_components(Context& ctx, Entity e) {
         if (!t.has(world, e)) continue;
         const std::string name(t.name);
         ImGui::PushID(name.c_str());
-        const bool open = ImGui::CollapsingHeader(name.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowOverlap);
+        const bool open =
+            ImGui::CollapsingHeader(name.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowOverlap);
         ImGui::SameLine(ImGui::GetWindowWidth() - 30);
         if (ImGui::SmallButton("x")) remove = &t;
         if (open) {
@@ -73,7 +74,7 @@ public:
                 if (const PrefabInstance* pi = world.get<const PrefabInstance>(state.selected)) {
                     ImGui::TextDisabled("prefab %s", pi->path.c_str());
                 }
-                draw_prefab_parts(world, state);
+                draw_prefab_parts(world, state, parts_);
                 const Entity e = state.selected;
                 draw_components(ctx, e);
                 draw_add_component(ctx, e);
@@ -85,6 +86,9 @@ public:
         }
         ImGui::End();
     }
+
+private:
+    std::vector<Entity> parts_;
 };
 
 } // namespace
