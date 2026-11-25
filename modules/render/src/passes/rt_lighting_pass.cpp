@@ -25,8 +25,12 @@ bool RtLightingPass::resize(std::uint32_t width, std::uint32_t height) {
     }
     device_.destroy(reservoir_temp_);
     reservoir_temp_ = device_.create_buffer({.size = res_bytes, .debug_name = "astral.restir.temp"});
-    width_ = width;
-    height_ = height;
+    // A failed allocation must not be committed as the new size: the same size would then never be
+    // tried again and the invalid textures would stay. Size 0 makes the next frame retry.
+    const bool ok = geometry_[0].valid() && geometry_[1].valid() && reservoirs_[0].valid() && reservoirs_[1].valid() &&
+                    reservoir_temp_.valid();
+    width_ = ok ? width : 0;
+    height_ = ok ? height : 0;
     return true;
 }
 

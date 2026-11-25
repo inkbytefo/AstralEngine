@@ -32,8 +32,11 @@ bool TaaPass::resize(std::uint32_t width, std::uint32_t height) {
                                     .usage = gpu::TextureUsage::Sampled | gpu::TextureUsage::Storage,
                                     .debug_name = "astral.history.taa"});
     }
-    width_ = width;
-    height_ = height;
+    // A failed allocation must not be committed as the new size: the same size would then never be
+    // tried again and the invalid textures would stay. Size 0 makes the next frame retry.
+    const bool ok = history_[0].valid() && history_[1].valid();
+    width_ = ok ? width : 0;
+    height_ = ok ? height : 0;
     return true;
 }
 

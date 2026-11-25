@@ -96,3 +96,28 @@ TEST_CASE("AG12: a table that contains itself is refused with an error, not a ho
         astral.send("t::Deep", {value = t})
     )").empty());
 }
+
+TEST_CASE("AG10: a new script path or a re-added Script starts a new behaviour instance") {
+    Fixture f;
+    const Entity e = f.world.create(Counter{});
+    const char* body = R"(
+        astral.behaviour {
+            on_start = function(self, ctx) self:get("Counter").hits += 1 end,
+        }
+    )";
+    REQUIRE(f.host->load("a.luau", body).empty());
+    REQUIRE(f.host->load("b.luau", body).empty());
+    f.world.add(e, Script{"a.luau"});
+    f.run();
+    f.run();
+    CHECK(f.world.get<Counter>(e)->hits == 1); // started once
+    f.world.get<Script>(e)->path = "b.luau";
+    f.run();
+    CHECK(f.world.get<Counter>(e)->hits == 2); // another behaviour: its own on_start
+    f.world.remove<Script>(e);
+    f.run(); // the instance is forgotten
+    f.world.add(e, Script{"b.luau"});
+    f.run();
+    CHECK(f.world.get<Counter>(e)->hits == 3); // re-added: a new instance
+    CHECK(f.host->take_errors().empty());
+}

@@ -97,3 +97,13 @@ TEST_CASE("bad shapes are refused with an error, not a crash") {
     CHECK_FALSE(world.create_body({.shape = ShapeDesc::compound({{{0, 0, 0}, {}, ShapeDesc::sphere(-1.0f)}})}).valid());
     CHECK_FALSE(world.shape_cast(ShapeDesc::mesh(tri, {0, 1, 2}), {0, 0, 0}, {}, {0, 0, 5}).has_value()); // meshes cannot be swept
 }
+
+TEST_CASE("PH06: a hull is accepted whatever the order of its points, duplicates included") {
+    PhysicsWorld world;
+    // A tetrahedron listed as O, X, O, Y, Z: the old check picked the plane O-Y-Z and missed X.
+    const std::vector<Vec3> points = {{0, 0, 0}, {1, 0, 0}, {0, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+    CHECK(world.create_body({.shape = ShapeDesc::convex_hull(points), .position = {0, 2, 0}}).valid());
+    // Still refused: every point on one line, or one point repeated.
+    CHECK_FALSE(world.create_body({.shape = ShapeDesc::convex_hull({{0, 0, 0}, {1, 0, 0}, {2, 0, 0}, {3, 0, 0}})}).valid());
+    CHECK_FALSE(world.create_body({.shape = ShapeDesc::convex_hull({{1, 1, 1}, {1, 1, 1}, {1, 1, 1}, {1, 1, 1}})}).valid());
+}

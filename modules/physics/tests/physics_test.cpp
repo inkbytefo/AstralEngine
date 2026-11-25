@@ -231,3 +231,51 @@ TEST_CASE("shift_origin moves every body and character, keeping velocities") {
     for (int i = 0; i < 180; ++i) world.step(1.0f / 60.0f);
     CHECK(world.position(ball).y == doctest::Approx(1.0f).epsilon(0.05));
 }
+
+TEST_CASE("PH01: a character leaving a sensor ends the contact with the character's identity") {
+    PhysicsWorld world;
+    make_ground(world);
+    const BodyHandle sensor = world.create_body({.shape = ShapeDesc::box({0.5f, 2, 2}), .motion = MotionType::Static,
+                                                 .position = {2, 1, 0}, .sensor = true});
+    const CharacterHandle hero = world.create_character({.position = {0, 0, 0}, .user_data = 7});
+    int begins = 0, ends = 0;
+    for (int i = 0; i < 180; ++i) {
+        world.update_character(hero, {3, 0, 0}, false, 1.0f / 60.0f); // walks through the sensor and out
+        world.step(1.0f / 60.0f);
+        for (const ContactEvent& c : world.contacts()) {
+            if (c.a != sensor && c.b != sensor) continue;
+            const std::uint64_t other = c.a == sensor ? c.user_data_b : c.user_data_a;
+            if (c.type == ContactEvent::Type::Begin && other == 7) ++begins;
+            if (c.type == ContactEvent::Type::End && other == 7) {
+                ++ends;
+                CHECK(c.sensor);
+            }
+        }
+    }
+    CHECK(begins >= 1);
+    CHECK(ends == begins);
+}
+
+TEST_CASE("PH01: destroying a body reports its End contact with its user data") {
+    PhysicsWorld world;
+    make_ground(world);
+    const BodyHandle box = world.create_body({.shape = ShapeDesc::box({0.5f, 0.5f, 0.5f}), .position = {0, 0.6f, 0}, .user_data = 42});
+    for (int i = 0; i < 30; ++i) world.step(1.0f / 60.0f); // resting on the ground
+    world.destroy(box);
+    world.step(1.0f / 60.0f);
+    bool ended = false;
+    for (const ContactEvent& c : world.contacts()) {
+        if (c.type == ContactEvent::Type::End && (c.user_data_a == 42 || c.user_data_b == 42)) ended = true;
+    }
+    CHECK(ended);
+}
+
+TEST_CASE("PH02: overlap queries find characters") {
+    PhysicsWorld world;
+    make_ground(world);
+    const CharacterHandle hero = world.create_character({.position = {0, 0, 0}, .user_data = 9});
+    world.update_character(hero, {}, false, 1.0f / 60.0f);
+    world.step(1.0f / 60.0f);
+    const auto hits = world.overlap(ShapeDesc::sphere(0.5f), {0, 1, 0});
+    CHECK(std::any_of(hits.begin(), hits.end(), [](const OverlapHit& h) { return h.user_data == 9; }));
+}

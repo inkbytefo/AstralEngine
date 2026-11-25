@@ -315,30 +315,40 @@ void render_ray_traced_path(RayTracedPathContext& ctx, gpu::CommandList& cmd, gp
         .view_projection = unjittered,
     };
 
+    const std::uint32_t pt_generation = ctx.passes.path_tracer.generation();
     if (ctx.settings.path_tracer) {
         record_path_tracer_graph(ctx, inputs, target, rt_pipes);
     } else {
         record_rt_graph(ctx, inputs, target, rt_pipes, fog_shadow);
-        ctx.passes.ddgi.mark_valid();
     }
     ctx.graph.execute(cmd);
 
-    ctx.temporal.prev_view_projection = unjittered;
-    ctx.temporal.prev_camera_position = camera.position;
-    ctx.temporal.prev_point_lights = static_cast<std::uint32_t>(ctx.frame_instances.lights.size());
-    ctx.temporal.prev_rect_lights = static_cast<std::uint32_t>(ctx.frame_instances.rects.size());
-    ctx.temporal.prev_restir_active =
+    // History advances only when the GPU will actually write it: committed on submission. A dropped
+    // or failed frame leaves the previous history (and the DDGI / path-tracer accumulation) as it was.
+    TemporalState next = ctx.temporal;
+    next.prev_view_projection = unjittered;
+    next.prev_camera_position = camera.position;
+    next.prev_point_lights = static_cast<std::uint32_t>(ctx.frame_instances.lights.size());
+    next.prev_rect_lights = static_cast<std::uint32_t>(ctx.frame_instances.rects.size());
+    next.prev_restir_active =
         ctx.settings.restir_di && (ctx.frame_instances.lights.size() + ctx.frame_instances.rects.size()) > 2;
+    next.history_valid = true;
+    ++next.frame_index;
     ctx.stats.temporal_history_used = !ctx.settings.path_tracer && ctx.temporal.history_valid;
-    ctx.temporal.history_valid = true;
-    ++ctx.temporal.frame_index;
+    cmd.on_submitted([temporal = &ctx.temporal, next, ddgi = &ctx.passes.ddgi, path_tracer = &ctx.passes.path_tracer,
+                      pt = ctx.settings.path_tracer, pt_generation](gpu::SubmitTicket) {
+        *temporal = next;
+        if (pt) path_tracer->advance(pt_generation);
+        else ddgi->mark_valid();
+    });
 
     ctx.stats.ray_traced = true;
     ctx.stats.sdf_shapes = static_cast<std::uint32_t>(ctx.frame_instances.shapes.size());
     ctx.stats.point_lights = static_cast<std::uint32_t>(ctx.frame_instances.lights.size());
     ctx.stats.rect_lights = static_cast<std::uint32_t>(ctx.frame_instances.rects.size());
     ctx.stats.decals = static_cast<std::uint32_t>(ctx.frame_instances.decals.size());
-    ctx.stats.path_tracer_samples = ctx.settings.path_tracer ? ctx.passes.path_tracer.sample_count() : 0u;
+    // Samples once this frame is submitted (the counter itself advances on submission).
+    ctx.stats.path_tracer_samples = ctx.settings.path_tracer ? ctx.passes.path_tracer.sample_count() + 1u : 0u;
     ctx.stats.gi_probes = ctx.settings.path_tracer ? 0u : ctx.passes.ddgi.probe_count();
     ctx.stats.passes = ctx.graph.stats().passes_executed;
 }

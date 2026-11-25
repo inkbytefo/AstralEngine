@@ -333,3 +333,48 @@ TEST_CASE("cook_directory: .luau goes through the script compiler when one is gi
     CHECK(cook_directory(options).ok());
     CHECK(fs::file_size(options.output / "good.luau") == 11);
 }
+
+TEST_CASE("AS10: a deleted cell output is cooked again although its source did not change") {
+    const auto src = test::temp_dir("cook_as10_src");
+    const auto out = test::temp_dir("cook_as10_out");
+    write_text(src / "maps" / "island.world",
+               R"({"format":"astral.map","version":1,"grids":[{"name":"main","cell_size":100,"load_range":300}]})");
+    write_text(src / "maps" / "island.entities" / "1.ent",
+               R"({"format":"astral.entity","version":1,"entity":{"id":1,"components":{"astral::Transform":{"position":[10,0,0]}}}})");
+    REQUIRE(cook_directory({.source = src, .output = out, .textures = {}, .jobs = nullptr, .logger = nullptr}).ok());
+    REQUIRE(std::filesystem::exists(out / "maps" / "island.cells" / "main_0_0.cell"));
+    std::filesystem::remove(out / "maps" / "island.cells" / "main_0_0.cell");
+    const CookReport r = cook_directory({.source = src, .output = out, .textures = {}, .jobs = nullptr, .logger = nullptr});
+    CHECK(r.cooked == 1);
+    CHECK(std::filesystem::exists(out / "maps" / "island.cells" / "main_0_0.cell"));
+}
+
+TEST_CASE("AS09: a source that fails to cook keeps its last good output") {
+    const auto src = test::temp_dir("cook_as09_src");
+    const auto out = test::temp_dir("cook_as09_out");
+    write_text(src / "materials" / "a.material", R"({"format":"astral.material","version":1})");
+    REQUIRE(cook_directory({.source = src, .output = out, .textures = {}, .jobs = nullptr, .logger = nullptr}).ok());
+    REQUIRE(std::filesystem::exists(out / "materials" / "a.material"));
+    write_text(src / "materials" / "a.material", "{ broken");
+    CHECK_FALSE(cook_directory({.source = src, .output = out, .textures = {}, .jobs = nullptr, .logger = nullptr}).ok());
+    CHECK(std::filesystem::exists(out / "materials" / "a.material")); // the last good one is not deleted
+    // Fixed again: cooked again.
+    write_text(src / "materials" / "a.material", R"({"format":"astral.material","version":1})");
+    CHECK(cook_directory({.source = src, .output = out, .textures = {}, .jobs = nullptr, .logger = nullptr}).ok());
+    // Source removed: now the output goes.
+    std::filesystem::remove(src / "materials" / "a.material");
+    CHECK(cook_directory({.source = src, .output = out, .textures = {}, .jobs = nullptr, .logger = nullptr}).ok());
+    CHECK_FALSE(std::filesystem::exists(out / "materials" / "a.material"));
+}
+
+TEST_CASE("AS08: an image both embedded in a model and named by a .material still ships as a file") {
+    const auto src = test::temp_dir("cook_as08_src");
+    const auto out = test::temp_dir("cook_as08_out");
+    test::write_gltf(src / "props", "quad");
+    write_text(src / "materials" / "painted.material",
+               R"({"format":"astral.material","version":1,"textures":{"albedo":"props/quad_color.png"}})");
+    const CookReport r = cook_directory({.source = src, .output = out, .textures = {}, .jobs = nullptr, .logger = nullptr});
+    REQUIRE(r.ok());
+    CHECK(std::filesystem::exists(out / "props" / "quad_color.png")); // the material opens it at run time
+    CHECK_FALSE(std::filesystem::exists(out / "props" / "quad.bin"));  // still only inside the model
+}

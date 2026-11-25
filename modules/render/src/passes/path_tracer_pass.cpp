@@ -18,9 +18,13 @@ bool PathTracerPass::resize(std::uint32_t width, std::uint32_t height) {
                                     .usage = gpu::TextureUsage::Sampled | gpu::TextureUsage::Storage,
                                     .debug_name = "astral.path_tracer.accum"});
     }
-    width_ = width;
-    height_ = height;
+    // A failed allocation must not be committed as the new size: the same size would then never be
+    // tried again and the invalid textures would stay. Size 0 makes the next frame retry.
+    const bool ok = accum_[0].valid() && accum_[1].valid();
+    width_ = ok ? width : 0;
+    height_ = ok ? height : 0;
     sample_index_ = 0;
+    ++generation_;
     return true;
 }
 
@@ -29,7 +33,7 @@ RGTexture PathTracerPass::add(RenderGraph& graph, const FrameInputs& inputs, gpu
     const std::uint32_t h = inputs.extent.height;
     const std::uint32_t parity = sample_index_ & 1u;
     const std::uint32_t prev = parity ^ 1u;
-    const std::uint32_t sample = sample_index_++;
+    const std::uint32_t sample = sample_index_; // advanced on submission (advance())
     const std::uint32_t max_bounces = std::clamp(inputs.settings.path_tracer_max_bounces, 1u, 16u);
 
     const RGTexture accum_prev = graph.import(accum_[prev], "pt.accum.prev");

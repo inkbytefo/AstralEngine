@@ -103,16 +103,23 @@ private:
     bool usable() const noexcept { return device_ != nullptr; }
     /// Ends an unsubmitted recording and rolls back its texture states (destructor and move-assign).
     void abandon() noexcept;
-    void remember_state(TextureHandle texture, ResourceState previous);
+    void remember_state(TextureHandle texture, ResourceState previous, ResourceState next);
 
     Device* device_ = nullptr;
     void* native_ = nullptr; // VkCommandBuffer
     std::uint32_t slot_ = 0;
+    std::uint64_t serial_ = 0; ///< Unique per recording; textures remember which recording moved them last.
     bool rendering_ = false;
     PipelineHandle bound_pipeline_ = {};
     bool compute_bound_ = false;
-    /// First state each texture had in this list, to roll back if the list is dropped.
-    std::vector<std::pair<TextureHandle, ResourceState>> touched_;
+    /// Per texture: the state before this list touched it and the state this list left it in, to
+    /// roll back (or fix up, when a later list builds on it) if the list is dropped.
+    struct Touched {
+        TextureHandle texture;
+        ResourceState before;
+        ResourceState after;
+    };
+    std::vector<Touched> touched_;
     std::vector<std::function<void(SubmitTicket)>> on_submitted_;
 };
 

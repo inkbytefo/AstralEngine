@@ -65,21 +65,36 @@ private:
     bool failed_ = false;
 };
 
-/// A hull needs volume: some point must sit off the plane through the first three non-collinear points.
+/// A hull needs volume: not all points on one plane. Order-independent (duplicates and collinear
+/// runs anywhere in the list are fine): b is the point farthest from a, c the point farthest from
+/// line ab, and some point must sit off the plane abc.
 bool hull_has_volume(const std::vector<Vec3>& pts) {
     const Vec3 a = pts[0];
-    Vec3 normal{};
-    std::size_t used = 0;
-    for (std::size_t i = 1; i + 1 < pts.size() && length(normal) < 1e-8f; ++i) {
-        normal = cross(pts[i] - a, pts[i + 1] - a);
-        used = i + 1;
-    }
-    if (length(normal) < 1e-8f) return false;
-    normal = normalize(normal);
     float extent = 0.0f;
-    for (const Vec3& p : pts) extent = std::max(extent, length(p - a));
-    for (std::size_t i = used + 1; i < pts.size(); ++i) {
-        if (std::abs(dot(pts[i] - a, normal)) > 1e-4f * std::max(extent, 1.0f)) return true;
+    Vec3 b = a;
+    for (const Vec3& p : pts) {
+        const float d = length(p - a);
+        if (d > extent) {
+            extent = d;
+            b = p;
+        }
+    }
+    const float eps = 1e-4f * std::max(extent, 1.0f);
+    if (extent <= eps) return false; // all points coincide
+    const Vec3 ab = normalize(b - a);
+    Vec3 normal{};
+    float best = 0.0f;
+    for (const Vec3& p : pts) {
+        const Vec3 n = cross(ab, p - a); // |n| = distance from line ab
+        if (length(n) > best) {
+            best = length(n);
+            normal = n;
+        }
+    }
+    if (best <= eps) return false; // all points on one line
+    normal = normalize(normal);
+    for (const Vec3& p : pts) {
+        if (std::abs(dot(p - a, normal)) > eps) return true;
     }
     return false;
 }

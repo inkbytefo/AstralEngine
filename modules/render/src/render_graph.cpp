@@ -96,8 +96,12 @@ struct RenderGraph::Impl {
     struct TimingSlot {
         gpu::QueryPoolHandle pool;
         std::vector<std::string> names;
-        bool pending = false;
+        bool pending = false;       ///< Set only once the list recording it was submitted (never for a dropped one).
+        std::uint64_t serial = 0;   ///< Recording generation: a late callback for an older recording is ignored.
+        std::uint64_t frame_id = 0; ///< Graph frame it measured: the newest finished one is reported.
+        gpu::SubmitTicket ticket{};
     };
+    std::uint64_t reported_frame = 0;
     std::array<TimingSlot, timing_ring> timing_slots;
     std::size_t timing_slot = 0;
     bool profiling = true;
@@ -106,10 +110,12 @@ struct RenderGraph::Impl {
     std::vector<std::uint64_t> stamps;
 
     void collect(TimingSlot& t) {
-        if (!t.pending || t.names.empty()) return;
+        if (!t.pending || t.names.empty() || !device.is_complete(t.ticket)) return;
         stamps.resize(t.names.size() + 1);
         if (!device.read_timestamps(t.pool, 0, static_cast<std::uint32_t>(stamps.size()), stamps.data())) return;
         t.pending = false;
+        if (t.frame_id < reported_frame) return; // an older frame finishing late: keep the newer numbers
+        reported_frame = t.frame_id;
         timings.clear();
         for (std::size_t i = 0; i < t.names.size(); ++i) {
             timings.push_back({t.names[i], static_cast<float>(static_cast<double>(stamps[i + 1] - stamps[i]) * 1e-6)});
@@ -194,6 +200,8 @@ struct RenderGraph::Impl {
         if (!timing->pool.valid()) return nullptr;
         timing->names.clear();
         timing->pending = false;
+        ++timing->serial;
+        timing->frame_id = frame;
         cmd.reset_queries(timing->pool, 0, max_timed_passes + 1);
         cmd.write_timestamp(timing->pool, 0);
         return timing;
@@ -363,7 +371,14 @@ void RenderGraph::execute(gpu::CommandList& cmd) {
             cmd.write_timestamp(timing->pool, static_cast<std::uint32_t>(timing->names.size()));
         }
     }
-    if (timing) timing->pending = !timing->names.empty();
+    if (timing && !timing->names.empty()) {
+        // Pending from submission on: a dropped or failed list never reports stale stamps under new names.
+        cmd.on_submitted([timing, serial = timing->serial](gpu::SubmitTicket ticket) {
+            if (timing->serial != serial) return;
+            timing->ticket = ticket;
+            timing->pending = true;
+        });
+    }
 
     for (const auto& r : m.resources) {
         if (r.imported && r.final_state != gpu::ResourceState::Undefined) cmd.transition(r.texture, r.final_state);

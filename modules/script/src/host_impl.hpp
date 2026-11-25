@@ -70,7 +70,9 @@ struct ScriptHost::Impl {
     Module* active = nullptr; ///< The module whose code is running (registrations belong to it).
     std::vector<Timer> timers;
     std::uint32_t next_timer = 1;
-    std::unordered_set<std::uint64_t> started; ///< Entities whose behaviour had on_start.
+    /// Behaviour instances that had on_start: entity -> the script path they started with. A new
+    /// path, or a Script removed and added again, is a new instance (on_start runs again).
+    std::unordered_map<std::uint64_t, std::string> started;
     std::vector<std::string> errors;
     std::minstd_rand rng{1};
     std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::time_point::max();

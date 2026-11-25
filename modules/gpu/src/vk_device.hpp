@@ -30,7 +30,8 @@ struct TextureRecord {
     VmaAllocation allocation = nullptr; ///< Null for swapchain images (not owned).
     TextureDesc desc{};
     std::uint32_t bindless = UINT32_MAX;
-    ResourceState state = ResourceState::Undefined;
+    ResourceState state = ResourceState::Undefined; ///< As of the end of everything recorded so far.
+    std::uint64_t last_recorder = 0;                ///< CommandList serial that last transitioned it (0: none open).
 };
 
 struct PipelineRecord {
@@ -90,11 +91,23 @@ struct Device::Impl {
     // Command buffers, recycled once their submission completed.
     struct CommandSlot {
         VkCommandBuffer buffer = VK_NULL_HANDLE;
+        VkCommandBuffer fixup = VK_NULL_HANDLE; ///< Layout fix-ups submitted just before `buffer` (allocated on demand).
         std::uint64_t ticket = 0;
         bool recording = false;
     };
     VkCommandPool command_pool = VK_NULL_HANDLE;
     std::vector<CommandSlot> command_slots;
+    /// Transitions of dropped lists that later lists built on: run before the next submitted list.
+    struct LayoutFixup {
+        TextureHandle texture;
+        ResourceState from;
+        ResourceState to;
+    };
+    struct Recording {
+        std::uint64_t next_serial = 1;
+        std::vector<LayoutFixup> fixups;
+    };
+    Recording recording;
 
     // Bindless: one descriptor set shared by every pipeline.
     struct BindlessState {
@@ -151,6 +164,8 @@ struct Device::Impl {
     void collect_garbage();
     /// A recording slot ended: submitted as `ticket`, or dropped/failed when `ticket` is 0.
     void release_slot(std::uint32_t slot, std::uint64_t ticket);
+    /// Records `recording.fixups` into `slot.fixup`; false when none applies (textures gone).
+    bool record_layout_fixups(CommandSlot& slot);
     void wait_value(std::uint64_t value);
     /// Records, submits and waits for a one-off command buffer.
     void immediate(const std::function<void(VkCommandBuffer)>& record);

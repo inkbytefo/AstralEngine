@@ -116,6 +116,11 @@ void DdgiPass::ensure(const RenderScene& scene, const MeshStore& meshes, const G
     ray_buffer_ =
         device_.create_buffer({.size = std::uint64_t{nx} * ny * nz * rays * 16, .debug_name = "astral.ddgi.rays"});
     valid_ = false;
+    // Failed allocations: forget the grid so the next frame tries again instead of keeping invalid probes.
+    if (!irradiance_[0].valid() || !irradiance_[1].valid() || !distance_[0].valid() || !distance_[1].valid() ||
+        !ray_buffer_.valid()) {
+        nx_ = ny_ = nz_ = rays_ = 0;
+    }
 }
 
 DdgiOutput DdgiPass::add(RenderGraph& graph, const FrameInputs& inputs, gpu::PipelineHandle trace_pipeline) const {

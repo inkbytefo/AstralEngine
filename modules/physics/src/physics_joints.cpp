@@ -399,6 +399,7 @@ void PhysicsWorld::set_joint_motor_tuning(JointHandle joint, float frequency_hz,
 void PhysicsWorld::set_joint_motor_mode(JointHandle joint, JointMotorMode mode) {
     auto* r = impl_->joints.get(joint);
     if (!r || r->broken || !r->constraint) return;
+    if (r->desc.motor.mode == mode) return; // unchanged: do not wake sleeping bodies
     r->desc.motor.mode = mode;
     apply_motor_state(*r->constraint, r->desc);
     wake_joint_bodies(*impl_, *r);
@@ -407,6 +408,7 @@ void PhysicsWorld::set_joint_motor_mode(JointHandle joint, JointMotorMode mode) 
 void PhysicsWorld::set_joint_motor_velocity(JointHandle joint, float velocity) {
     auto* r = impl_->joints.get(joint);
     if (!r || r->broken || !r->constraint || !std::isfinite(velocity)) return;
+    if (r->desc.motor.target_velocity == velocity) return;
     r->desc.motor.target_velocity = velocity;
     apply_motor_state(*r->constraint, r->desc);
     wake_joint_bodies(*impl_, *r);
@@ -415,6 +417,7 @@ void PhysicsWorld::set_joint_motor_velocity(JointHandle joint, float velocity) {
 void PhysicsWorld::set_joint_motor_position(JointHandle joint, float position) {
     auto* r = impl_->joints.get(joint);
     if (!r || r->broken || !r->constraint || !std::isfinite(position)) return;
+    if (r->desc.motor.target_position == position) return;
     r->desc.motor.target_position = position;
     apply_motor_state(*r->constraint, r->desc);
     wake_joint_bodies(*impl_, *r);
@@ -423,6 +426,8 @@ void PhysicsWorld::set_joint_motor_position(JointHandle joint, float position) {
 void PhysicsWorld::set_joint_motor_angular_velocity(JointHandle joint, Vec3 angular_velocity) {
     auto* r = impl_->joints.get(joint);
     if (!r || r->broken || !r->constraint || !finite_vec(angular_velocity)) return;
+    const Vec3 old_av = r->desc.motor.target_angular_velocity;
+    if (old_av.x == angular_velocity.x && old_av.y == angular_velocity.y && old_av.z == angular_velocity.z) return;
     r->desc.motor.target_angular_velocity = angular_velocity;
     apply_motor_state(*r->constraint, r->desc);
     wake_joint_bodies(*impl_, *r);
@@ -431,6 +436,11 @@ void PhysicsWorld::set_joint_motor_angular_velocity(JointHandle joint, Vec3 angu
 void PhysicsWorld::set_joint_motor_rotation(JointHandle joint, Quat target_rotation) {
     auto* r = impl_->joints.get(joint);
     if (!r || r->broken || !r->constraint) return;
+    const Quat old_rot = r->desc.motor.target_rotation;
+    if (old_rot.x == target_rotation.x && old_rot.y == target_rotation.y && old_rot.z == target_rotation.z &&
+        old_rot.w == target_rotation.w) {
+        return;
+    }
     r->desc.motor.target_rotation = target_rotation;
     apply_motor_state(*r->constraint, r->desc);
     wake_joint_bodies(*impl_, *r);

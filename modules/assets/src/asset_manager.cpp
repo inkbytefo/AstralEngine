@@ -47,6 +47,10 @@ struct Pending {
     JobCounter counter;
     std::optional<ModelData> data;
     std::string error;
+    FileTime source_time{}; ///< The model file's mtime before the worker read it.
+    /// Every file the load read, with the mtime it had when read (the model file's from before the
+    /// read): an edit made while loading is then still seen as a change by the next poll.
+    std::vector<std::pair<std::filesystem::path, FileTime>> watched;
 };
 
 } // namespace
@@ -167,7 +171,13 @@ struct AssetManager::Impl {
         p->path = path;
         p->full = full;
         Pending* raw = p.get();
-        auto job = [this, raw] { raw->data = load_model_data(raw->path, raw->full, &raw->error); };
+        raw->source_time = mtime(full);
+        auto job = [this, raw] {
+            raw->data = load_model_data(raw->path, raw->full, &raw->error);
+            if (raw->data) {
+                for (const auto& f : raw->data->files) raw->watched.emplace_back(f, f == raw->full ? raw->source_time : mtime(f));
+            }
+        };
         if (desc.jobs) desc.jobs->submit(raw->counter, job);
         else job();
         pending.push_back(std::move(p));
@@ -231,56 +241,108 @@ struct AssetManager::Impl {
         }
     }
 
-    /// Main thread: data -> renderer resources -> Model. Reuses handles when the shapes allow it.
-    void finish(Entry& e, ModelData& data) {
-        Renderer* r = desc.renderer;
-        const bool reload = e.model != nullptr;
-        // Textures, then materials that reference them, then meshes; update in place when counts match.
-        const bool keep_textures = e.textures.size() == data.images.size();
-        const bool keep_materials = e.materials.size() == data.materials.size();
-        const bool keep_meshes = e.meshes.size() == data.primitives.size();
+    /// GPU resources of one model version. New handles are created next to the old ones; the old
+    /// ones are destroyed only once everything exists (staged publish, MSR AS06).
+    struct Staged {
         std::vector<TextureHandle> textures;
         std::vector<MaterialHandle> materials;
         std::vector<MeshHandle> meshes;
-        if (r) {
-            for (std::size_t i = 0; i < data.images.size(); ++i) {
-                ImageData& img = data.images[i].image;
-                if (!img.levels.empty() && !r->supports(img.format)) img = decompress_image(img); // GPU without BC
-                if (img.width == 0) { // declared but unused by any material
-                    textures.push_back(keep_textures ? e.textures[i] : TextureHandle{});
-                    continue;
-                }
-                if (keep_textures && e.textures[i].valid() && r->update_texture(e.textures[i], img)) {
-                    textures.push_back(e.textures[i]);
-                } else {
-                    textures.push_back(r->create_texture(img));
-                    if (keep_textures) r->destroy(e.textures[i]);
-                }
+        std::vector<TextureHandle> created_textures, replaced_textures;
+        std::vector<MaterialHandle> created_materials;
+        std::vector<MeshHandle> created_meshes;
+        bool keep_textures = false, keep_materials = false, keep_meshes = false;
+        bool failed = false;
+    };
+
+    /// Textures, then materials that reference them, then meshes; updated in place when counts match.
+    Staged stage_resources(Renderer& r, const Entry& e, ModelData& data) {
+        Staged st;
+        st.keep_textures = e.textures.size() == data.images.size();
+        st.keep_materials = e.materials.size() == data.materials.size();
+        st.keep_meshes = e.meshes.size() == data.primitives.size();
+        for (std::size_t i = 0; i < data.images.size(); ++i) {
+            ImageData& img = data.images[i].image;
+            if (!img.levels.empty() && !r.supports(img.format)) img = decompress_image(img); // GPU without BC
+            if (img.width == 0) { // declared but unused by any material
+                st.textures.push_back(st.keep_textures ? e.textures[i] : TextureHandle{});
+                continue;
             }
-            auto tex = [&](int i) { return i >= 0 && static_cast<std::size_t>(i) < textures.size() ? textures[static_cast<std::size_t>(i)] : TextureHandle{}; };
-            for (std::size_t i = 0; i < data.materials.size(); ++i) {
-                const ModelMaterial& m = data.materials[i];
-                MaterialDesc desc_m{.base_color = m.base_color, .roughness = m.roughness, .metallic = m.metallic,
-                                          .emissive = m.emissive, .base_color_texture = tex(m.base_color_image),
-                                          .metallic_roughness_texture = tex(m.metallic_roughness_image),
-                                          .normal_texture = tex(m.normal_image), .emissive_texture = tex(m.emissive_image),
-                                          .normal_scale = m.normal_scale};
-                apply_imported_shader(m, textures, desc_m);
-                if (keep_materials && r->update_material(e.materials[i], desc_m)) materials.push_back(e.materials[i]);
-                else materials.push_back(r->create_material(desc_m));
+            if (st.keep_textures && e.textures[i].valid() && r.update_texture(e.textures[i], img)) {
+                st.textures.push_back(e.textures[i]);
+                continue;
             }
-            for (std::size_t i = 0; i < data.primitives.size(); ++i) {
-                if (keep_meshes && r->update_mesh(e.meshes[i], data.primitives[i].mesh)) meshes.push_back(e.meshes[i]);
-                else meshes.push_back(r->create_mesh(data.primitives[i].mesh));
-            }
-            // Old resources not carried over.
-            if (!keep_textures) for (auto h : e.textures) r->destroy(h);
-            if (!keep_materials) for (auto h : e.materials) r->destroy(h);
-            if (!keep_meshes) for (auto h : e.meshes) r->destroy(h);
+            const TextureHandle fresh = r.create_texture(img);
+            st.failed |= !fresh.valid();
+            if (fresh.valid()) st.created_textures.push_back(fresh);
+            if (fresh.valid() && st.keep_textures) st.replaced_textures.push_back(e.textures[i]);
+            st.textures.push_back(fresh);
         }
-        e.textures = std::move(textures);
-        e.materials = std::move(materials);
-        e.meshes = std::move(meshes);
+        auto tex = [&](int i) { return i >= 0 && static_cast<std::size_t>(i) < st.textures.size() ? st.textures[static_cast<std::size_t>(i)] : TextureHandle{}; };
+        for (std::size_t i = 0; i < data.materials.size(); ++i) {
+            const ModelMaterial& m = data.materials[i];
+            MaterialDesc desc_m{.base_color = m.base_color, .roughness = m.roughness, .metallic = m.metallic,
+                                .emissive = m.emissive, .base_color_texture = tex(m.base_color_image),
+                                .metallic_roughness_texture = tex(m.metallic_roughness_image),
+                                .normal_texture = tex(m.normal_image), .emissive_texture = tex(m.emissive_image),
+                                .normal_scale = m.normal_scale};
+            apply_imported_shader(m, st.textures, desc_m);
+            if (st.keep_materials && r.update_material(e.materials[i], desc_m)) {
+                st.materials.push_back(e.materials[i]);
+                continue;
+            }
+            const MaterialHandle fresh = r.create_material(desc_m);
+            st.failed |= !fresh.valid();
+            if (fresh.valid()) st.created_materials.push_back(fresh);
+            st.materials.push_back(fresh);
+        }
+        for (std::size_t i = 0; i < data.primitives.size(); ++i) {
+            if (st.keep_meshes && r.update_mesh(e.meshes[i], data.primitives[i].mesh)) {
+                st.meshes.push_back(e.meshes[i]);
+                continue;
+            }
+            const MeshHandle fresh = r.create_mesh(data.primitives[i].mesh);
+            st.failed |= !fresh.valid();
+            if (fresh.valid()) st.created_meshes.push_back(fresh);
+            st.meshes.push_back(fresh);
+        }
+        return st;
+    }
+
+    static void discard(Renderer& r, const Staged& st) {
+        for (auto h : st.created_textures) r.destroy(h);
+        for (auto h : st.created_materials) r.destroy(h);
+        for (auto h : st.created_meshes) r.destroy(h);
+    }
+
+    /// Old resources not carried over into `st`.
+    static void retire_replaced(Renderer& r, const Entry& e, const Staged& st) {
+        for (auto h : st.replaced_textures) r.destroy(h);
+        if (!st.keep_textures) for (auto h : e.textures) r.destroy(h);
+        if (!st.keep_materials) for (auto h : e.materials) r.destroy(h);
+        if (!st.keep_meshes) for (auto h : e.meshes) r.destroy(h);
+    }
+
+    /// Main thread: data -> renderer resources -> Model. Reuses handles when the shapes allow it.
+    /// False when a reload could not create its GPU resources: the previous version stays published.
+    bool finish(Entry& e, ModelData& data, const std::vector<std::pair<std::filesystem::path, FileTime>>* watched = nullptr) {
+        Renderer* r = desc.renderer;
+        const bool reload = e.model != nullptr;
+        if (r) {
+            Staged st = stage_resources(*r, e, data);
+            if (st.failed && reload) {
+                discard(*r, st);
+                log_error(e.path + ": GPU upload failed on reload, keeping the previous version");
+                return false;
+            }
+            retire_replaced(*r, e, st);
+            e.textures = std::move(st.textures);
+            e.materials = std::move(st.materials);
+            e.meshes = std::move(st.meshes);
+        } else {
+            e.textures.clear();
+            e.materials.clear();
+            e.meshes.clear();
+        }
 
         auto model = std::make_unique<Model>();
         model->roots = data.roots;
@@ -302,8 +364,10 @@ struct AssetManager::Impl {
         e.state = AssetState::Ready;
         e.error.clear();
         e.watched.clear();
-        for (const auto& f : data.files) e.watched.emplace_back(f, mtime(f));
+        if (watched) e.watched = *watched;
+        else for (const auto& f : data.files) e.watched.emplace_back(f, mtime(f));
         for (const auto& w : data.warnings) log_warn(e.path + ": " + w);
+        return true;
     }
 
     void collect(bool block) {
@@ -321,7 +385,7 @@ struct AssetManager::Impl {
                 Entry& e = found->second;
                 e.reloading = false;
                 if (p.data) {
-                    finish(e, *p.data);
+                    if (!finish(e, *p.data, &p.watched)) e.watched = p.watched; // retry after the next edit
                 } else if (e.model) { // failed reload: keep the last good version
                     log_error("hot reload failed, keeping the previous version: " + p.error);
                     for (auto& [file, time] : e.watched) time = mtime(file); // don't retry until edited again

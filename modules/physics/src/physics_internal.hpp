@@ -134,6 +134,14 @@ struct PhysicsWorld::Impl {
         std::uint16_t surface = 0;
         bool sensor = false;
     };
+    /// Identity of every Jolt body we created (rigid bodies and character inner bodies), keyed by
+    /// the full BodyID (index + sequence). Kept for one step after the body is destroyed so the
+    /// contact-removed callbacks of that step still know whose contact ended.
+    struct BodyInfo {
+        std::uint64_t user_data = 0;
+        std::uint16_t surface = 0;
+        bool sensor = false;
+    };
     struct ShapeRecord {
         JPH::Ref<JPH::Shape> shape;
         bool static_only = false;
@@ -209,11 +217,15 @@ struct PhysicsWorld::Impl {
             e.type = ContactEvent::Type::End;
             e.a = owner_.handle_of(pair.GetBody1ID());
             e.b = owner_.handle_of(pair.GetBody2ID());
-            e.user_data_a = owner_.user_data_of(e.a); // 0 if that body is already gone
-            e.user_data_b = owner_.user_data_of(e.b);
-            e.surface_a = owner_.surface_of(e.a);
-            e.surface_b = owner_.surface_of(e.b);
-            e.sensor = owner_.sensor_of(e.a) || owner_.sensor_of(e.b);
+            // By BodyID, not handle: characters have no BodyHandle, and a body destroyed since the
+            // last step has none anymore, but both still have their identity here.
+            const BodyInfo* ia = owner_.info_of(pair.GetBody1ID());
+            const BodyInfo* ib = owner_.info_of(pair.GetBody2ID());
+            e.user_data_a = ia ? ia->user_data : 0;
+            e.user_data_b = ib ? ib->user_data : 0;
+            e.surface_a = ia ? ia->surface : 0;
+            e.surface_b = ib ? ib->surface : 0;
+            e.sensor = (ia && ia->sensor) || (ib && ib->sensor);
             std::scoped_lock lock(mutex_);
             owner_.contacts.push_back(e);
         }
@@ -253,6 +265,8 @@ struct PhysicsWorld::Impl {
     HandlePool<BodyRecord, BodyTag> bodies;
     HandlePool<ShapeRecord, ShapeTag> shapes;
     std::vector<IndexEntry> handle_by_index; // read during steps, written only between them
+    std::unordered_map<std::uint32_t, BodyInfo> info_by_id; // read during steps, written only between them
+    std::vector<std::uint32_t> retired_info;                // destroyed since the last step
     HandlePool<CharacterRecord, CharacterTag> characters;
     HandlePool<JointRecord, JointTag> joints;
     JPH::CharacterVsCharacterCollisionSimple character_collision;
@@ -269,6 +283,10 @@ struct PhysicsWorld::Impl {
     void error(std::string_view message) const {
         if (logger) logger->log(LogLevel::Error, message);
         else std::fprintf(stderr, "[astral::physics] %.*s\n", static_cast<int>(message.size()), message.data());
+    }
+    const BodyInfo* info_of(JPH::BodyID id) const {
+        const auto it = info_by_id.find(id.GetIndexAndSequenceNumber());
+        return it != info_by_id.end() ? &it->second : nullptr;
     }
     std::uint64_t user_data_of(BodyHandle h) const {
         const BodyRecord* r = bodies.get(h);

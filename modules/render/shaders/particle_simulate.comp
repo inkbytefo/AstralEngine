@@ -24,7 +24,10 @@ vec3 collide(Frame f, vec3 from, vec3 to, inout vec3 velocity) {
     float sdf = pc.sdf_depth == NO_TEXTURE ? 1.0 : sample_surface(pc.sdf_depth, pixel).r;
     float depth = min(mesh, sdf);
     if (ndc.z < depth) return to;
-    vec3 normal = sample_surface(sdf < mesh ? pc.sdf_normal : pc.normal, pixel).xyz;
+    // After SdfPass::merge_depth the mesh depth already holds min(mesh, sdf): equal depths mean the
+    // SDF surface is the visible one, so ties go to the SDF normal (when there is an SDF target).
+    bool sdf_front = pc.sdf_depth != NO_TEXTURE && sdf <= mesh;
+    vec3 normal = sample_surface(sdf_front ? pc.sdf_normal : pc.normal, pixel).xyz;
     if (dot(normal, normal) < 0.5) return to;
     normal = normalize(normal);
     float speed = dot(velocity, normal);

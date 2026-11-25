@@ -84,7 +84,8 @@ TEST_CASE("terrain cook preserves tiles in packs and checks shared borders on re
     const auto invalid = cook_directory({.source = source, .output = output});
     REQUIRE_FALSE(invalid.ok());
     CHECK(invalid.errors.front().find("shared boundary") != std::string::npos);
-    CHECK_FALSE(std::filesystem::exists(output / "land.aterrain.tiles"));
+    // A failed cook keeps the last good output (MSR AS09); the cook still reports the error.
+    CHECK(std::filesystem::exists(output / "land.aterrain.tiles"));
 }
 
 TEST_CASE("terrain manifests reject ambiguous tile addresses and paths") {

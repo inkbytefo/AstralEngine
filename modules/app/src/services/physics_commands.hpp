@@ -45,6 +45,9 @@ public:
     void enqueue(PhysicsCommand cmd);
     [[nodiscard]] std::size_t pending_count() const noexcept;
     void drain_sorted(std::vector<PhysicsCommand>& out);
+    /// The floating origin moved by `offset`: queued positions (teleports) move with it, so they
+    /// land where they were meant in world space.
+    void shift_positions(Vec3 offset);
 
 private:
     mutable std::mutex mutex_;
