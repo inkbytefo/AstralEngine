@@ -3,6 +3,8 @@
 
 #include <algorithm>
 
+#include "model_hierarchy.hpp"
+
 namespace astral {
 
 namespace {
@@ -12,6 +14,16 @@ constexpr std::uint32_t format_version = 3;
 /// Counts read from a file are checked against this before allocating (a damaged count must not
 /// make us allocate gigabytes); real models are far below it.
 constexpr std::uint64_t max_count = 1u << 28;
+/// Smallest encoding of one record of each section: a count claiming more records than the
+/// remaining bytes can hold is damaged, and is refused before anything is allocated.
+constexpr std::uint64_t min_primitive_bytes = 4 + 1 + 1;        // material, vertex count, index count
+constexpr std::uint64_t min_material_bytes = 1 + 4 * 10 + 4 * 4; // name, 10 floats, 4 image indices (v1)
+constexpr std::uint64_t min_image_bytes = 1 + 4 + 4 + 1 + 1 + 1 + 1;
+constexpr std::uint64_t min_node_bytes = 1 + 4 * 10 + 1 + 1;
+
+bool count_fits(const ByteReader& r, std::uint64_t n, std::uint64_t min_bytes) {
+    return n <= max_count && n <= r.remaining() / min_bytes;
+}
 
 void vec(ByteWriter& w, const float* f, int n) {
     for (int i = 0; i < n; ++i) w.f32(f[i]);
@@ -34,7 +46,7 @@ std::int32_t index(ByteReader& r) { return static_cast<std::int32_t>(r.u32()); }
 
 const char* read_primitives(ByteReader& r, std::vector<ModelPrimitive>& primitives, std::uint32_t version) {
     const std::uint64_t n = r.varint();
-    if (n > max_count) return "damaged primitive count";
+    if (!count_fits(r, n, min_primitive_bytes)) return "damaged primitive count";
     primitives.resize(static_cast<std::size_t>(n));
     for (ModelPrimitive& p : primitives) {
         p.material = index(r);
@@ -49,7 +61,7 @@ const char* read_primitives(ByteReader& r, std::vector<ModelPrimitive>& primitiv
             else v.uv1 = v.uv;
         }
         const std::uint64_t indices = r.varint();
-        if (indices * 4 > r.remaining()) return "truncated indices";
+        if (indices > r.remaining() / 4) return "truncated indices";
         p.mesh.indices.resize(static_cast<std::size_t>(indices));
         for (std::uint32_t& i : p.mesh.indices) {
             i = r.u32();
@@ -61,7 +73,7 @@ const char* read_primitives(ByteReader& r, std::vector<ModelPrimitive>& primitiv
 
 const char* read_materials(ByteReader& r, std::vector<ModelMaterial>& materials, std::uint32_t version) {
     const std::uint64_t n = r.varint();
-    if (n > max_count) return "damaged material count";
+    if (!count_fits(r, n, min_material_bytes)) return "damaged material count";
     materials.resize(static_cast<std::size_t>(n));
     for (ModelMaterial& mat : materials) {
         mat.name = r.string();
@@ -134,7 +146,7 @@ void write_materials(ByteWriter& w, const ModelData& m) {
 
 const char* read_images(ByteReader& r, std::vector<ModelImage>& images) {
     const std::uint64_t n = r.varint();
-    if (n > max_count) return "damaged image count";
+    if (!count_fits(r, n, min_image_bytes)) return "damaged image count";
     images.resize(static_cast<std::size_t>(n));
     for (ModelImage& img : images) {
         ImageData& d = img.image;
@@ -162,7 +174,7 @@ const char* read_images(ByteReader& r, std::vector<ModelImage>& images) {
 
 const char* read_nodes(ByteReader& r, ModelData& m) {
     const std::uint64_t n = r.varint();
-    if (n > max_count) return "damaged node count";
+    if (!count_fits(r, n, min_node_bytes)) return "damaged node count";
     m.nodes.resize(static_cast<std::size_t>(n));
     for (ModelNode& node : m.nodes) {
         node.name = r.string();
@@ -181,6 +193,8 @@ const char* read_nodes(ByteReader& r, ModelData& m) {
     for (std::uint32_t root : m.roots) {
         if (root >= m.nodes.size()) return "missing root node";
     }
+    std::string hierarchy;
+    if (!validate_hierarchy(m.nodes, hierarchy)) return "invalid node hierarchy (cycle or two parents)";
     return nullptr;
 }
 
