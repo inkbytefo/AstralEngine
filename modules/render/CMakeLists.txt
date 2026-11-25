@@ -115,7 +115,8 @@ astral_add_tests(MODULE render
         tests/surface_shader_test.cpp
         tests/material_file_test.cpp
         tests/material_crlf_test.cpp
-        tests/msr_regression_test.cpp)
+        tests/msr_regression_test.cpp
+        tests/particle_builtins_test.cpp)
 if(TARGET astral_render_tests)
     target_include_directories(astral_render_tests PRIVATE
         ${CMAKE_SOURCE_DIR}/modules/gpu/tests
