@@ -83,6 +83,7 @@ astral_add_tests(MODULE app
         tests/physics_app_test.cpp
         tests/physics_step_contract_test.cpp
         tests/physics_angular_test.cpp
+        tests/input_script_test.cpp
         tests/ecs_app_test.cpp
         tests/assets_app_test.cpp
         tests/scene_app_test.cpp
