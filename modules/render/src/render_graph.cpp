@@ -149,7 +149,8 @@ struct RenderGraph::Impl {
                     device.create_texture({.width = r.desc.width, .height = r.desc.height,
                                            .format = r.desc.format, .usage = r.usage, .debug_name = r.name}),
                     frame, true};
-        pool.push_back(e);
+        // A failed allocation is not pooled: the next frame tries again instead of reusing it.
+        if (e.texture.valid()) pool.push_back(e);
         return e.texture;
     }
 

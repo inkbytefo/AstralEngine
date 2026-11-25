@@ -279,7 +279,9 @@ struct RenderSettings {
     /// when the device supports it; otherwise the raster path.
     bool ray_tracing = true;
     GiSettings gi = {};
-    std::uint32_t denoise_iterations = 3; ///< À-trous passes (0 = temporal only).
+    /// À-trous passes (0 = temporal only); at most max_denoise_iterations (larger values are clamped).
+    std::uint32_t denoise_iterations = 3;
+    static constexpr std::uint32_t max_denoise_iterations = 5; ///< Widest step 16 px; more only blurs and costs.
     float max_history = 32.0f;            ///< Temporal accumulation length (frames).
     float taa_blend = 0.1f;               ///< Weight of the new frame in TAA.
     float bloom_strength = 0.04f;
