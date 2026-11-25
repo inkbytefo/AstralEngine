@@ -22,6 +22,17 @@ Kayıtlar kaynak koda karşı yeniden doğrulandı (statik okuma; build/test bu 
   - Hâlâ geçerli: **A09** (`map_runtime.cpp:199–202`), **A10** (`audio_bridge.cpp:71`), **C01** (ScopedTick yalnız `system_scheduler.cpp:44` üst job'da), **PH03** (`PhysicsBridge::shift_origin` bekleyen komutları taşımıyor), **PH04** (`physics_bridge.cpp:571` `time_.elapsed`), **PH05**, **PH08**, **AS01/AS02** (asıl kusur `gltf.cpp`'de).
 - Kalan kayıtlar değişmeyen kodda olduğu için `open` kalır; fix sırasında failing test ile ayrıca kanıtlanır.
 
+## Dalga 2 uygulama durumu — 25 Kasım 2026, branch `fix/msr-wave2`
+
+Doğrulama: Windows 11, MSVC 19.51 Debug, RTX 3060. Golden dışı 62 test geçiyor; golden'da master ile aynı 7 `golden_hw_*` hatası var. Release, sanitizer ve lavapipe golden çalıştırılmadı.
+
+- **fixed, local tests:** G03 ([ADR-0040](../decisions/0040-dropped-command-list-layout-fixups.md)), PH01, PH02, PH03, PH06, AG01, AG10, AS08, AS09, AS10, REN01.
+- **implemented, no fault test:** G10 (cihaz limitine bağlı), PH04, PH08, AS06 (GPU upload hatası), AS07 (zamanlama yarışı), REN04 (allocation hatası), REN09, REN10 (shader; golden değişmedi).
+- **Sözleşme değişikliği:** başarısız cook artık son iyi çıktıyı siler yerine korur ve hata raporlar (AS09). `terrain_test` bu sözleşmeye güncellendi. Cook cache sürümü 2 oldu; ilk cook her şeyi yeniden üretir.
+- **Bilinen artık risk:** AS06'da yerinde güncellenen (`update_*`) kaynaklar başarısız reload'da yeni içerikle kalabilir; yalnız yeni yaratılanlar geri alınır. AG10'da Script'in aynı kare içinde kaldırılıp geri eklenmesi yeni instance sayılmaz. REN01'de aynı kare içinde submit'ten önce iki view kaydedilirse ikisi aynı history'yi görür.
+
+Hâlâ açık ve ADR gerektiren: **C05** (Json 64-bit tamsayı), **AS13** (shader int ABI), **PH05** (aynı entity'ye paralel noncommutative komut sırası), **AG09** (transactional Luau reload).
+
 ## Dalga 1 uygulama durumu — 25 Kasım 2026, branch `fix/msr-revalidation`
 
 Doğrulama: Windows 11, MSVC 19.51 Debug, RTX 3060. `ctest --test-dir build/debug -j4`: 91 testten 84'ü geçti. Kalan 7 `golden_hw_*` hatası master'da (6a46d34) da aynen düşüyor; bu dalgadan bağımsız. Release (`ASTRAL_WARNINGS_AS_ERRORS=ON`), TSan, ASan/UBSan ve Linux/lavapipe golden **çalıştırılmadı**.
@@ -204,7 +215,7 @@ Aşağıdaki 137 satır yedi rapordan ID bazında çıkarıldı. Her kayıt yaln
 | A01 | defect | P1 | S1.1 | implemented, no fault test | [Başarısız GPU submit başarı gibi yorumlanıyor](master-code-audit-2026-11-25.md) |
 | G01 | defect | P1 | S1.1 | fixed, local tests | [CommandList move assignment nesne yaşam süresini ihlal ediyor](gpu-rhi-deep-audit-2026-11-25.md) |
 | G02 | defect | P1 | S1.1 | fixed, local tests | [Birden fazla kayıtlı command list için retirement ticket yetersiz](gpu-rhi-deep-audit-2026-11-25.md) |
-| G03 | defect | P1 | S1.1 | open | [Önceki kayıt iptal edilince sonraki listelerin layout varsayımları geçersiz kalıyor](gpu-rhi-deep-audit-2026-11-25.md) |
+| G03 | defect | P1 | S1.1 | fixed, local tests | [Önceki kayıt iptal edilince sonraki listelerin layout varsayımları geçersiz kalıyor](gpu-rhi-deep-audit-2026-11-25.md) |
 | G07 | defect | P1 | S1.1 | implemented, no fault test | [Swapchain recreate failure eski retired swapchain'i yeniden kullanabiliyor](gpu-rhi-deep-audit-2026-11-25.md) |
 | G08 | defect | P1 | S1.1 | implemented, no fault test | [Image view allocation başarısızlığı valid texture olarak yayımlanıyor](gpu-rhi-deep-audit-2026-11-25.md) |
 | G09 | defect | P1 | S1.1 | fixed, local tests | [Yanlış Device'a CommandList submit ownership kontrolü yok](gpu-rhi-deep-audit-2026-11-25.md) |
@@ -213,18 +224,18 @@ Aşağıdaki 137 satır yedi rapordan ID bazında çıkarıldı. Her kayıt yaln
 | G04 | defect | P1 | S1.2 | implemented, no fault test | [Acceleration structure creation hata yolunda backing buffer double destroy](gpu-rhi-deep-audit-2026-11-25.md) |
 | G05 | defect | P1 | S1.2 | fixed, local tests | [BC5/BC7 command copy buffer kapasitesi yanlış kontrol ediliyor](gpu-rhi-deep-audit-2026-11-25.md) |
 | G06 | defect | P2 | S1.2 | fixed, local tests | [Timestamp query range toplama taşması](gpu-rhi-deep-audit-2026-11-25.md) |
-| G10 | defect | P2 | S1.2 | open | [Bindless kapasitesi per-stage ve toplam descriptor limitlerine göre hesaplanmıyor](gpu-rhi-deep-audit-2026-11-25.md) |
+| G10 | defect | P2 | S1.2 | implemented, no fault test | [Bindless kapasitesi per-stage ve toplam descriptor limitlerine göre hesaplanmıyor](gpu-rhi-deep-audit-2026-11-25.md) |
 | GR01 | risk | P1 | S1.2 | open | [Shader stage synchronization:](gpu-rhi-deep-audit-2026-11-25.md) |
 | GR02 | risk | P2 | S1.2 | open | [Native command validation:](gpu-rhi-deep-audit-2026-11-25.md) |
 | GR03 | risk | P2 | S1.2 | open | [Capability feature drift:](gpu-rhi-deep-audit-2026-11-25.md) |
 | GR05 | risk | P2 | S1.2 | open | [BLAS/TLAS reference ownership:](gpu-rhi-deep-audit-2026-11-25.md) |
 | GP02 | proposal | P3 | S1.2 | open | [Blocking upload/readback](gpu-rhi-deep-audit-2026-11-25.md) |
 | GP03 | proposal | P3 | S1.2 | open | [(modules/gpu/src/pipelines.cpp:73–94)(https://github.com/inkbytefo/AstralEngine/blob/b860c8b2dffda9081132d82919fc087f536488d2/modules/gpu/src/pipeline](gpu-rhi-deep-audit-2026-11-25.md) |
-| REN01 | defect | P1 | S1.3 | open | [Temporal history submit öncesi ilerletiliyor](rendering-deep-audit-2026-11-25.md) |
+| REN01 | defect | P1 | S1.3 | fixed, local tests | [Temporal history submit öncesi ilerletiliyor](rendering-deep-audit-2026-11-25.md) |
 | REN02 | defect | P1 | S1.3 | implemented, no fault test | [RenderGraph başarısız transient allocation'ı cache'liyor](rendering-deep-audit-2026-11-25.md) |
 | REN03 | defect | P1 | S1.3 | fixed, local tests | [GrowBuffer başarısız büyümede eski buffer'ı kaybediyor ve retry yapmıyor](rendering-deep-audit-2026-11-25.md) |
-| REN04 | defect | P1 | S1.3 | open | [History resize başarısızlığında geçersiz texture'lar kalıcı oluyor](rendering-deep-audit-2026-11-25.md) |
-| REN09 | defect | P2 | S1.3 | open | [GPU timing ring, submit edilmeyen kareyi pending kabul ediyor](rendering-deep-audit-2026-11-25.md) |
+| REN04 | defect | P1 | S1.3 | implemented, no fault test | [History resize başarısızlığında geçersiz texture'lar kalıcı oluyor](rendering-deep-audit-2026-11-25.md) |
+| REN09 | defect | P2 | S1.3 | implemented, no fault test | [GPU timing ring, submit edilmeyen kareyi pending kabul ediyor](rendering-deep-audit-2026-11-25.md) |
 | RR01 | risk | P2 | S1.3 | open | [Debug view değişimi](rendering-deep-audit-2026-11-25.md) |
 | RR03 | risk | P2 | S1.3 | open | [ReSTIR history identity](rendering-deep-audit-2026-11-25.md) |
 | RR04 | risk | P1 | S1.3 | open | [FrameRing pending kayıt](rendering-deep-audit-2026-11-25.md) |
@@ -233,7 +244,7 @@ Aşağıdaki 137 satır yedi rapordan ID bazında çıkarıldı. Her kayıt yaln
 | RP02 | proposal | P3 | S1.3 | open | [Per-view RenderHistory ve quality budget](rendering-deep-audit-2026-11-25.md) |
 | REN06 | defect | P2 | S1.4 | fixed, local tests | [Odd-size mip üretiminde kenar texel'leri kayboluyor](rendering-deep-audit-2026-11-25.md) |
 | REN07 | defect | P1 | S1.4 | fixed, local tests | [À-trous iteration sınırı ve shift UB](rendering-deep-audit-2026-11-25.md) |
-| REN10 | defect | P2 | S1.4 | open | [SDF depth merge particle collision normal seçimini bozuyor](rendering-deep-audit-2026-11-25.md) |
+| REN10 | defect | P2 | S1.4 | implemented, no fault test | [SDF depth merge particle collision normal seçimini bozuyor](rendering-deep-audit-2026-11-25.md) |
 | RR02 | risk | P1 | S1.4 | open | [DDGI grid limits](rendering-deep-audit-2026-11-25.md) |
 | RR05 | risk | P2 | S1.4 | open | [M14 particle compositing](rendering-deep-audit-2026-11-25.md) |
 | RP03 | proposal | P3 | S1.4 | open | [Görsel ve fiziksel doğrulama programı](rendering-deep-audit-2026-11-25.md) |
@@ -268,14 +279,14 @@ Aşağıdaki 137 satır yedi rapordan ID bazında çıkarıldı. Her kayıt yaln
 | ASR02 | risk | P1 | S4.2 | open | [Input/output budgets:](assets-shader-deep-audit-2026-11-25.md) |
 | ASR05 | risk | P2 | S4.2 | open | [Shader compile limits / diagnostic provenance:](assets-shader-deep-audit-2026-11-25.md) |
 | PHR03 | risk | P1 | S4.2 | open | [Cooked ASSH integrity](physics-jolt-deep-audit-2026-11-25.md) |
-| AS06 | defect | P1 | S4.3 | open | [GPU upload başarısız model reload'da son çalışan sürüm korunmuyor](assets-shader-deep-audit-2026-11-25.md) |
-| AS07 | defect | P2 | S4.3 | open | [Async model hot reload yükleme sırasında gerçekleşen değişikliği kaçırabiliyor](assets-shader-deep-audit-2026-11-25.md) |
+| AS06 | defect | P1 | S4.3 | implemented, no fault test | [GPU upload başarısız model reload'da son çalışan sürüm korunmuyor](assets-shader-deep-audit-2026-11-25.md) |
+| AS07 | defect | P2 | S4.3 | implemented, no fault test | [Async model hot reload yükleme sırasında gerçekleşen değişikliği kaçırabiliyor](assets-shader-deep-audit-2026-11-25.md) |
 | AS12 | defect | P1 | S4.3 | already-fixed (6a46d34) | [Shader hot reload eski pipeline'ı material rebuild başarılı olmadan yok ediyor](assets-shader-deep-audit-2026-11-25.md) |
 | ASR06 | risk | P2 | S4.3 | open | [Imported shader cache and sampler parity:](assets-shader-deep-audit-2026-11-25.md) |
 | ASP02 | proposal | P3 | S4.3 | open | [Transactional Asset Publishing](assets-shader-deep-audit-2026-11-25.md) |
-| AS08 | defect | P1 | S4.4 | open | [Cooker embedded dependency ile bağımsız runtime dependency'yi ayırmıyor](assets-shader-deep-audit-2026-11-25.md) |
-| AS09 | defect | P1 | S4.4 | open | [Failed cook çıktıları stale cleanup'ta yanlışlıkla siliyor](assets-shader-deep-audit-2026-11-25.md) |
-| AS10 | defect | P1 | S4.4 | open | [Incremental world cook eksik generated cell'leri kontrol etmiyor](assets-shader-deep-audit-2026-11-25.md) |
+| AS08 | defect | P1 | S4.4 | fixed, local tests | [Cooker embedded dependency ile bağımsız runtime dependency'yi ayırmıyor](assets-shader-deep-audit-2026-11-25.md) |
+| AS09 | defect | P1 | S4.4 | fixed, local tests | [Failed cook çıktıları stale cleanup'ta yanlışlıkla siliyor](assets-shader-deep-audit-2026-11-25.md) |
+| AS10 | defect | P1 | S4.4 | fixed, local tests | [Incremental world cook eksik generated cell'leri kontrol etmiyor](assets-shader-deep-audit-2026-11-25.md) |
 | ASR01 | risk | P1 | S4.4 | open | [Asset path identity:](assets-shader-deep-audit-2026-11-25.md) |
 | ASR03 | risk | P2 | S4.4 | open | [Cook snapshot/cache identity:](assets-shader-deep-audit-2026-11-25.md) |
 | ASP01 | proposal | P3 | S4.4 | open | [Asset Registry + typed dependency graph and cook manifest](assets-shader-deep-audit-2026-11-25.md) |
@@ -291,14 +302,14 @@ Aşağıdaki 137 satır yedi rapordan ID bazında çıkarıldı. Her kayıt yaln
 | CP01 | proposal | P3 | S5.1 | open | [Query plan: `find_query`](core-ecs-deep-audit-2026-11-25.md) |
 | CP02 | proposal | P3 | S5.1 | open | [Transform hierarchy](core-ecs-deep-audit-2026-11-25.md) |
 | CP03 | proposal | P3 | S5.1 | open | [`JobSystem`](core-ecs-deep-audit-2026-11-25.md) |
-| PH01 | defect | P1 | S5.2 | open | [Contact End kimliği karakterlerde ve silinmiş gövdelerde kayboluyor](physics-jolt-deep-audit-2026-11-25.md) |
-| PH02 | defect | P1 | S5.2 | open | [Overlap queries karakterleri atlıyor](physics-jolt-deep-audit-2026-11-25.md) |
-| PH03 | defect | P1 | S5.2 | open | [Floating origin bekleyen teleport komutlarını yeni koordinat sistemine taşımıyor](physics-jolt-deep-audit-2026-11-25.md) |
-| PH04 | defect | P1 | S5.2 | open | [Zaman bağımlı fizik alanları fixed-step yerine render frame zamanını kullanıyor](physics-jolt-deep-audit-2026-11-25.md) |
+| PH01 | defect | P1 | S5.2 | fixed, local tests | [Contact End kimliği karakterlerde ve silinmiş gövdelerde kayboluyor](physics-jolt-deep-audit-2026-11-25.md) |
+| PH02 | defect | P1 | S5.2 | fixed, local tests | [Overlap queries karakterleri atlıyor](physics-jolt-deep-audit-2026-11-25.md) |
+| PH03 | defect | P1 | S5.2 | fixed, local tests | [Floating origin bekleyen teleport komutlarını yeni koordinat sistemine taşımıyor](physics-jolt-deep-audit-2026-11-25.md) |
+| PH04 | defect | P1 | S5.2 | implemented, no fault test | [Zaman bağımlı fizik alanları fixed-step yerine render frame zamanını kullanıyor](physics-jolt-deep-audit-2026-11-25.md) |
 | PH05 | defect | P1 | S5.2 | open | [Aynı entity'nin paralel noncommutative komutları deterministik sıralanmıyor](physics-jolt-deep-audit-2026-11-25.md) |
-| PH06 | defect | P2 | S5.2 | open | [Convex hull ön doğrulaması bazı geçerli nokta dizilerini reddediyor](physics-jolt-deep-audit-2026-11-25.md) |
+| PH06 | defect | P2 | S5.2 | fixed, local tests | [Convex hull ön doğrulaması bazı geçerli nokta dizilerini reddediyor](physics-jolt-deep-audit-2026-11-25.md) |
 | PH07 | defect | P2 | S5.2 | fixed, local tests | [Field noise sayısal dönüşüm sınırları korunmuyor](physics-jolt-deep-audit-2026-11-25.md) |
-| PH08 | defect | P2 | S5.2 | open | [Değişmemiş joint motor ayarları her fixed step'te gövdeyi yeniden uyandırıyor](physics-jolt-deep-audit-2026-11-25.md) |
+| PH08 | defect | P2 | S5.2 | implemented, no fault test | [Değişmemiş joint motor ayarları her fixed step'te gövdeyi yeniden uyandırıyor](physics-jolt-deep-audit-2026-11-25.md) |
 | PH09 | defect | P2 | S5.2 | fixed, local tests | [CharacterDesc toplam kapsül yüksekliği sözleşmesi bozulabiliyor](physics-jolt-deep-audit-2026-11-25.md) |
 | PHR01 | risk | P1 | S5.2 | open | [Contact subshape ve sleep semantics](physics-jolt-deep-audit-2026-11-25.md) |
 | PHR02 | risk | P1 | S5.2 | open | [FixedUpdate ECS snapshot](physics-jolt-deep-audit-2026-11-25.md) |
@@ -310,7 +321,7 @@ Aşağıdaki 137 satır yedi rapordan ID bazında çıkarıldı. Her kayıt yaln
 | PHP03 | proposal | P3 | S5.2 | open | [Physics profiling/verification suite](physics-jolt-deep-audit-2026-11-25.md) |
 | A09 | defect | P1 | S5.3 | fixed, local tests | [Başarısız cell load, streaming tarafından Attached kabul ediliyor](master-code-audit-2026-11-25.md) |
 | A10 | defect | P1 | S5.3 | fixed, local tests | [Entity silinince looping sesin ownership'i kayboluyor](master-code-audit-2026-11-25.md) |
-| AG01 | defect | P1 | S5.3 | open | [Save load doğrulamadan önce mevcut entity'leri yok ediyor](app-gameplay-deep-audit-2026-11-25.md) |
+| AG01 | defect | P1 | S5.3 | fixed, local tests | [Save load doğrulamadan önce mevcut entity'leri yok ediyor](app-gameplay-deep-audit-2026-11-25.md) |
 | AG02 | defect | P1 | S5.3 | already-fixed (6a46d34) | [Save slot üzerine doğrudan truncate ile yazılıyor](app-gameplay-deep-audit-2026-11-25.md) |
 | AG13 | defect | P1 | S5.3 | already-fixed (6a46d34) | [Başarısız world open eski dünyayı önce kapatıyor](app-gameplay-deep-audit-2026-11-25.md) |
 | AGP02 | proposal | P3 | S5.3 | open | [Transactional Game State: validated save schema with version migrations, atomic storage/recovery, prepared scene/world transitions, entity reference r](app-gameplay-deep-audit-2026-11-25.md) |
@@ -327,7 +338,7 @@ Aşağıdaki 137 satır yedi rapordan ID bazında çıkarıldı. Her kayıt yaln
 | AG07 | defect | P1 | S5.5 | fixed, local tests | [Luau runtime'da listener/system kaydı aktif iterasyonu geçersizleştirebilir](app-gameplay-deep-audit-2026-11-25.md) |
 | AG08 | defect | P2 | S5.5 | implemented, no fault test | [Hatalı registration Lua registry ref'lerini sahiplik kaydından önce bırakıyor](app-gameplay-deep-audit-2026-11-25.md) |
 | AG09 | defect | P1 | S5.5 | open | [Failed script reload live world ve registry yan etkilerini geri almıyor](app-gameplay-deep-audit-2026-11-25.md) |
-| AG10 | defect | P2 | S5.5 | open | [Behaviour on_start durumu script path/generation yerine yalnız entity ile takip ediliyor](app-gameplay-deep-audit-2026-11-25.md) |
+| AG10 | defect | P2 | S5.5 | fixed, local tests | [Behaviour on_start durumu script path/generation yerine yalnız entity ile takip ediliyor](app-gameplay-deep-audit-2026-11-25.md) |
 | AG11 | defect | P2 | S5.5 | fixed, local tests | [Aynı timer batch'inde module failure sonrası diğer callback'ler çalışmaya devam edebilir](app-gameplay-deep-audit-2026-11-25.md) |
 | AG12 | defect | P1 | S5.5 | fixed, local tests | [Luau cyclic table serialization için recursion guard yok](app-gameplay-deep-audit-2026-11-25.md) |
 | AGR04 | risk | P2 | S5.5 | open | [Timer budgets/lifecycle:](app-gameplay-deep-audit-2026-11-25.md) |

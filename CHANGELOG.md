@@ -4,6 +4,13 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+### Fixed (MSR Dalga 2)
+- `gpu`: bırakılan listenin layout geçişi, ona dayanan sonraki listeler için fix-up barrier ile çalışır (G03, ADR-0040); bindless kapasitesi stage başına limitlere bağlı (G10).
+- `physics`: karakter ve silinmiş gövdelerin contact End kimliği (PH01), overlap'te karakterler (PH02), origin kaymasında bekleyen teleport'lar (PH03), field kuvvetlerinde simülasyon zamanı (PH04), sıradan bağımsız hull hacim kontrolü (PH06), değişmeyen motor hedefinde gövde uyandırmama (PH08).
+- `script`: `astral.load` önce boş dünyada doğrular (AG01); behaviour `on_start` entity + script yoluna göre (AG10).
+- `assets`: başarısız reload son iyi modeli korur (AS06), yükleme sırasında yapılan düzenleme kaçmaz (AS07), dokümanların adını verdiği gömülü dosyalar da paketlenir (AS08), başarısız cook son iyi çıktıyı korur (AS09), eksik world cell çıktısı yeniden cook edilir (AS10). **Davranış:** cook cache v2.
+- `render`: temporal history submit'te ilerler (REN01), başarısız history allocation yeniden denenir (REN04), GPU timing yalnız submit edilen karelerden (REN09), partikül çarpışmasında birleşik derinlikte SDF normali (REN10).
+
 ### Fixed (MSR Dalga 1 — docs/status/master-stabilization-roadmap.md)
 - `gpu`: başarısız submit sonrası present (A01), `CommandList` move-assign yaşam süresi (G01), açık listelerin kullandığı kaynakların erken serbest bırakılması (G02), AS backing buffer double destroy (G04), BC kopya boyut kontrolü (G05), timestamp aralık taşması (G06), başarısız swapchain yeniden oluşturma (G07), image view/semaphore hataları (G08), başka cihazın listesini submit (G09).
 - `assets`: glTF index/aralık/stride kontrolleri, bozuk URI escape, node döngüsü ve çift ebeveyn, ayna matris işareti; AMDL index taşması ve dosyaya sığmayan kayıt sayıları (A11, A12, AS01–AS05).
