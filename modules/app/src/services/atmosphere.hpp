@@ -31,6 +31,8 @@ private:
     };
     std::optional<Authored> authored_;
     bool overrides_sky_ = false;
+    bool drove_sun_ = true; ///< What the last active Atmosphere drove: only that is restored on disable.
+    bool drove_sky_ = true;
 };
 
 } // namespace astral
