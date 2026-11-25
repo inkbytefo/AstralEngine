@@ -133,12 +133,9 @@ Vec3 check_vec3(lua_State* L, int index) {
 
 void push_vec3(lua_State* L, Vec3 v) { lua_pushvector(L, v.x, v.y, v.z); }
 
-/// options.layers: a mask (number) or a list of layer indices {0, 3}; options.ignore: an entity.
-void read_query_options(lua_State* L, int index, std::uint32_t& layers, Entity& ignore) {
-    layers = 0xFFFFFFFFu;
-    ignore = {};
-    if (lua_isnoneornil(L, index)) return;
-    luaL_checktype(L, index, LUA_TTABLE);
+/// options.layers (table at `index`): a mask (number) or a list of layer indices {0, 3}.
+std::uint32_t read_layers(lua_State* L, int index) {
+    std::uint32_t layers = 0xFFFFFFFFu;
     lua_getfield(L, index, "layers");
     if (lua_type(L, -1) == LUA_TNUMBER) {
         layers = static_cast<std::uint32_t>(lua_tonumber(L, -1));
@@ -156,9 +153,56 @@ void read_query_options(lua_State* L, int index, std::uint32_t& layers, Entity& 
         luaL_error(L, "options.layers must be a number mask or a list of layer numbers");
     }
     lua_pop(L, 1);
+    return layers;
+}
+
+/// options.layers (see read_layers); options.ignore: an entity.
+void read_query_options(lua_State* L, int index, std::uint32_t& layers, Entity& ignore) {
+    layers = 0xFFFFFFFFu;
+    ignore = {};
+    if (lua_isnoneornil(L, index)) return;
+    luaL_checktype(L, index, LUA_TTABLE);
+    layers = read_layers(L, index);
     lua_getfield(L, index, "ignore");
     if (!lua_isnil(L, -1) && !read_entity(L, -1, ignore)) luaL_error(L, "options.ignore must be an entity");
     lua_pop(L, 1);
+}
+
+constexpr int max_ignored_entities = 64;
+
+/// Full query options for raycast / spherecast (ADR-0045): options.ignore is an entity or a list of
+/// entities (up to 64); options.sensors = true also hits sensor bodies. `storage` backs filter.ignore.
+ScriptQueryFilter read_query_filter(lua_State* L, int index, std::vector<Entity>& storage) {
+    ScriptQueryFilter filter;
+    storage.clear();
+    if (lua_isnoneornil(L, index)) return filter;
+    luaL_checktype(L, index, LUA_TTABLE);
+    filter.layers = read_layers(L, index);
+    lua_getfield(L, index, "ignore");
+    if (lua_istable(L, -1)) {
+        const int n = lua_objlen(L, -1);
+        if (n > max_ignored_entities) luaL_error(L, "options.ignore lists at most %d entities", max_ignored_entities);
+        for (int i = 1; i <= n; ++i) {
+            lua_rawgeti(L, -1, i);
+            Entity e{};
+            if (!read_entity(L, -1, e) || !e.valid()) luaL_error(L, "options.ignore[%d] must be an entity", i);
+            storage.push_back(e);
+            lua_pop(L, 1);
+        }
+    } else {
+        Entity e{};
+        if (!read_entity(L, -1, e)) luaL_error(L, "options.ignore must be an entity or a list of entities");
+        if (e.valid()) storage.push_back(e);
+    }
+    lua_pop(L, 1);
+    lua_getfield(L, index, "sensors");
+    if (!lua_isnil(L, -1)) {
+        if (!lua_isboolean(L, -1)) luaL_error(L, "options.sensors must be a boolean");
+        filter.sensors = lua_toboolean(L, -1) != 0;
+    }
+    lua_pop(L, 1);
+    filter.ignore = storage;
+    return filter;
 }
 
 void push_hit(lua_State* L, const ScriptHit& hit) {
@@ -177,10 +221,9 @@ void push_hit(lua_State* L, const ScriptHit& hit) {
 
 int physics_raycast(lua_State* L) {
     ScriptPhysics& p = require_physics(L, Impl::of(L));
-    std::uint32_t layers;
-    Entity ignore;
-    read_query_options(L, 4, layers, ignore);
-    const auto hit = p.raycast(check_vec3(L, 1), check_vec3(L, 2), static_cast<float>(luaL_checknumber(L, 3)), layers, ignore);
+    std::vector<Entity> ignored;
+    const ScriptQueryFilter filter = read_query_filter(L, 4, ignored);
+    const auto hit = p.raycast_filtered(check_vec3(L, 1), check_vec3(L, 2), static_cast<float>(luaL_checknumber(L, 3)), filter);
     if (hit) push_hit(L, *hit);
     else lua_pushnil(L);
     return 1;
@@ -188,10 +231,9 @@ int physics_raycast(lua_State* L) {
 
 int physics_spherecast(lua_State* L) {
     ScriptPhysics& p = require_physics(L, Impl::of(L));
-    std::uint32_t layers;
-    Entity ignore;
-    read_query_options(L, 4, layers, ignore);
-    const auto hit = p.spherecast(check_vec3(L, 1), static_cast<float>(luaL_checknumber(L, 2)), check_vec3(L, 3), layers, ignore);
+    std::vector<Entity> ignored;
+    const ScriptQueryFilter filter = read_query_filter(L, 4, ignored);
+    const auto hit = p.spherecast_filtered(check_vec3(L, 1), static_cast<float>(luaL_checknumber(L, 2)), check_vec3(L, 3), filter);
     if (hit) push_hit(L, *hit);
     else lua_pushnil(L);
     return 1;
@@ -240,6 +282,30 @@ int physics_set_velocity(lua_State* L) {
     forbid_while_loading(L, "astral.physics.set_velocity");
     require_physics(L, Impl::of(L)).set_velocity(check_entity(L, 1), check_vec3(L, 2));
     return 0;
+}
+int physics_force_at(lua_State* L) {
+    forbid_while_loading(L, "astral.physics.force_at");
+    require_physics(L, Impl::of(L)).force_at(check_entity(L, 1), check_vec3(L, 2), check_vec3(L, 3));
+    return 0;
+}
+int physics_torque(lua_State* L) {
+    forbid_while_loading(L, "astral.physics.torque");
+    require_physics(L, Impl::of(L)).torque(check_entity(L, 1), check_vec3(L, 2));
+    return 0;
+}
+int physics_angular_impulse(lua_State* L) {
+    forbid_while_loading(L, "astral.physics.angular_impulse");
+    require_physics(L, Impl::of(L)).angular_impulse(check_entity(L, 1), check_vec3(L, 2));
+    return 0;
+}
+int physics_set_angular_velocity(lua_State* L) {
+    forbid_while_loading(L, "astral.physics.set_angular_velocity");
+    require_physics(L, Impl::of(L)).set_angular_velocity(check_entity(L, 1), check_vec3(L, 2));
+    return 0;
+}
+int physics_angular_velocity(lua_State* L) {
+    push_vec3(L, require_physics(L, Impl::of(L)).angular_velocity(check_entity(L, 1)));
+    return 1;
 }
 int physics_velocity(lua_State* L) {
     push_vec3(L, require_physics(L, Impl::of(L)).velocity(check_entity(L, 1)));
@@ -409,6 +475,11 @@ void register_service_bindings(lua_State* L) {
     set_function(L, "force", physics_force);
     set_function(L, "set_velocity", physics_set_velocity);
     set_function(L, "velocity", physics_velocity);
+    set_function(L, "force_at", physics_force_at);
+    set_function(L, "torque", physics_torque);
+    set_function(L, "angular_impulse", physics_angular_impulse);
+    set_function(L, "set_angular_velocity", physics_set_angular_velocity);
+    set_function(L, "angular_velocity", physics_angular_velocity);
     set_function(L, "move_character", physics_move_character);
     set_function(L, "character_state", physics_character_state);
     set_function(L, "teleport", physics_teleport);

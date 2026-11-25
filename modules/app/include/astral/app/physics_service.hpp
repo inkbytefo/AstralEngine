@@ -20,7 +20,8 @@ struct PhysicsQueryState {
 };
 
 /// Narrow physics command, query, and contact interface bound to an App's Context (ADR-0034).
-/// - Commands (add_impulse, add_force, set_linear_velocity, set_angular_velocity) are thread-safe,
+/// - Commands (add_impulse, add_force, add_force_at, add_torque, add_angular_impulse, set_linear_velocity,
+///   set_angular_velocity, ...) are thread-safe,
 ///   queued deterministically, and applied at the fixed-step boundary after world.apply_commands()
 ///   and body synchronization, immediately before PhysicsWorld::step().
 /// - Queries always read from the last completed physics step (`query_state()`).
@@ -49,6 +50,8 @@ public:
     [[nodiscard]] virtual std::vector<OverlapHit> overlap_box(Vec3 center, Vec3 half_extents, Quat rotation = {},
                                                               QueryFilter filter = {}) const = 0;
     [[nodiscard]] virtual Vec3 linear_velocity(Entity body) const = 0;
+    /// World-space angular velocity (rad/s) from the last completed step; zero for a missing body.
+    [[nodiscard]] virtual Vec3 angular_velocity(Entity body) const = 0;
 
     // Queued deterministic commands (safe from parallel systems and scripts) ----------------------
     /// `order_key == 0` orders deterministically by entity (index, generation). Equal keys apply in
@@ -57,6 +60,12 @@ public:
     /// queues competing commands from its own parallel jobs must give them explicit order keys.
     virtual void add_impulse(Entity body, Vec3 impulse, std::uint64_t order_key = 0) = 0;
     virtual void add_force(Entity body, Vec3 force, std::uint64_t order_key = 0) = 0;
+    /// Force at a world-space point for the next step: pushes and, off the centre of mass, turns the body.
+    virtual void add_force_at(Entity body, Vec3 force, Vec3 world_point, std::uint64_t order_key = 0) = 0;
+    /// Torque (N·m, world space) for the next step.
+    virtual void add_torque(Entity body, Vec3 torque, std::uint64_t order_key = 0) = 0;
+    /// Instant change of spin (N·m·s, world space).
+    virtual void add_angular_impulse(Entity body, Vec3 impulse, std::uint64_t order_key = 0) = 0;
     virtual void set_linear_velocity(Entity body, Vec3 velocity, std::uint64_t order_key = 0) = 0;
     virtual void set_angular_velocity(Entity body, Vec3 velocity, std::uint64_t order_key = 0) = 0;
     virtual void set_body_transform(Entity body, Vec3 position, Quat rotation, std::uint64_t order_key = 0) = 0;

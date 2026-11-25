@@ -169,6 +169,8 @@ struct App::Impl {
     JobSystem jobs;
     World world;
     Input input;      ///< What the window reports.
+    std::vector<InputScriptEvent> input_script; ///< AppDesc::input_script, sorted by frame.
+    std::size_t input_script_next = 0;
     Input game_input; ///< What the game sees: input minus what the debug UI took.
     Time time;
 
@@ -188,6 +190,15 @@ struct App::Impl {
     std::unique_ptr<WorldBridge> world_bridge;
     std::unique_ptr<ScriptBridge> script_bridge;
     std::unique_ptr<FrameLoop> frame_loop;
+
+    /// Before each frame: a new input frame when no window polls, then this frame's scripted keys.
+    void feed_input_script() {
+        if (!graphics.window()) input.begin_frame();
+        while (input_script_next < input_script.size() && input_script[input_script_next].frame <= time.frame) {
+            const InputScriptEvent& e = input_script[input_script_next++];
+            if (e.frame == time.frame) input.set_key(e.key, e.down);
+        }
+    }
     std::unique_ptr<ContextServices> services;
 
     explicit Impl(unsigned worker_threads) : jobs(worker_threads) {}
@@ -255,6 +266,9 @@ App::App(const AppDesc& raw_desc) : impl_(std::make_unique<Impl>(raw_desc.worker
     m.context.reset(new Context(m.world, m.game_input, m.time, m.log, m.jobs, *this));
     register_app_types(*m.context);
     m.time.fixed_delta = 1.0f / desc.physics_rate;
+    m.input_script.assign(desc.input_script.begin(), desc.input_script.end());
+    std::stable_sort(m.input_script.begin(), m.input_script.end(),
+                     [](const InputScriptEvent& a, const InputScriptEvent& b) { return a.frame < b.frame; });
 
     m.graphics.init(desc, m.log);
     m.context->window = m.graphics.window();
@@ -317,6 +331,7 @@ void App::run_frames(Game& game, std::uint32_t frames) {
     if (!m.frame_loop->start(game)) return;
     for (std::uint32_t i = 0; i < frames && !m.context->quit_requested(); ++i) {
         if (m.graphics.window() && !m.graphics.window()->poll(m.input)) break;
+        m.feed_input_script();
         m.frame_loop->run_frame(game, m.frame_loop->next_delta());
     }
     game.on_shutdown(*m.context);
@@ -332,6 +347,7 @@ int App::run(Game& game) {
             std::this_thread::sleep_for(std::chrono::milliseconds(16)); // don't spin while hidden
             continue;
         }
+        m.feed_input_script();
         m.frame_loop->run_frame(game, m.frame_loop->next_delta());
     }
     game.on_shutdown(*m.context);

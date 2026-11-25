@@ -88,7 +88,7 @@ constexpr std::uint64_t stable_hash(std::string_view text) noexcept {
 
 } // namespace astral
 
-// --- macro machinery: apply ASTRAL_DETAIL_FIELD to up to 32 field names -----------------------
+// --- macro machinery: apply ASTRAL_DETAIL_FIELD to up to 32 field names (counts up to 64) ------
 #define ASTRAL_DETAIL_EXPAND(x) x
 #define ASTRAL_DETAIL_FIELD(T, f) ::astral::Field<T, decltype(T::f)>{#f, &T::f}
 #define ASTRAL_DETAIL_F1(T, a) ASTRAL_DETAIL_FIELD(T, a)
@@ -123,23 +123,39 @@ constexpr std::uint64_t stable_hash(std::string_view text) noexcept {
 #define ASTRAL_DETAIL_F30(T, a, ...) ASTRAL_DETAIL_FIELD(T, a), ASTRAL_DETAIL_EXPAND(ASTRAL_DETAIL_F29(T, __VA_ARGS__))
 #define ASTRAL_DETAIL_F31(T, a, ...) ASTRAL_DETAIL_FIELD(T, a), ASTRAL_DETAIL_EXPAND(ASTRAL_DETAIL_F30(T, __VA_ARGS__))
 #define ASTRAL_DETAIL_F32(T, a, ...) ASTRAL_DETAIL_FIELD(T, a), ASTRAL_DETAIL_EXPAND(ASTRAL_DETAIL_F31(T, __VA_ARGS__))
-#define ASTRAL_DETAIL_COUNT(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19,   \
-                            _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, N, ...)                \
+#define ASTRAL_DETAIL_COUNT64(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, \
+                              _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, \
+                              _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, \
+                              _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, N, ...) \
     N
-#define ASTRAL_DETAIL_NARGS(...)                                                                                     \
-    ASTRAL_DETAIL_EXPAND(ASTRAL_DETAIL_COUNT(__VA_ARGS__, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19,   \
-                                             18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1))
+/// Number of arguments, 1..64.
+#define ASTRAL_DETAIL_NARGS(...) \
+    ASTRAL_DETAIL_EXPAND(ASTRAL_DETAIL_COUNT64(__VA_ARGS__, 64, 63, 62, 61, 60, 59, 58, 57, 56, 55, 54, 53, 52, 51, \
+        50, 49, 48, 47, 46, 45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33, 32, 31, 30, 29, 28, 27, 26, 25, 24, \
+        23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1))
+/// Field-list arity: 1..32, or TOO_MANY (33..64), which expands to no fields so that only the
+/// static_assert in ASTRAL_REFLECT reports the error.
+#define ASTRAL_DETAIL_ARITY(...) \
+    ASTRAL_DETAIL_EXPAND(ASTRAL_DETAIL_COUNT64(__VA_ARGS__, TOO_MANY, TOO_MANY, TOO_MANY, TOO_MANY, TOO_MANY, \
+        TOO_MANY, TOO_MANY, TOO_MANY, TOO_MANY, TOO_MANY, TOO_MANY, TOO_MANY, TOO_MANY, TOO_MANY, TOO_MANY, \
+        TOO_MANY, TOO_MANY, TOO_MANY, TOO_MANY, TOO_MANY, TOO_MANY, TOO_MANY, TOO_MANY, TOO_MANY, TOO_MANY, \
+        TOO_MANY, TOO_MANY, TOO_MANY, TOO_MANY, TOO_MANY, TOO_MANY, TOO_MANY, 32, 31, 30, 29, 28, 27, 26, 25, 24, \
+        23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1))
+#define ASTRAL_DETAIL_FTOO_MANY(T, ...)
 #define ASTRAL_DETAIL_CAT2(a, b) a##b
 #define ASTRAL_DETAIL_CAT(a, b) ASTRAL_DETAIL_CAT2(a, b)
 #define ASTRAL_DETAIL_FIELDS(T, ...)                                                                                 \
-    ASTRAL_DETAIL_EXPAND(ASTRAL_DETAIL_CAT(ASTRAL_DETAIL_F, ASTRAL_DETAIL_NARGS(__VA_ARGS__))(T, __VA_ARGS__))
+    ASTRAL_DETAIL_EXPAND(ASTRAL_DETAIL_CAT(ASTRAL_DETAIL_F, ASTRAL_DETAIL_ARITY(__VA_ARGS__))(T, __VA_ARGS__))
 
-/// Reflects `Type` with the listed fields (1..32). Use at global namespace scope.
+/// Reflects `Type` with the listed fields (1..32; more is a compile error: split the component,
+/// ADR-0030). Use at global namespace scope.
 #define ASTRAL_REFLECT(Type, ...)                                                                                    \
     template <> struct astral::Reflect<Type> {                                                                       \
         static constexpr bool reflected = true;                                                                      \
         static constexpr std::string_view name = #Type;                                                              \
         static constexpr std::uint64_t id = ::astral::stable_hash(#Type);                                            \
+        static_assert(ASTRAL_DETAIL_NARGS(__VA_ARGS__) <= 32,                                                        \
+                      "ASTRAL_REFLECT supports at most 32 fields; split the component (ADR-0030)");                 \
         static constexpr auto fields() { return std::make_tuple(ASTRAL_DETAIL_FIELDS(Type, __VA_ARGS__)); }          \
     };
 

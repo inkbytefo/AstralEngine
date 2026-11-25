@@ -67,7 +67,7 @@ constexpr ScriptSymbolDesc kScriptSymbols[] = {
 
     // astral.physics
     {"physics", "raycast", "(origin: vector, direction: vector, max_distance: number, options: QueryOptions?) -> Hit?",
-     "`astral.physics.raycast(origin, direction, max, {layers, ignore})`, `.raycast_batch(queries)`, `.spherecast(...)`",
+     "`astral.physics.raycast(origin, direction, max, {layers, ignore, sensors})`, `.raycast_batch(queries)`, `.spherecast(...)`",
      "reads the last completed physics step: `{entity, position, normal, distance, surface}` or nil (`false` on batch miss)"},
     {"physics", "raycast_batch", "(queries: {RayQuery}) -> {Hit | boolean}", "", ""},
     {"physics", "spherecast", "(origin: vector, radius: number, displacement: vector, options: QueryOptions?) -> Hit?", "", ""},
@@ -81,6 +81,13 @@ constexpr ScriptSymbolDesc kScriptSymbols[] = {
     {"physics", "force", "(entity: Entity, force: vector) -> ()", "", ""},
     {"physics", "set_velocity", "(entity: Entity, velocity: vector) -> ()", "", ""},
     {"physics", "velocity", "(entity: Entity) -> vector", "", ""},
+    {"physics", "force_at", "(entity: Entity, force: vector, world_point: vector) -> ()",
+     "`astral.physics.force_at / torque / angular_impulse / set_angular_velocity`, `.angular_velocity(entity)`",
+     "queued like impulse; force_at off the centre of mass also turns the body; angular_velocity in rad/s"},
+    {"physics", "torque", "(entity: Entity, torque: vector) -> ()", "", ""},
+    {"physics", "angular_impulse", "(entity: Entity, impulse: vector) -> ()", "", ""},
+    {"physics", "set_angular_velocity", "(entity: Entity, velocity: vector) -> ()", "", ""},
+    {"physics", "angular_velocity", "(entity: Entity) -> vector", "", ""},
     {"physics", "move_character", "(entity: Entity, velocity: vector, jump: boolean?) -> boolean",
      "`astral.physics.move_character(entity, velocity, jump?)`",
      "sets horizontal velocity in m/s until replaced; a jump request is consumed once at the next fixed step"},
@@ -218,7 +225,7 @@ void write_luau_definitions(std::string& d, const ApiDiscoverySummary& api) {
          "export type Behaviour = {\n"
          "    on_start: ((self: Entity, ctx: Ctx) -> ())?,\n    on_update: ((self: Entity, ctx: Ctx) -> ())?,\n"
          "    on_fixed_update: ((self: Entity, ctx: Ctx) -> ())?,\n}\n\n"
-         "export type QueryOptions = {layers: (number | {number})?, ignore: Entity?}\n"
+         "export type QueryOptions = {layers: (number | {number})?, ignore: (Entity | {Entity})?, sensors: boolean?}\n"
          "export type RayQuery = {origin: vector, direction: vector, max_distance: number?, options: QueryOptions?}\n"
          "export type CharacterState = {velocity: vector, on_ground: boolean}\n"
          "export type Hit = {entity: Entity, position: vector, normal: vector, distance: number, surface: number}\n"

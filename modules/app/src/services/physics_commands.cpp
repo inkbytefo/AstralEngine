@@ -63,6 +63,7 @@ void PhysicsCommandQueue::shift_positions(Vec3 offset) {
     std::scoped_lock lock(mutex_);
     for (PhysicsCommand& cmd : pending_) {
         if (cmd.kind == PhysicsCommandKind::SetBodyTransform) cmd.value = cmd.value - offset;
+        if (cmd.kind == PhysicsCommandKind::ForceAt) cmd.point = cmd.point - offset;
     }
 }
 

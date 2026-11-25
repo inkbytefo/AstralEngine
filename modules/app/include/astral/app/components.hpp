@@ -42,6 +42,7 @@ struct TerrainRef {
 };
 
 /// Opt-in day cycle. The first enabled Atmosphere drives the scene's sun and ambient sky.
+/// The artistic controls (twilight, tints) default to the plain physical model.
 struct Atmosphere {
     float hour = 12.0f;              ///< Local solar time, wrapped to [0, 24).
     float hours_per_second = 0.0f;  ///< Zero keeps the authored time fixed.
@@ -50,6 +51,13 @@ struct Atmosphere {
     float sun_intensity = 3.0f;      ///< Unattenuated intensity in renderer units.
     std::string sky_material;
     bool enabled = true;
+    /// Ambient sky colour mixed in while the sun is near the horizon (dawn / dusk).
+    Vec3 twilight_color{0.55f, 0.32f, 0.22f};
+    float twilight_strength = 0.0f; ///< 0 = off, 1 = sky fully twilight_color at sunrise/sunset.
+    Vec3 horizon_tint{1.0f, 1.0f, 1.0f}; ///< Multiplies the sun colour, fading in as the sun gets low (golden hour).
+    Vec3 sky_tint{1.0f, 1.0f, 1.0f};     ///< Always multiplies the ambient sky.
+    bool drive_sun = true; ///< false: ctx.sun is left to the game (e.g. hand-set light).
+    bool drive_sky = true; ///< false: ctx.environment.sky and the sky material are left to the game.
 };
 
 /// A signed-distance-field shape at the entity's WorldTransform (position and rotation; use
@@ -283,7 +291,8 @@ ASTRAL_REFLECT(astral::CharacterController, desc, jump_speed)
 ASTRAL_REFLECT_ENUM(astral::Primitive, Cube, Sphere, Plane)
 ASTRAL_REFLECT(astral::PrimitiveMesh, shape, material, material_file)
 ASTRAL_REFLECT(astral::TerrainRef, asset, material_file, render_radius_m, collision_radius_m)
-ASTRAL_REFLECT(astral::Atmosphere, hour, hours_per_second, orbit_tilt_deg, heading_deg, sun_intensity, sky_material, enabled)
+ASTRAL_REFLECT(astral::Atmosphere, hour, hours_per_second, orbit_tilt_deg, heading_deg, sun_intensity, sky_material, enabled,
+               twilight_color, twilight_strength, horizon_tint, sky_tint, drive_sun, drive_sky)
 ASTRAL_REFLECT(astral::Sdf, shape, order)
 ASTRAL_REFLECT(astral::StreamingSource, active)
 ASTRAL_REFLECT(astral::Camera, fov_y, near_plane, far_plane, active)

@@ -16,6 +16,7 @@ layout(push_constant, scalar) uniform Push {
 layout(location = 0) in vec2 corner_in;
 layout(location = 1) in float fade_in;
 layout(location = 2) in vec3 world_in;
+layout(location = 3) in float life_in;
 layout(location = 0) out vec4 color_out;
 // ASTRAL_PARTICLE_BODY
 float depth_at(uint index) {
@@ -37,6 +38,8 @@ void main() {
     UV = corner_in * 0.5 + 0.5;
     WORLD_POSITION = world_in;
     AGE = pc.position_age.w;
+    LIFETIME = pc.drift_duration.w;
+    LIFE_T = life_in;
     COLOR = radiance;
     ALPHA = alpha;
     particle();

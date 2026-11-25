@@ -31,6 +31,26 @@ public:
                    : std::nullopt;
     }
 
+    std::optional<ScriptHit> raycast_filtered(Vec3 origin, Vec3 direction, float max_distance,
+                                              const ScriptQueryFilter& filter) const override {
+        std::vector<BodyHandle> ignored;
+        const QueryFilter native = to_native(filter, ignored);
+        const auto hit = bridge_.raycast(origin, direction, max_distance, native);
+        return hit ? std::optional<ScriptHit>(
+                         to_script(hit->user_data, hit->position, hit->normal, hit->distance, hit->surface))
+                   : std::nullopt;
+    }
+
+    std::optional<ScriptHit> spherecast_filtered(Vec3 origin, float radius, Vec3 displacement,
+                                                 const ScriptQueryFilter& filter) const override {
+        std::vector<BodyHandle> ignored;
+        const QueryFilter native = to_native(filter, ignored);
+        const auto hit = bridge_.spherecast(origin, radius, displacement, native);
+        return hit ? std::optional<ScriptHit>(
+                         to_script(hit->user_data, hit->position, hit->normal, hit->distance, hit->surface))
+                   : std::nullopt;
+    }
+
     std::vector<std::optional<ScriptHit>> raycast_batch(std::span<const ScriptRayQuery> queries) const override {
         std::vector<RayQuery> native;
         native.reserve(queries.size());
@@ -68,6 +88,11 @@ public:
     }
 
     void impulse(Entity body, Vec3 v) override { bridge_.add_impulse(body, v); }
+    void force_at(Entity body, Vec3 force, Vec3 point) override { bridge_.add_force_at(body, force, point); }
+    void torque(Entity body, Vec3 v) override { bridge_.add_torque(body, v); }
+    void angular_impulse(Entity body, Vec3 v) override { bridge_.add_angular_impulse(body, v); }
+    void set_angular_velocity(Entity body, Vec3 v) override { bridge_.set_angular_velocity(body, v); }
+    Vec3 angular_velocity(Entity body) const override { return bridge_.angular_velocity(body); }
     void force(Entity body, Vec3 v) override { bridge_.add_force(body, v); }
     void set_velocity(Entity body, Vec3 v) override { bridge_.set_linear_velocity(body, v); }
     Vec3 velocity(Entity body) const override { return bridge_.linear_velocity(body); }
@@ -106,6 +131,15 @@ public:
     }
 
 private:
+    /// `storage` keeps the resolved bodies alive for the query that uses the returned filter.
+    QueryFilter to_native(const ScriptQueryFilter& filter, std::vector<BodyHandle>& storage) const {
+        storage.clear();
+        for (Entity e : filter.ignore) {
+            if (const BodyHandle h = bridge_.resolve_body(e); h.valid()) storage.push_back(h);
+        }
+        return {.layers = filter.layers, .ignore_list = storage, .include_sensors = filter.sensors};
+    }
+
     static ScriptHit to_script(std::uint64_t user_data, Vec3 position, Vec3 normal, float distance, int surface) {
         return {entity_from_user_data(user_data), position, normal, distance, surface};
     }

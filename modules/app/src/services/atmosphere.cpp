@@ -37,8 +37,22 @@ AtmosphereLighting evaluate_atmosphere(const Atmosphere& settings) noexcept {
     const float daylight = std::clamp((toward.y + 0.15f) / 0.4f, 0.0f, 1.0f);
     const Vec3 night{0.008f, 0.014f, 0.032f};
     const Vec3 day{0.35f, 0.52f, 0.86f};
-    const Vec3 sky = night * (1.0f - daylight) + day * daylight;
-    return {toward, transmission, sky, std::max(finite_or(settings.sun_intensity), 0.0f) * direct};
+    Vec3 sky = night * (1.0f - daylight) + day * daylight;
+    Vec3 sun_color = transmission;
+
+    // Artistic controls (G1.1): neutral defaults leave the physical result untouched.
+    const float twilight =
+        std::clamp(finite_or(settings.twilight_strength), 0.0f, 1.0f) *
+        std::clamp(1.0f - std::abs(toward.y + 0.05f) / 0.25f, 0.0f, 1.0f); // peaks just below the horizon
+    if (twilight > 0.0f) sky = sky * (1.0f - twilight) + settings.twilight_color * twilight;
+    const float low_sun = 1.0f - std::clamp(toward.y / 0.3f, 0.0f, 1.0f);
+    if (low_sun > 0.0f && settings.horizon_tint != Vec3{1.0f, 1.0f, 1.0f}) {
+        const Vec3 tint = Vec3{1.0f, 1.0f, 1.0f} * (1.0f - low_sun) + settings.horizon_tint * low_sun;
+        sun_color = {sun_color.x * tint.x, sun_color.y * tint.y, sun_color.z * tint.z};
+    }
+    if (settings.sky_tint != Vec3{1.0f, 1.0f, 1.0f})
+        sky = {sky.x * settings.sky_tint.x, sky.y * settings.sky_tint.y, sky.z * settings.sky_tint.z};
+    return {toward, sun_color, sky, std::max(finite_or(settings.sun_intensity), 0.0f) * direct};
 }
 
 void AtmosphereController::authored_lighting(const Context& ctx, DirectionalLight& sun, Environment& environment) const {
@@ -68,10 +82,12 @@ void AtmosphereController::update(Context& ctx, RenderBridge& render, float delt
     });
     if (!selected.valid()) {
         if (!authored_) return;
-        ctx.sun.direction = authored_->sun.direction;
-        ctx.sun.color = authored_->sun.color;
-        ctx.sun.intensity = authored_->sun.intensity;
-        ctx.environment.sky = authored_->sky_light;
+        if (drove_sun_) {
+            ctx.sun.direction = authored_->sun.direction;
+            ctx.sun.color = authored_->sun.color;
+            ctx.sun.intensity = authored_->sun.intensity;
+        }
+        if (drove_sky_) ctx.environment.sky = authored_->sky_light;
         if (overrides_sky_) ctx.sky = authored_->sky_material;
         authored_.reset();
         overrides_sky_ = false;
@@ -85,9 +101,18 @@ void AtmosphereController::update(Context& ctx, RenderBridge& render, float delt
         ctx.world.get<Atmosphere>(selected)->hour = wrap_hour(static_cast<double>(finite_or(settings->hour, 12)) + elapsed);
     }
     const auto lighting = evaluate_atmosphere(*settings);
-    ctx.sun.direction = lighting.toward_sun * -1.0f;
-    ctx.sun.color = lighting.transmission;
-    ctx.sun.intensity = lighting.sun_intensity;
+    drove_sun_ = settings->drive_sun;
+    drove_sky_ = settings->drive_sky;
+    if (settings->drive_sun) {
+        ctx.sun.direction = lighting.toward_sun * -1.0f;
+        ctx.sun.color = lighting.transmission;
+        ctx.sun.intensity = lighting.sun_intensity;
+    }
+    if (!settings->drive_sky) {
+        if (overrides_sky_) ctx.sky = authored_->sky_material;
+        overrides_sky_ = false;
+        return;
+    }
     ctx.environment.sky = lighting.sky;
     if (ctx.renderer && !settings->sky_material.empty()) {
         const auto material = render.load_material(settings->sky_material);

@@ -87,7 +87,7 @@ ScreenShaderBuild compile_effect_shader(const ShaderSource& source, std::string_
         code.insert(code.find('\n') + 1, "#extension GL_GOOGLE_include_directive : require\n");
         std::string body = "#define ASTRAL_CUSTOM_PARTICLE\n";
         body += screen_params;
-        body += "vec2 UV; vec3 WORLD_POSITION, COLOR; float AGE, ALPHA;\n";
+        body += "vec2 UV; vec3 WORLD_POSITION, COLOR; float AGE, LIFETIME, LIFE_T, ALPHA;\n";
         body += detail::wrap_body(source, out.layout, source.body_without("motion"));
         replace_all(code, "// ASTRAL_PARTICLE_BODY", body);
         if (source.has_function("motion")) {
@@ -95,7 +95,7 @@ ScreenShaderBuild compile_effect_shader(const ShaderSource& source, std::string_
             vertex.insert(vertex.find('\n') + 1, "#extension GL_GOOGLE_include_directive : require\n");
             std::string motion = "#define ASTRAL_PARTICLE_MOTION\n";
             motion += screen_params;
-            motion += "vec3 WORLD_POSITION, ORIGIN, WIND; float AGE, LIFETIME, RANDOM, SIZE;\n";
+            motion += "vec3 WORLD_POSITION, ORIGIN, WIND; float AGE, LIFETIME, LIFE_T, RANDOM, SIZE;\n";
             motion += detail::wrap_body(source, out.layout, source.body_without("particle"));
             replace_all(vertex, "// ASTRAL_PARTICLE_BODY", motion);
             auto compiled = compile_glsl(vertex, ShaderStage::Vertex, detail::engine_includes(), name);

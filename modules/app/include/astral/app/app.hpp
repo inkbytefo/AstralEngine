@@ -204,6 +204,14 @@ private:
     bool quit_requested_ = false;
 };
 
+/// One scripted input change (AppDesc::input_script): at the start of frame `frame` (Time::frame,
+/// 0 = first), `key` goes down or up as if the window had reported it. For headless tests and demos.
+struct InputScriptEvent {
+    std::uint64_t frame = 0;
+    Key key = Key::Unknown;
+    bool down = true;
+};
+
 struct AppDesc {
     std::string_view title = "Astral";
     std::uint32_t width = 1280;
@@ -244,6 +252,9 @@ struct AppDesc {
     bool physics_interpolation = false;
     /// Run non-conflicting access-declaring C++ systems in parallel waves on the JobSystem (ADR-0032).
     bool parallel_systems = true;
+    /// Key changes fed to the input each frame, in any order (copied by the App). Without a window
+    /// (headless, offscreen) the App also starts a new input frame itself, so pressed/released are edges.
+    std::span<const InputScriptEvent> input_script = {};
 };
 
 /// Owns the main loop and every engine service; your Game plugs into it.

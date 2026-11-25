@@ -15,6 +15,9 @@ namespace astral {
 enum class PhysicsCommandKind : std::uint8_t {
     Impulse,
     Force,
+    ForceAt,
+    Torque,
+    AngularImpulse,
     SetLinearVelocity,
     SetAngularVelocity,
     SetBodyTransform,
@@ -35,6 +38,7 @@ struct PhysicsCommand {
     Entity entity{};
     PhysicsCommandKind kind = PhysicsCommandKind::Impulse;
     Vec3 value{};
+    Vec3 point{}; ///< ForceAt: world-space application point (moves with the floating origin).
     Quat quat{};
     float scalar = 0.0f;
     JointMotorMode motor_mode = JointMotorMode::Off;

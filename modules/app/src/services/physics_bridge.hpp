@@ -63,8 +63,12 @@ public:
     [[nodiscard]] std::vector<OverlapHit> overlap_box(Vec3 center, Vec3 half_extents, Quat rotation = {},
                                                       QueryFilter filter = {}) const override;
     [[nodiscard]] Vec3 linear_velocity(Entity body) const override;
+    [[nodiscard]] Vec3 angular_velocity(Entity body) const override;
     void add_impulse(Entity body, Vec3 impulse, std::uint64_t order_key = 0) override;
     void add_force(Entity body, Vec3 force, std::uint64_t order_key = 0) override;
+    void add_force_at(Entity body, Vec3 force, Vec3 world_point, std::uint64_t order_key = 0) override;
+    void add_torque(Entity body, Vec3 torque, std::uint64_t order_key = 0) override;
+    void add_angular_impulse(Entity body, Vec3 impulse, std::uint64_t order_key = 0) override;
     void set_linear_velocity(Entity body, Vec3 velocity, std::uint64_t order_key = 0) override;
     void set_angular_velocity(Entity body, Vec3 velocity, std::uint64_t order_key = 0) override;
     void set_body_transform(Entity body, Vec3 position, Quat rotation, std::uint64_t order_key = 0) override;

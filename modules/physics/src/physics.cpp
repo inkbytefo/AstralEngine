@@ -292,6 +292,11 @@ void PhysicsWorld::add_torque(BodyHandle body, Vec3 torque) {
     if (r) impl_->bi().AddTorque(r->id, to_jph(torque));
 }
 
+void PhysicsWorld::add_angular_impulse(BodyHandle body, Vec3 impulse) {
+    const auto* r = impl_->record(body);
+    if (r) impl_->bi().AddAngularImpulse(r->id, to_jph(impulse));
+}
+
 void PhysicsWorld::add_force_at(BodyHandle body, Vec3 force, Vec3 point) {
     const auto* r = impl_->record(body);
     if (r) impl_->bi().AddForce(r->id, to_jph(force), JPH::RVec3(to_jph(point)));

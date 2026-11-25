@@ -11,6 +11,7 @@ layout(push_constant, scalar) uniform Push {
 layout(location = 0) out vec2 corner_out;
 layout(location = 1) out float fade_out;
 layout(location = 2) out vec3 world_out;
+layout(location = 3) out float life_out; // this particle's age / lifetime, 0..1 (LIFE_T)
 
 // ASTRAL_PARTICLE_BODY
 
@@ -19,6 +20,7 @@ void main() {
     uint key = uint(gl_InstanceIndex) * 13u + pc.seed * 7919u;
     float delay = pc.drift_duration.w * 0.24 * random_unit(key + 3u);
     float age = max(0.0, pc.position_age.w - delay);
+    life_out = clamp(age / max(pc.drift_duration.w, 1e-4), 0.0, 1.0);
     world_out = pc.states != uint64_t(0) ? ParticleStates(pc.states).data[gl_InstanceIndex].position.xyz :
         pc.position_age.xyz + (particle_velocity(key) + pc.drift_duration.xyz) * age + vec3(0, -1.3 * age * age, 0);
     fade_out = pc.position_age.w < delay ? 0.0 : 1.0 - smoothstep(0.04, pc.drift_duration.w, pc.position_age.w);
@@ -32,6 +34,7 @@ void main() {
     WIND = pc.drift_duration.xyz;
     AGE = age;
     LIFETIME = pc.drift_duration.w;
+    LIFE_T = life_out;
     RANDOM = random_unit(key + 5u);
     SIZE = size_m;
     motion();
