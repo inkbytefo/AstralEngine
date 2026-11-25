@@ -89,6 +89,7 @@ int astral_load(lua_State* L) {
     std::string parse_error;
     const auto doc = Json::parse(*text, &parse_error);
     if (!doc || (*doc)["format"].as_string() != "astral.save") luaL_error(L, "save \"%s\" is not a valid save (%s)", slot.c_str(), parse_error.c_str());
+    if ((*doc)["version"].as_number(0) != 1.0) luaL_error(L, "save \"%s\" has an unsupported version", slot.c_str());
     TypeRegistry subset;
     std::vector<ComponentId> ids;
     for (const Json& n : (*doc)["components"].as_array()) {
@@ -96,6 +97,11 @@ int astral_load(lua_State* L) {
         if (!e) luaL_error(L, "save \"%s\" has the unknown component \"%s\" (the game changed since it was saved)", slot.c_str(), n.as_string().c_str());
         subset.add_copy(*e);
         ids.push_back(e->component);
+    }
+    {   // Load into a scratch world first: a bad inner document must leave the live world untouched.
+        World staging;
+        const LoadResult check = load_world(staging, subset, (*doc)["world"]);
+        if (!check.errors.empty()) luaL_error(L, "loading \"%s\": %s", slot.c_str(), check.errors.front().c_str());
     }
     std::vector<Entity> doomed;
     for (const auto& e : subset.entries()) {

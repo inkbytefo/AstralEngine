@@ -165,6 +165,7 @@ void ScriptHost::unload(std::string_view name) {
     auto& modules = impl_->modules;
     for (auto it = modules.begin(); it != modules.end(); ++it) {
         if ((*it)->name == name) {
+            std::erase_if(impl_->started, [&](const auto& entry) { return entry.second == name; });
             impl_->release(**it);
             modules.erase(it);
             return;
@@ -268,19 +269,27 @@ void run_behaviours(Impl& impl, ScriptPhase phase) {
     for (Entity e : entities) {
         const Script* script = world.get<const Script>(e);
         if (!script) continue;
-        Module* m = impl.find_module(script->path);
+        const std::string path = script->path; // callbacks may change the world (and this component)
+        Module* m = impl.find_module(path);
         if (!m || m->failed || !m->behaviour_ref) continue;
+        const auto it = impl.started.find(key_of(e));
+        const bool started = it != impl.started.end() && it->second == path;
         if (phase == ScriptPhase::Update) {
-            if (impl.started.insert(key_of(e)).second) call_behaviour(impl, *m, "on_start", e);
+            if (!started) {
+                impl.started[key_of(e)] = path;
+                call_behaviour(impl, *m, "on_start", e);
+            }
             if (!m->failed && world.alive(e)) call_behaviour(impl, *m, "on_update", e);
-        } else if (phase == ScriptPhase::FixedUpdate && impl.started.contains(key_of(e))) {
+        } else if (phase == ScriptPhase::FixedUpdate && started) {
             call_behaviour(impl, *m, "on_fixed_update", e);
         }
     }
     if (phase == ScriptPhase::Update) {
+        // Forget instances whose entity died, lost its Script, or now runs another script.
         for (auto it = impl.started.begin(); it != impl.started.end();) {
-            const Entity e{static_cast<std::uint32_t>(*it & 0xffffffffu), static_cast<std::uint32_t>(*it >> 32)};
-            it = world.alive(e) ? std::next(it) : impl.started.erase(it);
+            const Entity e{static_cast<std::uint32_t>(it->first & 0xffffffffu), static_cast<std::uint32_t>(it->first >> 32)};
+            const Script* script = world.alive(e) ? world.get<const Script>(e) : nullptr;
+            it = script && script->path == it->second ? std::next(it) : impl.started.erase(it);
         }
     }
 }
