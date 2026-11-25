@@ -26,6 +26,10 @@
 - [ ] `README.md` durum tablosu.
 - [ ] Oyun yazmayı etkileyen değişiklikte `docs/guides/writing-a-game.md` ve `AGENTS.md`.
 
+## Technology Lab ve Game API teslimi
+
+[Technology Labs roadmap](technology-labs-roadmap.md) kapsamındaki genel motor yetenekleri için faz kapanışına ek olarak: ilk oynanabilir lab dilimi, en az bir ikinci bağımsız public SDK tüketici testi, uygulanabilir C++/Luau API ve generated type check, serialization/reflection/cook sözleşmesi, ölçüm ve kaynak/kanıt SHA'sı gerekir. Lab ve oyun kodu motor private header'larına bağımlı olmaz. Gameplay kuralları isteğe bağlı FeatureSet paketlerinde kalır. MSR altyapı engeli sırasında sonuçlar pending verification olarak tutulur; çalıştırılmamış test PASS sayılmaz. VR/XR bu programın kapsamı dışındadır.
+
 ## Yerel ajan dosyaları ve paylaşılan rehberler
 
 - **Paylaşılan rehberler (git'te takip edilir):** `CLAUDE.md`, `AGENTS.md` ve `docs/` altındaki mimari,
