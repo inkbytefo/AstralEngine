@@ -130,6 +130,8 @@ F0/F1 sonrasında M14 ve M15, E0 ile paralel ilerleyebilir. A0, P0 ve V0 prototi
 
 ### M20 / A0 — Animasyon çekirdeği
 
+Ayrıntılı hedef tasarım: [Astral Motion](design/astral-motion-architecture.md) ve [ATLAS](design/atlas-mannequin.md). AN0.1–4 ve AN1.1–4 alt teslimleri, AN2 motion matching ve CH1.1–3 planı mevcut M20/M21 kabul kapılarını genişletir; faz durumları değişmedi. ATLAS ortak optional asset; gerçek model henüz yok.
+
 - [ADR-0025](decisions/0025-physics-based-character-animation.md) çizgisinde `Astral::Animation` saf CPU çekirdeği: Skeleton, Pose, Clip, blend/graph, root motion, retargeting ve IK. Assets glTF skin, klip, morph ve rig mapping'i import/cook eder. Render skinning/morph, motion vector ve skinned BLAS güncellemesini sahiplenir. App animasyon, ECS ve render arasındaki sırayı kurar.
 - Önce skeleton/pose/clip import ve headless örnekleme, sonra GPU skinning/morph, ardından blend, retargeting, two-bone/FABRIK, look-at ve el/ayak yerleştirme. IK dünya sorguları köprü üzerinden alınır. Fizik öncesi hedef poz ve fizik sonrası render pozunu ayrı tamponla. Rig eşlemesi ve görsel düzeltme E0 Inspector ve ajan onay akışını kullanır.
 

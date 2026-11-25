@@ -135,3 +135,7 @@ MSR S0 external CI blocker remains as previously recorded, builds not performed 
 - C++ docs and sample, Luau binding/types if appropriate, serialization/reflection/cook migration and future authoring notes.
 - Reproducible performance report, exact SHA/test logs, quality settings and budget; fail/regression rationale and owner.
 - Update module docs/capability matrix/roadmap; follow process.md. No success claims until executed.
+
+## 9. Astral Motion ve ATLAS ortak karakter standardı
+
+[Hybrid Animation Architecture](design/astral-motion-architecture.md) AN0/AN1/AN2, CH0/CH1 için modül sahipliği, fixed/presentation pose, skinning, API ve alt teslimleri tanımlar. [ATLAS v1](design/atlas-mannequin.md) ortak karakter, rig ve üretim planıdır; konsept var, GLB henüz yok (Higgsfield kredi engeli). character_lab yanında sword_combat_lab ve animation_stress_lab planlı doğrulama tüketicileri; football ve competitive/city lab'leri ortak API'yi kullanır. MSR ve mevcut M20/M21 durumları korunur. VR kapsam dışı.

@@ -7,6 +7,8 @@ kurallar [process.md](process.md)'de.
 |---|---|
 | [architecture.md](architecture.md) | Katmanlar, SOLID kuralları, bağımlılık yönü, klasör yapısı |
 | [roadmap.md](roadmap.md) | Fazlar, her fazın durumu ve bitiş kriterleri |
+| [design/astral-motion-architecture.md](design/astral-motion-architecture.md) | Hybrid animasyon, modül sahipliği, Game API ve AN/CH teslimleri |
+| [design/atlas-mannequin.md](design/atlas-mannequin.md) | ATLAS referans karakteri, görsel, rig ve üretim standardı |
 | [technology-labs-roadmap.md](technology-labs-roadmap.md) | Oyun odaklı teknoloji lab'leri, native Game API, reusable FeatureSet paketleri ve performans kabulü |
 | [editor/studio-intelligence-target-architecture.md](editor/studio-intelligence-target-architecture.md) | Studio/Intelligence hedef mimarisi ve sıfırdan refaktör sözleşmesi (öneri) |
 | [status/app-gameplay-deep-audit-2026-11-25.md](status/app-gameplay-deep-audit-2026-11-25.md) | App/Gameplay statik denetimi: input, feature composition, Luau lifecycle, save ve world transition |
