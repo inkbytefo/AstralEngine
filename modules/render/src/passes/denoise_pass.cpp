@@ -51,8 +51,14 @@ bool DenoisePass::resize(std::uint32_t width, std::uint32_t height) {
         specular_[i] = make("astral.history.specular");
         moments_[i] = make("astral.history.moments");
     }
-    width_ = width;
-    height_ = height;
+    // A failed allocation must not be committed as the new size: the same size would then never be
+    // tried again and the invalid textures would stay. Size 0 makes the next frame retry.
+    bool ok = true;
+    for (auto* pair : {&diffuse_, &specular_, &moments_}) {
+        for (auto& t : *pair) ok = ok && t.valid();
+    }
+    width_ = ok ? width : 0;
+    height_ = ok ? height : 0;
     return true;
 }
 
