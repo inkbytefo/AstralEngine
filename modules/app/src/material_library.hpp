@@ -45,7 +45,7 @@ public:
         std::string shader;
         const ShaderSource* source = nullptr;
         std::vector<Parameter> parameters;
-        std::vector<float>* values = nullptr;
+        std::vector<std::uint32_t>* values = nullptr; ///< Parameter words (ADR-0042).
     };
     [[nodiscard]] std::vector<Info> loaded();
     /// Applies edited `values` of a material (tools); runtime only, the file is not written.
@@ -71,7 +71,7 @@ private:
         MaterialFile file;
         const Shader* shader = nullptr;
         MaterialDesc desc;
-        std::vector<float> values;
+        std::vector<std::uint32_t> values;
         std::vector<UniformValues::Texture> texture_sources;
         std::vector<std::pair<std::string, std::filesystem::file_time_type>> watched;
     };

@@ -17,6 +17,8 @@ Entity check_entity(lua_State* L, int index);
 Quat check_quat(lua_State* L, int index);
 void push_quat(lua_State* L, Quat q);
 void set_function(lua_State* L, const char* name, lua_CFunction fn);
+/// Raises a Lua error when called from a module's top-level code (ADR-0044): `what` changes the world.
+void forbid_while_loading(lua_State* L, const char* what);
 
 /// Registers save/load/has_save on the astral table at top of stack, plus astral.physics,
 /// astral.fields, astral.quat, and astral.input sub-tables.

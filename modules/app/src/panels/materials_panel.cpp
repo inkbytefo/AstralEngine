@@ -5,6 +5,8 @@
 
 #include <imgui.h>
 
+#include <bit>
+#include <cstdint>
 #include <string_view>
 #include <vector>
 
@@ -12,31 +14,46 @@ namespace astral {
 
 namespace {
 
-bool edit_material_parameter(const MaterialLibrary::Parameter& p, float* values) {
+// Edits float components in place on a copy of the words, then stores their bits back (ADR-0042).
+template <class Edit> bool edit_floats(std::uint32_t* words, int n, Edit&& edit) {
+    float f[4] = {};
+    for (int i = 0; i < n; ++i) f[i] = std::bit_cast<float>(words[i]);
+    if (!edit(f)) return false;
+    for (int i = 0; i < n; ++i) words[i] = std::bit_cast<std::uint32_t>(f[i]);
+    return true;
+}
+
+bool edit_material_parameter(const MaterialLibrary::Parameter& p, std::uint32_t* values) {
     const ShaderUniform& u = *p.uniform;
-    float* v = values + p.offset;
+    std::uint32_t* w = values + p.offset;
     const char* label = u.name.c_str();
     switch (u.type) {
     case UniformType::Float:
-        return u.hints.range ? ImGui::SliderFloat(label, v, u.hints.range->min, u.hints.range->max)
-                             : ImGui::DragFloat(label, v, 0.01f);
-    case UniformType::Vec2: return ImGui::DragFloat2(label, v, 0.01f);
+        return edit_floats(w, 1, [&](float* v) {
+            return u.hints.range ? ImGui::SliderFloat(label, v, u.hints.range->min, u.hints.range->max)
+                                 : ImGui::DragFloat(label, v, 0.01f);
+        });
+    case UniformType::Vec2: return edit_floats(w, 2, [&](float* v) { return ImGui::DragFloat2(label, v, 0.01f); });
     case UniformType::Vec3:
-        return u.hints.source_color ? ImGui::ColorEdit3(label, v, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR)
-                                    : ImGui::DragFloat3(label, v, 0.01f);
+        return edit_floats(w, 3, [&](float* v) {
+            return u.hints.source_color ? ImGui::ColorEdit3(label, v, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR)
+                                        : ImGui::DragFloat3(label, v, 0.01f);
+        });
     case UniformType::Vec4:
-        return u.hints.source_color ? ImGui::ColorEdit4(label, v, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR)
-                                    : ImGui::DragFloat4(label, v, 0.01f);
+        return edit_floats(w, 4, [&](float* v) {
+            return u.hints.source_color ? ImGui::ColorEdit4(label, v, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR)
+                                        : ImGui::DragFloat4(label, v, 0.01f);
+        });
     case UniformType::Int: {
-        int n = static_cast<int>(*v);
+        int n = std::bit_cast<std::int32_t>(*w);
         if (!ImGui::DragInt(label, &n)) return false;
-        *v = static_cast<float>(n);
+        *w = std::bit_cast<std::uint32_t>(n);
         return true;
     }
     case UniformType::Bool: {
-        bool b = *v != 0.0f;
+        bool b = *w != 0u;
         if (!ImGui::Checkbox(label, &b)) return false;
-        *v = b ? 1.0f : 0.0f;
+        *w = b ? 1u : 0u;
         return true;
     }
     case UniformType::Sampler2D: ImGui::TextDisabled("%s (texture, set in the file)", label); return false;

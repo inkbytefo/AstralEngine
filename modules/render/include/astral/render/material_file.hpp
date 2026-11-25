@@ -42,7 +42,7 @@ struct MaterialFile {
 /// A material's values laid out for a shader: the parameter block (layout.words floats) and the
 /// textures to load into it.
 struct UniformValues {
-    std::vector<float> params;
+    std::vector<std::uint32_t> params; ///< Words (ADR-0042): float bits, int32 two's complement, bool 0/1.
     struct Texture {
         std::uint32_t offset = 0;
         std::string path;

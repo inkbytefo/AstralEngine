@@ -43,9 +43,32 @@ template <class T> void store(void* p, T v) noexcept { std::memcpy(p, &v, sizeof
 
 template <class T> void store_clamped(void* p, double value) noexcept {
     if (std::isnan(value)) value = 0;
+    value = std::round(value);
+    // lowest() is a power of two (or 0) and exact as a double; max() may round up to 2^63 / 2^64,
+    // which is out of range, so the upper limit is compared as "at or above" and stored directly.
     const double lo = static_cast<double>(std::numeric_limits<T>::lowest());
     const double hi = static_cast<double>(std::numeric_limits<T>::max());
-    store<T>(p, static_cast<T>(std::clamp(std::round(value), lo, hi)));
+    if (value <= lo) return store<T>(p, std::numeric_limits<T>::lowest());
+    if (value >= hi) return store<T>(p, std::numeric_limits<T>::max());
+    store<T>(p, static_cast<T>(value));
+}
+
+// 8-byte integers bypass double so values above 2^53 stay exact (ADR-0041).
+Json int64_field_to_json(const FieldInfo& f, const std::byte* p) {
+    const bool sign = f.is_signed && f.kind != FieldKind::UInt;
+    return sign ? Json(load<std::int64_t>(p)) : Json(load<std::uint64_t>(p));
+}
+bool int64_field_from_json(const FieldInfo& f, std::byte* p, const Json& j) {
+    const bool sign = f.is_signed && f.kind != FieldKind::UInt;
+    if (!j.is_integer()) return false; // a double: the clamped double path handles it
+    if (sign) {
+        if (const auto i = j.as_int64()) return store(p, *i), true;
+        store(p, std::numeric_limits<std::int64_t>::max()); // only uint64 above int64 fails here
+        return true;
+    }
+    if (const auto u = j.as_uint64()) return store(p, *u), true;
+    store(p, std::uint64_t{0}); // negative
+    return true;
 }
 } // namespace
 
@@ -105,7 +128,9 @@ Json field_to_json(const FieldInfo& f, const void* base, const SaveContext& ctx)
     case FieldKind::Bool: return read_number(f, base) != 0.0;
     case FieldKind::Float: return f.size == 8 ? Json(load<double>(p)) : Json(detail::float_value(load<float>(p)));
     case FieldKind::Int:
-    case FieldKind::UInt: return read_number(f, base);
+    case FieldKind::UInt:
+        if (f.size == 8) return int64_field_to_json(f, p);
+        return read_number(f, base);
     case FieldKind::Enum: {
         const auto value = static_cast<std::int64_t>(read_number(f, base));
         for (const auto& [name, v] : f.enumerators) {
@@ -133,6 +158,7 @@ bool field_from_json(const FieldInfo& f, void* base, const Json& j, const LoadCo
     case FieldKind::Int:
     case FieldKind::UInt:
         if (!j.is_number()) return ctx.error("expected a number"), false;
+        if (f.kind != FieldKind::Float && f.size == 8 && int64_field_from_json(f, p, j)) return true;
         write_number(f, base, j.as_number());
         return true;
     case FieldKind::Enum:

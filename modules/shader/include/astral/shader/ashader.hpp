@@ -36,7 +36,9 @@ struct ShaderUniform {
     std::string name;
     UniformType type = UniformType::Float;
     UniformHints hints;
-    std::vector<float> default_value; ///< Components (vec4(1.0) → 4 ones); empty = zeros / no texture.
+    /// Components (vec4(1.0) → 4 ones); empty = zeros / no texture. double holds every int32 and float
+    /// exactly; each component already passed uniform_word() (ADR-0042).
+    std::vector<double> default_value;
     std::uint32_t line = 0;
 };
 
@@ -91,5 +93,10 @@ struct UniformLayout {
     std::uint32_t words = 0;            ///< Total size rounded up to 4 words.
 };
 [[nodiscard]] UniformLayout layout_uniforms(const ShaderSource& source);
+
+/// One component of a uniform as its parameter-block word (ADR-0042): float/vecN → IEEE bits, int →
+/// two's complement, bool → 0/1. nullopt when the value does not fit: not finite, a fraction or
+/// outside int32 for int, not 0/1 for bool, beyond float range for float. Sampler2D → nullopt.
+[[nodiscard]] std::optional<std::uint32_t> uniform_word(UniformType type, double value) noexcept;
 
 } // namespace astral

@@ -47,7 +47,7 @@ TEST_CASE("parse_ashader reads the header and keeps the GLSL body") {
     CHECK(tint.name == "tint");
     CHECK(tint.type == UniformType::Vec4);
     CHECK(tint.hints.source_color);
-    CHECK(tint.default_value == std::vector<float>{1, 1, 1, 1}); // vec4(1.0) expands
+    CHECK(tint.default_value == std::vector<double>{1, 1, 1, 1}); // vec4(1.0) expands
     CHECK(tint.line == 5);
 
     const ShaderUniform& albedo = s.uniforms[1];
@@ -61,9 +61,9 @@ TEST_CASE("parse_ashader reads the header and keeps the GLSL body") {
     CHECK(sway.hints.range->min == doctest::Approx(0.0f));
     CHECK(sway.hints.range->max == doctest::Approx(1.0f));
     CHECK(sway.hints.range->step == doctest::Approx(0.01f));
-    CHECK(sway.default_value == std::vector<float>{0.3f});
+    CHECK(sway.default_value == std::vector<double>{0.3});
 
-    CHECK(s.uniforms[3].default_value == std::vector<float>{1, 0, 0.5f});
+    CHECK(s.uniforms[3].default_value == std::vector<double>{1, 0, 0.5});
 
     REQUIRE(s.varyings.size() == 1);
     CHECK(s.varyings[0].name == "height");
@@ -119,7 +119,7 @@ TEST_CASE("comments and strings in the header do not confuse the parser") {
     REQUIRE(p.errors.empty());
     CHECK(p.source.type == ShaderType::Surface);
     REQUIRE(p.source.uniforms.size() == 1);
-    CHECK(p.source.uniforms[0].default_value == std::vector<float>{2.0f});
+    CHECK(p.source.uniforms[0].default_value == std::vector<double>{2.0});
     CHECK(p.source.has_function("surface"));
 }
 

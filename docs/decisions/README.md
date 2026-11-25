@@ -39,3 +39,8 @@ ADR eskisini "yerini aldı" diye işaretler.
 | [0032](0032-scalable-runtime-and-parallel-scheduler.md) | Ölçeklenebilir çalışma zamanı: erişim bildiren sistemler, paralel zamanlayıcı, paralel transform ve G/Ç ayrımı (M13.6) | Kabul |
 | [0033](0033-advanced-pbr-and-path-tracer.md) | Gelişmiş PBR (multi-scattering GGX, clearcoat, sheen, anizotropi, transmission, SSS, ıslaklık, POM, decal), `.ashader` `shading_model` ve Path Tracer referans modu (M13) | Kabul |
 | [0039](0039-terrain-foundation.md) | Terrain temeli — tile heightfield, CPU mesh LOD, Jolt ve streaming | Kabul |
+| [0040](0040-dropped-command-list-layout-fixups.md) | Bırakılan CommandList'lerin layout geçişi için fix-up barrier (MSR G03) | Kabul |
+| [0041](0041-lossless-json-integers.md) | `Json`'da kayıpsız 64-bit tamsayı: int64/uint64 iç temsil, AJB `TagUInt64`, 8-byte field'lar (MSR C05) | Kabul |
+| [0042](0042-typed-shader-parameter-words.md) | Shader parametrelerinde tipli 32-bit word ABI; `uniform_word()` doğrulayıcısı (MSR AS13) | Kabul |
+| [0043](0043-deterministic-physics-command-producers.md) | Fizik komutlarında deterministik üretici sırası: faz + sistem kayıt sırası (MSR PH05) | Kabul |
+| [0044](0044-staged-script-module-load.md) | Luau modül yüklemesi: bildirim aşaması, registry geri alma, `on_load()` (MSR AG09) | Kabul |

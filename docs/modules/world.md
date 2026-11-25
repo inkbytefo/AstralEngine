@@ -166,7 +166,8 @@ yeni dinamik component eklenince vektör büyüyebilir; indeks ya da ad tut.
   alır, 1, 2, 4 … 64 update bekleyip yeniden yükler (`StreamingStats::failed_last_update`, MSR A09).
 - Reflected alanlara sayı yüklerken değer hedef tipe sığmalı ve tamsayı alanlarda tam olmalı; reflected enum'larda
   sayı bir enumeratöre karşılık gelmeli. Aksi halde hata raporlanır, varsayılan korunur (MSR C03/C04).
-- 64-bit tamsayılar `Json` içinde `double` olarak saklanır: 2^53 üstü değerler kayıplı (MSR C05, ADR bekliyor).
+- 64-bit tamsayılar `Json`, AJB, typed serialize ve 8-byte field'larda kayıpsızdır (ADR-0041). Luau sayıları `double` olduğundan script'e verilen 64-bit değerler 2^53 üstünde kayıplıdır.
+- `TypeRegistry::rollback_dynamic` yalnız script host'un başarısız yüklemesi içindir (ADR-0044); geri alınan tiplerin hiçbir entity'de olmadığını çağıran garanti etmelidir.
 - `commands().spawn()` oluşturulan entity'yi döndürmüyor (ertelenmiş referans yok).
 - `get<T>` dönen pointer bir sonraki yapısal değişikliğe kadar geçerli.
 - Sahneler: yalnız JSON (ikili sahne M6 cook'ta). Prefab şablonları her örnekte JSON üzerinden

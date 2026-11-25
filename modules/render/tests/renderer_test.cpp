@@ -4,6 +4,8 @@
 #include <astral/render/text.hpp>
 
 #include <algorithm>
+#include <bit>
+#include <initializer_list>
 #include <cstdint>
 #include <cstdio>
 #include <deque>
@@ -13,6 +15,12 @@
 using namespace astral;
 
 namespace {
+// Material parameter blocks hold words (ADR-0042); these tests write float uniforms.
+std::vector<std::uint32_t> float_words(std::initializer_list<float> values) {
+    std::vector<std::uint32_t> out;
+    for (float v : values) out.push_back(std::bit_cast<std::uint32_t>(v));
+    return out;
+}
 
 constexpr std::uint32_t size = 64;
 
@@ -873,7 +881,7 @@ void surface() {
     // The plane faces +y: look down at it. tint = green, lift = 0.
     f.look_from({0, 5, 0}, {0, 0, 0});
     const MaterialHandle mat = f.renderer->create_material(
-        {.shader = shader, .params = {0, 1, 0, 1, 0, 0, 0, 0}, .textures = {}});
+        {.shader = shader, .params = float_words({0, 1, 0, 1, 0, 0, 0, 0}), .textures = {}});
     const MeshInstance items[] = {{.mesh = quad, .material = mat, .transform = scale(Vec3{2, 1, 2})}};
     const DirectionalLight top{.direction = {0, -1, 0}, .intensity = 2.0f, .shadows = false};
     const auto empty = f.draw({.sun = top});
@@ -887,7 +895,7 @@ void surface() {
     CHECK(std::abs(cut.g - background.g) < 8);
     CHECK(std::abs(cut.r - background.r) < 8);
     // Raise the plane with the uniform: still green where the raised plane is seen.
-    f.renderer->update_material(mat, {.shader = shader, .params = {1, 0, 0, 1, 2.0f, 0, 0, 0}, .textures = {}});
+    f.renderer->update_material(mat, {.shader = shader, .params = float_words({1, 0, 0, 1, 2.0f, 0, 0, 0}), .textures = {}});
     pixels = f.draw({.meshes = items, .sun = top});
     const Rgb red = rgb(f.at(pixels, {0.5f, 2.0f, 0}));
     CHECK(red.r > 100);
@@ -921,7 +929,7 @@ void surface() {
     // A mirror wall in front of the camera; behind the camera a block whose surface is the custom shader.
     const MaterialHandle mirror = f.renderer->create_material(
         {.base_color = {0.95f, 0.95f, 0.95f, 1}, .roughness = 0.02f, .metallic = 1.0f});
-    const MaterialHandle glow = f.renderer->create_material({.shader = shader, .params = {0, 1, 0, 0, 0, 0, 0, 0}});
+    const MaterialHandle glow = f.renderer->create_material({.shader = shader, .params = float_words({0, 1, 0, 0, 0, 0, 0, 0})});
     const std::array items{
         MeshInstance{.mesh = cube, .material = mirror, .transform = translate({0, 0, -1.5f}) * scale({6, 6, 1})},
         MeshInstance{.mesh = cube, .material = glow, .transform = translate({0, 0, 9}) * scale({6, 6, 1})},
@@ -950,7 +958,7 @@ TEST_CASE("a custom shader the ray-traced build cannot take does not break rende
     REQUIRE(a.valid());
     REQUIRE(b.valid());
     const MeshHandle cube = f.renderer->create_mesh(make_cube());
-    const MaterialHandle material = f.renderer->create_material({.shader = a, .params = {0, 0, 0, 0}});
+    const MaterialHandle material = f.renderer->create_material({.shader = a, .params = float_words({0, 0, 0, 0})});
     const std::array items{MeshInstance{.mesh = cube, .material = material, .transform = translate({0, 0, -2}) * scale({1, 1, 1})}};
     const RenderScene scene{.meshes = items, .sun = front_sun};
     const auto pixels = converge(f, scene, 3);
@@ -995,7 +1003,7 @@ void check_blending(Fixture& f, bool additive) {
     REQUIRE(shader.valid());
     const MeshHandle cube = f.renderer->create_mesh(make_cube());
     const MaterialHandle red = f.renderer->create_material({.base_color = {1, 0, 0, 1}, .roughness = 1.0f});
-    const MaterialHandle pane = f.renderer->create_material({.shader = shader, .params = {0, 1, 0, 0.5f}});
+    const MaterialHandle pane = f.renderer->create_material({.shader = shader, .params = float_words({0, 1, 0, 0.5f})});
     const MeshInstance items[] = {
         {.mesh = cube, .material = red, .transform = translate({0, 0, -3}) * scale({6, 6, 0.2f})},
         {.mesh = cube, .material = pane, .transform = translate({0, 0, 0}) * scale({3, 3, 0.1f})},
@@ -1032,8 +1040,8 @@ TEST_CASE("transparent surfaces are sorted back to front and hidden behind opaqu
     if (!f.device) return;
     const ShaderHandle shader = make_shader(f, glass_shader, "glass");
     const MeshHandle cube = f.renderer->create_mesh(make_cube());
-    const MaterialHandle green = f.renderer->create_material({.shader = shader, .params = {0, 1, 0, 0.9f}});
-    const MaterialHandle blue = f.renderer->create_material({.shader = shader, .params = {0, 0, 1, 0.9f}});
+    const MaterialHandle green = f.renderer->create_material({.shader = shader, .params = float_words({0, 1, 0, 0.9f})});
+    const MaterialHandle blue = f.renderer->create_material({.shader = shader, .params = float_words({0, 0, 1, 0.9f})});
     const MaterialHandle wall = f.renderer->create_material({.base_color = {1, 1, 1, 1}, .roughness = 1.0f});
     // Submitted far-to-near and near-to-far: the nearer pane must win either way.
     for (const bool reversed : {false, true}) {
@@ -1060,7 +1068,7 @@ TEST_CASE("SDF depth occludes transparent geometry behind it without hiding glas
     if (!f.device) return;
     const ShaderHandle shader = make_shader(f, glass_shader, "sdf_glass");
     const MeshHandle cube = f.renderer->create_mesh(make_cube());
-    const MaterialHandle glass = f.renderer->create_material({.shader = shader, .params = {0, 1, 0, 0.9f}});
+    const MaterialHandle glass = f.renderer->create_material({.shader = shader, .params = float_words({0, 1, 0, 0.9f})});
     const SdfShape sdf{.size = {1, 0, 0, 0}, .color = {1, 0, 0, 1}};
     MeshInstance pane{.mesh = cube, .material = glass, .transform = translate({0, 0, -2}) * scale({1, 1, 0.1f})};
     RenderScene scene{.sdf = std::span(&sdf, 1), .sun = front_sun};
@@ -1077,7 +1085,7 @@ TEST_CASE("a sky shader replaces the background and leaves geometry alone") {
     if (!f.device) return;
     const ShaderHandle shader = make_shader(f, "shader_type sky;\nuniform vec3 color = vec3(0.0, 1.0, 0.0);\nvoid sky() { COLOR = color * (0.5 + 0.5 * EYEDIR.y); }\n", "sky");
     const MeshHandle cube = f.renderer->create_mesh(make_cube());
-    const MaterialHandle sky = f.renderer->create_material({.shader = shader, .params = {0, 1, 0, 0}});
+    const MaterialHandle sky = f.renderer->create_material({.shader = shader, .params = float_words({0, 1, 0, 0})});
     const MaterialHandle red = f.renderer->create_material({.base_color = {1, 0, 0, 1}, .roughness = 1.0f});
     const MeshInstance items[] = {{.mesh = cube, .material = red, .transform = scale({1, 1, 1})}};
     const auto without = f.draw({.meshes = items, .sun = front_sun});
@@ -1100,7 +1108,7 @@ TEST_CASE("post shaders run after tonemapping, in order") {
     const MeshHandle cube = f.renderer->create_mesh(make_cube());
     const MaterialHandle red = f.renderer->create_material({.base_color = {1, 0, 0, 1}, .roughness = 1.0f});
     const MaterialHandle swap_material = f.renderer->create_material({.shader = swap});
-    const MaterialHandle dim_material = f.renderer->create_material({.shader = dim, .params = {0.5f, 0, 0, 0}});
+    const MaterialHandle dim_material = f.renderer->create_material({.shader = dim, .params = float_words({0.5f, 0, 0, 0})});
     const MeshInstance items[] = {{.mesh = cube, .material = red, .transform = scale({2, 2, 2})}};
     const auto plain = f.draw({.meshes = items, .sun = front_sun});
     const MaterialHandle chain[] = {swap_material, dim_material};
@@ -1130,7 +1138,7 @@ TEST_CASE("characterization: RenderStats and pass list for raster and ray-traced
         const MeshHandle plane = f.renderer->create_mesh(make_plane(4.0f));
         const ShaderHandle glass = make_shader(f, glass_shader, "char_glass");
         const MaterialHandle red = f.renderer->create_material({.base_color = {1, 0, 0, 1}, .roughness = 0.8f});
-        const MaterialHandle pane = f.renderer->create_material({.shader = glass, .params = {0, 1, 0, 0.5f}});
+        const MaterialHandle pane = f.renderer->create_material({.shader = glass, .params = float_words({0, 1, 0, 0.5f})});
         const std::array meshes{
             MeshInstance{.mesh = plane, .material = red, .transform = translate({0, -1, 0})},
             MeshInstance{.mesh = cube, .material = red, .transform = translate({-1, 0, 0})},
@@ -1187,7 +1195,7 @@ TEST_CASE("characterization: RenderStats and pass list for raster and ray-traced
         const MeshHandle plane = f.renderer->create_mesh(make_plane(4.0f));
         const ShaderHandle glass = make_shader(f, glass_shader, "char_glass_rt");
         const MaterialHandle red = f.renderer->create_material({.base_color = {1, 0, 0, 1}, .roughness = 0.8f});
-        const MaterialHandle pane = f.renderer->create_material({.shader = glass, .params = {0, 1, 0, 0.5f}});
+        const MaterialHandle pane = f.renderer->create_material({.shader = glass, .params = float_words({0, 1, 0, 0.5f})});
         const std::array meshes{
             MeshInstance{.mesh = plane, .material = red, .transform = translate({0, -1, 0})},
             MeshInstance{.mesh = cube, .material = red, .transform = translate({-1, 0, 0})},
@@ -1331,10 +1339,10 @@ TEST_CASE("local smoke uses packed occupancy without requiring global fog") {
     const auto shader = make_shader(f, "shader_type volume;\nuniform float mask = 1.0;\n"
                                        "void volume() { DENSITY *= mask; }\n", "smoke_mask");
     REQUIRE(shader.valid());
-    smoke.material = f.renderer->create_material({.shader = shader, .params = {0.0f}});
+    smoke.material = f.renderer->create_material({.shader = shader, .params = float_words({0.0f})});
     CHECK(f.draw(scene) == clear);
     CHECK(occupied[13] == 1);
-    smoke.material = f.renderer->create_material({.shader = shader, .params = {1.0f}});
+    smoke.material = f.renderer->create_material({.shader = shader, .params = float_words({1.0f})});
     CHECK(f.draw(scene) == smoky);
     occupied[13] = 0;
     CHECK(f.draw(scene) == clear);
@@ -1385,8 +1393,8 @@ TEST_CASE("the volume atlas allocates occupied bricks and isolates material data
     const auto shader = make_shader(f, "shader_type volume;\nuniform vec3 tint = vec3(1);\n"
                                        "void volume() { DENSITY = 0.0; EMISSION = tint * 5.0; }\n", "brick_test");
     REQUIRE(shader.valid());
-    const auto red = f.renderer->create_material({.shader = shader, .params = {1, 0, 0}});
-    const auto green = f.renderer->create_material({.shader = shader, .params = {0, 1, 0}});
+    const auto red = f.renderer->create_material({.shader = shader, .params = float_words({1, 0, 0})});
+    const auto green = f.renderer->create_material({.shader = shader, .params = float_words({0, 1, 0})});
     constexpr unsigned side = 17;
     std::array<std::uint8_t, side * side * side> cells{};
     cells[(7 * side + 8) * side + 8] = 1;
@@ -1451,11 +1459,11 @@ TEST_CASE("GPU particle burst draws and obeys scene depth") {
                                        "void particle() { COLOR = vec3(0.0, 5.0, 0.0); ALPHA *= opacity; }\n",
                                     "spark_color");
     REQUIRE(shader.valid());
-    burst.material = f.renderer->create_material({.shader = shader, .params = {0.0f, 0.0f}});
+    burst.material = f.renderer->create_material({.shader = shader, .params = float_words({0.0f, 0.0f})});
     CHECK(f.draw(scene) == clear);
-    burst.material = f.renderer->create_material({.shader = shader, .params = {1.0f, 100.0f}});
+    burst.material = f.renderer->create_material({.shader = shader, .params = float_words({1.0f, 100.0f})});
     CHECK(f.draw(scene) == clear);
-    burst.material = f.renderer->create_material({.shader = shader, .params = {1.0f, 0.0f}});
+    burst.material = f.renderer->create_material({.shader = shader, .params = float_words({1.0f, 0.0f})});
     const auto green = f.draw(scene);
     CHECK(green != clear);
     CHECK(std::equal(green.begin(), green.end(), clear.begin(),

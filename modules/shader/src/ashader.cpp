@@ -1,9 +1,12 @@
 #include <astral/shader/ashader.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <cctype>
 #include <charconv>
+#include <cmath>
 #include <cstdlib>
+#include <limits>
 
 namespace astral {
 
@@ -92,24 +95,40 @@ std::size_t components(UniformType t) {
     }
 }
 
-/// "vec4(1.0)", "vec3(1, 0, 0.5)", "0.3", "true" → components.
-std::optional<std::vector<float>> parse_default(std::string_view s, UniformType type) {
+/// Like parse_number, but in double so int defaults beyond 2^24 stay exact (ADR-0042).
+std::optional<double> parse_default_number(std::string_view s) {
+    s = trim(s);
+    if (!s.empty() && (s.back() == 'f' || s.back() == 'F' || s.back() == 'u' || s.back() == 'U')) s.remove_suffix(1);
+    if (s == "true") return 1.0;
+    if (s == "false") return 0.0;
+    if (s.empty()) return std::nullopt;
+    const std::string copy(s);
+    char* end = nullptr;
+    const double v = std::strtod(copy.c_str(), &end);
+    if (end != copy.c_str() + copy.size()) return std::nullopt;
+    return v;
+}
+
+/// "vec4(1.0)", "vec3(1, 0, 0.5)", "0.3", "true" → components, each checked by uniform_word().
+std::optional<std::vector<double>> parse_default(std::string_view s, UniformType type) {
     s = trim(s);
     const std::size_t n = components(type);
     if (n == 0) return std::nullopt;
-    std::vector<float> values;
+    std::vector<double> values;
+    auto add = [&](std::string_view part) {
+        const auto v = parse_default_number(part);
+        if (!v || !uniform_word(type, *v)) return false;
+        values.push_back(*v);
+        return true;
+    };
     const std::size_t open = s.find('(');
     if (open != std::string_view::npos) {
         if (s.back() != ')') return std::nullopt;
         for (std::string_view part : split_top(s.substr(open + 1, s.size() - open - 2), ',')) {
-            auto v = parse_number(part);
-            if (!v) return std::nullopt;
-            values.push_back(*v);
+            if (!add(part)) return std::nullopt;
         }
-    } else {
-        auto v = parse_number(s);
-        if (!v) return std::nullopt;
-        values.push_back(*v);
+    } else if (!add(s)) {
+        return std::nullopt;
     }
     if (values.size() == 1 && n > 1) {
         const auto first = values[0]; // copy: assign() must not read from the vector it overwrites
@@ -402,6 +421,26 @@ std::string_view to_string(UniformType type) noexcept {
     case UniformType::Sampler2D: return "sampler2D";
     }
     return "?";
+}
+
+std::optional<std::uint32_t> uniform_word(UniformType type, double value) noexcept {
+    if (!std::isfinite(value)) return std::nullopt;
+    switch (type) {
+    case UniformType::Float:
+    case UniformType::Vec2:
+    case UniformType::Vec3:
+    case UniformType::Vec4:
+        if (std::fabs(value) > static_cast<double>(std::numeric_limits<float>::max())) return std::nullopt;
+        return std::bit_cast<std::uint32_t>(static_cast<float>(value));
+    case UniformType::Int:
+        if (value != std::trunc(value) || value < -2147483648.0 || value > 2147483647.0) return std::nullopt;
+        return std::bit_cast<std::uint32_t>(static_cast<std::int32_t>(value));
+    case UniformType::Bool:
+        if (value != 0.0 && value != 1.0) return std::nullopt;
+        return value != 0.0 ? 1u : 0u;
+    case UniformType::Sampler2D: return std::nullopt;
+    }
+    return std::nullopt;
 }
 
 UniformLayout layout_uniforms(const ShaderSource& source) {

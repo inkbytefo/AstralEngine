@@ -7,10 +7,15 @@ and templates/*/src (excluding tests and _deps) and checks:
   - function body <= 80 lines
   - struct/class data members <= 25
 
-Exceptions are loaded from tools/size_budget.json.
+Exceptions are loaded from tools/size_budget.json. An entry may carry "max" (a cap on the
+excepted value, so an exception cannot grow unnoticed). Entries that match nothing are reported
+as stale and fail --strict: remove them once the offender is fixed.
+
+Files and functions at or above --near (default 0.9) of a limit are listed as [NEAR] so a split
+can be planned before a change goes over (ADR-0030). [NEAR] never fails the check.
 
 Usage:
-  check_sizes.py [--root <dir>] [--budget <path>] [--summary] [--strict]
+  check_sizes.py [--root <dir>] [--budget <path>] [--summary] [--strict] [--near <ratio>]
 """
 
 from __future__ import annotations
@@ -26,6 +31,22 @@ from typing import Iterable, Sequence
 MAX_FILE_LINES = 600
 MAX_FUNCTION_LINES = 80
 MAX_STRUCT_MEMBERS = 25
+DEFAULT_NEAR_RATIO = 0.9
+
+# What to do about an offender (ADR-0030: split by responsibility, never just to fit the number).
+HINTS = {
+    "file": "split by responsibility into sibling files (ADR-0030 rule 2)",
+    "function": "extract named steps; keep one coherent algorithm together (ADR-0030 rule 2)",
+    "members": "group related fields into sub-structs or move them to a collaborator (ADR-0030 rule 2)",
+}
+
+# Findings are recorded from this fraction of a limit (analyze_source sets it); 1.0 = over only.
+_report_ratio = 1.0
+
+
+def _reported(value: int, limit: int) -> bool:
+    """True if value is over the limit, or within the near ratio of it while near-scanning."""
+    return value > limit or (_report_ratio < 1.0 and value >= limit * _report_ratio)
 
 CPP_EXTENSIONS = frozenset({".cpp", ".cc", ".cxx", ".hpp", ".hh", ".hxx", ".h", ".inl"})
 EXCLUDED_DIR_NAMES = frozenset({"tests", "_deps", "build", ".git"})
@@ -72,6 +93,10 @@ class Finding:
     limit: int
     line: int
 
+    @property
+    def over(self) -> bool:
+        return self.value > self.limit
+
 
 @dataclass(frozen=True)
 class ExceptionEntry:
@@ -79,6 +104,7 @@ class ExceptionEntry:
     kind: str
     name: str
     reason: str
+    max: int | None = None  # the excepted value may not grow beyond this
 
 
 def _is_ident_start(ch: str) -> bool:
@@ -822,7 +848,7 @@ def _scan_scope(
                 full_name = "::".join([*scope, class_name])
                 nested_scope = (*scope, class_name)
             nested_members = _scan_scope(tokens, brace_idx + 1, close, True, nested_scope, rel_path, findings)
-            if nested_members > MAX_STRUCT_MEMBERS:
+            if _reported(nested_members, MAX_STRUCT_MEMBERS):
                 findings.append(Finding(
                     path=rel_path,
                     kind="members",
@@ -936,7 +962,7 @@ def _scan_scope(
                 open_line = tokens[found_func_brace].line
                 close_line = tokens[close_b].line
                 body_lines = close_line - open_line + 1
-                if body_lines > MAX_FUNCTION_LINES:
+                if _reported(body_lines, MAX_FUNCTION_LINES):
                     findings.append(Finding(
                         path=rel_path,
                         kind="function",
@@ -998,11 +1024,23 @@ def _is_ctor_init_brace(tokens: Sequence[Token], decl_start: int, brace_idx: int
     return False
 
 
-def analyze_source(source: str, rel_path: str) -> list[Finding]:
-    """Analyze a single C++ source string and return all budget findings."""
+def analyze_source(source: str, rel_path: str, near_ratio: float = 1.0) -> list[Finding]:
+    """Analyze a single C++ source string and return all budget findings.
+
+    With near_ratio < 1, values at or above near_ratio * limit are returned too (Finding.over is
+    False for those)."""
+    global _report_ratio
+    previous, _report_ratio = _report_ratio, near_ratio
+    try:
+        return _analyze_source(source, rel_path)
+    finally:
+        _report_ratio = previous
+
+
+def _analyze_source(source: str, rel_path: str) -> list[Finding]:
     findings: list[Finding] = []
     line_count = len(source.splitlines())
-    if line_count > MAX_FILE_LINES:
+    if _reported(line_count, MAX_FILE_LINES):
         findings.append(Finding(
             path=rel_path,
             kind="file",
@@ -1061,6 +1099,7 @@ def load_exceptions(budget_path: Path) -> list[ExceptionEntry]:
             kind=str(item["kind"]),
             name=str(item.get("name", "")),
             reason=str(item.get("reason", "")),
+            max=int(item["max"]) if item.get("max") is not None else None,
         ))
     return entries
 
@@ -1078,29 +1117,51 @@ def match_exception(finding: Finding, exceptions: Sequence[ExceptionEntry]) -> E
     return None
 
 
-def scan_repo(root: Path, budget_path: Path | None = None) -> tuple[list[Finding], list[tuple[Finding, ExceptionEntry]]]:
-    """Scan all budgeted files under root and partition findings into (over_budget, excepted)."""
+@dataclass(frozen=True)
+class ScanResult:
+    over_budget: list[Finding]
+    excepted: list[tuple[Finding, ExceptionEntry]]
+    near: list[Finding]
+    stale: list[ExceptionEntry]
+    capped: list[tuple[Finding, ExceptionEntry]]  # excepted but grown beyond the entry's max
+
+
+def scan(root: Path, budget_path: Path | None = None, near_ratio: float = DEFAULT_NEAR_RATIO) -> ScanResult:
+    """Scan all budgeted files and partition findings (over / excepted / near; stale and capped entries)."""
     if budget_path is None:
         budget_path = root / "tools" / "size_budget.json"
     exceptions = load_exceptions(budget_path)
-
-    over_budget: list[Finding] = []
-    excepted: list[tuple[Finding, ExceptionEntry]] = []
-
+    result = ScanResult([], [], [], [], [])
+    used: set[int] = set()
     for path in discover_files(root):
         rel = path.relative_to(root).as_posix()
         text = path.read_text(encoding="utf-8", errors="replace")
-        for f in analyze_source(text, rel):
+        for f in analyze_source(text, rel, near_ratio):
+            if not f.over:
+                result.near.append(f)
+                continue
             exc = match_exception(f, exceptions)
-            if exc is not None:
-                excepted.append((f, exc))
+            if exc is None:
+                result.over_budget.append(f)
+                continue
+            used.add(id(exc))
+            if exc.max is not None and f.value > exc.max:
+                result.capped.append((f, exc))
+                result.over_budget.append(f)
             else:
-                over_budget.append(f)
+                result.excepted.append((f, exc))
+    result.stale.extend(e for e in exceptions if id(e) not in used)
+    return result
 
-    return over_budget, excepted
+
+def scan_repo(root: Path, budget_path: Path | None = None) -> tuple[list[Finding], list[tuple[Finding, ExceptionEntry]]]:
+    """Scan all budgeted files under root and partition findings into (over_budget, excepted)."""
+    r = scan(root, budget_path)
+    return r.over_budget, r.excepted
 
 
-def format_summary(over_budget: Sequence[Finding], excepted: Sequence[tuple[Finding, ExceptionEntry]]) -> list[str]:
+def format_summary(over_budget: Sequence[Finding], excepted: Sequence[tuple[Finding, ExceptionEntry]],
+                   near: Sequence[Finding] = (), stale: Sequence[ExceptionEntry] = ()) -> list[str]:
     """Format a concise 3-line summary."""
     kinds = ("file", "function", "members")
     over_by_kind = {k: sum(1 for f in over_budget if f.kind == k) for k in kinds}
@@ -1108,7 +1169,7 @@ def format_summary(over_budget: Sequence[Finding], excepted: Sequence[tuple[Find
     return [
         f"size budget (file <= {MAX_FILE_LINES}, function <= {MAX_FUNCTION_LINES}, members <= {MAX_STRUCT_MEMBERS}):",
         "  " + ", ".join(f"{k}: {over_by_kind[k]} ({exc_by_kind[k]} excepted)" for k in kinds),
-        f"over budget: {len(over_budget)}, exceptions: {len(excepted)}",
+        f"over budget: {len(over_budget)}, exceptions: {len(excepted)}, stale exceptions: {len(stale)}, near limit: {len(near)}",
     ]
 
 
@@ -1118,24 +1179,31 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=default_root, help="Repository root directory")
     parser.add_argument("--budget", type=Path, default=None, help="Path to size_budget.json")
     parser.add_argument("--summary", action="store_true", help="Print at most 3 summary lines")
-    parser.add_argument("--strict", action="store_true", help="Exit 1 if any finding is not in size_budget.json")
+    parser.add_argument("--strict", action="store_true",
+                        help="Exit 1 if any finding is not in size_budget.json, an exception outgrew its max, or an exception is stale")
+    parser.add_argument("--near", type=float, default=DEFAULT_NEAR_RATIO,
+                        help="Also list files/functions/structs at or above this fraction of a limit (1 = off)")
     args = parser.parse_args(argv)
 
     root = args.root.resolve()
-    over_budget, excepted = scan_repo(root, args.budget)
+    r = scan(root, args.budget, min(max(args.near, 0.0), 1.0))
+    capped = {id(f): exc for f, exc in r.capped}
 
-    if args.summary:
-        for line in format_summary(over_budget, excepted):
-            print(line)
-    else:
-        for f in over_budget:
-            print(f"[OVER]   {f.kind:8s} {f.path}:{f.line} {f.name} ({f.value} > {f.limit})")
-        for f, exc in excepted:
+    if not args.summary:
+        for f in r.over_budget:
+            cap = capped.get(id(f))
+            why = f"exception cap {cap.max} exceeded" if cap else HINTS[f.kind]
+            print(f"[OVER]   {f.kind:8s} {f.path}:{f.line} {f.name} ({f.value} > {f.limit}) -- {why}")
+        for e in r.stale:
+            print(f"[STALE]  {e.kind:8s} {e.path} {e.name} -- no longer over budget: remove it from size_budget.json")
+        for f, exc in r.excepted:
             print(f"[EXCEPT] {f.kind:8s} {f.path}:{f.line} {f.name} ({f.value} > {f.limit}) -- {exc.reason}")
-        for line in format_summary(over_budget, excepted):
-            print(line)
+        for f in sorted(r.near, key=lambda f: f.value / f.limit, reverse=True):
+            print(f"[NEAR]   {f.kind:8s} {f.path}:{f.line} {f.name} ({f.value} of {f.limit})")
+    for line in format_summary(r.over_budget, r.excepted, r.near, r.stale):
+        print(line)
 
-    if args.strict and over_budget:
+    if args.strict and (r.over_budget or r.stale):
         return 1
     return 0
 

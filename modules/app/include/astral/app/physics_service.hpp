@@ -51,7 +51,10 @@ public:
     [[nodiscard]] virtual Vec3 linear_velocity(Entity body) const = 0;
 
     // Queued deterministic commands (safe from parallel systems and scripts) ----------------------
-    /// `order_key == 0` orders deterministically by entity (index, generation) then submission order.
+    /// `order_key == 0` orders deterministically by entity (index, generation). Equal keys apply in
+    /// producer order (ADR-0043): code outside systems first, then systems in registration order (the
+    /// later one wins a competing setter), then submission order within one producer. A system that
+    /// queues competing commands from its own parallel jobs must give them explicit order keys.
     virtual void add_impulse(Entity body, Vec3 impulse, std::uint64_t order_key = 0) = 0;
     virtual void add_force(Entity body, Vec3 force, std::uint64_t order_key = 0) = 0;
     virtual void set_linear_velocity(Entity body, Vec3 velocity, std::uint64_t order_key = 0) = 0;

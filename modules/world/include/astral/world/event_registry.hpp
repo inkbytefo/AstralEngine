@@ -58,6 +58,8 @@ public:
 
     /// An event only scripts know. Registering again is a no-op.
     void add_dynamic(std::string_view name);
+    /// Undoes the events added since entries().size() was `entry_count` (a failed script load, ADR-0044).
+    void rollback_dynamic(std::size_t entry_count);
 
     [[nodiscard]] const Entry* find(std::string_view name) const noexcept;
     [[nodiscard]] std::span<const Entry> entries() const noexcept { return entries_; }

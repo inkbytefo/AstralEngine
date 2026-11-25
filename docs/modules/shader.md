@@ -62,6 +62,7 @@ hataları doğrudan `.ashader` satır numarasını gösterir.
 
 ## Bilinen sınırlar
 
+- Parametre bloğu 32-bit word'tür (ADR-0042): `int` tam int32, `bool` 0/1, float IEEE bitleri. `.ashader` default'u ve materyal değeri int için tamsayı ve int32 aralığında olmalı (aksi halde parse hatası / uyarı + default).
 - `particle`, `volume`, `ui` türleri ayrıştırılır ama derlenmez (M14, M8 UI ile).
 - Post: yalnız `after_tonemap` (HDR öncesi nokta yok).
 - glslang çalışma anında derler (yüklemede ~yüz milisaniyeler); önceden derlenmiş SPIR-V önbelleği henüz yok,

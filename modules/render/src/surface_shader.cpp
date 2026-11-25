@@ -39,8 +39,9 @@ std::string uniform_macros(const ShaderSource& source, const UniformLayout& layo
         case UniformType::Vec2: value = "vec2(" + at(0) + ", " + at(1) + ")"; break;
         case UniformType::Vec3: value = "vec3(" + at(0) + ", " + at(1) + ", " + at(2) + ")"; break;
         case UniformType::Vec4: value = "vec4(" + at(0) + ", " + at(1) + ", " + at(2) + ", " + at(3) + ")"; break;
-        case UniformType::Int: value = "int(" + at(0) + ")"; break;
-        case UniformType::Bool: value = "(" + at(0) + " != 0.0)"; break;
+        // int/bool read the word itself (ADR-0042); a float round trip loses ints beyond 2^24.
+        case UniformType::Int: value = "int(astral_pu(" + o + "))"; break;
+        case UniformType::Bool: value = "(astral_pu(" + o + ") != 0u)"; break;
         case UniformType::Sampler2D: {
             const char* sampler = u.hints.filter == TextureFilter::Nearest || u.hints.filter == TextureFilter::NearestMipmap
                                       ? "ASTRAL_SAMPLER_NEAREST_CLAMP"

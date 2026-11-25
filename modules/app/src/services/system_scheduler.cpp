@@ -1,5 +1,7 @@
 #include "system_scheduler.hpp"
 
+#include "command_producer.hpp"
+
 #include <astral/app/app.hpp>
 #include <astral/core/jobs.hpp>
 #include <astral/core/profiler.hpp>
@@ -24,15 +26,17 @@ bool sorted_overlaps(std::span<const ComponentId> a, std::span<const ComponentId
 
 } // namespace
 
-void SystemScheduler::run_serial_system(System& sys, Context& ctx) {
+void SystemScheduler::run_serial_system(System& sys, Context& ctx, std::uint64_t producer) {
     ASTRAL_PROFILE_SCOPE(ctx.profiler, sys.name().c_str());
+    detail::ScopedCommandProducer scope(producer);
     ctx.world.set_change_baseline(sys.last_run_);
     sys.update(ctx);
     sys.last_run_ = ctx.world.tick();
     ctx.world.advance_tick();
 }
 
-void SystemScheduler::run_parallel_wave(std::span<const std::unique_ptr<System>> wave_systems, Context& ctx) {
+void SystemScheduler::run_parallel_wave(std::span<const std::unique_ptr<System>> wave_systems, Context& ctx, std::size_t phase,
+                                        std::size_t first_index) {
     ASTRAL_PROFILE_SCOPE(ctx.profiler, "parallel_systems");
     const Tick base_tick = ctx.world.tick();
     JobCounter counter;
@@ -40,8 +44,10 @@ void SystemScheduler::run_parallel_wave(std::span<const std::unique_ptr<System>>
         System* sys = wave_systems[i].get();
         const Tick baseline = sys->last_run_;
         const Tick write_tick = base_tick + static_cast<Tick>(i);
-        ctx.jobs.submit(counter, [&ctx, sys, baseline, write_tick] {
+        const std::uint64_t producer = detail::command_producer_rank(phase, first_index + i);
+        ctx.jobs.submit(counter, [&ctx, sys, baseline, write_tick, producer] {
             World::ScopedTick scope(ctx.world, baseline, write_tick);
+            detail::ScopedCommandProducer producer_scope(producer);
             sys->update(ctx);
         });
     }
@@ -145,9 +151,10 @@ void SystemScheduler::run(Phase phase, Context& ctx) {
 
     for (const Wave& w : bucket.waves) {
         if (w.end - w.begin == 1) {
-            run_serial_system(*bucket.systems[w.begin], ctx);
+            run_serial_system(*bucket.systems[w.begin], ctx, detail::command_producer_rank(static_cast<std::size_t>(phase), w.begin));
         } else {
-            run_parallel_wave(std::span<const std::unique_ptr<System>>(bucket.systems).subspan(w.begin, w.end - w.begin), ctx);
+            run_parallel_wave(std::span<const std::unique_ptr<System>>(bucket.systems).subspan(w.begin, w.end - w.begin), ctx,
+                              static_cast<std::size_t>(phase), w.begin);
         }
     }
 }

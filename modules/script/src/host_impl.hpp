@@ -68,6 +68,9 @@ struct ScriptHost::Impl {
     int ctx_ref = 0; ///< The ctx table handed to callbacks.
     std::vector<std::unique_ptr<Module>> modules;
     Module* active = nullptr; ///< The module whose code is running (registrations belong to it).
+    /// True while a module's top-level code runs (ScriptHost::load): world-changing calls are refused,
+    /// so a failed load leaves the world as it was (ADR-0044).
+    bool loading = false;
     std::vector<Timer> timers;
     std::uint32_t next_timer = 1;
     /// Behaviour instances that had on_start: entity -> the script path they started with. A new

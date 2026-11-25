@@ -56,6 +56,10 @@ void set_function(lua_State* L, const char* name, lua_CFunction fn) {
     lua_setfield(L, -2, name);
 }
 
+void forbid_while_loading(lua_State* L, const char* what) {
+    if (Impl::of(L).loading) luaL_error(L, "%s is not allowed while the module loads; call it from on_load() or a callback", what);
+}
+
 } // namespace bindings_detail
 
 namespace {
@@ -92,6 +96,7 @@ int component_index(lua_State* L) {
 }
 
 int component_newindex(lua_State* L) {
+    forbid_while_loading(L, "setting a component field");
     Impl& impl = Impl::of(L);
     auto* box = static_cast<ComponentBox*>(lua_touserdatatagged(L, 1, tag_component));
     const TypeRegistry::Entry& entry = entry_of(impl, box->type);
@@ -144,6 +149,7 @@ void add_component(lua_State* L, Impl& impl, Entity e, std::uint32_t type, int v
 }
 
 int entity_add(lua_State* L) {
+    forbid_while_loading(L, "entity:add");
     Impl& impl = Impl::of(L);
     const Entity e = check_alive(L, impl, 1, "add");
     const std::uint32_t type = require_type(L, impl, luaL_checkstring(L, 2));
@@ -153,6 +159,7 @@ int entity_add(lua_State* L) {
 }
 
 int entity_remove(lua_State* L) {
+    forbid_while_loading(L, "entity:remove");
     Impl& impl = Impl::of(L);
     const Entity e = check_alive(L, impl, 1, "remove");
     const std::uint32_t type = require_type(L, impl, luaL_checkstring(L, 2));
@@ -161,6 +168,7 @@ int entity_remove(lua_State* L) {
 }
 
 int entity_destroy(lua_State* L) {
+    forbid_while_loading(L, "entity:destroy");
     Impl& impl = Impl::of(L);
     const Entity e = check_entity(L, 1);
     if (impl.env.world.alive(e)) impl.env.world.destroy(e);
@@ -350,17 +358,31 @@ int astral_define_event(lua_State* L) {
 }
 
 int astral_spawn(lua_State* L) {
+    forbid_while_loading(L, "astral.spawn");
     Impl& impl = Impl::of(L);
     luaL_checktype(L, 1, LUA_TTABLE);
-    const Entity e = impl.env.world.create();
+    // Check every name first, then create: a bad name or field leaves no half-built entity (AG09).
     lua_pushnil(L);
     while (lua_next(L, 1) != 0) {
         if (lua_type(L, -2) != LUA_TSTRING) luaL_error(L, "spawn: use {[\"component name\"] = {fields}}");
-        const std::uint32_t type = require_type(L, impl, lua_tostring(L, -2));
-        add_component(L, impl, e, type, lua_gettop(L));
+        (void)require_type(L, impl, lua_tostring(L, -2));
         lua_pop(L, 1);
     }
-    push_entity(L, e);
+    struct DestroyUnlessKept { // Lua errors unwind as C++ exceptions (LUA_USE_LONGJMP 0)
+        World& world;
+        Entity e;
+        bool keep = false;
+        ~DestroyUnlessKept() {
+            if (!keep && world.alive(e)) world.destroy(e);
+        }
+    } guard{impl.env.world, impl.env.world.create()};
+    lua_pushnil(L);
+    while (lua_next(L, 1) != 0) {
+        add_component(L, impl, guard.e, require_type(L, impl, lua_tostring(L, -2)), lua_gettop(L));
+        lua_pop(L, 1);
+    }
+    guard.keep = true;
+    push_entity(L, guard.e);
     return 1;
 }
 
@@ -439,6 +461,7 @@ int astral_find(lua_State* L) {
 }
 
 int astral_send(lua_State* L) {
+    forbid_while_loading(L, "astral.send");
     Impl& impl = Impl::of(L);
     const std::string event = luaL_checkstring(L, 1);
     const EventRegistry::Entry* entry = impl.env.events.find(event);

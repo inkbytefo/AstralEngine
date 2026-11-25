@@ -3,7 +3,9 @@
 #include <astral/world/serialize.hpp>
 #include <doctest/doctest.h>
 
+#include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -125,4 +127,62 @@ TEST_CASE("C06: World::add replaces a component that is not move-assignable") {
     const Entity e = w.create(msr::Tag{1});
     w.add(e, msr::Tag{2});
     CHECK(w.get<msr::Tag>(e)->id == 2);
+}
+
+namespace msr {
+struct BigIds {
+    std::int64_t signed_id = 0;
+    std::uint64_t unsigned_id = 0;
+};
+} // namespace msr
+
+ASTRAL_REFLECT(msr::BigIds, signed_id, unsigned_id)
+
+TEST_CASE("C05: typed save/load keeps 64-bit integers above 2^53") {
+    const msr::BigIds in{(std::int64_t{1} << 53) + 1, std::numeric_limits<std::uint64_t>::max()};
+    const Json saved = to_json(in, SaveContext{});
+    const auto text = Json::parse(saved.dump());
+    const auto binary = Json::from_binary(saved.to_binary());
+    REQUIRE(text.has_value());
+    REQUIRE(binary.has_value());
+    for (const Json* j : {&*text, &*binary}) {
+        msr::BigIds out;
+        std::vector<std::string> errors;
+        LoadContext ctx;
+        ctx.errors = &errors;
+        CHECK(from_json(*j, out, ctx));
+        CHECK(errors.empty());
+        CHECK(out.signed_id == in.signed_id);
+        CHECK(out.unsigned_id == in.unsigned_id);
+    }
+    msr::BigIds out;
+    std::vector<std::string> errors;
+    LoadContext ctx;
+    ctx.errors = &errors;
+    CHECK_FALSE(from_json(*Json::parse(R"({"unsigned_id": -1})"), out, ctx));
+    CHECK_FALSE(from_json(*Json::parse(R"({"signed_id": 9223372036854775808})"), out, ctx));
+}
+
+TEST_CASE("C05: reflection fields of 8 bytes roundtrip exactly and saturate without UB") {
+    msr::BigIds v{(std::int64_t{1} << 53) + 1, (std::uint64_t{1} << 63) + 1};
+    const FieldInfo s{.name = "signed_id", .kind = FieldKind::Int, .offset = offsetof(msr::BigIds, signed_id), .size = 8};
+    const FieldInfo u{.name = "unsigned_id", .kind = FieldKind::UInt, .offset = offsetof(msr::BigIds, unsigned_id), .size = 8, .is_signed = false};
+    const Json js = field_to_json(s, &v, SaveContext{});
+    const Json ju = field_to_json(u, &v, SaveContext{});
+    CHECK(js.as_int64() == v.signed_id);
+    CHECK(ju.as_uint64() == v.unsigned_id);
+    msr::BigIds back;
+    CHECK(field_from_json(s, &back, js, LoadContext{}));
+    CHECK(field_from_json(u, &back, ju, LoadContext{}));
+    CHECK(back.signed_id == v.signed_id);
+    CHECK(back.unsigned_id == v.unsigned_id);
+    // Doubles at or beyond the type's range saturate to the integer limits (no out-of-range cast).
+    write_number(s, &back, 1e30);
+    write_number(u, &back, 1e30);
+    CHECK(back.signed_id == std::numeric_limits<std::int64_t>::max());
+    CHECK(back.unsigned_id == std::numeric_limits<std::uint64_t>::max());
+    write_number(s, &back, -1e30);
+    write_number(u, &back, -5.0);
+    CHECK(back.signed_id == std::numeric_limits<std::int64_t>::min());
+    CHECK(back.unsigned_id == 0);
 }

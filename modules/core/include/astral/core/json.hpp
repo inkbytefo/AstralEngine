@@ -26,10 +26,14 @@ public:
     Json(std::nullptr_t) noexcept {}
     Json(bool b) noexcept : value_(b) {}
     Json(double n) noexcept : value_(n) {}
-    Json(int n) noexcept : value_(static_cast<double>(n)) {}
-    Json(std::int64_t n) noexcept : value_(static_cast<double>(n)) {}
-    Json(std::uint32_t n) noexcept : value_(static_cast<double>(n)) {}
-    Json(std::uint64_t n) noexcept : value_(static_cast<double>(n)) {}
+    // Integers are kept exactly (ADR-0041); they are still Type::Number and as_number() reads them.
+    Json(int n) noexcept : value_(static_cast<std::int64_t>(n)) {}
+    Json(std::int64_t n) noexcept : value_(n) {}
+    Json(std::uint32_t n) noexcept : value_(static_cast<std::int64_t>(n)) {}
+    Json(std::uint64_t n) noexcept {
+        if (n <= static_cast<std::uint64_t>(INT64_MAX)) value_ = static_cast<std::int64_t>(n);
+        else value_ = n;
+    }
     Json(float n) noexcept : value_(static_cast<double>(n)) {}
     Json(const char* s) : value_(std::string(s)) {}
     Json(std::string s) noexcept : value_(std::move(s)) {}
@@ -38,7 +42,10 @@ public:
     static Json array(std::initializer_list<Json> items = {});
     static Json object();
 
-    [[nodiscard]] Type type() const noexcept { return static_cast<Type>(value_.index()); }
+    [[nodiscard]] Type type() const noexcept {
+        const std::size_t i = value_.index();
+        return i >= int64_index ? Type::Number : static_cast<Type>(i);
+    }
     [[nodiscard]] bool is_null() const noexcept { return type() == Type::Null; }
     [[nodiscard]] bool is_bool() const noexcept { return type() == Type::Bool; }
     [[nodiscard]] bool is_number() const noexcept { return type() == Type::Number; }
@@ -49,6 +56,11 @@ public:
     // Reads never throw: a wrong type gives the fallback.
     [[nodiscard]] bool as_bool(bool fallback = false) const noexcept;
     [[nodiscard]] double as_number(double fallback = 0.0) const noexcept;
+    /// True if the number is held as an integer (written without fraction or exponent, or built from one).
+    [[nodiscard]] bool is_integer() const noexcept { return value_.index() >= int64_index; }
+    /// The exact value when it is a whole number representable as T; nullopt otherwise (or not a number).
+    [[nodiscard]] std::optional<std::int64_t> as_int64() const noexcept;
+    [[nodiscard]] std::optional<std::uint64_t> as_uint64() const noexcept;
     [[nodiscard]] const std::string& as_string() const noexcept;
     [[nodiscard]] const Array& as_array() const noexcept;
     [[nodiscard]] const Object& as_object() const noexcept;
@@ -86,10 +98,13 @@ public:
     /// True if `data` starts with the binary form's magic.
     static bool is_binary(std::span<const std::uint8_t> data) noexcept;
 
-    friend bool operator==(const Json& a, const Json& b) noexcept { return a.value_ == b.value_; }
+    /// Numbers compare by value whatever their storage (Json(1) == Json(1.0)).
+    friend bool operator==(const Json& a, const Json& b) noexcept;
 
 private:
-    std::variant<std::nullptr_t, bool, double, std::string, Array, Object> value_{nullptr};
+    static constexpr std::size_t int64_index = 6;
+    // The first six alternatives follow Type; the integer ones come last and report Type::Number.
+    std::variant<std::nullptr_t, bool, double, std::string, Array, Object, std::int64_t, std::uint64_t> value_{nullptr};
 };
 
 } // namespace astral
