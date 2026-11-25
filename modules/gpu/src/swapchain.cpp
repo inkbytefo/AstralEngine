@@ -116,6 +116,11 @@ struct Swapchain::Impl {
         VkSwapchainKHR fresh = VK_NULL_HANDLE;
         if (vkCreateSwapchainKHR(s->device, &info, nullptr, &fresh) != VK_SUCCESS) {
             s->log_error("vkCreateSwapchainKHR failed");
+            // Passing it as oldSwapchain retired it even though creation failed: it can no longer
+            // acquire images, so drop it and start from scratch next time.
+            if (swapchain) vkDestroySwapchainKHR(s->device, swapchain, nullptr);
+            swapchain = VK_NULL_HANDLE;
+            dirty = true;
             return false;
         }
         if (swapchain) vkDestroySwapchainKHR(s->device, swapchain, nullptr);
@@ -134,9 +139,19 @@ struct Swapchain::Impl {
             record.view = create_view(*s, image, format, false, 1);
             record.desc = {.width = ext.width, .height = ext.height, .format = from_vk(format),
                            .usage = TextureUsage::ColorTarget | TextureUsage::TransferDst};
-            images.push_back(s->textures.create(record));
             VkSemaphore sem = VK_NULL_HANDLE;
-            vkCreateSemaphore(s->device, &sem_info, nullptr, &sem);
+            const bool sem_ok = vkCreateSemaphore(s->device, &sem_info, nullptr, &sem) == VK_SUCCESS;
+            if (!record.view || !sem_ok) {
+                s->log_error("swapchain: cannot create an image view or semaphore");
+                if (record.view) vkDestroyImageView(s->device, record.view, nullptr);
+                if (sem) vkDestroySemaphore(s->device, sem, nullptr);
+                release_images();
+                for (auto done : render_done) vkDestroySemaphore(s->device, done, nullptr);
+                render_done.clear();
+                dirty = true;
+                return false;
+            }
+            images.push_back(s->textures.create(record));
             render_done.push_back(sem);
         }
         dirty = false;
@@ -211,8 +226,9 @@ SubmitTicket Swapchain::present(CommandList& commands) {
     auto& m = *impl_;
     auto& s = *m.s;
     if (m.image_index == UINT32_MAX) return m.device->submit(commands);
+    const std::uint64_t before = s.last_submitted;
     const SubmitTicket ticket = m.device->submit_internal(commands, &m.pending_wait, 1, &m.pending_signal, 1);
-    if (ticket.value != s.last_submitted || s.last_submitted == 0) {
+    if (s.last_submitted == before) {
         // Submit failed: nothing will signal render_done, so presenting would hang.
         m.image_index = UINT32_MAX;
         m.dirty = true;

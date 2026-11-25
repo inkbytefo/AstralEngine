@@ -297,7 +297,7 @@ VkImageView create_view(Device::Impl& s, VkImage image, VkFormat format, bool de
                                                                    : VK_IMAGE_ASPECT_COLOR_BIT),
                              0, mips, 0, 1};
     VkImageView view = VK_NULL_HANDLE;
-    vkCreateImageView(s.device, &info, nullptr, &view);
+    if (vkCreateImageView(s.device, &info, nullptr, &view) != VK_SUCCESS) return VK_NULL_HANDLE;
     return view;
 }
 
@@ -337,7 +337,14 @@ TextureHandle Device::create_texture(const TextureDesc& desc) {
     // Views only exist for usages that need one (transfer-only images must not have a view).
     const bool needs_view = has_flag(desc.usage, TextureUsage::Sampled) || has_flag(desc.usage, TextureUsage::Storage) ||
                             has_flag(desc.usage, TextureUsage::ColorTarget) || has_flag(desc.usage, TextureUsage::DepthTarget);
-    if (needs_view) record.view = create_view(s, record.image, info.format, is_depth(desc.format), desc.mip_levels);
+    if (needs_view) {
+        record.view = create_view(s, record.image, info.format, is_depth(desc.format), desc.mip_levels);
+        if (!record.view) {
+            s.log_error("create_texture: image view creation failed");
+            destroy_texture_record(s, record);
+            return {};
+        }
+    }
     if (has_flag(desc.usage, TextureUsage::Sampled) || has_flag(desc.usage, TextureUsage::Storage)) {
         record.bindless = s.allocate_bindless();
         if (record.bindless == UINT32_MAX) {

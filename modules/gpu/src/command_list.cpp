@@ -31,7 +31,7 @@ CommandList::CommandList(CommandList&& other) noexcept
 
 CommandList& CommandList::operator=(CommandList&& other) noexcept {
     if (this != &other) {
-        this->~CommandList();
+        abandon();
         device_ = std::exchange(other.device_, nullptr);
         native_ = other.native_;
         slot_ = other.slot_;
@@ -44,18 +44,26 @@ CommandList& CommandList::operator=(CommandList&& other) noexcept {
     return *this;
 }
 
-CommandList::~CommandList() {
+CommandList::~CommandList() { abandon(); }
+
+void CommandList::abandon() noexcept {
     // Dropped without submit: end recording and hand the slot back unused.
     if (!device_) return;
     auto& s = device_->impl();
     if (rendering_) vkCmdEndRendering(native(native_));
     vkEndCommandBuffer(native(native_));
     s.command_slots[slot_].recording = false;
+    s.release_slot(slot_, 0); // nothing it recorded will run
     // Its transitions never execute: restore the states they assumed (latest first).
     for (auto it = touched_.rbegin(); it != touched_.rend(); ++it) {
         if (TextureRecord* r = s.textures.get(it->first)) r->state = it->second;
     }
     device_ = nullptr;
+    rendering_ = false;
+    bound_pipeline_ = {};
+    compute_bound_ = false;
+    touched_.clear();
+    on_submitted_.clear();
 }
 
 void CommandList::remember_state(TextureHandle texture, ResourceState previous) {
@@ -271,7 +279,7 @@ void CommandList::copy_texture_to_buffer(TextureHandle src, BufferHandle dst) {
     const TextureRecord* t = s.textures.get(src);
     const BufferRecord* b = s.buffers.get(dst);
     if (!t || !b ||
-        b->size < std::uint64_t{t->desc.width} * t->desc.height * format_size(t->desc.format)) {
+        b->size < texture_data_size(t->desc.format, t->desc.width, t->desc.height)) {
         s.log_error("copy_texture_to_buffer: invalid handle or buffer too small");
         return;
     }
@@ -290,7 +298,7 @@ void CommandList::copy_buffer_to_texture(BufferHandle src, TextureHandle dst) {
     const BufferRecord* b = s.buffers.get(src);
     const TextureRecord* t = s.textures.get(dst);
     if (!t || !b ||
-        b->size < std::uint64_t{t->desc.width} * t->desc.height * format_size(t->desc.format)) {
+        b->size < texture_data_size(t->desc.format, t->desc.width, t->desc.height)) {
         s.log_error("copy_buffer_to_texture: invalid handle or buffer too small");
         return;
     }

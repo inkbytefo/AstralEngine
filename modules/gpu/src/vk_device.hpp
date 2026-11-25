@@ -131,6 +131,9 @@ struct Device::Impl {
     struct Garbage {
         std::uint64_t value;
         std::function<void()> destroy;
+        /// Command slots that were recording at retire time: the resource may be referenced by
+        /// them, so it waits until each is submitted (raising `value`) or dropped.
+        std::vector<std::uint32_t> open_slots;
     };
     std::deque<Garbage> garbage;
 
@@ -146,6 +149,8 @@ struct Device::Impl {
     std::uint64_t completed_value() const;
     void retire(std::function<void()> destroy);
     void collect_garbage();
+    /// A recording slot ended: submitted as `ticket`, or dropped/failed when `ticket` is 0.
+    void release_slot(std::uint32_t slot, std::uint64_t ticket);
     void wait_value(std::uint64_t value);
     /// Records, submits and waits for a one-off command buffer.
     void immediate(const std::function<void(VkCommandBuffer)>& record);

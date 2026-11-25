@@ -101,6 +101,8 @@ private:
     CommandList(Device* device, void* native, std::uint32_t slot) noexcept;
 
     bool usable() const noexcept { return device_ != nullptr; }
+    /// Ends an unsubmitted recording and rolls back its texture states (destructor and move-assign).
+    void abandon() noexcept;
     void remember_state(TextureHandle texture, ResourceState previous);
 
     Device* device_ = nullptr;
