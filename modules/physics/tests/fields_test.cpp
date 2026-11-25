@@ -3,6 +3,7 @@
 #include <doctest/doctest.h>
 
 #include <cmath>
+#include <limits>
 
 using namespace astral;
 
@@ -98,4 +99,14 @@ TEST_CASE("water volumes: surface, depth, flow, density; waves move the surface"
     // Overlapping volumes: the deeper one wins.
     fields.add_water_volume({.center = {0, -3, 0}, .half_extents = {20, 4, 20}, .density = 1100.0f}); // its surface is at +1
     CHECK(fields.water_at({0, -3.5f, 0}, 0.0).density == doctest::Approx(1100.0f)); // 4.5 deep in the second, 3.5 in the first
+}
+
+TEST_CASE("PH07: field noise is defined for huge and non-finite coordinates") {
+    for (const float big : {1e30f, -1e30f, 3e9f, -3e9f, 2147483520.0f}) {
+        const float n = astral::field_noise({big, big * 0.5f, -big}, 3);
+        CHECK(n >= 0.0f);
+        CHECK(n <= 1.0f);
+    }
+    CHECK(astral::field_noise({std::nanf(""), 0, 0}, 3) == 0.5f);
+    CHECK(astral::field_noise({std::numeric_limits<float>::infinity(), 0, 0}, 3) == 0.5f);
 }

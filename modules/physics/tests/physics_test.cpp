@@ -181,6 +181,9 @@ TEST_CASE("invalid shapes are refused instead of crashing") {
     CHECK_FALSE(world.create_body({.shape = ShapeDesc::sphere(-1.0f)}).valid());
     CHECK_FALSE(world.create_body({.shape = ShapeDesc::sphere(std::nanf(""))}).valid());
     CHECK_FALSE(world.create_character({.radius = 0.0f}).valid());
+    // PH09: height is the capsule's total height; shorter than two hemispheres cannot be honoured.
+    CHECK_FALSE(world.create_character({.radius = 0.4f, .height = 0.5f}).valid());
+    CHECK(world.create_character({.radius = 0.4f, .height = 0.82f}).valid());
 }
 
 TEST_CASE("characters are visible to raycasts and sensors and block each other") {

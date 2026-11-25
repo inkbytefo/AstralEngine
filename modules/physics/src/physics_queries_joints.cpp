@@ -181,7 +181,14 @@ CharacterHandle PhysicsWorld::create_character(const CharacterDesc& desc) {
         m.error("create_character: radius and height must be positive");
         return {};
     }
-    const float half_cylinder = std::max(0.01f, desc.height * 0.5f - desc.radius);
+    // The capsule's total height is the contract: it must fit two hemispheres plus Jolt's minimum
+    // cylinder, otherwise the collider would silently be taller than requested.
+    constexpr float min_half_cylinder = 0.01f;
+    if (desc.height < 2.0f * (desc.radius + min_half_cylinder)) {
+        m.error("create_character: height must be at least 2 * radius + 0.02 (it is the capsule's total height)");
+        return {};
+    }
+    const float half_cylinder = desc.height * 0.5f - desc.radius;
     auto capsule_shape = JPH::CapsuleShapeSettings(half_cylinder, desc.radius).Create();
     if (!capsule_shape.IsValid()) return {};
     JPH::RotatedTranslatedShapeSettings capsule(JPH::Vec3(0, half_cylinder + desc.radius, 0), JPH::Quat::sIdentity(),

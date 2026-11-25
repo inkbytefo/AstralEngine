@@ -30,11 +30,25 @@ float smooth(float t) noexcept { return t * t * (3.0f - 2.0f * t); }
 
 } // namespace
 
+/// Lattice coordinate of floor(v): wrapped into int32 with unsigned arithmetic (no overflow UB, no
+/// out-of-range float-to-int cast); non-finite input maps to cell 0.
+static std::int32_t lattice(float v) noexcept {
+    if (!std::isfinite(v)) return 0;
+    const double wrapped = std::fmod(static_cast<double>(v), 4294967296.0); // exact for any float
+    const auto bits = static_cast<std::uint32_t>(static_cast<std::int64_t>(wrapped));
+    return static_cast<std::int32_t>(bits);
+}
+
+static std::int32_t lattice_step(std::int32_t i, int d) noexcept {
+    return static_cast<std::int32_t>(static_cast<std::uint32_t>(i) + static_cast<std::uint32_t>(d));
+}
+
 float field_noise(Vec3 p, std::uint32_t seed) noexcept {
+    if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z)) return 0.5f; // neutral sample
     const float fx = std::floor(p.x), fy = std::floor(p.y), fz = std::floor(p.z);
-    const auto ix = static_cast<std::int32_t>(fx), iy = static_cast<std::int32_t>(fy), iz = static_cast<std::int32_t>(fz);
+    const std::int32_t ix = lattice(fx), iy = lattice(fy), iz = lattice(fz);
     const float ux = smooth(p.x - fx), uy = smooth(p.y - fy), uz = smooth(p.z - fz);
-    const auto corner = [&](int dx, int dy, int dz) { return rand01(hash3(ix + dx, iy + dy, iz + dz, seed)); };
+    const auto corner = [&](int dx, int dy, int dz) { return rand01(hash3(lattice_step(ix, dx), lattice_step(iy, dy), lattice_step(iz, dz), seed)); };
     const float x00 = mix(corner(0, 0, 0), corner(1, 0, 0), ux);
     const float x10 = mix(corner(0, 1, 0), corner(1, 1, 0), ux);
     const float x01 = mix(corner(0, 0, 1), corner(1, 0, 1), ux);
