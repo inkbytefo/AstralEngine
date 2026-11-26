@@ -4,6 +4,17 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+### Fixed (status §4 Dalga A ve B, merge `1ac411c`, `357ff85`)
+- `app`/`audio`: başsız/offscreen modda sessiz mikser oyun saatiyle ilerler, sesler biter ve birikmez; `AudioEngine::mixed_frames()` (ADR-0054).
+- `script`: zaman bütçesi modül ve faz başına; aşımdan sonra sonraki modüller artık bütçesiz koşmuyor (ADR-0052).
+- `world`: katman gizleme, oyunun yaptığı değişiklikleri ve silmeleri koruyor.
+- `editor_core`: başarısız kayıt oluşturduğu prefab dosyalarını siler (`IEditorFileSystem::remove`); `ReparentEntity` dolaylı döngüyü reddeder; `DeleteEntity` çocukları köke taşır (ADR-0053).
+- `render`: `DirectionalLight::shadows = false` RT ve path tracer'da da güneş gölgesini kapatır; `update_material` busy callback'ini çağırır.
+- `gpu`: `supports(MeshShaders)` her zaman `false`; `write_texture` yalnız `Sampled` dokulara yazar.
+- `physics`: tek aralıklı `set_joint_limits` SixDOF/SwingTwist'te uyarı verir, hiçbir şey değiştirmez.
+- `core`: `JobSystem::submit` kuyruğa ekleme hatasında sayacı geri alır.
+- `build`: `astral_check_scripts`, `astral-luau-check` yoksa uyarı verir.
+
 ### Changed (dokümantasyon, 2026-11-26)
 - Tüm eski dokümanlar (ADR'ler hariç) `docs/archive/legacy/` altına taşındı; `docs/` koddan yeniden yazıldı: tek [roadmap](docs/roadmap.md), [status](docs/status.md), [architecture](docs/architecture.md), [process](docs/process.md), modül dokümanları ve rehberler. ADR-0045–0051 eklendi.
 - `tools`: `check_docs.py` ve ctest `docs_check` (kırık link ve `path:line` referans denetimi).
