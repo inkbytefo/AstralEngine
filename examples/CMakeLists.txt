@@ -13,6 +13,7 @@
 #   material_workflow material hot-reload & UV inspection scene workflow
 #   model_viewer     a glTF model in a studio, with hot reload
 #   scene_viewer     scenes and prefabs, reloaded live
+#   asset_viewer     glTF/GLB models and scenes with orbit/fly camera, stats HUD and cook/pack (replaces the two above)
 #   shader_showcase  .ashader / .material: leaf, glass, lava, hologram, sky, post
 #   pong             3D Pong: three feature packages, rules in Luau
 #   open_world       a 4 x 4 km streamed map, floating origin, day and night
@@ -33,6 +34,7 @@ add_subdirectory(material_showcase)
 add_subdirectory(material_workflow)
 add_subdirectory(model_viewer)
 add_subdirectory(scene_viewer)
+add_subdirectory(asset_viewer)
 add_subdirectory(shader_showcase)
 add_subdirectory(pong)
 add_subdirectory(open_world)
