@@ -105,6 +105,7 @@ Gizmo sürükleme her kare bir birleştirilmiş işlem uygular (`modules/editor/
 
 ## Zayıf yanlar ve bilinen sınırlar
 
+- **"GPU'suz" doğrudan bağımlılık düzeyindedir.** `editor_core` Astral::Assets'e bağlıdır ve Assets, Astral::Render'a PUBLIC bağımlıdır (`modules/assets/CMakeLists.txt:53-56`); bu nedenle `editor_core` ikilisi dolaylı olarak render/gpu modüllerini link eder. Kod GPU'yu kullanmaz ve `check_editor_isolation.py` yalnızca doğrudan kenarlara bakar (`tools/check_editor_isolation.py:30-33`); geçişli bağımlılık denetlenmez.
 - **Arayüz kodu otomatik testlerde çalışmaz.** `world_editor_tests` `headless` App kullanır (`examples/world_editor/tests/world_editor_test.cpp:98`, `examples/world_editor/tests/world_editor_test.cpp:189`); `editor_core` testleri ise App/ImGui kullanmaz. Başsızda ImGui kurulmadığı için `on_debug_ui`, paneller, gizmo sürükleme,
   komut paleti, kısayollar ve Inspector hiç çalıştırılmaz. Yalnızca programatik API (`pick_entity_at`, `enter_play_mode`, `set_viewport_preview_mode`…) denenir. Görsel doğrulama elle `AstralEditor --capture` ile yapılır (`examples/world_editor/src/main.cpp:57-62`).
 - **Editör tek sabit demo projeyi açar.** Varlık kökü derleme zamanı `ASTRAL_EDITOR_ASSETS` (= `examples/world_editor/assets`), başlangıç belgesi `scenes/workshop.scene`; komut satırında proje yolu yok (`examples/world_editor/src/main.cpp:44-55`).
