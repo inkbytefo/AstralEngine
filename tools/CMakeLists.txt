@@ -46,7 +46,7 @@ if(ASTRAL_BUILD_TESTS)
     set(out ${CMAKE_CURRENT_BINARY_DIR}/cli_test)
     add_test(NAME astral_cook_cli
         COMMAND ${CMAKE_COMMAND} -E env --
-                $<TARGET_FILE:astral_cook> ${CMAKE_SOURCE_DIR}/examples/scene_viewer/assets/prefabs -o ${out}/cooked
+                $<TARGET_FILE:astral_cook> ${CMAKE_SOURCE_DIR}/examples/asset_viewer/assets/prefabs -o ${out}/cooked
                 --pack ${out}/prefabs.apak -q)
     add_test(NAME astral_cook_cli_usage COMMAND $<TARGET_FILE:astral_cook>)
     set_tests_properties(astral_cook_cli_usage PROPERTIES WILL_FAIL TRUE)

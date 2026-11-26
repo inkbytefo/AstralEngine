@@ -20,7 +20,7 @@ Python araçları için ortamda `python` (3.x) gerekir; CMake `find_package(Pyth
 | `tools/check_editor_isolation.py` | Python | Çalışma zamanı modüllerinin editöre bağlanmadığını denetler | `editor_isolation_check` |
 | `tools/sync_features.py` | Python | `features/` ortak paketlerini oyunlardaki kopyalarla eşitler/denetler | `shared_features_in_sync` |
 | `tools/check_docs.py` | Python | Dokümandaki bağlantı ve `yol:satır` başvurularını denetler | `docs_check`, `docs_check_self_test` |
-| `tools/make_test_model.py`, `tools/make_test_world.py` | Python | Elle/örnek için test verisi üretir (crate.glb; 4×4 km `.world`) | test değil; `examples/open_world` derlemede `make_test_world.py`'yi çalıştırır |
+| `tools/make_test_model.py`, `tools/make_test_world.py` | Python | Elle test verisi üretir (crate.glb; 4×4 km `.world`) | test değil; derleme hiçbirini çalıştırmaz |
 | `cmake/CheckPublicHeaders.cmake` | CMake betiği | Public başlıklarda üçüncü parti adı arar | `astral_public_headers_clean` |
 | `cmake/CheckJobPools.cmake` | CMake betiği | Ninja `heavy_compile` havuzunu denetler | `heavy_compile_pool_check` |
 | `cmake/CheckTestEnvironment.cmake` | CMake betiği | Her testte `ASTRAL_SHADER_CACHE` ayarlı mı | `test_environment_check` |
@@ -39,7 +39,7 @@ Kök `CMakeLists.txt` testleri `../CMakeLists.txt:70-112` aralığında kaydeder
   astral-cook <kaynak-klasör> -o <pişmiş-klasör> [--pack oyun.apak] [--uncompressed] [--quality 0..4] [--level 1..19] [--jobs N] [-q]
   ```
   `--pack` pişmiş dosyaları zstd sıkıştırmalı tek `.apak`'a yazar (varsayılan seviye 9, BC7 kalitesi 1). Argümansız çağrı kullanım iletisiyle 2 döner.
-- **Nerede çalışır:** `astral_add_game` her oyun için `<oyun>_package` hedefini kurar (aşağıda). Duman testi: `astral_cook_cli` `examples/scene_viewer/assets/prefabs` klasörünü pişirip paketler; `astral_cook_cli_usage` argümansız çağrının
+- **Nerede çalışır:** `astral_add_game` her oyun için `<oyun>_package` hedefini kurar (aşağıda). Duman testi: `astral_cook_cli` `examples/asset_viewer/assets/prefabs` klasörünü pişirip paketler; `astral_cook_cli_usage` argümansız çağrının
   hata döndüğünü (`WILL_FAIL`) doğrular (`tools/CMakeLists.txt:44-52`).
 - **Sınırlar:** Sayısal seçenekler `atoi` ile okunur, doğrulanmaz (`--quality abc` sessizce 0 olur: `tools/astral_cook/main.cpp:60`, `tools/astral_cook/main.cpp:64`, `tools/astral_cook/main.cpp:68`). `tools/CMakeLists.txt:45` yorumu "sonra yine pişir (yapacak iş yok)" der ama test tek çağrıdır; artımlı
   davranış bu testte sınanmaz (assets modül testlerinde olabilir; burada doğrulanmadı).
@@ -110,9 +110,9 @@ arşivinde `check=True` yüzünden hata ile çöker (`tools/check_docs.py:27`). 
 
 ## `tools/make_test_model.py`, `tools/make_test_world.py`
 
-- `make_test_model.py <çıktı.glb>`: prosedürel dokulu "crate.glb" üretir (numpy ve Pillow gerekir; üçüncü parti sanat yok) (`tools/make_test_model.py:1-10`). Elle ve `examples/model_viewer` için.
+- `make_test_model.py <çıktı.glb>`: prosedürel dokulu "crate.glb" üretir (numpy ve Pillow gerekir; üçüncü parti sanat yok) (`tools/make_test_model.py:1-10`). Elle kullanılır.
 - `make_test_world.py <çıktı-dizini> [--size 4000] [--spacing 55] [--seed 42]`: sabit tohumlu 4×4 km `.world` + her varlık için `.ent` üretir; çıktı depoya değil derleme klasörüne gider (`tools/make_test_world.py:1-14`).
-  `examples/open_world` bunu derleme sırasında özel komutla çalıştırır (`examples/open_world/CMakeLists.txt:7-12`).
+  Derleme bunu çalıştırmaz; `examples/world_showcase` haritası depoya eklenmiş dosyalardır (`examples/world_showcase/make_world.py` üretir).
 
 ## CMake yardımcıları
 

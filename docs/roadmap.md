@@ -42,7 +42,7 @@ Ayrıntı ve kanıtlar: [status.md](status.md).
 | F0, F1 | Doğrulama envanteri; gameplay ve fizik adım sözleşmesi | [ADR-0034](decisions/0034-gameplay-api-and-physics-step-contract.md) |
 | P0 | Physics API v2 (SixDOF, motorlar, kırılma, batched query, streaming detach) | [ADR-0038](decisions/0038-physics-api-v2.md) |
 | E0–E2 | Bağımsız editör çekirdeği, dünya düzenleme ve Level Instance, AI-first editör UX | [ADR-0035](decisions/0035-standalone-ai-assisted-editor-core.md), [ADR-0036](decisions/0036-world-authoring-and-level-instances.md), [ADR-0037](decisions/0037-ai-first-native-editor-v2.md) |
-| M15 (temel) | `.aterrain` tile'ları, CPU mesh LOD, heightfield çarpışma, streaming | [ADR-0039](decisions/0039-terrain-foundation.md), `examples/terrain_lab` |
+| M15 (temel) | `.aterrain` tile'ları, CPU mesh LOD, heightfield çarpışma, streaming | [ADR-0039](decisions/0039-terrain-foundation.md), `examples/world_showcase` |
 | MSR | Master Stabilization: 3 dalgada denetim bulgularının düzeltilmesi (ADR-0040–0044) | [archive/msr/](archive/msr/master-stabilization-roadmap.md), merge `0ebbe13` |
 | G1.1 | PAPERWING geri bildiriminden: fizik açısal API + Luau, filtreli sorgular, `ASTRAL_REFLECT` sınır hatası, Atmosphere sanatsal kontrol, particle `LIFE_T`, `AppDesc::input_script`, Ninja derleme havuzu | merge `68dacbd` |
 | Açılış performansı | SPIR-V disk önbelleği, paralel shader derleme, hızlı mip üretimi, yükleme sırasında pencere tepkisi; Debug sıcak açılış 19.1 s → 3.95 s | merge `31e2c48` |
@@ -51,19 +51,20 @@ Ayrıntı ve kanıtlar: [status.md](status.md).
 
 ## 4. Şimdi ve sıradaki (öncelik sırasıyla)
 
-### 4.1 Örnekleri yenileme 🔜
+### 4.1 Örnekleri yenileme ✅
 
-`examples/` altındaki 20 proje farklı dönemlerden kalma; bazıları birbirini tekrar ediyor, bazıları eski API kullanıyor. Hedef: her biri motorun bir alanını en iyi şekilde gösteren, testli, az sayıda örnek. Önce envanter ve öneri (hangileri kalır, birleşir, silinir), sonra kullanıcı onayı, sonra yeniden yazım. Golden testleri olan örnekler (`hello_triangle`, `spinning_cubes`, `pong`, `scene_viewer`, `rt_showcase`, `shader_showcase`, `physics_playground`) değişirse golden referansları da yenilenir.
+Tamamlandı (2026-11-27): 13 eski örnek silindi; yerlerine `physics_showcase`, `lighting_showcase`, `materials_showcase`, `world_showcase`, `vfx_showcase`, `asset_viewer` geldi; `pong` kayıt/gamepad, `hello_headless` girdi senaryosu aldı. Açık kalan: vitrinlerin golden referansları (yalnız CI/lavapipe üretir) ve `paperwing` / `the_architect` örneklerinin nihai API ile yeniden yazılması.
 
 ### 4.2 Test ve kalite borcu 🔜
 
 | İş | Neden | Tahmin |
 |---|---|---|
-| 7 `golden_hw_*` testinin bu makinede düşmesi | Ton farkı (ör. `hello_triangle` köşe RGB −11, SSIM 0.9445 < 0.95). Şüphe: tonemap öncesi gökyüzü/ambient/bloom. İncelenmedi | 1–2 gün |
+| 3 `golden_hw_*` testinin bu makinede düşmesi | Ton farkı (ör. `hello_triangle` köşe RGB −11, SSIM 0.9445 < 0.95). Şüphe: tonemap öncesi gökyüzü/ambient/bloom. İncelenmedi | 1–2 gün |
 | `astral_render_tests` DDGI SIGSEGV (paralel yükte, ara sıra) | `modules/render/tests/render_audit_test.cpp` DDGI regresyon testi; seri koşumda geçiyor | 1–2 gün |
 | `pong_tests`, `spinning_cubes_tests` Luau 100 ms bütçesi aşımı (paralel yükte) | Bütçe duvar saati ile ölçülüyor; yük altında yanlış alarm | 0.5 gün |
 | `AppDesc` ve `App::Impl` 25/25 veri üyesi | Yeni ayar eklenemiyor (shader önbellek yolu bu yüzden ortam değişkeni). Ayarları alt yapılara gruplama | 1 gün |
 | Windows'ta tsan/asan yok | Faz kapanış listesindeki tsan maddesi bu makinede doğrulanamıyor; CI (Linux) durumu ayrıca kontrol edilmeli | — |
+| Vitrinlerin golden testi yok | Referanslar lavapipe'ta üretilmeli (CI) | 0.5 gün |
 | Lavapipe `golden_*` testleri bu GPU'da atlanıyor | Donanımdan bağımsız görüntü doğrulaması yalnız CI'da | — |
 
 ### 4.3 Render performansı (ENGINE_GAPS kalan maddeler) 🔜
@@ -107,7 +108,7 @@ Ayrıntı ve kanıtlar: [status.md](status.md).
 | Faz | Kapsam | Ön koşul | Kabul lab'i |
 |---|---|---|---|
 | M14 | Atmosfer, hacimsel VFX, GPU partikülleri. **Kısmen var:** gün döngüsü, froxel sis, duman hacmi, GPU partikül simülasyonu, `.vfx` (loop'suz). **Eksik:** loop/trail (G1.2-9), hava durumu bağlantısı | F1, M10, M12–M13 | `vfx_lab` |
-| M15 (devam) | Arazi materyal katmanları, delikler, düzenleme araçları, ölçüme göre GPU clipmap | M15 temel ✅ | `terrain_lab` |
+| M15 (devam) | Arazi materyal katmanları, delikler, düzenleme araçları, ölçüme göre GPU clipmap | M15 temel ✅ | `world_showcase` |
 | M16 | Okyanus ve göller (FFT dalga, kıyı, kaldırma sözleşmesi) | M14–M15, P0 | — |
 | M17 | Hacimsel bulutlar, hava durumu, yağış, ıslaklık; ileri aerodinamik | M13–M14 | — |
 | M18 | Etkileşimli sığ su, nehir, akış/yüzdürme | M16 | — |
@@ -117,7 +118,7 @@ Ayrıntı ve kanıtlar: [status.md](status.md).
 | M22 | HLOD, bitki örtüsü, GPU-driven culling, meshlet LOD | M15, E1 | `city_lab` |
 | M23 / V0 | Rigid araç (Jolt VehicleConstraint adayı) | F1, P0 | `driving_lab` |
 | M23 / V1 | Node-beam araç deformasyonu (ayrı solver) | V0, P0 | `crash_lab` |
-| M23 / S2 | Kumaş, soft body, saç | P0, M12, A0 | `physics_lab` |
+| M23 / S2 | Kumaş, soft body, saç | P0, M12, A0 | `physics_showcase` |
 | M23 | Kırılma entegrasyonu | M19, P0 | `destruction_lab` |
 | N0 | Sunucu otoriteli iki oyunculu co-op, dedicated server | F1, M9 | `coop_lab` |
 
@@ -150,7 +151,7 @@ Her yetenek: public C++ API + uygun Luau yüzeyi + reflection/cook + başsız te
 | VEH0–1 / DEF0–1 | Araç dinamiği; node-beam deformasyon; kumaş/soft body | M23 | `driving_lab`, `crash_lab` |
 | DEST0–1 | Kırılma, SDF arazi değişimi, ağ üzerinden yıkım | M19, M23 | `destruction_lab` |
 | WLD0–1 | Streaming sağlamlaştırma, yol/şerit grafiği, popülasyon | M9, M15, M22 | `city_lab` |
-| REND0–2 | Görsel temeller ve bütçeler; HLOD/GPU culling; su/hava | M14–M18, M22 | `open_world`, `city_lab` |
+| REND0–2 | Görsel temeller ve bütçeler; HLOD/GPU culling; su/hava | M14–M18, M22 | `world_showcase`, `city_lab` |
 | AUD0–1 | Ses streaming, oklüzyon, reverb; HRTF | G1.3-12 | `competitive_lab`, `driving_lab` |
 
 Performans hedefleri (ölçüm değil, tasarım hedefi): rekabetçi profil 144–240 FPS, açık dünya 60 FPS. Referans profil RTX 3060 12 GB; düşük donanım profili henüz seçilmedi.

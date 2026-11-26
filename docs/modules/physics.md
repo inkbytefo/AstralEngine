@@ -138,7 +138,7 @@ fiziği, bekleyen komut konumlarını ve `Joint::anchor`'ları kaydırır (`modu
 
 - **Çapraz platform determinizm yok:** `CROSS_PLATFORM_DETERMINISTIC` Jolt seçeneği CMake'te ayarlanmıyor
   (`modules/physics/CMakeLists.txt:4`); ayrıca AVX vb. kapatılmış, FMA yok. Determinizm iddiası "aynı ikili/makinede sabit adımlı
-  tekrar oynatma" ile sınırlı (`examples/physics_lab/tests/game_test.cpp`, bu incelemede çalıştırılmadı). Çok thread'li Jolt
+  tekrar oynatma" ile sınırlı (bu incelemede ayrıca sınanmadı). Çok thread'li Jolt
   çözümünün farklı çekirdek sayılarında aynı sonucu verdiği doğrulanmadı.
 - **Tek duyarlıklı dünya:** Jolt float; uzak koordinatlarda hassasiyet kaybı floating origin'e bırakılmış
   (`modules/physics/src/physics.cpp:342`). `shift_origin` kayma yalnız App'in çağırdığı anda çalışır; eklemler ve bekleyen
@@ -197,14 +197,12 @@ fiziği, bekleyen komut konumlarını ve `Joint::anchor`'ları kaydırır (`modu
 
 Kapsanmayanlar: bozuk `ASSH` verisiyle fuzz, çok eklemli sistem stres/kararlılık ölçümü, farklı çekirdek
 sayılarında determinizm, `max_bodies` aşımı davranışı, uyuyan gövde temas semantiği, karakter–dinamik gövde itme kuvveti
-doğruluğu. `physics_playground` golden testi bu makinede kalıyor (`golden_hw_physics_playground`, ton farkı; fizikle ilgisi
-araştırılmadı).
+doğruluğu. Fizik vitrininin (`examples/physics_showcase`) henüz golden testi yok.
 
 ## Performans
 
 Ölçülmedi (bu belge için). Repo içinde `astral-bench` fizik ölçümü içermez (`bench/main.cpp` ECS, transform, script, streaming,
-shader derleme); `examples/physics_lab` 120 gövde/60 eklem stres sahnesi içerir fakat zamanlama değeri bu incelemede
-alınmadı.
+shader derleme). Eski 120 gövde/60 eklem stres sahnesi (`physics_lab`) silindi; zamanlama değeri hiç alınmamıştı.
 
 ## Kararlar
 
