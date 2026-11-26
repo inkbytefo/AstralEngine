@@ -82,7 +82,6 @@ Dalga A'da (2026-11-26) düzeltilip listeden çıkarılanlar: başsız ses mikse
 | world | `EventReader::read` ile ilk `World::send` arasında olası veri yarışı | `modules/world/include/astral/world/world.hpp:334` | Doğrulanmadı |
 | assets | Yalnız occlusion için kullanılan doku hiç cook edilmiyor (sıkıştırmasız RGBA8 kalıyor) | `modules/assets/src/texture_codec.cpp:140` | — |
 | tools | `astral_check_scripts`, `astral-luau-check` yoksa uyarı vermeden atlıyor | `cmake/AstralGame.cmake:90-96` | — |
-| docs | ADR-0040'ta geçen `layout_fixups` alanının koddaki adı `recording.fixups` | `modules/gpu/src/vk_device.hpp:110` | — |
 
 ## 5. Denetimler
 

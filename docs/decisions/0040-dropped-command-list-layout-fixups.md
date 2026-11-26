@@ -35,3 +35,7 @@ Texture durumu kayıt anında izlenir: `CommandList::transition` texture'ın glo
 - Submit başına en fazla bir ek komut tamponu oluşur, o da yalnız bırakılan bir liste sonraki bir listeye temel olduysa.
 - Kaynak ömrü tarafında (G02), kayıt sırasında `destroy` edilen bir kaynak, o an açık her liste submit ya da drop edilene kadar yaşar. Bu iki mekanizma birlikte "birden fazla açık liste" modelini korur.
 - Test: `modules/gpu/tests/msr_regression_test.cpp` içindeki G03 senaryoları, Vulkan validation hatası olmadan geçmelidir.
+
+## Not (2026-11-26)
+
+Uygulamada kuyruk `Device::Impl::layout_fixups` adıyla değil, kayıt durumunun içinde `recording.fixups` olarak yaşar (`modules/gpu/src/vk_device.hpp:108`); `record_layout_fixups` onu bir sonraki gönderime yazar (`modules/gpu/src/vk_device.hpp:167-168`). Karar değişmedi.
