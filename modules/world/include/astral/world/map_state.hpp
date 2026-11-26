@@ -105,6 +105,8 @@ private:
 
     Loaded* find_loaded(CellKey cell) noexcept;
     LoadResult spawn(World& world, PrefabLibrary& prefabs, Loaded& cell, std::size_t index);
+    /// Merges what the game changed in a cell into its remembered diff (later records replace earlier ones).
+    void remember(CellKey cell, CellDiff fresh);
     KnownRecord& ensure_known(std::uint64_t id, CellKey cell);
 
     Json save_world_record(World& world, PrefabLibrary& prefabs, Entity e) const;
