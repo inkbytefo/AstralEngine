@@ -161,7 +161,7 @@ ctx.world.create(Transform{}, StreamingSource{});                           // y
 `MapService` (`modules/app/include/astral/app/map_service.hpp:12-35`): `open_world`, `close_world`, `finish_world_loading` (menzildeki her hücre yüklenene
 kadar bloklar: yükleme ekranı, test), `world_layers`, `world_streaming` (hücre sayıları), `world_origin`, `resolve_map_entity`.
 
-- **Kaynaklar:** aktif `StreamingSource` entity'leri; hiç yoksa ilk aktif `Camera` (`modules/app/src/services/world_bridge.cpp:101-123`). İlk kaynak
+- **Kaynaklar:** aktif `StreamingSource` entity'leri; hiç yoksa ilk aktif `Camera` (`modules/app/src/services/world_bridge.cpp:108-129`). İlk kaynak
   kayan orijini de sürer. Üst düzey konum `Transform`'dan, çocuk ise `WorldTransform`'dan alınır.
 - **Yükle/boşalt:** hücre karesi kaynağa `load_range` içindeyse yükleme başlar; `load_range × 1,1`'den uzaktaysa boşaltılır (histerezis,
   `modules/world/include/astral/world/streaming.hpp:45-47`). Hazır hücreler en yakından başlanarak eklenir (`modules/world/include/astral/world/streaming.hpp:52`); her karede zaman bütçesi
