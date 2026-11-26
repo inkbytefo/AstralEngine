@@ -186,7 +186,7 @@ bu belgede doğrulanmadı.
 
 ## Zayıf yanlar ve bilinen sınırlar
 
-- **`close_world()` kayan orijini sıfırlamaz** (`modules/app/src/services/world_bridge.cpp:94-96`); sonraki `open_world` mevcut orijinle açılır (`modules/app/src/services/world_bridge.cpp:88-92`). Dünya koordinatıyla yerleştiren oyun `ctx.maps().world_origin()` farkını kendisi hesaba katmalı (`examples/world_showcase/src/stations/world_station.cpp`).
+- **`close_world()` kayan orijini sıfırlamaz** (kaynakta doğrulandı, 2026-11-27; `modules/app/src/services/world_bridge.cpp:94-96`); sonraki `open_world` mevcut orijinle açılır (`modules/app/src/services/world_bridge.cpp:88-92`). Dünya koordinatıyla yerleştiren oyun `ctx.maps().world_origin()` farkını kendisi hesaba katmalı (`examples/world_showcase/src/stations/world_station.cpp`).
 - **Dirty-flag yok:** `update_transforms` her çağrıda tüm hiyerarşiyi baştan hesaplar; değişmeyen alt ağaçlar atlanmaz,
   ve her çağrıda `ChildNode`/`LevelItem` vektörleri yeniden kurulur (`modules/world/src/transform.cpp:109`).
 - **`changed<T>` satır başınadır**, alan başına değil; bir alanı yazmak tüm component'i değişmiş sayar
