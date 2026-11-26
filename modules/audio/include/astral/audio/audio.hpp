@@ -95,6 +95,8 @@ public:
 
     /// Null device only: mixes the next `frames` frames (interleaved floats, channels() per frame).
     std::size_t read(std::span<float> out);
+    /// Null device only: total frames mixed by read() so far (0 with a real device).
+    [[nodiscard]] std::uint64_t mixed_frames() const noexcept;
 
     struct Impl;
 

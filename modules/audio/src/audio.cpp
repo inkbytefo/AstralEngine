@@ -31,6 +31,7 @@ struct AudioEngine::Impl {
     HandlePool<VoiceRecord, VoiceTag> voices;
     std::uint32_t voice_total = 0;
     std::uint64_t next_key = 0;
+    std::uint64_t mixed_frames = 0; ///< Frames pulled through read() (null device).
     bool device = false;
 
     void warn(const std::string& message) const {
@@ -210,6 +211,7 @@ void AudioEngine::update() {
 
 std::uint32_t AudioEngine::voice_count() const { return impl_->voice_total; }
 bool AudioEngine::has_device() const noexcept { return impl_->device; }
+std::uint64_t AudioEngine::mixed_frames() const noexcept { return impl_->mixed_frames; }
 std::uint32_t AudioEngine::sample_rate() const noexcept { return ma_engine_get_sample_rate(&impl_->engine); }
 std::uint32_t AudioEngine::channels() const noexcept { return ma_engine_get_channels(&impl_->engine); }
 
@@ -219,6 +221,7 @@ std::size_t AudioEngine::read(std::span<float> out) {
     const ma_uint64 frames = out.size() / channels();
     ma_uint64 read = 0;
     ma_engine_read_pcm_frames(&m.engine, out.data(), frames, &read);
+    m.mixed_frames += read;
     return static_cast<std::size_t>(read);
 }
 

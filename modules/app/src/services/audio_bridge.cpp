@@ -6,6 +6,8 @@
 #include <astral/world/transform.hpp>
 #include <astral/world/world.hpp>
 
+#include <algorithm>
+
 namespace astral {
 
 namespace {
@@ -64,7 +66,22 @@ void AudioBridge::update_listener() {
     }
 }
 
-void AudioBridge::sync() {
+void AudioBridge::advance_silent_mixer(float delta) {
+    if (audio_->has_device() || !(delta > 0.0f)) return;
+    // Mix (and discard) only what nobody read this frame: a test or tool that pulls the mix itself
+    // with AudioEngine::read() keeps full control and is not advanced twice.
+    const double rate = static_cast<double>(audio_->sample_rate());
+    const double mixed = static_cast<double>(audio_->mixed_frames());
+    silent_clock_frames_ = std::max(silent_clock_frames_ + static_cast<double>(delta) * rate, mixed);
+    // A long hitch is not caught up beyond one second of audio.
+    silent_clock_frames_ = std::min(silent_clock_frames_, mixed + rate);
+    const auto owed = static_cast<std::size_t>(silent_clock_frames_ - mixed);
+    if (owed == 0) return;
+    silent_scratch_.resize(owed * audio_->channels());
+    (void)audio_->read(silent_scratch_);
+}
+
+void AudioBridge::sync(float delta) {
     update_listener();
 
     // Destroyed entities take their AudioVoice with them: stop what they were playing (a looping
@@ -131,6 +148,7 @@ void AudioBridge::sync() {
     world_.each<const AudioVoice>([&](Entity e, const AudioVoice& v) {
         if (v.voice.valid()) owned_voices_.emplace_back(e, v.voice);
     });
+    advance_silent_mixer(delta);
     audio_->update();
 }
 

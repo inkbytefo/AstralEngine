@@ -36,10 +36,13 @@ public:
 
     [[nodiscard]] AudioEngine* engine() noexcept { return audio_.get(); }
     SoundHandle sound(std::string_view path) override;
-    void sync();
+    /// Starts/stops voices for AudioSource entities. `delta` (seconds) advances the silent mixer of a
+    /// device-less engine, so sounds end in headless runs too.
+    void sync(float delta = 0.0f);
 
 private:
     void update_listener();
+    void advance_silent_mixer(float delta);
 
     World& world_;
     AssetManager& assets_;
@@ -51,6 +54,9 @@ private:
     /// Voices started for entities, as of the end of the last sync: a voice whose entity (or
     /// AudioVoice component) disappeared since is stopped here, since no query can find it anymore.
     std::vector<std::pair<Entity, VoiceHandle>> owned_voices_;
+    /// Frames the silent mixer should have produced by now (game clock), and its scratch output.
+    double silent_clock_frames_ = 0.0;
+    std::vector<float> silent_scratch_;
 };
 
 } // namespace astral

@@ -89,3 +89,53 @@ TEST_CASE("A10: destroying an entity stops its looping voice") {
     CHECK(game.voices_before == 1);
     CHECK(game.voices_after == 0); // stopped (with its short fade), not orphaned
 }
+
+TEST_CASE("headless: the silent mixer advances with the game clock, so one-shot sounds end without a reader") {
+    const auto dir = test::temp_dir("app_audio_headless_clock");
+    std::filesystem::create_directories(dir / "sounds");
+    test::write_bytes(dir / "sounds" / "blip.wav", tone_wav(0.1f));
+    App app({.headless = true, .fixed_timestep = 1.0f / 60.0f, .asset_root = dir.string(), .hot_reload = false});
+    struct G final : Game {
+        Entity blip{};
+        int frame = 0;
+        std::uint32_t voices_at_2 = 0, voices_at_30 = 0;
+        bool playing_at_30 = true;
+        std::uint64_t mixed_at_30 = 0;
+        void on_start(Context& ctx) override {
+            blip = ctx.world.create(Transform{}, AudioSource{.sound = "sounds/blip.wav", .loop = false});
+        }
+        void on_update(Context& ctx) override {
+            ++frame; // deliberately never calls ctx.audio->read(): the App has to advance the mix itself
+            if (frame == 2) voices_at_2 = ctx.audio->voice_count();
+            if (frame == 30) {
+                voices_at_30 = ctx.audio->voice_count();
+                playing_at_30 = ctx.world.get<AudioSource>(blip)->playing;
+                mixed_at_30 = ctx.audio->mixed_frames();
+            }
+        }
+    } game;
+    app.run_frames(game, 31);
+    CHECK(game.voices_at_2 == 1);
+    CHECK(game.voices_at_30 == 0); // the 0.1 s blip ended after ~0.5 s of game time
+    CHECK_FALSE(game.playing_at_30);
+    // About 29 frames of 1/60 s were mixed (not more: the App only fills what nobody read).
+    const auto expected = static_cast<double>(app.context().audio->sample_rate()) * 29.0 / 60.0;
+    CHECK(static_cast<double>(game.mixed_at_30) == doctest::Approx(expected).epsilon(0.1));
+}
+
+TEST_CASE("headless: a game that reads the mix itself is not advanced twice") {
+    const auto dir = test::temp_dir("app_audio_headless_reader");
+    App app({.headless = true, .fixed_timestep = 1.0f / 60.0f, .asset_root = dir.string(), .hot_reload = false});
+    struct G final : Game {
+        int frame = 0;
+        std::uint64_t mixed_at_10 = 0;
+        void on_update(Context& ctx) override {
+            ++frame;
+            std::vector<float> mix(static_cast<std::size_t>(ctx.audio->sample_rate() / 60) * ctx.audio->channels());
+            ctx.audio->read(mix);
+            if (frame == 10) mixed_at_10 = ctx.audio->mixed_frames();
+        }
+    } game;
+    app.run_frames(game, 11);
+    CHECK(game.mixed_at_10 == static_cast<std::uint64_t>(app.context().audio->sample_rate() / 60) * 10);
+}

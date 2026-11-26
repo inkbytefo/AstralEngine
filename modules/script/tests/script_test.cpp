@@ -169,6 +169,17 @@ TEST_CASE("script mistakes are contained: syntax errors, runtime errors, endless
         CHECK(contains(f.first_error(), "time budget"));
         CHECK(f.host->failed("loop.luau"));
     }
+    SUBCASE("the budget is per module: a later module in the same phase is cut too") {
+        Fixture f(20.0);
+        f.world.create(Mover{});
+        REQUIRE(f.host->load("loop.luau", "astral.system { query = {\"Mover\"}, update = function() while true do end end }").empty());
+        // Finite (so a broken budget does not hang the test) but far longer than 20 ms.
+        REQUIRE(f.host->load("slow.luau", "astral.system { query = {\"Mover\"}, update = function()\n"
+                                          "  local n = 0\n  for i = 1, 200000000 do n = n + i end\nend }").empty());
+        f.run();
+        CHECK(f.host->failed("loop.luau"));
+        CHECK(f.host->failed("slow.luau"));
+    }
     SUBCASE("unknown names say what exists") {
         Fixture f;
         f.world.create(Mover{});

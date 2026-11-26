@@ -45,7 +45,7 @@ dinleyicisi ekle (açık/kapalı ilkesi).
   (`/detail/`, `/src/`) ve değişebilir global (`static` değişken) yasak.
 - **Simülasyon deterministik.** Oyun kuralı `FixedUpdate`'te çalışır (`ctx.fixed_delta`). Aynı tohum aynı sonucu vermeli.
 - **Önce script.** Kurallar Luau'da yazılır. Yüzlerce entity'den fazlasına dokunan sıcak döngü C++ sistemine taşınır. Script zaman
-  bütçesi varsayılan 100 ms'dir; aşan modül durur (`modules/script/include/astral/script/script.hpp:157`).
+  bütçesi varsayılan 100 ms'dir; aşan modül durur (`modules/script/include/astral/script/script.hpp:159`).
 - **`manifest = API`.** `install()` içinde kaydettiğin her component ve olay `feature.json`'da listelenmeli.
 
 ## Luau özeti (tam liste: üretilen `API.md`)

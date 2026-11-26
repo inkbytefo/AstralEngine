@@ -22,7 +22,7 @@ Aşağıdaki tablo kod incelemesine göre neyin var olduğunu ayırır.
 
 | Alan | Durum | Kanıt |
 |---|---|---|
-| Belge modeli, revizyon+hash, atomik dosya yazma | **Var** | `modules/editor_core/include/astral/editor/document.hpp:17-68` |
+| Belge modeli, revizyon+hash, atomik dosya yazma | **Var** | `modules/editor_core/include/astral/editor/document.hpp:17-72` |
 | Sürümlü komutlar (9 tür), şema keşfi, doğrulama | **Var** | `modules/editor_core/include/astral/editor/command.hpp:19-60` |
 | İşlem, bayat revizyon reddi, geri al/yinele (anlık görüntü tabanlı), sürükleme birleştirme, çakışma, otomatik kayıt, denetim günlüğü | **Var** | `modules/editor_core/include/astral/editor/transaction.hpp:36-139` |
 | Yapay zekâ öneri → izole önizleme → insan onayı; 7 durumlu asenkron görev; seçmeli onay; politika kapısı | **Var** | `modules/editor_core/include/astral/editor/agent.hpp:69`, `modules/editor_core/include/astral/editor/agent_task.hpp:19-144` |
@@ -32,7 +32,7 @@ Aşağıdaki tablo kod incelemesine göre neyin var olduğunu ayırır.
 | ImGui çalışma alanı, viewport, picking, gizmo, Play, komut paleti | **Var, test kapsamı zayıf** | `modules/editor/include/astral/editor/workspace.hpp:38` |
 | Proje kavramı (manifest, proje açma/kapatma, birden çok belge sekmesi) | **Yok** | `ASTRAL_EDITOR_ASSETS` derleme zamanı sabiti; komut satırından proje yolu yok (`examples/world_editor/src/main.cpp:44-51`) |
 | Gerçek oyunu çalıştıran Play (FeatureSet, Luau, ses, süreç dışı) | **Yok** | `PlayHost` yalnızca RigidBody fiziği + render (`modules/editor/src/services/play_host.cpp:13-103`) |
-| Çok dosyalı işlem günlüğü / çökme kurtarma paketi | **Yok** (tek dosya yan dosyası var) | `modules/editor_core/src/transaction.cpp:199-205` |
+| Çok dosyalı işlem günlüğü / çökme kurtarma paketi | **Yok** (tek dosya yan dosyası var) | `modules/editor_core/src/transaction.cpp:200-206` |
 | Derleme/cook/paketleme servisi, özellik sihirbazı, asset tarayıcı (bağımlılık grafiği) | **Yok** | kodda karşılığı yok |
 | Terrain/malzeme/animasyon/UI yazarlığı | **Yok** | `modules/editor*` altında terrain/malzeme düzenleyici yok (Inspector genel JSON düzenleyicidir) |
 | Sağlayıcıdan bağımsız "Intelligence" orkestratörü, araç kaydı, MCP, API sağlayıcıları | **Yok** | yalnızca `IAgentProvider` arayüzü + 2 sağlayıcı |
@@ -45,8 +45,8 @@ Aşağıdaki tablo kod incelemesine göre neyin var olduğunu ayırır.
 | Tip / fonksiyon | Ne yapar | Kaynak |
 |---|---|---|
 | `DocumentRevision{number, hash}` | Bayat komut/öneriyi reddetmek için belge sürümü | `modules/editor_core/include/astral/editor/document.hpp:17` |
-| `IEditorFileSystem`, `LocalEditorFileSystem` | Okuma, **atomik** yazma (geçici dosya + rename), dosya listeleme; testte hata enjeksiyonu için sanal | `modules/editor_core/include/astral/editor/document.hpp:32`, `modules/editor_core/include/astral/editor/document.hpp:43` |
-| `EditorDocument`, `load_editor_document` | JSON belge + yol + revizyon; kayıt bulma/değiştirme/sonraki id | `modules/editor_core/include/astral/editor/document.hpp:52`, `modules/editor_core/include/astral/editor/document.hpp:68` |
+| `IEditorFileSystem`, `LocalEditorFileSystem` | Okuma, **atomik** yazma (geçici dosya + rename), dosya listeleme; testte hata enjeksiyonu için sanal | `modules/editor_core/include/astral/editor/document.hpp:32`, `modules/editor_core/include/astral/editor/document.hpp:46` |
+| `EditorDocument`, `load_editor_document` | JSON belge + yol + revizyon; kayıt bulma/değiştirme/sonraki id | `modules/editor_core/include/astral/editor/document.hpp:56`, `modules/editor_core/include/astral/editor/document.hpp:72` |
 | `EditorCommand`, `CommandKind` | `CreateEntity, DeleteEntity, AddComponent, RemoveComponent, SetComponentField, ReparentEntity, InstantiatePrefab, SetPrefabOverride, SavePrefab` | `modules/editor_core/include/astral/editor/command.hpp:35`, `modules/editor_core/include/astral/editor/command.hpp:19` |
 | `build_command_schema`, `validate_command`, `apply_command`, `command_to/from_json` | Keşfedilebilir şema, doğrulama (bilinmeyen bileşen, alan türü, güvenli göreli yol), uygulama | `modules/editor_core/include/astral/editor/command.hpp:51`, `modules/editor_core/include/astral/editor/command.hpp:54`, `modules/editor_core/include/astral/editor/command.hpp:58` |
 | `EditorSession` | Açık belge: `apply(Transaction)`, `undo/redo`, `save`, `reload`, `PersistPolicy` (`Immediate`/`ManualSave`), harici değişiklik çakışması, `.astral_autosave` yan dosyası | `modules/editor_core/include/astral/editor/transaction.hpp:79` |
@@ -70,10 +70,10 @@ Aşağıdaki tablo kod incelemesine göre neyin var olduğunu ayırır.
 ### Belge ve komut hattı
 
 Editör sahne dosyasını **ham JSON** (`Json`) olarak tutar; ECS `World`'ü yalnızca onun bir izdüşümüdür. Her düzenleme (Inspector, gizmo, sahne ağacı, yapay zekâ onayı) bir `EditorCommand` listesinden oluşan `Transaction`'dır
-ve `EditorSession::apply` içinden geçer (`modules/editor_core/src/transaction.cpp:234-305`): bayat revizyon denetimi → aday kopya üzerinde her komutu doğrula+uygula → (`Immediate` ise) önce staged prefab'lar, sonra belge **atomik** yazılır,
+ve `EditorSession::apply` içinden geçer (`modules/editor_core/src/transaction.cpp:235-306`): bayat revizyon denetimi → aday kopya üzerinde her komutu doğrula+uygula → (`Immediate` ise) önce staged prefab'lar, sonra belge **atomik** yazılır,
 hata olursa geri alınır → fark hesaplanır → revizyon artar → anlık görüntü (snapshot) yığınına eklenir → denetim kaydı. Ardışık sürüklemeler aynı `coalesce_key` ile tek geri alma adımına birleşir
-(`modules/editor_core/src/transaction.cpp:291-299`). **Geri alma, belgenin tam JSON kopyalarına** dönmektir (`restore_snapshot`: `modules/editor_core/src/transaction.cpp:307-339`), komut tersleme yoktur.
-`ManualSave` politikasında değişiklikler bellekte kalır, `Ctrl+S` (`EditorSession::save`) kaydeder; harici değişiklik algılanırsa kayıt reddedilir ve arayüz "External File Change" penceresi açar (`modules/editor_core/src/transaction.cpp:166-190`;
+(`modules/editor_core/src/transaction.cpp:292-300`). **Geri alma, belgenin tam JSON kopyalarına** dönmektir (`restore_snapshot`: `modules/editor_core/src/transaction.cpp:308-340`), komut tersleme yoktur.
+`ManualSave` politikasında değişiklikler bellekte kalır, `Ctrl+S` (`EditorSession::save`) kaydeder; harici değişiklik algılanırsa kayıt reddedilir ve arayüz "External File Change" penceresi açar (`modules/editor_core/src/transaction.cpp:167-191`;
 `modules/editor/src/shell/editor_shell.cpp:348`). Kirli belge 30 sn'de bir `<belge>.astral_autosave` yan dosyasına yazılır (`modules/editor/src/workspace.cpp:145-151`).
 
 ### Yapay zekâ döngüsü
@@ -97,7 +97,7 @@ Gizmo sürükleme her kare bir birleştirilmiş işlem uygular (`modules/editor/
 
 - **`editor_core` tamamen GPU'suz ve testli.** Belge, komut, işlem, geri al, otomatik kayıt, yapay zekâ döngüsü ve dünya yazarlığı başsız testlerle koşar; `check_editor_isolation.py` bu bağımsızlığı (`gpu`, `platform`, `render`, `app`, ImGui yok) CI'da zorlar.
 - **Tek mutasyon yolu.** İnsan arayüzü ve yapay zekâ aynı komut/işlem hattını kullanır; her değişiklik revizyon denetimli, farkı hesaplanmış, denetim günlüğüne yazılmış bir işlemdir.
-- **Yazma güvenliği.** Atomik yazma (geçici dosya + rename), hata enjeksiyonlu dosya sistemi arayüzü, bayat revizyon reddi, harici değişiklik çakışma denetimi, güvenli göreli yol doğrulaması (`modules/editor_core/src/command.cpp:65-74`).
+- **Yazma güvenliği.** Atomik yazma (geçici dosya + rename), hata enjeksiyonlu dosya sistemi arayüzü, bayat revizyon reddi, harici değişiklik çakışma denetimi, güvenli göreli yol doğrulaması (`modules/editor_core/src/command.cpp:86-95`).
 - **İnsan onayı yapıdan gelir.** Yapay zekâ doğrudan belgeyi/diski değiştiremez; yalnızca öneri üretir, önizleme yalıtılmış dünyadadır, dış süreç ve ağ varsayılan kapalıdır (`modules/editor_core/include/astral/editor/agent_task.hpp:32-37`).
 - **Eşitlik testi.** Önerinin onaylanması, canlı yeniden yükleme ve geri al/yinele sonrası belgenin bayt bayt aynı olması bir kabul testiyle sabitlenmiş (`examples/world_editor/tests/world_editor_test.cpp:36`).
 - **Dünya yazarlığı ayrıntılı.** Level Instance için "instance override" ile "edit-in-context" ayrımı, 2×2 km harita testiyle cook eşitliği ve hücre boşaltma/yükleme sonrası referans korunumu denenmiş
@@ -113,13 +113,12 @@ Gizmo sürükleme her kare bir birleştirilmiş işlem uygular (`modules/editor/
 - **Play gerçek oyun değildir.** Betikler, `FeatureSet`, ses, karakter, eklem, alan ve atmosfer çalışmaz; yalnızca `RigidBody` gövdeleri 60 Hz'de adımlanır; hareketsiz (`Static`) gövdeler dahil değildir, dönüşüm yazımı yalnızca dinamik/kinematik izleme listesinde
   (`modules/editor/src/services/play_host.cpp:47-56`, `modules/editor/src/services/play_host.cpp:83-103`). Kamera yoksa editör kamerası kopyalanır.
 - **Her düzenleme tüm sahneyi yeniden kurar ve tüm belgeyi kopyalar.** `sync_scene_to_world_live` her başarılı işlemden sonra tüm varlıkları siler ve yeniden yükler (`modules/editor/src/workspace.cpp:88-108`); gizmo/slider sürüklemesi her karede bunu tetikler
-  (`modules/editor/src/panels/inspector_panel.cpp:221-224`, `modules/editor/src/panels/viewport_panel.cpp:76-96`). Geri alma yığını tam JSON kopyalarıdır ve **sınırsızdır** (üst sınır yok: `modules/editor_core/src/transaction.cpp:297-298`; `AgentTaskManager` geçmişi de sınırsız: `modules/editor_core/include/astral/editor/agent_task.hpp:137`).
+  (`modules/editor/src/panels/inspector_panel.cpp:221-224`, `modules/editor/src/panels/viewport_panel.cpp:76-96`). Geri alma yığını tam JSON kopyalarıdır ve **sınırsızdır** (üst sınır yok: `modules/editor_core/src/transaction.cpp:298-299`; `AgentTaskManager` geçmişi de sınırsız: `modules/editor_core/include/astral/editor/agent_task.hpp:137`).
   Büyük sahnelerde ölçeklenmesi ölçülmedi.
-- **Geri alma prefab dosyalarını geri almaz.** `restore_snapshot` yalnızca belgeyi geri yükler; `SavePrefab` ile diske yazılmış prefab dosyası geri alma sonrası diskte kalır (`modules/editor_core/src/transaction.cpp:307-339`; `Immediate` politikada
-  yazma `modules/editor_core/src/transaction.cpp:273-279`). Başarısız bir kayıtta, o işlemde yeni oluşturulan prefab dosyaları silinmez: geri sarma yalnızca önceki içeriği olan dosyaları geri yazar (`modules/editor_core/src/transaction.cpp:45-49`).
-  Hedef mimari belgesi bunu "A02/A03" olarak listeler ve açık sayar; çok dosyalı işlem günlüğü yoktur.
-- **Silme ve yeniden ebeveynleme tutarlılık denetlemez.** `DeleteEntity`, silinen varlığa başka kayıtlardan yapılan `astral::Parent`/varlık başvurularını temizlemez; `ReparentEntity` yalnızca "kendine ebeveyn" durumunu reddeder, dolaylı döngü
-  (A, B'nin ebeveyni iken B'yi A'nın ebeveyni yapmak) denetlenmez (`modules/editor_core/src/command.cpp:238-241`, `modules/editor_core/src/command.cpp:269-280`; bu durumlar için test yok: `editor_core/tests` altında `reparent`/döngü araması boş; kod okumasından çıkarım, yeniden üretilmedi).
+- **Geri alma (undo) prefab dosyalarını geri almaz.** `restore_snapshot` yalnızca belgeyi geri yükler; `SavePrefab` ile diske yazılmış prefab dosyası geri alma sonrası diskte kalır (`modules/editor_core/src/transaction.cpp:307-339`).
+  Başarısız **kayıtta** ise rollback önceki içeriği geri yazar ve işlemin oluşturduğu dosyaları `IEditorFileSystem::remove` ile siler (`modules/editor_core/src/transaction.cpp:45-50`, ADR-0053); rollback'in kendi yazma/silme hataları yok sayılır. Çok dosyalı işlem günlüğü yoktur.
+- **Silmede yalnız `astral::Parent` temizlenir.** `DeleteEntity` çocukları köke taşır; başka component'lerdeki varlık başvuruları silinen kayda işaret etmeye devam edebilir. `ReparentEntity` dolaylı döngüyü reddeder
+  (`modules/editor_core/src/command.cpp:74-85`, `modules/editor_core/src/command.cpp:263`, `modules/editor_core/src/command.cpp:300`; test `modules/editor_core/tests/editor_core_test.cpp:382`; ADR-0053).
 - **Çevrimdışı ajan bir model değil, şablondur.** Metinde "move/lift/raise" geçer ve varlık seçiliyse seçili varlığı `position = (0, 2, 0)` yapar (özet metni "by +1m" der ama komut mutlak konum yazar, göreli değil: `modules/editor_core/src/agent.cpp:70-85`);
   aksi halde her zaman aynı "AI Crate" prefab'ını önerir (`modules/editor_core/src/agent.cpp:87-111`). Hedef belge de bunu "relative transform" eksikliği olarak anar (A08).
 - **`CodexCliProvider` sağlam bir süreç yönetimi sunmaz.** Komut `popen` ile kabuğa verilir (kaçışsız dize birleştirme: `modules/editor_core/src/agent_task.cpp:147`); zaman aşımı yok; çıktı sınırsız toplanır (`modules/editor_core/src/agent_task.cpp:44-69`);
@@ -153,6 +152,7 @@ geri almanın prefab dosyalarına etkisi; büyük sahne ölçeği. Bu PC'de ctes
 - [ADR-0035 Bağımsız yapay zekâ destekli editör çekirdeği](../decisions/0035-standalone-ai-assisted-editor-core.md)
 - [ADR-0036 Dünya yazarlığı ve Level Instance](../decisions/0036-world-authoring-and-level-instances.md)
 - [ADR-0037 Yapay zekâ öncelikli yerel editör v2](../decisions/0037-ai-first-native-editor-v2.md)
+- [ADR-0053 Geri alınan dosyalar, ebeveyn döngüsü, silmede çocuklar](../decisions/0053-editor-rollback-and-hierarchy-rules.md)
 - [ADR-0034 Gameplay API](../decisions/0034-gameplay-api-and-physics-step-contract.md) (`DocumentEntityId`)
 - [ADR-0030 Refaktör kuralları ve boyut bütçesi](../decisions/0030-refactor-rules-and-size-budget.md)
 - Plan (uygulama değil): `docs/archive/legacy/editor/studio-intelligence-target-architecture.md`; kullanım rehberi (eski): `docs/archive/legacy/editor/README.md`.

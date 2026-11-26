@@ -204,6 +204,23 @@ LoadResult MapState::spawn_cell(World& world, PrefabLibrary& prefabs, CellKey ce
     return result;
 }
 
+void MapState::remember(CellKey cell, CellDiff fresh) {
+    if (fresh.removed.empty() && fresh.changed.empty()) return;
+    Remembered* r = nullptr;
+    for (Remembered& candidate : remembered_) {
+        if (candidate.key == cell) r = &candidate;
+    }
+    if (!r) r = &remembered_.emplace_back(Remembered{cell, {}});
+    r->diff.removed.insert(r->diff.removed.end(), fresh.removed.begin(), fresh.removed.end());
+    for (Json& record : fresh.changed) {
+        const double id = record["id"].as_number();
+        auto same = std::find_if(r->diff.changed.begin(), r->diff.changed.end(),
+                                 [&](const Json& j) { return j["id"].as_number() == id; });
+        if (same != r->diff.changed.end()) *same = std::move(record);
+        else r->diff.changed.push_back(std::move(record));
+    }
+}
+
 void MapState::despawn_cell(World& world, PrefabLibrary& prefabs, CellKey cell) {
     Loaded* l = find_loaded(cell);
     if (!l) return;
@@ -224,21 +241,7 @@ void MapState::despawn_cell(World& world, PrefabLibrary& prefabs, CellKey cell) 
             fresh.changed.push_back(std::move(now));
         }
     }
-    if (!fresh.removed.empty() || !fresh.changed.empty()) {
-        Remembered* r = nullptr;
-        for (Remembered& candidate : remembered_) {
-            if (candidate.key == cell) r = &candidate;
-        }
-        if (!r) r = &remembered_.emplace_back(Remembered{cell, {}});
-        r->diff.removed.insert(r->diff.removed.end(), fresh.removed.begin(), fresh.removed.end());
-        for (Json& record : fresh.changed) {
-            const double id = record["id"].as_number();
-            auto same = std::find_if(r->diff.changed.begin(), r->diff.changed.end(),
-                                     [&](const Json& j) { return j["id"].as_number() == id; });
-            if (same != r->diff.changed.end()) *same = std::move(record);
-            else r->diff.changed.push_back(std::move(record));
-        }
-    }
+    remember(cell, std::move(fresh));
 
     std::vector<Entity> roots;
     roots.reserve(live.size());
@@ -250,16 +253,38 @@ void MapState::despawn_cell(World& world, PrefabLibrary& prefabs, CellKey cell) 
 void MapState::refresh_layers(World& world, PrefabLibrary& prefabs, const MapLayers& layers) {
     for (Loaded& l : loaded_) {
         std::vector<Entity> hide;
+        std::vector<std::size_t> destroyed; // indices the game destroyed while they were visible
+        CellDiff fresh;
         const auto live = members_of(world, l.key);
         for (std::size_t i = 0; i < l.entities.size(); ++i) {
             const bool visible = layers.visible(l.entities[i]);
             if (visible && !l.spawned[i]) {
                 spawn(world, prefabs, l, i);
             } else if (!visible && l.spawned[i]) {
-                if (auto it = live.find(l.entities[i].id); it != live.end()) hide.push_back(it->second);
+                // Hiding is not unloading: keep what the game did, as despawn_cell does.
+                const std::uint64_t id = l.entities[i].id;
+                if (auto it = live.find(id); it != live.end()) {
+                    Json now = save_world_record(world, prefabs, it->second);
+                    if (now != l.baseline[i]) {
+                        now["id"] = id;
+                        l.entities[i].record = now; // shown again in this load: as the game left it
+                        fresh.changed.push_back(std::move(now));
+                    }
+                    hide.push_back(it->second);
+                } else {
+                    fresh.removed.push_back(id);
+                    destroyed.push_back(i);
+                }
                 l.spawned[i] = false;
             }
         }
+        for (auto it = destroyed.rbegin(); it != destroyed.rend(); ++it) {
+            const auto at = static_cast<std::ptrdiff_t>(*it);
+            l.entities.erase(l.entities.begin() + at);
+            l.baseline.erase(l.baseline.begin() + at);
+            l.spawned.erase(l.spawned.begin() + at);
+        }
+        remember(l.key, std::move(fresh));
         destroy_with_parts(world, prefabs, hide);
     }
 }

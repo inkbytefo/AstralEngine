@@ -79,6 +79,8 @@ struct ScriptHost::Impl {
     std::vector<std::string> errors;
     std::minstd_rand rng{1};
     std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::time_point::max();
+    /// Set by the interrupt when it stopped a call over budget: the next caller gets a fresh budget.
+    bool budget_overrun = false;
 
     Impl(const ScriptEnv& e, const ScriptLimits& l) : env(e), limits(l) {}
     ~Impl();

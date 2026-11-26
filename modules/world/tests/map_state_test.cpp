@@ -116,3 +116,55 @@ TEST_CASE("switching a layer spawns or removes its entities in loaded cells") {
     state.despawn_cell(f.world, f.prefabs, f.key);
     CHECK(state.diff(f.key) == nullptr);
 }
+
+TEST_CASE("hiding a layer keeps what the game changed on its entities") {
+    Fixture f;
+    MapLayers layers(f.map);
+    MapState state;
+    state.spawn_cell(f.world, f.prefabs, f.key, f.cell, layers);
+    layers.set("night", true);
+    state.refresh_layers(f.world, f.prefabs, layers);
+    f.world.get<Transform>(find_by_name(f.world, "lantern"))->position.y = 7.0f; // the game moved it
+
+    SUBCASE("shown again in the same load") {
+        layers.set("night", false);
+        state.refresh_layers(f.world, f.prefabs, layers);
+        layers.set("night", true);
+        state.refresh_layers(f.world, f.prefabs, layers);
+        const Entity lantern = find_by_name(f.world, "lantern");
+        REQUIRE(lantern.valid());
+        CHECK(f.world.get<Transform>(lantern)->position.y == doctest::Approx(7.0f));
+    }
+    SUBCASE("hidden, then the cell unloads and loads again") {
+        layers.set("night", false);
+        state.refresh_layers(f.world, f.prefabs, layers);
+        state.despawn_cell(f.world, f.prefabs, f.key);
+        const CellDiff* diff = state.diff(f.key);
+        REQUIRE(diff != nullptr);
+        CHECK(diff->changed.size() == 1);
+        layers.set("night", true);
+        state.spawn_cell(f.world, f.prefabs, f.key, f.cell, layers);
+        const Entity lantern = find_by_name(f.world, "lantern");
+        REQUIRE(lantern.valid());
+        CHECK(f.world.get<Transform>(lantern)->position.y == doctest::Approx(7.0f));
+    }
+}
+
+TEST_CASE("an entity the game destroyed stays destroyed when its layer is hidden and shown") {
+    Fixture f;
+    MapLayers layers(f.map);
+    MapState state;
+    state.spawn_cell(f.world, f.prefabs, f.key, f.cell, layers);
+    layers.set("night", true);
+    state.refresh_layers(f.world, f.prefabs, layers);
+    f.world.destroy(find_by_name(f.world, "lantern"));
+    layers.set("night", false);
+    state.refresh_layers(f.world, f.prefabs, layers);
+    layers.set("night", true);
+    state.refresh_layers(f.world, f.prefabs, layers);
+    CHECK_FALSE(find_by_name(f.world, "lantern").valid());
+    state.despawn_cell(f.world, f.prefabs, f.key);
+    const CellDiff* diff = state.diff(f.key);
+    REQUIRE(diff != nullptr);
+    CHECK(diff->removed == std::vector<std::uint64_t>{3});
+}

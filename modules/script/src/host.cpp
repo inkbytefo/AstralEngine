@@ -19,7 +19,8 @@ void interrupt(lua_State* L, int gc) {
     if (gc >= 0) return;
     Impl& impl = Impl::of(L);
     if (std::chrono::steady_clock::now() > impl.deadline) {
-        impl.deadline = std::chrono::steady_clock::time_point::max(); // report once
+        impl.deadline = std::chrono::steady_clock::time_point::max(); // report once, while unwinding
+        impl.budget_overrun = true;
         luaL_error(L, "script exceeded its time budget of %g ms (an endless loop?)", impl.limits.budget_ms);
     }
 }
@@ -80,6 +81,11 @@ bool Impl::protected_call(Module* m, int nargs) {
     active = m;
     const int rc = lua_pcall(L, nargs, 0, 0);
     active = previous;
+    if (budget_overrun) {
+        // The overrun stopped this call; whatever runs next in this phase is still bounded.
+        budget_overrun = false;
+        arm_deadline();
+    }
     if (rc == 0) return true;
     const char* text = lua_tostring(L, -1);
     report(text ? text : "unknown script error");
@@ -364,6 +370,7 @@ void ScriptHost::run(ScriptPhase phase, const ScriptFrame& frame) {
         Module& m = *impl.modules[i];
         if (m.failed) continue;
         ASTRAL_PROFILE_SCOPE(impl.env.profiler, m.name.c_str());
+        impl.arm_deadline(); // the budget is per module and phase (ADR-0052)
         run_listeners(impl, m, phase);
         // Systems present now, each run from a copy: a callback may register systems
         // (astral.system), reallocating the vector; new ones run from the next phase.
@@ -374,8 +381,14 @@ void ScriptHost::run(ScriptPhase phase, const ScriptFrame& frame) {
             run_system(impl, m, def);
         }
     }
-    if (phase == ScriptPhase::Update || phase == ScriptPhase::FixedUpdate) run_behaviours(impl, phase);
-    if (phase == ScriptPhase::Update) run_timers(impl, static_cast<double>(frame.delta));
+    if (phase == ScriptPhase::Update || phase == ScriptPhase::FixedUpdate) {
+        impl.arm_deadline(); // all behaviours share one budget per phase
+        run_behaviours(impl, phase);
+    }
+    if (phase == ScriptPhase::Update) {
+        impl.arm_deadline(); // so do the timers
+        run_timers(impl, static_cast<double>(frame.delta));
+    }
     impl.deadline = std::chrono::steady_clock::time_point::max();
 }
 

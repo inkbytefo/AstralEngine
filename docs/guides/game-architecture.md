@@ -93,7 +93,7 @@ Motorun kayıtlı component'leri (`modules/app/src/app.cpp:45-79`, `modules/worl
 | Dünya | `Name`, `Transform`, `Parent`, `LevelInstanceMember`, `CrossCellRef` |
 | Görünüm | `Camera`, `Atmosphere`, `PointLight`, `RectLight`, `Sdf`, `ModelRef`, `PrimitiveMesh`, `TerrainRef` |
 | Fizik | `RigidBody`, `CharacterController`, `Joint`, `JointMotor`, `WindZone`, `WaterBody`, `Buoyant`, `AirDrag`, `Airfoil` |
-| Diğer | `AudioSource`, `AudioListener`, `StreamingSource`, `Script` (Luau, `modules/script/src/host.cpp:92`) |
+| Diğer | `AudioSource`, `AudioListener`, `StreamingSource`, `Script` (Luau, `modules/script/src/host.cpp:98`) |
 
 Çalışma zamanı üretimi olan `ModelPiece`, `TerrainTileDraw` ve VFX iç component'leri kaydedilmez/kaydetmeye dahil edilmez
 (`types.exclude<...>`, `modules/app/src/app.cpp:57`, `modules/app/src/services/vfx_runtime.cpp:185-189`,
@@ -233,20 +233,20 @@ astral.tween  astral.state_machine  astral.ease  astral.lerp  astral.quat.*  ast
 astral.physics.*  astral.fields.wind/water  astral.save/load/has_save
 ```
 
-- `ctx` içinde `delta`, `fixed_delta`, `time` (`modules/script/src/host.cpp:354-359`). Sistem sırası: modül yükleme sırasıyla,
-  her modülde önce dinleyiciler sonra sistemler; ardından `behaviour`'lar ve `Update`'te zamanlayıcılar (`modules/script/src/host.cpp:363-378`).
+- `ctx` içinde `delta`, `fixed_delta`, `time` (`modules/script/src/host.cpp:360-365`). Sistem sırası: modül yükleme sırasıyla,
+  her modülde önce dinleyiciler sonra sistemler; ardından `behaviour`'lar ve `Update`'te zamanlayıcılar (`modules/script/src/host.cpp:369-384`).
 - `astral.behaviour{on_start, on_update, on_fixed_update}` `astral::Script{path}` component'li entity'ler içindir (`modules/script/src/api.cpp:26-28`).
 - Değerler: `vector` (Vec3), `{x=,y=}` (Vec2), `{x=,y=,z=,w=}` (Vec4/Quat), enum adı string, entity alanı entity ya da `nil`
   (`modules/script/src/api.cpp:135-150`).
 - **Aşamalı modül yükleme ([ADR-0044](../decisions/0044-staged-script-module-load.md)):** modülün üst düzey kodu bir *bildirim aşamasıdır*. Dünyayı değiştiren çağrılar (`astral.spawn`,
   `entity:add/remove/destroy`, alan yazma, `astral.send`, `astral.save/load`, fizik komutları) üst düzeyde hata verir; global
-  `on_load()` işlevinde veya bir callback içinde çağır (`modules/script/src/bindings.cpp:59-61`, `modules/script/src/host.cpp:173-183`).
+  `on_load()` işlevinde veya bir callback içinde çağır (`modules/script/src/bindings.cpp:59-61`, `modules/script/src/host.cpp:179-189`).
   Başarısız yükleme dünyayı, tip ve olay kayıtlarını değiştirmez (`modules/script/tests/msr_regression_test.cpp:140`, `modules/script/tests/msr_regression_test.cpp:161`).
 - **Hata ve bütçe:** callback hatası modülü durdurur (`ScriptHost::failed`), `dosya:satır: mesaj` loglanır; dosyayı düzeltince yeniden
-  yüklenir (`modules/script/include/astral/script/script.hpp:167-177`). Bir faz (veya modül yüklemesi) **100 ms**'yi aşarsa hata ile
-  kesilir (`modules/script/include/astral/script/script.hpp:155-158`; `AppDesc`'ten ayarlanamaz, `modules/app/src/services/script_bridge.cpp:113`).
+  yüklenir (`modules/script/include/astral/script/script.hpp:169-179`). Bir faz (veya modül yüklemesi) **100 ms**'yi aşarsa hata ile
+  kesilir (`modules/script/include/astral/script/script.hpp:155-160`; `AppDesc`'ten ayarlanamaz, `modules/app/src/services/script_bridge.cpp:113`).
 - Sandbox: Luau standart kütüphaneleri açık (`luaL_openlibs`) ve `luaL_sandbox` ile salt okunur yapılmış
-  (`modules/script/src/host.cpp:95`, `modules/script/src/host.cpp:108`). Dosya/süreç erişimi ve `require` yoktur (Luau'nun kendi davranışı; bu repoda ayrıca
+  (`modules/script/src/host.cpp:101`, `modules/script/src/host.cpp:114`). Dosya/süreç erişimi ve `require` yoktur (Luau'nun kendi davranışı; bu repoda ayrıca
   sınanmadı). Determinizm için `os.time/os.clock` yerine `astral.random()`/`ctx.time` kullan.
 - Durumu script'te değil **component'te** tut: hot reload ve kayıt bunu varsayar (`modules/script/include/astral/script/script.hpp:2-4`).
 - Dinamik component şeması çalışırken değişmez; adı tekrar tanımlama (`modules/world/include/astral/world/serialize.hpp:349-353`).
@@ -337,7 +337,7 @@ Ayrıntı ve dosya biçimleri: [scenes-and-worlds.md](scenes-and-worlds.md).
   (dinamik gövdeler için fizik yazar) veya `PostUpdate`'te oku.
 - **`save_scene` paketli oyunda anlamsız olabilir** (`asset_root` yazma) ve gameplay kaydı değildir; `astral.save` yalnız seçili component'leri
   yazar ve entity kimliklerini yeniden üretir (§8).
-- **Luau yürütme bütçesi sabit 100 ms**, ayarlanamaz; yoğun yükte testler kırılabilir (`modules/script/include/astral/script/script.hpp:155-158`).
+- **Luau yürütme bütçesi sabit 100 ms**, ayarlanamaz; yoğun yükte testler kırılabilir (`modules/script/include/astral/script/script.hpp:155-160`).
 - **`OriginShifted` script'e açık değil**; kayan orijin kullanan Luau kodu konum kaymasını bu olayla öğrenemez (`modules/app/src/services/world_bridge.cpp:148`).
 - **`add` ölü entity'de süreci durdurur** (hata dönmez, `modules/world/include/astral/world/world.hpp:388`); Luau'da ölü entity erişimi hata verir.
 - **Ebeveyn silme çocukları silmez**; `RigidBody` yalnız kök entity'de (`modules/app/include/astral/app/components.hpp:83-87`).

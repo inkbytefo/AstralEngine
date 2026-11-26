@@ -56,3 +56,6 @@ ADR eskisini "yerini aldı" diye işaretler.
 | [0049](0049-path-tracer-reset-telemetry.md) | Path tracer sıfırlama nedeni ve sahne dondurma | Kabul |
 | [0050](0050-reflection-roughness-cutoff.md) | Ray-traced yansımalarda pürüzlülük eşiği | Kabul |
 | [0051](0051-projected-texture-orientation.md) | Planar ve triplanar projeksiyonda doku yönü | Kabul |
+| [0052](0052-script-budget-per-module.md) | Luau zaman bütçesi modül ve faz başına; aşımdan sonra yeniden kurulur (status §4) | Kabul |
+| [0053](0053-editor-rollback-and-hierarchy-rules.md) | Editör: oluşturulan dosyaların geri alınması, ebeveyn döngüsü, silmede çocuklar köke (status §4) | Kabul |
+| [0054](0054-headless-silent-mixer-clock.md) | Başsız çalışmada sessiz mikser oyun saatiyle ilerler (status §4) | Kabul |

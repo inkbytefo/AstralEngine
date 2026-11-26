@@ -62,6 +62,27 @@ Json& ensure_object_member(Json& parent, std::string_view key) {
     return parent[key];
 }
 
+/// The record id in a record's astral::Parent, or 0.
+std::uint32_t parent_record(const Json& record) {
+    const Json* comps = record.find("components");
+    const Json* parent = comps && comps->is_object() ? comps->find("astral::Parent") : nullptr;
+    return parent && parent->is_object() ? static_cast<std::uint32_t>((*parent)["entity"].as_number(0.0)) : 0u;
+}
+
+/// True when `ancestor` is `id` or one of its parents. Bounded by the record count, so a cycle already in a
+/// hand-edited file cannot loop forever.
+bool is_ancestor_or_self(const EditorDocument& doc, std::uint32_t ancestor, std::uint32_t id) {
+    const Json* list = doc.root.find("entities");
+    const std::size_t limit = list && list->is_array() ? list->size() + 1 : 1;
+    for (std::size_t step = 0; step < limit && id != 0; ++step) {
+        if (id == ancestor) return true;
+        const Json* record = doc.find_record(id);
+        if (!record) return false;
+        id = parent_record(*record);
+    }
+    return id == ancestor && id != 0;
+}
+
 bool is_safe_relative_asset_path(std::string_view raw) {
     if (raw.empty() || raw.front() == '/' || raw.front() == '\\') return false;
     if (raw.find(':') != std::string_view::npos || raw.find('\0') != std::string_view::npos) return false;
@@ -239,6 +260,9 @@ std::string validate_command(const EditorDocument& doc, const TypeRegistry& type
         if (!cmd.target.valid() || !doc.find_record(cmd.target.record_id)) return "reparent target does not exist";
         if (cmd.parent.valid() && !doc.find_record(cmd.parent.record_id)) return "reparent parent does not exist";
         if (cmd.parent.valid() && cmd.parent == cmd.target) return "cannot reparent entity to itself";
+        if (cmd.parent.valid() && is_ancestor_or_self(doc, cmd.target.record_id, cmd.parent.record_id)) {
+            return "cannot reparent an entity under its own descendant (cycle)";
+        }
         return {};
     case CommandKind::InstantiatePrefab:
         if (!is_safe_relative_asset_path(cmd.asset_path)) return "instantiate_prefab requires a safe relative asset_path";
@@ -270,9 +294,11 @@ std::string apply_command(EditorDocument& doc, const TypeRegistry& types, const 
         Json& list = ensure_entities_array(doc);
         Json next = Json::array();
         for (std::size_t i = 0; i < list.size(); ++i) {
-            if (static_cast<std::uint32_t>(list[i]["id"].as_number(0.0)) != cmd.target.record_id) {
-                next.push_back(list[i]);
-            }
+            if (static_cast<std::uint32_t>(list[i]["id"].as_number(0.0)) == cmd.target.record_id) continue;
+            Json record = list[i];
+            // Its children become roots instead of pointing at a record that is gone (ADR-0053).
+            if (parent_record(record) == cmd.target.record_id) record["components"].erase("astral::Parent");
+            next.push_back(std::move(record));
         }
         list = std::move(next);
         return {};

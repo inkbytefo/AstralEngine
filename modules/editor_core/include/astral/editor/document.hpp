@@ -35,6 +35,9 @@ public:
     [[nodiscard]] virtual std::optional<std::string> read_text(const std::filesystem::path& path, std::string* error = nullptr) const = 0;
     /// Atomically writes `text` to `path` (temp file + rename). On failure, target must remain untouched.
     virtual bool write_atomic(const std::filesystem::path& path, std::string_view text, std::string* error = nullptr) = 0;
+    /// Deletes `path`; true when it is gone afterwards (also when it did not exist). Used to undo files a failed
+    /// transaction created (ADR-0053).
+    virtual bool remove(const std::filesystem::path& path, std::string* error = nullptr) = 0;
     [[nodiscard]] virtual std::vector<std::filesystem::path> list_files(const std::filesystem::path& root,
                                                                         const std::vector<std::string>& extensions) const = 0;
 };
@@ -44,6 +47,7 @@ class LocalEditorFileSystem final : public IEditorFileSystem {
 public:
     [[nodiscard]] std::optional<std::string> read_text(const std::filesystem::path& path, std::string* error = nullptr) const override;
     bool write_atomic(const std::filesystem::path& path, std::string_view text, std::string* error = nullptr) override;
+    bool remove(const std::filesystem::path& path, std::string* error = nullptr) override;
     [[nodiscard]] std::vector<std::filesystem::path> list_files(const std::filesystem::path& root,
                                                                 const std::vector<std::string>& extensions) const override;
 };
