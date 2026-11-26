@@ -42,9 +42,9 @@ condition variable (`modules/core/src/jobs.cpp:20`, `:90`). `submit` sayacı art
 kuyruktaki **o sayaca ait** işleri kendisi çalıştırır (`:134`, `:39`). Başka grubun işini çalıştırmamasının
 nedeni yığın tersinmesi kilitlenmesidir (ADR-0004; regresyon testi
 `modules/core/tests/jobs_test.cpp:99`). İşteki istisna sayaçta saklanır ve `wait` tarafından, ilkini yeniden
-fırlatarak, temizlenir (`modules/core/src/jobs.cpp:63`, `modules/core/src/jobs.cpp:151`). Yıkıcı kuyruktaki her işi bitirir sonra worker'ları join eder
+fırlatarak, temizlenir (`modules/core/src/jobs.cpp:63`, `modules/core/src/jobs.cpp:155`). Yıkıcı kuyruktaki her işi bitirir sonra worker'ları join eder
 (`modules/core/src/jobs.cpp:101`). `parallel_for` `[0,count)` aralığını `batch` boyutlu parçalara bölüp parça başına bir iş gönderir
-(`modules/core/src/jobs.cpp:121`).
+(`modules/core/src/jobs.cpp:125`).
 
 **HandlePool.** `std::vector<Slot>` + serbest indeks listesi; her yeniden kullanımda generation artar,
 0 ("hiç geçerli değil") atlanır (`modules/core/include/astral/core/handle.hpp:62`). Thread-safe değildir
@@ -97,8 +97,8 @@ RTTI ve kod üreteci yoktur.
 - **JobSystem basit:** tek paylaşımlı kuyruk, tek mutex, her olayda `notify_all`; work-stealing, öncelik,
   bağımlılık grafı yok (`modules/core/src/jobs.cpp:20`, `:71`, `:118`). `wait` yardımı kuyrukta doğrusal tarama
   yapar (`:39`). İş tipi `std::function` (heap tahsisi olabilir; `modules/core/include/astral/core/jobs.hpp:35`). Ölçülmüş bir ölçeklenme verisi yok.
-- **`submit()` istisna güvenli değil:** sayaç önce artırılır, kuyruğa ekleme (`push_back`) bellek hatası
-  atarsa sayaç takılı kalır (`modules/core/src/jobs.cpp:113-116`). Bir `JobCounter` farklı bir `JobSystem` ile
+- **`submit()` kuyruğa ekleme hatasında sayacı geri alır** ve istisnayı yeniden atar (`modules/core/src/jobs.cpp:112-123`); bu yol
+  testsizdir (bellek hatası üretmek gerekir). Bir `JobCounter` farklı bir `JobSystem` ile
   kullanılırsa `wait` takılır; yalnızca belgelenmiş (`modules/core/include/astral/core/jobs.hpp:32`), çalışma zamanında denetlenmez.
 - **`Json` nesneleri doğrusal arama:** `find`, `operator[]` ve ayrıştırıcının her üye eklemesi (`out[key] = ...`)
   üye sayısıyla O(n) (`modules/core/src/json.cpp:316`, `:446`); çok üyeli nesnelerde ayrıştırma O(n²). Başlık

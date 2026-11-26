@@ -328,7 +328,7 @@ astral_add_game(blank SOURCES src/main.cpp ASSETS assets)   # templates/blank/CM
   2. Başka özelliğin başlığını `depends_on` olmadan ya da `exports.headers`'ta olmayan bir başlığı almak (`modules/app/src/feature_check.cpp:100-109`).
   3. Değişebilir `static` değişken (`modules/app/src/feature_check.cpp:77`); gerekçeli istisna için satıra `// astral-allow-global: <neden>` yaz.
   - Regex tabanlıdır: `static` olmayan global, `thread_local`, makroyla gizlenmiş tanımlar yakalanmaz; Luau dosyalarına bakmaz.
-- `astral_check_scripts(<ad> GAME <hedef> SCRIPTS assets/features)` → test `<ad>_script_types` (`cmake/AstralGame.cmake:85-102`).
+- `astral_check_scripts(<ad> GAME <hedef> SCRIPTS assets/features)` → test `<ad>_script_types` (`cmake/AstralGame.cmake:85-104`).
   Oyun `--script-api-only` ile `astral.d.luau` yazar, `astral-luau-check` her `.luau`'yu buna karşı tip denetler
   (`cmake/CheckScripts.cmake:1-15`). `astral-luau-check` yoksa test hiç eklenmez (`cmake/AstralGame.cmake:93`). Denetleyicinin
   varsayılan modu `Nonstrict`'tir (`tools/astral_luau_check/main.cpp:46`); dosya başına `--!strict` yazmayan script

@@ -24,17 +24,20 @@ TEST_CASE("the renderer reports progress after each resource it creates") {
     CHECK(calls == 2);
     REQUIRE(renderer.create_mesh(make_cube()).valid());
     CHECK(calls == 3);
-    REQUIRE(renderer.create_material({}).valid());
+    const MaterialHandle material = renderer.create_material({});
+    REQUIRE(material.valid());
     CHECK(calls == 4);
+    CHECK(renderer.update_material(material, {.roughness = 0.2f}));
+    CHECK(calls == 5); // updates count too, like update_texture
 
     const ShaderParse parsed = parse_ashader("shader_type surface;\nvoid surface() { ALBEDO = vec3(0.5); }\n");
     REQUIRE(parsed.errors.empty());
     const SurfaceShaderBuild build = compile_surface_shader(parsed.source, "busy.ashader");
     REQUIRE(build.ok());
     REQUIRE(renderer.create_shader(build, "busy").valid());
-    CHECK(calls == 5);
+    CHECK(calls == 6);
 
     renderer.set_busy_callback({}); // removing it stops the calls
     renderer.create_material({});
-    CHECK(calls == 5);
+    CHECK(calls == 6);
 }

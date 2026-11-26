@@ -102,8 +102,8 @@ verilen bağımlılık olarak listeler.
   işlenmez (`modules/platform/src/window.cpp:162`). Bu, CJK girişi için yetersiz olabilir (doğrulanmadı: SDL'in bu kodda başka bir yolla
   gösterdiği bir kompozisyon yok).
 - **WASD köşegeni normalize değil:** `axis`/`wasd` her ekseni ayrı -1..1 verir; W+D `(1, 1)` olur (uzunluk
-  ~1.41) (`modules/platform/src/input.cpp:84-89`). Test başlığı "normalised" dese de değer 1,1'i doğrular
-  (`modules/platform/tests/input_test.cpp:48-53`).
+  ~1.41) (`modules/platform/src/input.cpp:84-89`). Bu bilinçli: başlık ve test böyle belgeler; hareket kodu gerekirse kendisi normalize eder
+  (`modules/platform/include/astral/platform/input.hpp:74`, `modules/platform/tests/input_test.cpp:48-53`).
 - **Fare konumu pencere koordinatındadır, piksel değil:** yüksek DPI'da `pixel_density()` ile çarpmak çağıranın işidir
   (`modules/platform/include/astral/platform/window.hpp:61-63`).
 - **Platform kapsamı:** CI yalnızca Linux (gcc, clang, xvfb) ve Windows (MSVC) üzerinde (`../../.github/workflows/ci.yml:14`,

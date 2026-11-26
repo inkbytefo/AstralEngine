@@ -51,7 +51,8 @@ vec3 pt_direct_nee(Frame f, LightingInputs li, Surface s, vec3 v, inout uint see
     vec3 to_sun = -normalize(f.sun_direction.xyz);
     if (dot(f.sun_color.rgb, vec3(1.0)) > 0.0 && (dot(s.n, to_sun) > 0.0 || s.shading_model == SHADING_SUBSURFACE)) {
         vec3 l = sample_cone(to_sun, f.rt_params.x, vec2(rnd(seed), rnd(seed)));
-        bool lit = dot(s.n, l) > 0.0 ? !occluded(li.tlas, li.shapes, li.sdf_count, origin, l, max_t)
+        bool sun_shadows = f.sun_color.w > 0.5;
+        bool lit = dot(s.n, l) > 0.0 ? (!sun_shadows || !occluded(li.tlas, li.shapes, li.sdf_count, origin, l, max_t))
                                      : (s.shading_model == SHADING_SUBSURFACE);
         if (lit) {
             vec3 d_rad, sp_rad;

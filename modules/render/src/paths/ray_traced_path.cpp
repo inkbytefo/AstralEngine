@@ -160,7 +160,9 @@ GpuFrame build_rt_frame(const CameraData& camera, const RenderScene& scene, cons
     frame.camera_position = {camera.position.x, camera.position.y, camera.position.z, 1};
     frame.atmosphere.aerial = settings.debug_view == DebugView::None ? aerial_parameters(scene.environment) : Vec4{};
     frame.sun_direction = {sun.x, sun.y, sun.z, 0};
-    frame.sun_color = {scene.sun.color.x * sun_on, scene.sun.color.y * sun_on, scene.sun.color.z * sun_on, 0};
+    // w: 1 = the sun casts ray-traced shadows (DirectionalLight::shadows), read by rt.glsl and path_tracer.comp.
+    frame.sun_color = {scene.sun.color.x * sun_on, scene.sun.color.y * sun_on, scene.sun.color.z * sun_on,
+                       scene.sun.shadows ? 1.0f : 0.0f};
     frame.sky_color = {scene.environment.sky.x, scene.environment.sky.y, scene.environment.sky.z,
                        scene.environment.ambient};
     frame.ground_color = {scene.environment.ground.x, scene.environment.ground.y, scene.environment.ground.z,

@@ -449,6 +449,11 @@ void PhysicsWorld::set_joint_motor_rotation(JointHandle joint, Quat target_rotat
 void PhysicsWorld::set_joint_limits(JointHandle joint, float min_limit, float max_limit) {
     auto* r = impl_->joints.get(joint);
     if (!r || r->broken || !r->constraint || !std::isfinite(min_limit) || !std::isfinite(max_limit)) return;
+    if (r->desc.type == JointType::SixDOF || r->desc.type == JointType::SwingTwist) {
+        impl_->warn("set_joint_limits(joint, min, max) has no single range for SixDOF/SwingTwist joints; "
+                    "use set_joint_limits(joint, JointLimitsDesc) (nothing changed)");
+        return;
+    }
     r->desc.limited = true;
     r->desc.min_limit = min_limit;
     r->desc.max_limit = max_limit;

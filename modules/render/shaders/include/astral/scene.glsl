@@ -42,7 +42,7 @@ struct Frame {
     mat4 light_view_projection;
     vec4 camera_position;
     vec4 sun_direction;   // xyz: direction of travel, w: raster shadow normal offset
-    vec4 sun_color;       // rgb * intensity
+    vec4 sun_color;       // rgb * intensity, w: 1 = sun casts shadows (ray-traced path)
     vec4 sky_color;       // rgb, a: ambient strength
     vec4 ground_color;    // rgb, a: exposure
     uvec4 counts;         // x: point lights, y: sdf shapes, z: shadow map bindless index (or ~0u), w: restir flags (bit0=active, bit1=history)

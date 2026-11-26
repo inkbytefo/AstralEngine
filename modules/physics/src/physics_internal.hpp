@@ -284,6 +284,10 @@ struct PhysicsWorld::Impl {
         if (index >= handle_by_index.size() || handle_by_index[index].id != id) return {};
         return handle_by_index[index].handle;
     }
+    void warn(std::string_view message) const {
+        if (logger) logger->log(LogLevel::Warn, message);
+        else std::fprintf(stderr, "[astral::physics] %.*s\n", static_cast<int>(message.size()), message.data());
+    }
     void error(std::string_view message) const {
         if (logger) logger->log(LogLevel::Error, message);
         else std::fprintf(stderr, "[astral::physics] %.*s\n", static_cast<int>(message.size()), message.data());

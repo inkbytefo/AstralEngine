@@ -81,7 +81,7 @@ endfunction()
 #
 #   Adds the CTest test <name>_script_types: the game writes astral.d.luau (`--script-api-only`, headless) and
 #   astral-luau-check type-checks every script against it, so a wrong component, field or event name, or a wrong
-#   type, fails the build. Needs astral-luau-check (built with the engine's tests); does nothing without it.
+#   type, fails the build. Needs astral-luau-check (built with the engine's tests); without it a warning says the scripts are not checked.
 function(astral_check_scripts name)
     cmake_parse_arguments(ARG "" "GAME;SCRIPTS" "" ${ARGN})
     if(NOT ARG_GAME OR NOT ARG_SCRIPTS)
@@ -92,6 +92,8 @@ function(astral_check_scripts name)
     elseif(TARGET Astral::astral_luau_check)
         set(checker Astral::astral_luau_check)
     else()
+        message(WARNING "astral_check_scripts(${name}): astral-luau-check is not available (build the engine with tests, "
+                        "or install it); the scripts of ${ARG_GAME} are NOT type-checked")
         return()
     endif()
     get_filename_component(scripts ${ARG_SCRIPTS} ABSOLUTE)

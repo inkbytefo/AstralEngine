@@ -164,6 +164,7 @@ MaterialHandle Renderer::create_material(const MaterialDesc& desc) {
 bool Renderer::update_material(MaterialHandle material, const MaterialDesc& desc) {
     const bool updated = impl_->materials.update(material, desc);
     if (updated) impl_->passes.path_tracer.reset();
+    impl_->notify_busy();
     return updated;
 }
 void Renderer::destroy(MaterialHandle material) {

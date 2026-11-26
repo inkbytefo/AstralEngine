@@ -24,11 +24,11 @@ Header'lar `modules/physics/include/astral/physics/` altındadır.
 | `create_shape`, `cook_shape`, `cook_physics_shape`, `inspect_cooked_shape`, `create_shape_from_cooked`, `CookedShapeInfo` | Paylaşımlı `ShapeHandle` ve `ASSH` v1 ikili şekil biçimi | `modules/physics/include/astral/physics/physics.hpp:248`, `modules/physics/include/astral/physics/types.hpp:71` |
 | `register_material`, `PhysicsMaterialDesc`, `PhysicsCombineMode` | `BodyDesc::surface` kimliği başına sürtünme/sekme/yoğunluk; birleştirme kuralları | `modules/physics/include/astral/physics/physics.hpp:273`, `modules/physics/include/astral/physics/types.hpp:62` |
 | `set_layer_collision`, `layers_collide`, `QueryFilter` | 16 katman, simetrik matris; sorgu filtresi `layers`, `ignore`, `ignore_list`, `include_sensors` | `modules/physics/include/astral/physics/physics.hpp:311`, `modules/physics/include/astral/physics/physics.hpp:123` |
-| `raycast`, `shape_cast`, `overlap`, `raycast_batch`, `shape_cast_batch`, `overlap_batch` | Sorgular; toplu sürümler `JobSystem*` ile paralel (≥ 32 öğe) | `modules/physics/include/astral/physics/physics.hpp:344` |
+| `raycast`, `shape_cast`, `overlap`, `raycast_batch`, `shape_cast_batch`, `overlap_batch` | Sorgular; toplu sürümler `JobSystem*` ile paralel (≥ 32 öğe) | `modules/physics/include/astral/physics/physics.hpp:346` |
 | `JointDesc`, `JointType` (Fixed, Point, Hinge, Slider, Distance, SixDOF, SwingTwist), `create_joint` | Eklem oluşturma; `JointLimitsDesc`, `JointMotorDesc`, `break_force`/`break_torque` | `modules/physics/include/astral/physics/physics.hpp:200`, `modules/physics/include/astral/physics/types.hpp:95` |
 | `set_joint_motor_*`, `set_joint_limits`, `break_joint`, `joint_broken`, `joint_reaction`, `broken_joints` | Çalışma anı motor/limit değişimi, kırma, tepki ölçümü, kırılma olayları | `modules/physics/include/astral/physics/physics.hpp:323` |
-| `create_character`, `update_character`, `character_state`, `set_character_position`, `CharacterDesc` | Kapsül `CharacterVirtual` | `modules/physics/include/astral/physics/physics.hpp:360` |
-| `step`, `contacts`, `shift_origin`, `capabilities` | Simülasyon adımı, Begin/End temas ve sensör olayları, floating origin, yetenek bayrakları | `modules/physics/include/astral/physics/physics.hpp:338`, `modules/physics/include/astral/physics/physics.hpp:314` |
+| `create_character`, `update_character`, `character_state`, `set_character_position`, `CharacterDesc` | Kapsül `CharacterVirtual` | `modules/physics/include/astral/physics/physics.hpp:362` |
+| `step`, `contacts`, `shift_origin`, `capabilities` | Simülasyon adımı, Begin/End temas ve sensör olayları, floating origin, yetenek bayrakları | `modules/physics/include/astral/physics/physics.hpp:340`, `modules/physics/include/astral/physics/physics.hpp:314` |
 | `FieldWorld`, `WindDesc`, `WindVolume`, `WaterVolume`, `wind_of`, `water_surface_height`, `field_noise` | Konum ve zamanın saf fonksiyonu olarak rüzgâr ve su; aynı formül `fields.glsl`'de | `modules/physics/include/astral/physics/fields.hpp:68`, `modules/physics/shaders/include/astral/fields.glsl` |
 
 ## Nasıl çalışır
@@ -163,7 +163,7 @@ fiziği, bekleyen komut konumlarını ve `Joint::anchor`'ları kaydırır (`modu
   (`modules/physics/src/physics_queries_joints.cpp:262`).
 - **SixDOF yay ayarı yalnız doğrusal limitlerde:** `spring_frequency/damping` yalnız üç öteleme ekseninin limit yayına uygulanır
   (`modules/physics/src/physics_joints.cpp:63`). `set_joint_limits(min, max)` yalnız Hinge/Slider/Distance için Jolt'a işler;
-  SixDOF/SwingTwist için `JointLimitsDesc` sürümü kullanılmalı (`modules/physics/src/physics_joints.cpp:455`).
+  SixDOF/SwingTwist'te uyarı log'lar ve hiçbir şey değiştirmez, `JointLimitsDesc` sürümü kullanılmalı (`modules/physics/src/physics_joints.cpp:449-458`).
 - **Dünyaya bağlı eklem yeniden kurulumu durumu sıfırlar:** `shift_origin` kısıtı silip yeniden yaratır; warm-start birikimi gider,
   yeniden kurma başarısız olursa `JointRecord` geçerli ama kısıt boş kalabilir (`modules/physics/src/physics_joints.cpp:293`).
   Testte yalnız nokta eklemli sarkaç var (`modules/physics/tests/physics_v2_test.cpp` "Origin shift preserves ...").

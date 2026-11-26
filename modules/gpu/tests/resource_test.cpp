@@ -139,3 +139,20 @@ TEST_CASE("timestamp queries measure GPU work and never block") {
     CHECK_FALSE(device->read_timestamps(pool, 1, 2, ns)); // out of range
     device->destroy(pool);
 }
+
+TEST_CASE("write_texture refuses a texture that cannot be a copy destination") {
+    auto device = astral::test::make_device();
+    if (!device) return;
+    // Storage only: no TRANSFER_DST and no SAMPLED usage, so the copy and the final shader-read layout would be invalid Vulkan.
+    auto t = device->create_texture({.width = 4, .height = 4, .format = astral::gpu::Format::RGBA8Unorm,
+                                     .usage = astral::gpu::TextureUsage::Storage});
+    REQUIRE(t.valid());
+    std::vector<std::uint32_t> pixels(4 * 4, 0xFFFFFFFF);
+    CHECK_FALSE(device->write_texture(t, pixels.data(), pixels.size() * 4, 0));
+    device.expect_errors(1); // the refusal is logged, not silent
+    // Sampled textures are the uploadable ones (Sampled implies the copy destination usage).
+    auto u = device->create_texture({.width = 4, .height = 4, .format = astral::gpu::Format::RGBA8Unorm,
+                                     .usage = astral::gpu::TextureUsage::Storage | astral::gpu::TextureUsage::Sampled});
+    REQUIRE(u.valid());
+    CHECK(device->write_texture(u, pixels.data(), pixels.size() * 4, 0));
+}
