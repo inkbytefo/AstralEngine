@@ -384,6 +384,11 @@ bool Device::write_texture(TextureHandle texture, const void* data, std::uint64_
     auto& s = *impl_;
     TextureRecord* r = s.textures.get(texture);
     if (!r || !data || mip >= r->desc.mip_levels) return false;
+    if (!has_flag(r->desc.usage, TextureUsage::Sampled)) {
+        // The upload copies into the image and leaves it shader-readable: both need a Sampled texture.
+        s.log_error("write_texture: the texture was not created with TextureUsage::Sampled");
+        return false;
+    }
     const std::uint32_t mw = std::max(1u, r->desc.width >> mip), mh = std::max(1u, r->desc.height >> mip);
     const std::uint64_t expected = texture_data_size(r->desc.format, mw, mh);
     if (size != expected) return false;

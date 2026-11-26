@@ -24,3 +24,10 @@ TEST_CASE("validation layer reports no errors for a test device") {
     MESSAGE("validation active on " << device->adapter_name());
     CHECK(true);
 }
+
+TEST_CASE("features the device does not enable are not reported as supported") {
+    auto device = test::make_device();
+    if (!device) return;
+    // VK_EXT_mesh_shader may exist on the adapter, but the device is created without it.
+    CHECK_FALSE(device->supports(gpu::Feature::MeshShaders));
+}

@@ -298,8 +298,7 @@ bool Device::supports(Feature feature) const noexcept {
     case Feature::RayTracing: return impl_->rt.supported;
     case Feature::TextureCompressionBC: return impl_->caps.texture_compression_bc;
     case Feature::Timestamps: return impl_->caps.timestamps;
-    case Feature::MeshShaders:
-        return has_device_extension(impl_->physical, "VK_EXT_mesh_shader");
+    case Feature::MeshShaders: return false; // VK_EXT_mesh_shader is never enabled on the device
     }
     return false;
 }
