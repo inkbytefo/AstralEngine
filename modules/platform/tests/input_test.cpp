@@ -45,7 +45,7 @@ TEST_CASE("mouse delta accumulates within a frame and resets") {
     CHECK(input.mouse_delta() == Vec2{0, 0});
 }
 
-TEST_CASE("wasd axis is normalised per direction") {
+TEST_CASE("wasd gives -1, 0 or 1 per axis (diagonals are not normalised)") {
     Input input;
     input.set_key(Key::D, true);
     input.set_key(Key::W, true);

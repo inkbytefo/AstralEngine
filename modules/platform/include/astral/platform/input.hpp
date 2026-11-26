@@ -71,7 +71,7 @@ public:
     /// Text typed this frame (UTF-8).
     [[nodiscard]] std::string_view text() const noexcept { return text_; }
 
-    /// -1..1 per axis from four keys (opposite keys cancel).
+    /// -1..1 per axis from four keys (opposite keys cancel). Not normalised: a diagonal is (±1, ±1), length √2.
     [[nodiscard]] Vec2 axis(Key negative_x, Key positive_x, Key negative_y, Key positive_y) const noexcept;
     /// axis(A, D, S, W): x = strafe, y = forward.
     [[nodiscard]] Vec2 wasd() const noexcept { return axis(Key::A, Key::D, Key::S, Key::W); }

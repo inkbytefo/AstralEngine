@@ -111,9 +111,13 @@ JobSystem::~JobSystem() {
 
 void JobSystem::submit(JobCounter& counter, Job job) {
     counter.pending_.fetch_add(1, std::memory_order_acq_rel);
-    {
+    try {
         std::scoped_lock lock(impl_->mutex);
         impl_->queue.push_back({std::move(job), &counter});
+    } catch (...) {
+        // Not queued (allocation failed): the job will never run, so it must not count, or wait() never returns.
+        counter.pending_.fetch_sub(1, std::memory_order_acq_rel);
+        throw;
     }
     impl_->cv.notify_all();
 }
