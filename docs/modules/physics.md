@@ -180,9 +180,6 @@ fiziği, bekleyen komut konumlarını ve `Joint::anchor`'ları kaydırır (`modu
 - **Sensörler:** sensör gövdelerde Jolt'un `mCollideKinematicVsNonDynamic` bayrağı açılır
   (`modules/physics/src/physics.cpp:167`); uyuyan gövde çakışması ve bileşik
   şekil (compound) için Begin/End temas sayımının ne olduğu test edilmedi (doğrulanmadı; denetim notu PHR01).
-- **Eksik ADR dosyası:** `ADR-0045` (sorgu `ignore_list`) kodda referans verilmiş (`modules/physics/include/astral/physics/physics.hpp:126`)
-  ama `docs/decisions/` altında ADR-0045 dosyası yok.
-
 ## Testler
 
 `modules/physics/tests/` (doctest, `modules/physics/CMakeLists.txt:50`):
@@ -216,4 +213,4 @@ alınmadı.
 - [0034 — Gameplay API ve fizik adım sözleşmesi](../decisions/0034-gameplay-api-and-physics-step-contract.md)
 - [0038 — Physics API v2](../decisions/0038-physics-api-v2.md) (Jolt v5.7.0, SixDOF, motorlar, kırılma, cook, materyal, toplu sorgu)
 - [0043 — Deterministik fizik komut üreticileri](../decisions/0043-deterministic-physics-command-producers.md)
-- `ADR-0045` (sorgu `ignore_list`): kodda referans var, dosyası `docs/decisions/` altında yok.
+- [ADR-0045](../decisions/0045-query-filter-ignore-list.md): sorgularda birden çok yok sayılan gövde (`ignore_list`)

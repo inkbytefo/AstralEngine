@@ -134,10 +134,6 @@ azaltılır.
 - **Test kapsamı boşlukları:** `uniform_word`'ün doğrudan testi bu modülde yok (AS13 Render testlerinde: `modules/render/tests/msr_regression_test.cpp:118`);
   her ipucu/hata iletisi için ayrıştırıcı testi yok; include bulunamama hatası derleme testlerinde kapsanmaz
   (`modules/shader/tests/compile_test.cpp`).
-- **Eksik ADR dosyası:** ADR-0047 (SpirvCache + `ShaderCompileServices` + paralel toplu derleme) kod yorumlarında/brife anılıyor ama
-  `docs/decisions/` altında bu numarada dosya yok; kodda `docs/modules/shader.md` referansı ise bu belgedir
-  (`modules/shader/include/astral/shader/spirv_cache.hpp:3`).
-
 ## Testler
 
 `modules/shader/tests/` (doctest; `test_main.cpp` Core'dan paylaşılır, `modules/shader/CMakeLists.txt:30`):
@@ -167,4 +163,4 @@ shader başına saniyeler sürebilir (`modules/shader/include/astral/shader/comp
 - [0022 — Shader ve materyal dili](../decisions/0022-shader-and-material-language.md)
 - [0033 — Gelişmiş PBR ve yol izleyici](../decisions/0033-advanced-pbr-and-path-tracer.md) (`shading_model`)
 - [0042 — Tipli shader parametre sözcükleri](../decisions/0042-typed-shader-parameter-words.md)
-- ADR-0047 (SpirvCache, `ShaderCompileServices`, paralel derleme): dosyası bu ağaçta yok.
+- [0047 — SPIR-V disk önbelleği ve paralel derleme](../decisions/0047-spirv-disk-cache.md)

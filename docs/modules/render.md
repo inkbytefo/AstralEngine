@@ -298,7 +298,7 @@ test: `modules/render/tests/renderer_test.cpp:590`). Tek `projection.glsl` raste
 ortak kullanılır (`modules/render/shaders/include/astral/projection.glsl:7-77`, `modules/render/shaders/gbuffer.frag:20-21`,
 `modules/render/shaders/include/astral/rt.glsl:11-20`). Yönelim kuralı: dikey yüzlerde dünya yukarısı (+Y) doku V'sidir, U ekranda sağa akar (ayna yok);
 Y yüzlerinde U=Z, V=X (`modules/render/shaders/include/astral/projection.glsl:40-58`). `PlanarXY/XZ/YZ` sırasıyla Z, Y, X eksenli yüze eşlenir
-(`modules/render/shaders/include/astral/projection.glsl:30-32`). Yönelim düzeltmesi 31e2c48 ile yapıldı (görev tanımı konuyu ADR-0051 ile anıyor; bu ağaçta o dosya yok, bkz. "Kararlar").
+(`modules/render/shaders/include/astral/projection.glsl:30-32`). Yönelim düzeltmesi 31e2c48 ile yapıldı ([ADR-0051](../decisions/0051-projected-texture-orientation.md)).
 
 RT/path tracer ikincil vuruşlarında yalnız projeksiyonlu normal haritası uygulanır; `MeshUV` normal haritası, detay dokuları ve POM yalnız birincil
 G-buffer'dadır (bkz. zayıf yanlar) (`modules/render/shaders/include/astral/rt.glsl:232-234`).
@@ -371,7 +371,7 @@ clearcoat lobu seçilen pikseller, anizotropik yüzeyler ve şeffaflık dalı (`
   renk görüntüleri sRGB→doğrusal tablo ile doğrusal uzayda ortalanır ve yeniden kodlanır. 128×128 texel ve üstü seviyeler iş sistemiyle satır bazında paralel hesaplanır;
   sonuç seri hesapla bayt bayt aynıdır (`modules/render/src/stores/texture_store.cpp:44-124`,
   testler: `modules/render/tests/mips_reference_test.cpp`, `modules/render/tests/stores_test.cpp`).
-- Not: görev tanımı bu üç konuyu ADR-0047/0048 ile ilişkilendiriyor; bu ağaçta bu numaralı dosyalar yoktur (bkz. "Kararlar").
+- Kararlar: [ADR-0047](../decisions/0047-spirv-disk-cache.md), [ADR-0048](../decisions/0048-startup-responsiveness-and-mips.md).
 
 ### Varsayılan `RenderSettings`
 
@@ -542,7 +542,11 @@ DDGI/denoiser/TAA tekil süreleri, farklı çözünürlükler ve çoklu ışık 
 - [ADR-0033](../decisions/0033-advanced-pbr-and-path-tracer.md): gelişmiş PBR, decal, path tracer (M13)
 - [ADR-0042](../decisions/0042-typed-shader-parameter-words.md): shader parametrelerinde tipli word ABI
 
-Eksik kayıtlar: görev tanımı SPIR-V önbelleği/derleme servisleri ve busy callback (ADR-0047/0048), path tracer sıfırlama telemetrisi ve donma (ADR-0049), yansıma pürüzlülük kesimi (ADR-0050) ve doku
-projeksiyonu yönelimi (ADR-0051) için ADR numaraları verir; bu ağaçta `docs/decisions/` en çok 0044'e kadardır ve bu numaralı dosyalar yoktur. Davranışları yukarıda koddan belgelendi; ADR dosyaları
-eklenirse buraya bağlanmalıdır. Tarihsel notlar: `docs/archive/renderer/` ve `docs/archive/audits/rendering-deep-audit-2026-11-25.md` (REN01-REN10'un çoğu kodda kapalı görünüyor, tek tek doğrulanmadı; RR01, RR02, RR05 benzeri açık sorunlar
+- [ADR-0047](../decisions/0047-spirv-disk-cache.md): SPIR-V disk önbelleği ve paralel shader derleme
+- [ADR-0048](../decisions/0048-startup-responsiveness-and-mips.md): yükleme sırasında pencere tepkisi (busy callback) ve mip üretimi
+- [ADR-0049](../decisions/0049-path-tracer-reset-telemetry.md): path tracer sıfırlama nedeni ve sahne dondurma
+- [ADR-0050](../decisions/0050-reflection-roughness-cutoff.md): yansıma pürüzlülük eşiği
+- [ADR-0051](../decisions/0051-projected-texture-orientation.md): projeksiyon doku yönü
+
+Tarihsel notlar: `docs/archive/renderer/` ve `docs/archive/audits/rendering-deep-audit-2026-11-25.md` (REN01-REN10'un çoğu kodda kapalı görünüyor, tek tek doğrulanmadı; RR01, RR02, RR05 benzeri açık sorunlar
 yukarıdaki zayıf yanlara yeniden yazıldı).
