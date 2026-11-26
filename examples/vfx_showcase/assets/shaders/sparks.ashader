@@ -1,0 +1,12 @@
+shader_type particle;
+render_mode blend_add;
+uniform vec3 core = vec3(2.8, 1.15, 0.28);
+void motion() {
+    WORLD_POSITION.y += AGE * RANDOM * 2.2;
+    SIZE *= mix(1.25, 0.35, clamp(AGE / LIFETIME, 0.0, 1.0));
+}
+void particle() {
+    float heat = 1.0 - smoothstep(0.05, 1.0, AGE);
+    COLOR = mix(COLOR * 0.35, core, heat);
+    ALPHA *= smoothstep(0.0, 0.1, AGE);
+}
