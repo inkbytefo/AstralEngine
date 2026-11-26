@@ -4,6 +4,9 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+### Added (examples yenileme E1)
+- `examples/physics_showcase`: motorun fiziğini tek dünyada gösteren vitrin (yığın, eklemler, yüzeyler, su istasyonları; `--view`, `--capture`, başsız testler). Eski üç fizik örneği E5'e kadar durur.
+
 ### Fixed (status §4 Dalga A ve B, merge `1ac411c`, `357ff85`)
 - `app`/`audio`: başsız/offscreen modda sessiz mikser oyun saatiyle ilerler, sesler biter ve birikmez; `AudioEngine::mixed_frames()` (ADR-0054).
 - `script`: zaman bütçesi modül ve faz başına; aşımdan sonra sonraki modüller artık bütçesiz koşmuyor (ADR-0052).
