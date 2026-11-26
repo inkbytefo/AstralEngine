@@ -443,6 +443,7 @@ yani Türkçe harfler, ₺) (`modules/render/include/astral/render/text.hpp:28-5
 
 ### B. Doğruluk ve özellik sınırları
 
+- **Path tracer SDF artefaktı (gözlem, 2026-11-26, RTX 3060):** SDF yüzeylerinde koyu halka + nokta çiziliyor (`examples/lighting_showcase`, `--view room` ve `--view yard`, `--path-tracer`; 128 ve 400 karede kalıcı, hibrit RT’de yok). Mesh yüzeylerinde görülmedi. Nedeni incelenmedi; regresyon testi yok.
 - **Path tracer "referans" olarak eksik ve yanlı:** radyans 64'e kırpılır (`modules/render/shaders/path_tracer.comp:372`; hibrit RT çıktısı da diffuse 64 / speküler 256'ya kırpılır: `modules/render/shaders/rt_lighting.comp:300-301`), yani
   yorumlardaki "unbiased" (`modules/render/include/astral/render/renderer.hpp:306`) kırpma nedeniyle yanlıdır. `MeshUV` normal haritası, detay albedo/normal ve POM ikincil/PT vuruşlarında uygulanmaz
   (`modules/render/shaders/include/astral/rt.glsl:232-234`); decal'lar yalnız ilk vuruşta (`modules/render/shaders/path_tracer.comp:212`). Nokta ışık sayısı > 4 ise tek bir ışık düzgün örneklenir, rect ışık
