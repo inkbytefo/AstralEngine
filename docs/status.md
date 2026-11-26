@@ -73,6 +73,11 @@ Dalga B'de düzeltilip çıkarılanlar: RT/PT güneş gölgesi bayrağı, `MeshS
 | render | Path tracer radyansı 64'e kırpılıyor; ikincil isabetlerde normal/detay haritası ve POM yok | `modules/render/shaders/path_tracer.comp:372` | Doğrulandı |
 | render | `blend_*` yüzeyler TLAS'ta değil (RT/PT'de görünmez); partiküller tonemap sonrası çiziliyor | [render.md](modules/render.md) | — |
 | render | Path tracer SDF yüzeylerinde koyu halka + nokta çiziyor (hibrit RT'de yok) | [render.md](modules/render.md) | Gözlendi (capture), nedeni incelenmedi |
+| world/app | `close_world()` kayan orijini sıfırlamıyor; sonraki `open_world` mevcut orijinle açılıyor | `modules/app/src/services/world_bridge.cpp:94-96` | Doğrulandı |
+| assets | `AssetManager` tek asset kökü destekliyor; çalışma anı `Model` köşe/üçgen sayısı ve sınır kutusu tutmuyor | [assets.md](modules/assets.md) | Doğrulandı |
+| assets | `.aterrain` katman/splatmap verisi taşımıyor | `modules/assets/include/astral/assets/terrain.hpp:17-22` | Doğrulandı |
+| app | `.actions` fare tekerleğini bağlayamıyor (yalnız C++ `Input::scroll()`) | `modules/app/include/astral/app/input_actions.hpp:53-69` | Doğrulandı |
+| script | Luau'da doğrudan ses API'si (`astral.audio.*`) ve `GameplaySmoke` sorgusu yok | [script.md](modules/script.md) | Doğrulandı |
 | render | Bazı `render_mode`'lar (`rt_simple`, `after_tonemap`, `unshaded` particle/volume) kabul ediliyor ama kullanılmıyor | `modules/shader/src/ashader.cpp:372-382` | — |
 | script | `astral-luau-check` sistem callback parametrelerindeki alan hatalarını, bilinmeyen query component'lerini ve olay alanı hatalarını yakalamıyor | `modules/script/src/api.cpp:223` | Ajan tarafından denendi |
 | editor_core | `AgentTaskManager::cancel` worker'ı join ediyor; codex süreci zaman aşımı olmadan çalıştığı için UI kilitlenebilir; komut satırı kaçışsız | `modules/editor_core/src/agent_task.cpp:313-315` | — |

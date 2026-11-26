@@ -209,7 +209,7 @@ yalnızca renderer varsa ve `debug_ui` açıksa kurulur; docking ve klavye gezin
 
 ## Zayıf yanlar ve bilinen sınırlar
 
-- **Girdi eylemlerinde fare tekerleği ekseni yok** (vitrin yazımında gözlendi, 2026-11-27; `examples/asset_viewer` yakınlaştırmayı C++ sistemiyle yapar). `AppDesc::input_script` yalnız tuş enjekte eder; gamepad enjekte edilemez.
+- **`.actions` fare tekerleğini bağlayamaz** (kaynakta doğrulandı, 2026-11-27): eylem kaynakları tuş, fare düğmesi, gamepad ve fare hareketi (`modules/app/include/astral/app/input_actions.hpp:53-69`). Tekerlek yalnız C++'tan `Input::scroll()` ile okunur (`modules/platform/include/astral/platform/input.hpp:70`); Luau erişemez. `examples/asset_viewer` yakınlaştırmayı bu yüzden C++ sistemiyle yapar. Ayrıca `AppDesc::input_script` yalnız tuş enjekte eder; fare ve gamepad enjekte edilemez.
 - **Boyut bütçesi doygun.** `AppDesc` 25/25 ve `App::Impl` 25/25 veri üyesi (sınır 25): yeni alan eklemek önce yapı bölmeyi gerektirir. `Context` 31 üyeyle açık bir istisna taşır (`tools/size_budget.json:3-7`;
   `python tools/check_sizes.py` çıktısı: `app.hpp:215 AppDesc (25 of 25)`, `app.cpp:170 App::Impl (25 of 25)`, `Context (31 > 25)`). `Context`, 31 genel alanıyla hâlâ "her şeye erişim" nesnesidir
   (gerekçe: "kaynak uyumluluğu için M14'e kadar", `tools/size_budget.json:6`).

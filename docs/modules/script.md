@@ -116,7 +116,7 @@ Gözlem (2026-11-26, yerel `build/debug` aracı, blank şablonunun ürettiği ta
 
 ## Zayıf yanlar ve bilinen sınırlar
 
-- **Ses için Luau API'si yok** (`astral.audio.*`; vitrin yazımında gözlendi, 2026-11-27): script'ten ses yalnız `AudioSource` entity'si ya da `.vfx` ses iziyle çalınır; bus/master ayarı yapılamaz. `GameplaySmoke` doluluk/geçirgenliği script'ten okunamaz (`examples/vfx_showcase/README.md`).
+- **Ses için Luau API'si yok** (`astral.audio.*`; kaynakta doğrulandı, 2026-11-27: `modules/script/src` içinde ses bağlaması yok). Script'ten ses yalnız `AudioSource` entity'si ya da `.vfx` ses iziyle çalınır; bus/master ayarı yapılamaz. Aynı şekilde `GameplaySmoke` doluluk/geçirgenlik sorgusu için de bağlama yok (`examples/vfx_showcase/README.md`).
 - **Zaman bütçesi duvar saatidir.** Modül başına ve faz başına kurulur; behaviour'lar ve zamanlayıcılar fazda birer ortak bütçe alır, aşımdan sonra
   sıradaki çağrı yeni bütçe alır (`modules/script/src/host.cpp:373`, `modules/script/src/host.cpp:385-390`, `modules/script/src/host.cpp:79-90`; ADR-0052). Fazın toplam süresi
   "modül sayısı × bütçe"ye kadar uzayabilir. Duvar saati yük altında sahte aşımlar üretir: bu PC'de paralel yük altında `pong_tests` ve `spinning_cubes_tests`

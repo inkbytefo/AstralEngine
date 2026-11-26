@@ -144,7 +144,9 @@ değildir; bkz. [ADR-0039](../decisions/0039-terrain-foundation.md).
 
 ## Zayıf yanlar ve bilinen sınırlar
 
-- **Vitrin yazımında gözlendi (2026-11-27):** `AssetManager` tek asset kökü destekler (dışarıdan model açan `examples/asset_viewer` kendi feature dosyaları için yedek yol yazmak zorunda kaldı); çalışma anı `Model` köşe/üçgen sayısı ve sınır kutusu tutmaz; `.aterrain` katman/splatmap verisi taşımaz (`examples/world_showcase` katmanları shader'da hesaplar).
+- **Tek asset kökü** (kaynakta doğrulandı, 2026-11-27): `AssetManagerDesc` tek `root` ve tek isteğe bağlı `pack` alır (`modules/assets/include/astral/assets/asset_manager.hpp:69-78`). Başka klasördeki bir dosyayı açan araç kendi asset'lerine aynı anda erişemez; `examples/asset_viewer` dışarıdan model açarken feature dosyaları için ayrı bir yedek yol kullanır.
+- **Çalışma anı `Model` geometri bilgisi tutmaz** (doğrulandı): köşe/üçgen sayısı ve sınır kutusu yok (`modules/assets/include/astral/assets/asset_manager.hpp:39-60`); `examples/asset_viewer` istatistik için dosyayı ayrıca okur.
+- **`.aterrain` katman/splatmap verisi taşımaz** (doğrulandı): manifest yalnız yükseklik karolarını ve ölçüleri tanımlar (`modules/assets/include/astral/assets/terrain.hpp:17-22`). `examples/world_showcase` katmanları shader'da yükseklik ve eğimden hesaplar.
 - **Skin ve animasyon yok:** glTF'deki `skin`, `JOINTS_0`, `animations`, morph target yalnız uyarı verilip atlanır
   (`modules/assets/src/gltf.cpp:358`, `modules/assets/src/gltf.cpp:437`, `modules/assets/src/gltf.cpp:463`). İskeletli karakter
   veya animasyonlu model yüklenemez (statik poz).
