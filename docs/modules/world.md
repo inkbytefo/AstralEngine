@@ -80,7 +80,7 @@ Sütun kapasitesi 64'ten başlar, dolunca iki katına çıkar ve değerler `move
 **Kimlik.** `ComponentId`, tip başına bir `inline constexpr char` etiketinin adresidir
 (`modules/world/include/astral/world/component.hpp:43`): kayıt ve global sayaç yok, farklı .cpp'lerdeki aynı adlı anonim
 namespace tipleri çakışmaz (`modules/world/tests/review_test.cpp`). Kimlik çalıştırmalar arasında sabit değildir;
-kalıcı veri için `component_name_hash<T>()` (FNV-1a, `component.hpp:49`) ve `TypeRegistry` adları kullanılır.
+kalıcı veri için `component_name_hash<T>()` (FNV-1a, `modules/world/include/astral/world/component.hpp:49`) ve `TypeRegistry` adları kullanılır.
 Entity = indeks + nesil; yok edilen slotun nesli artar, sıfıra sararsa 1'e çekilir (`modules/world/src/world.cpp:283`).
 
 **Yapısal değişiklik.** Component ekle/çıkar entity'yi komşu archetype'a taşır; geçişler `add_edges`/`remove_edges` ile
@@ -203,7 +203,7 @@ bu belgede doğrulanmadı.
 - **Olay kaçırma:** iki `update_events` boyunca okumayan okuyucu olay kaçırır (bilerek, sınırsız kuyruk yok)
   (`modules/world/include/astral/world/world.hpp:329`).
 - **`commands().spawn()` entity döndürmez**, ertelenmiş referans yoktur (`modules/world/include/astral/world/world.hpp:89`).
-  `get<T>` işaretçisi sonraki yapısal değişikliğe kadar geçerlidir (`world.hpp:141`).
+  `add` ve `get<T>` ile dönen referans/işaretçi sonraki yapısal değişikliğe kadar geçerlidir (`modules/world/include/astral/world/world.hpp:140`).
 - **Tip kimliği DLL sınırını aşmaz:** `ComponentId` adres tabanlıdır; motor ve oyun aynı ikili içinde statik
   linklenmeli (`modules/world/include/astral/world/component.hpp:12`).
 - **Linear taramalar:** `TypeRegistry::find` ve `EventRegistry::find` doğrusal arama
