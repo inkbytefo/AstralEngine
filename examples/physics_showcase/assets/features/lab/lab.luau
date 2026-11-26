@@ -57,7 +57,7 @@ astral.system({
             { origin = base, direction = down, max_distance = array.reach },
             { origin = base - vector.create(array.spacing, 0, 0), direction = down, max_distance = array.reach },
             { origin = base + vector.create(array.spacing, 0, 0), direction = down, max_distance = array.reach },
-            { origin = base - vector.create(0, 0, array.far_offset), direction = down, max_distance = array.reach },
+            { origin = base, direction = vector.create(0, 1, 0), max_distance = array.reach }, -- the sky: a miss
         }
         local results = astral.physics.raycast_batch(queries)
         local count = 0

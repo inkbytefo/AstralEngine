@@ -13,13 +13,12 @@ struct MotorOscillator {
     float amplitude = 1.0f;
 };
 
-/// Casts `rays` rays straight down in one batch, starting `height` above the entity, `spacing` apart along x,
-/// the last one `far_offset` away along -z (usually off the map, so it misses).
+/// Casts four rays in one batch from `height` above the entity: three straight down, `spacing` apart along x (they hit
+/// the ground or what stands on it), and one straight up into the empty sky (it misses).
 struct SensorArray {
     float height = 12.0f;
     float spacing = 6.0f;
     float reach = 25.0f;
-    float far_offset = 44.0f;
 };
 
 struct LabStats {
@@ -34,5 +33,5 @@ void install_lab(astral::FeatureContext& feature);
 } // namespace lab
 
 ASTRAL_REFLECT(lab::MotorOscillator, frequency, amplitude)
-ASTRAL_REFLECT(lab::SensorArray, height, spacing, reach, far_offset)
+ASTRAL_REFLECT(lab::SensorArray, height, spacing, reach)
 ASTRAL_REFLECT(lab::LabStats, broken_joints, detached_joints, batch_ray_hits, motor_updates)

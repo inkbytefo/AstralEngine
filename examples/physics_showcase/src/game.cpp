@@ -81,8 +81,9 @@ void ShowcaseGame::on_start(Context& ctx) {
     build_surfaces_station(ctx, handles);
     build_player(ctx, handles);
 
-    ctx.sun = {.direction = normalize(Vec3{-0.45f, -0.8f, -0.4f}), .color = {1.0f, 0.97f, 0.92f}, .intensity = 2.5f};
-    ctx.environment.exposure = 0.6f;
+    ctx.sun = {.direction = normalize(Vec3{-0.55f, -0.62f, -0.45f}), .color = {1.0f, 0.95f, 0.86f}, .intensity = 2.2f};
+    ctx.environment = {.sky = {0.42f, 0.58f, 0.85f}, .ground = {0.12f, 0.14f, 0.09f}, .ambient = 0.3f, .exposure = 0.55f,
+                       .aerial_extinction = 0.004f, .aerial_start_m = 40.0f};
     ctx.debug_show.physics = overlays_;
     ctx.debug_show.physics_joints = overlays_;
     ctx.debug_show.fields = overlays_;

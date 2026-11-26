@@ -60,9 +60,24 @@ void build_terrain_and_lake(Context& ctx) {
         }
     }
     const MeshHandle terrain = ctx.materials().create_mesh(terrain_mesh(heights));
-    w.create(Name{"terrain"}, Transform{},
-             MeshRenderer{terrain, ctx.materials().create_material({.base_color = {0.32f, 0.42f, 0.22f, 1}, .roughness = 0.9f})},
+    const MaterialHandle grass = ctx.materials().create_material({.base_color = {0.16f, 0.27f, 0.1f, 1}, .roughness = 0.92f});
+    w.create(Name{"terrain"}, Transform{}, MeshRenderer{terrain, grass},
              RigidBody{.desc = {.shape = ShapeDesc::height_field(heights, grid, cell), .motion = MotionType::Static, .friction = 0.8f, .surface = 1}});
+
+    // The plateau goes on past the height field: four flat strips around it (to the horizon), so the world has no edge
+    // to see or to fall off.
+    constexpr float outer = 400.0f;
+    const float strip = outer - half_size, mid = 0.5f * (outer + half_size);
+    const auto ground = [&](Vec3 centre, float sx, float sz) {
+        w.create(Transform{.position = centre, .scale = {sx, 1, sz}}, MeshRenderer{ctx.meshes.plane, grass});
+        w.create(Transform{.position = centre - Vec3{0, 0.5f, 0}},
+                 RigidBody{.desc = {.shape = ShapeDesc::box({0.5f * sx, 0.5f, 0.5f * sz}), .motion = MotionType::Static, .friction = 0.8f, .surface = 1}});
+    };
+    // The render planes lie at the plateau height; the colliders are 1 m thick boxes with their tops there.
+    ground({mid, plateau_height, 0}, strip, 2 * outer);
+    ground({-mid, plateau_height, 0}, strip, 2 * outer);
+    ground({0, plateau_height, mid}, 2 * half_size, strip);
+    ground({0, plateau_height, -mid}, 2 * half_size, strip);
 
     // The lake: a water volume over the basin (its top is y = 0) and a see-through surface.
     w.create(Name{"lake"}, Transform{.position = {0, -3, 0}},
