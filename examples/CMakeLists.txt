@@ -6,6 +6,7 @@
 #   physics_demo     rigid bodies, raycasts, a character controller (features: player, shooter, rain, lifetime)
 #   physics_playground  M12: height-field terrain + lake, buoyancy, wind, plank bridge on hinges, jump pad (trigger), glider
 #   physics_lab      P0: motorized SixDOF/SwingTwist/Hinge joints, breakable joints, materials, cooked shapes, batched queries
+#   physics_showcase the physics in one world: pile, joints, surfaces, water and wind (replaces the three above)
 #   rt_showcase      the ray-traced "RGB room"
 #   material_showcase M13 advanced PBR studio: clearcoat, sheen, anisotropy, glass, SSS, wetness, decals & path tracer
 #   material_workflow material hot-reload & UV inspection scene workflow
@@ -24,6 +25,7 @@ add_subdirectory(sdf_scene)
 add_subdirectory(physics_demo)
 add_subdirectory(physics_playground)
 add_subdirectory(physics_lab)
+add_subdirectory(physics_showcase)
 add_subdirectory(rt_showcase)
 add_subdirectory(material_showcase)
 add_subdirectory(material_workflow)

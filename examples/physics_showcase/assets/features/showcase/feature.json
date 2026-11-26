@@ -1,0 +1,12 @@
+{
+  "format": "astral.feature",
+  "version": 1,
+  "name": "showcase",
+  "description": "Stations of the physics showcase, a torque-driven wheel and a scanner beam (raycast with ignore list and sensors).",
+  "depends_on": [],
+  "components": ["showcase::Station", "showcase::Spinner", "showcase::Scanner"],
+  "events": [],
+  "exports": { "headers": ["showcase.hpp"] },
+  "scripts": ["features/showcase/showcase.luau"],
+  "actions": []
+}
