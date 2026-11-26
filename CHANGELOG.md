@@ -4,6 +4,25 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+### Changed (dokümantasyon, 2026-11-26)
+- Tüm eski dokümanlar (ADR'ler hariç) `docs/archive/legacy/` altına taşındı; `docs/` koddan yeniden yazıldı: tek [roadmap](docs/roadmap.md), [status](docs/status.md), [architecture](docs/architecture.md), [process](docs/process.md), modül dokümanları ve rehberler. ADR-0045–0051 eklendi.
+- `tools`: `check_docs.py` ve ctest `docs_check` (kırık link ve `path:line` referans denetimi).
+
+### Added / Changed (açılış performansı ve ENGINE_GAPS, merge `31e2c48`)
+- `shader`: içerik adresli SPIR-V disk önbelleği (`SpirvCache`), `ShaderCompileServices`, paralel `compile_glsl_batch` (ADR-0047). `the_architect` Debug sıcak açılış 19.1 s → 3.95 s, Release 4.18 s → 1.76 s.
+- `render`: `build_mips` hızlı ve paralel (bayt bayt aynı çıktı), `Renderer::set_busy_callback`; `platform`: `Window::keep_responsive` — yükleme sırasında pencere yanıt verir (ADR-0048).
+- `render`: `RenderSettings::max_reflection_roughness` / `reflection_roughness_fade` (ADR-0050), `path_tracer_freeze_scene` ve `RenderStats::path_tracer_reset` (ADR-0049).
+- `render` (fix): planar/triplanar projeksiyon ±X duvarlarında artık dönmüyor (ADR-0051).
+- `build`: `astral-luau-check` kuruluyor ve `Astral::astral_luau_check` olarak export ediliyor.
+- `test`: tüm testler SPIR-V önbelleğini build klasörüne yazar (`ASTRAL_SHADER_CACHE`, ctest `test_environment_check`).
+
+### Added (G1.1, merge `68dacbd`)
+- `physics`/`app`/`script`: `PhysicsService::add_force_at / add_torque / add_angular_impulse / angular_velocity`, `PhysicsWorld::add_angular_impulse`; Luau `astral.physics.force_at / torque / angular_impulse / set_angular_velocity / angular_velocity`; `QueryFilter::ignore_list`, Luau `raycast/spherecast` seçenekleri `ignore = {…}`, `sensors = true` (ADR-0045).
+- `app`: `Atmosphere` alanları `twilight_color`, `twilight_strength`, `horizon_tint`, `sky_tint`, `drive_sun`, `drive_sky`; `AppDesc::input_script` (ADR-0046).
+- `render`: particle shader'larında iki aşamada da `LIFETIME` ve `LIFE_T`.
+- `core` (fix): `ASTRAL_REFLECT` 32 alanı aşınca okunur `static_assert`.
+- `build`: Ninja `heavy_compile` havuzu (`ASTRAL_HEAVY_COMPILE_JOBS`).
+
 ### Fixed (MSR Dalga 3 — ADR-0041–0044)
 - `core`/`world`: `Json` 64-bit tamsayıları kayıpsız tutar (metin, AJB `TagUInt64`, typed serialize, 8-byte field); 64-bit field doyurmasındaki UB giderildi (C05, ADR-0041). **API:** `Json::as_int64()`, `as_uint64()`, `is_integer()`; sayılar değerle karşılaştırılır (`Json(1) == Json(1.0)`).
 - `shader`/`render`: parametre bloğu tipli 32-bit word; `int` uniform tam int32 aralığını korur, kesirli/aralık dışı değer reddedilir (AS13, ADR-0042). **API:** `MaterialDesc::params` ve `UniformValues::params` → `std::vector<std::uint32_t>`, `ShaderUniform::default_value` → `std::vector<double>`, `uniform_word()`.

@@ -38,9 +38,21 @@ ADR eskisini "yerini aldı" diye işaretler.
 | [0031](0031-hardware-independent-golden-tests.md) | Donanımdan bağımsız görüntü testleri: `golden` (lavapipe) / `golden-hw` (SSIM + güçlü piksel sınırı), cihaz kimliği, paralel kilit | Kabul |
 | [0032](0032-scalable-runtime-and-parallel-scheduler.md) | Ölçeklenebilir çalışma zamanı: erişim bildiren sistemler, paralel zamanlayıcı, paralel transform ve G/Ç ayrımı (M13.6) | Kabul |
 | [0033](0033-advanced-pbr-and-path-tracer.md) | Gelişmiş PBR (multi-scattering GGX, clearcoat, sheen, anizotropi, transmission, SSS, ıslaklık, POM, decal), `.ashader` `shading_model` ve Path Tracer referans modu (M13) | Kabul |
+| [0034](0034-gameplay-api-and-physics-step-contract.md) | Gameplay API keşif yüzeyi, kimlik sözleşmesi ve fizik adım kuyruğu (F1) | Kabul |
+| [0035](0035-standalone-ai-assisted-editor-core.md) | Bağımsız AI destekli masaüstü editör çekirdeği (E0) | Kabul |
+| [0036](0036-world-authoring-and-level-instances.md) | Dünya yazarlığı, Level Instance sahipliği, veri güdümlü yerleştirme (E1) | Kabul |
+| [0037](0037-ai-first-native-editor-v2.md) | AI-first native editör mimarisi, viewport hedefi, inceleme sözleşmesi (E2) | Kabul |
+| [0038](0038-physics-api-v2.md) | Physics API v2: SixDOF, motorlar, kırılma, batched query (P0) | Kabul |
 | [0039](0039-terrain-foundation.md) | Terrain temeli — tile heightfield, CPU mesh LOD, Jolt ve streaming | Kabul |
 | [0040](0040-dropped-command-list-layout-fixups.md) | Bırakılan CommandList'lerin layout geçişi için fix-up barrier (MSR G03) | Kabul |
 | [0041](0041-lossless-json-integers.md) | `Json`'da kayıpsız 64-bit tamsayı: int64/uint64 iç temsil, AJB `TagUInt64`, 8-byte field'lar (MSR C05) | Kabul |
 | [0042](0042-typed-shader-parameter-words.md) | Shader parametrelerinde tipli 32-bit word ABI; `uniform_word()` doğrulayıcısı (MSR AS13) | Kabul |
 | [0043](0043-deterministic-physics-command-producers.md) | Fizik komutlarında deterministik üretici sırası: faz + sistem kayıt sırası (MSR PH05) | Kabul |
 | [0044](0044-staged-script-module-load.md) | Luau modül yüklemesi: bildirim aşaması, registry geri alma, `on_load()` (MSR AG09) | Kabul |
+| [0045](0045-query-filter-ignore-list.md) | Fizik sorgularında birden çok yok sayılan gövde: `QueryFilter::ignore_list`, `ScriptQueryFilter` (G1.1) | Kabul |
+| [0046](0046-headless-input-script.md) | Başsız çalışmada betikli girdi: `AppDesc::input_script` (G1.1) | Kabul |
+| [0047](0047-spirv-disk-cache.md) | SPIR-V disk önbelleği ve paralel shader derleme | Kabul |
+| [0048](0048-startup-responsiveness-and-mips.md) | Yükleme sırasında pencere tepkisi ve CPU mip üretimi | Kabul |
+| [0049](0049-path-tracer-reset-telemetry.md) | Path tracer sıfırlama nedeni ve sahne dondurma | Kabul |
+| [0050](0050-reflection-roughness-cutoff.md) | Ray-traced yansımalarda pürüzlülük eşiği | Kabul |
+| [0051](0051-projected-texture-orientation.md) | Planar ve triplanar projeksiyonda doku yönü | Kabul |

@@ -1,43 +1,48 @@
 # Geliştirme Süreci
 
-## Bir faz nasıl ilerler
+Hem insan geliştirici hem yapay zekâ ajanları için geçerli çalışma kuralları.
 
-1. **Plan:** `docs/superpowers/plans/<tarih>-<faz>.md` — görevler, arayüzler, testler.
-2. **Worktree:** tek uzun ömürlü dal `master`. Her görev `master`'dan açılan ayrı bir git worktree'de, kendi
-   dalında yapılır (bağımsız görevler paralel worktree'lerde); her görev test-önce (TDD): test yaz → başarısız
-   olduğunu gör → uygula → geçir → commit.
-3. **İnceleme:** faz sonunda bağımsız bir inceleme; kritik/önemli bulgular testle düzeltilir,
-   küçükler modül dokümanının "Bilinen sınırlar" bölümüne yazılır.
-4. **Dokümanlar** (aşağıdaki liste) güncellenir, sonra görev dalı `master`'a merge edilip push'lanır ve
-   görev dalı silinir. Eski dallar yalnızca `archive/*` tag'leri olarak durur (`archive/main-deprecated`,
-   `archive/v2-old`).
+## Bir iş nasıl ilerler
 
-## "Faz bitti" tanımı — her fazın sonunda zorunlu
+1. **Oku, planla:** ilgili modül dokümanı ([modules/](modules/)), [architecture.md](architecture.md), ADR'ler ve kod. Büyük işler için önce plan; kullanıcı onayı olmadan büyük değişikliğe başlanmaz.
+2. **Worktree:** uzun ömürlü tek dal `master`. Her iş `master`'dan açılan ayrı bir git worktree'de (`.claude/worktrees/<ad>`) kendi dalında yapılır; bağımsız işler paralel worktree'lerde. Ana checkout'ta kullanıcının commit'lenmemiş dosyalarına dokunulmaz.
+3. **TDD:** önce başarısız test yazılır ve **koşturularak kırmızı görülür**, sonra uygulama, sonra yeşil. Testle kanıtlanamayan şeyler (GPU süresi, işletim sistemi davranışı) ölçümle raporlanır ve bu açıkça yazılır.
+4. **Madde başına commit:** biten her iş ayrı commit; kesinti olursa kayıp küçük kalır.
+5. **Doğrulama:** Debug ve Release, `-DASTRAL_WARNINGS_AS_ERRORS=ON`, tam ctest (aşağıda).
+6. **Merge:** kullanıcı onayıyla `master`'a `--no-ff` merge ve push. Görev dalı silinir; tarihçe için `archive/<dal>` tag'i push'lanır. Eski dallar yalnız `archive/*` tag'leridir.
 
-- [ ] Tüm testler geçiyor: debug, release (`ASTRAL_WARNINGS_AS_ERRORS=ON`, uyarı yok) ve tsan (core, world,
-  physics, script test hedefleri). Oyun örneklerinde `astral-features check` (CTest `*_features_check`).
-- [ ] Görüntü testleri geçiyor: lavapipe/CI üzerinde `ctest -L '^golden$'`, donanım GPU'sunda `ctest -L '^golden-hw$'`
-  ([ADR-0031](decisions/0031-hardware-independent-golden-tests.md)); görüntüyü bilerek değiştiren faz referansları
-  yalnız lavapipe üzerinde `ASTRAL_UPDATE_GOLDEN=1 ctest -L '^golden$'` ile günceller ve yeni PNG'leri gözle kontrol edip commit'ler.
-- [ ] `docs/roadmap.md`: fazın durumu ✅, bir sonraki faz 🔜, kısa sonuç notu.
-- [ ] `docs/modules/<modül>.md`: yeni/değişen modüllerin API özeti ve bilinen sınırları.
-- [ ] `docs/decisions/`: fazda alınan her mimari karar için bir ADR.
-- [ ] `CHANGELOG.md`: fazın eklediği/değiştirdiği/düzelttiği şeyler.
-- [ ] `README.md` durum tablosu.
-- [ ] Oyun yazmayı etkileyen değişiklikte `docs/guides/writing-a-game.md` ve `AGENTS.md`.
+## "Bitti" tanımı
 
-## Technology Lab ve Game API teslimi
+- [ ] Debug ve Release, warnings-as-errors, tam ctest geçiyor. Bilinen ve [status.md](status.md)'de kayıtlı başarısızlıklar dışında hata yok; şüpheli flaky testler seri olarak yeniden koşturulur.
+- [ ] Denetimler geçiyor: `code_size_check`, `layer_check`, `editor_isolation_check`, `astral_public_headers_clean`, `shared_features_in_sync`, `docs_check`, `test_environment_check`, oyunlarda `*_features_check` ve `*_script_types`.
+- [ ] Görüntü testleri: CI/lavapipe'ta `ctest -L '^golden$'`, donanım GPU'sunda `ctest -L '^golden-hw$'` ([ADR-0031](decisions/0031-hardware-independent-golden-tests.md)). Görüntüyü bilerek değiştiren iş referansları yalnız lavapipe'ta `ASTRAL_UPDATE_GOLDEN=1` ile günceller ve gözle kontrol eder.
+- [ ] tsan: CI'da (`linux-tsan` işi; core, world, physics, script, app test hedefleri). Windows'ta tsan/asan çalıştırılmaz; bu durumda "doğrulanmadı" diye yazılır.
+- [ ] Dokümanlar: değişen modülün `docs/modules/<modül>.md` dosyası (API, güçlü/zayıf yanlar, testler), [status.md](status.md), [roadmap.md](roadmap.md) (durum), yeni mimari karar için ADR ([decisions/](decisions/)), `CHANGELOG.md`; oyun yazmayı etkiliyorsa [guides/writing-a-game.md](guides/writing-a-game.md) ve `AGENTS.md`.
 
-[Technology Labs roadmap](technology-labs-roadmap.md) kapsamındaki genel motor yetenekleri için faz kapanışına ek olarak: ilk oynanabilir lab dilimi, en az bir ikinci bağımsız public SDK tüketici testi, uygulanabilir C++/Luau API ve generated type check, serialization/reflection/cook sözleşmesi, ölçüm ve kaynak/kanıt SHA'sı gerekir. Lab ve oyun kodu motor private header'larına bağımlı olmaz. Gameplay kuralları isteğe bağlı FeatureSet paketlerinde kalır. MSR altyapı engeli sırasında sonuçlar pending verification olarak tutulur; çalıştırılmamış test PASS sayılmaz. VR/XR bu programın kapsamı dışındadır.
+## Doküman kuralları
 
-## Yerel ajan dosyaları ve paylaşılan rehberler
+- `docs/` Türkçe; kod, yorumlar ve commit mesajları İngilizce.
+- Dokümanlar **bugünkü kodu** anlatır; plan ve hedefler yalnız [roadmap.md](roadmap.md)'de. Zayıf yanlar ve bilinen sınırlar yazılması zorunlu bölümlerdir.
+- API ve davranış iddiaları `path:line` kaynak referansı taşır. `docs_check` (`tools/check_docs.py`) kırık linkleri ve dosya sonunu aşan referansları yakalar; kod değişince satır numaraları güncellenir.
+- Ölçülmemiş sayı yazılmaz; ölçümler ortamıyla (donanım, çözünürlük, build türü, sahne) birlikte yazılır.
+- `docs/archive/` tarihçedir, güncellenmez ve denetlenmez.
 
-- **Paylaşılan rehberler (git'te takip edilir):** `CLAUDE.md`, `AGENTS.md` ve `docs/` altındaki mimari,
-  süreç ve ADR belgeleri bilinçli kararla paylaşılır ve incelemeyle güncellenir.
-- **Yerel ajan/çalışma zamanı ve üretilmiş grafik çıktıları (`.gitignore`):** `/.agents/`, `/.codex/`,
-  `/.claude/` (depo içi `/.claude/worktrees/` dahil) ve `/graphify-out/` kök kurallarıyla yoksayılır;
-  yerel ayar, çalışma zamanı ve üretilmiş grafik dosyaları commit'lenmez ve olağan `git status` çıktısını kirletmez.
+## Windows'ta derleme (bu makine)
+
+- Visual Studio 2026 (MSVC 19.51), CMake 4.2, Ninja. Önce `vcvars64.bat`, `CC=cl CXX=cl`, ortamda `CMAKE_POLICY_VERSION_MINIMUM=3.5`.
+- Çevrimdışı derleme için `-DFETCHCONTENT_FULLY_DISCONNECTED=ON` ve `FETCHCONTENT_SOURCE_DIR_<AD>` değişkenleriyle ana checkout'taki `build/debug/_deps/*-src` klasörleri kullanılır.
+- **Aynı `cmd` sürecinde `vcvars64.bat` iki kez çağrılmaz:** PATH taşar ("The input line is too long", ninja `CreateProcess` hatası 87).
+- Ninja `heavy_compile` havuzu Jolt derlemesini sınırlar (`ASTRAL_HEAVY_COMPILE_JOBS`, varsayılan çekirdek/2).
+- Ara sıra `LNK1104` (antivirüs kilidi) → yeniden build. Silinemeyen worktree klasörleri kilitlidir; git kaydı `git worktree remove` ile temizlenir, klasör sonra elle silinir.
+- Testler SPIR-V önbelleğini `<build>/test-shader-cache` altına yazar (`ASTRAL_SHADER_CACHE`, CMake ≥ 3.28).
+
+## Ajanlarla çalışma
+
+- Kod incelemesinde önce bilgi grafiği: `graphify query "<soru>"` (grafik ana checkout'taki `graphify-out/` içinde); kod değişince `graphify update .`.
+- Alt ajanlar kendi worktree'lerinde çalışır, yalnız kendilerine verilen dosyalara yazar, merge/push yapmaz. Sonuçları doğrudan kabul edilmez: lider ajan diff'i ve testleri kendisi doğrular.
+- Harici ajan CLI'ları (agy, codex…) `external-agents` sarmalayıcısıyla, `-Worktree` ile çalıştırılır; mekanik işler için uygundur, API ayrıntısı içeren içerik mutlaka kaynakla karşılaştırılır.
+- Commit kimliği (makinede git kullanıcısı yok): `git -c user.name=Claude -c user.email=noreply@anthropic.com commit ...`; mesaj sonunda `Co-Authored-By` satırı.
 
 ## Commit mesajları
 
-`feat(modül): …`, `fix(modül): …`, `build: …`, `docs: …`, `test(modül): …`.
+`feat(modül): …`, `fix(modül): …`, `perf(alan): …`, `build: …`, `test: …`, `docs: …`. Gövde: neden ve nasıl; ilgili ADR.

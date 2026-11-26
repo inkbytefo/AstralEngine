@@ -32,42 +32,33 @@ module (core, gpu, platform, world, render) is also usable directly as a plain l
 
 ## Status
 
-| Module | Status |
-|---|---|
-| `Astral::Core` — log, handles, clock, jobs | ✅ M0 |
-| `Astral::Gpu` (Vulkan 1.3 RHI), `Astral::Platform` (SDL3) | ✅ M1 |
-| `Astral::World` (own ECS), `Astral::Render` (forward), `Astral::App` | ✅ M2 |
-| `RenderGraph`, hybrid deferred renderer (meshes + SDF, PBR, shadows) | ✅ M3 |
-| `Astral::Physics` (Jolt: bodies, raycast, contacts, character controller) | ✅ M4 |
-| Ray-traced lighting: RT shadows, area lights, DDGI + near-field RTGI, RT reflections, denoiser, TAA, bloom | ✅ M3.5 |
-| ECS: change detection, filtered queries, events, reflection, JSON save/load | ✅ M5a |
-| `Astral::Assets`: glTF/GLB, textured PBR materials, async loading, hot reload | ✅ M5b |
-| Scenes and prefabs: stable ids, field-level overrides, nested prefabs/variants, live reload | ✅ M5c |
-| Packaging: `astral-cook` (BC7/BC5 textures, binary scenes, incremental), `.apak` (zstd), `astral_add_game` | ✅ M6 |
-| First game: 3D Pong (`examples/pong`) — everything else in scene/prefab files (since M11: feature packages, rules in Luau) | ✅ M7 |
-| Developer tools: profiler (CPU + per-pass GPU), debug draw, Dear ImGui panel (F1, reflection inspector), SDF text/HUD, `Astral::Audio` (miniaudio, 3D, `AudioSource`) | ✅ M8 (golden image tests: `ctest -L golden`) |
-| World & map system (UE5 World Partition-style: `.world`, one file per entity, cell streaming, data layers, floating origin; `examples/open_world`) | ✅ M9 |
-| `.ashader` shader language (gdshader-like, GLSL body) + `.material` files with parents: foliage, glass, lava, hologram, sky and post shaders, hot reload, same look in raster and ray tracing (`examples/shader_showcase`) | ✅ M10 |
-| Modular game code (feature packages, boundary checks) + Luau scripting (reflection-bound components, systems, behaviours, events, hot reload, generated API docs), input actions; Pong's rules in Luau | ✅ M11 |
-| `templates/blank` (a new game in one folder) + the standard game shell (`run_game`); every example rebuilt on it | ✅ M11 |
-| Physics: collision layers, query filters, shape casts, convex hull / mesh / height field / compound shapes, joints, wind and water fields (same functions on the GPU), buoyancy, drag, lift, trigger events; `examples/physics_playground` | ✅ M12 |
-| Advanced PBR, deferred decals and progressive path tracer reference | ✅ M13 |
-| Module refactor, layer and size checks, portable golden test suite | ✅ M13.5 |
-| Parallel system scheduling and transforms, worker-side cell I/O, runtime benchmarks | ✅ M13.6 |
-| Revalidate the baseline and inventory public capabilities ([report](docs/archive/audits/f0-verification-report.md), [matrix](docs/status/capabilities.md)) | ✅ F0 |
-| Gameplay API, unified discovery, identity/schema contracts and deterministic physics step queue ([ADR-0034](docs/decisions/0034-gameplay-api-and-physics-step-contract.md)) | ✅ F1 |
-| Standalone AI-assisted desktop editor core (`Astral::Editor_core`, `Astral::Editor`, `examples/world_editor`, [ADR-0035](docs/decisions/0035-standalone-ai-assisted-editor-core.md)) | ✅ E0 |
-| World authoring & Level Instances (`.world`/`.ent` editing, `LevelInstanceMember`/`CrossCellRef`, Edit-in-Context vs Instance Override, data-driven placement + `IHeightSampler`, [ADR-0036](docs/decisions/0036-world-authoring-and-level-instances.md)) | ✅ E1 |
-| AI-First Native Editor (`AstralEditor`, Focus/Advanced workspaces, live offscreen 3D viewport, picking/gizmos, isolated Play mode, ManualSave + autosave, async 7-state AI review + 3D Before/After + Codex CLI adapter, [ADR-0037](docs/decisions/0037-ai-first-native-editor-v2.md), [Guide](docs/editor/README.md)) | ✅ E2 |
-| Physics API v2 (`P0`), atmosphere, terrain, water, weather, destruction, animation, vehicles, deformables and co-op | 🔜 P0 · [Roadmap v5](docs/roadmap.md) |
+Version 0.17.0, pre-1.0: APIs still change. Detailed, honest per-module state (strengths, weaknesses, known
+failures, measurements): [docs/status.md](docs/status.md). Plans: [docs/roadmap.md](docs/roadmap.md).
 
-![RT showcase](docs/images/m3.5-rt-showcase.png)
+| Area | State |
+|---|---|
+| Core, ECS (`Astral::World`), App shell, parallel system scheduler | Working, broadly tested |
+| Rendering: hybrid deferred + ray tracing (RT shadows/reflections, area lights, DDGI, ReSTIR DI, denoiser, TAA, bloom), SDF, decals, advanced PBR, progressive path tracer | Working; heavy on mid-range RT GPUs (no render scale yet), no spot lights, no depth of field |
+| `.ashader` / `.material` (surface, sky, post, particle, volume; shading models), SPIR-V disk cache | Working |
+| Physics (Jolt v5.7.0): bodies, shapes, joints incl. SixDOF/motors/breaking, queries, wind/water fields, character | Working |
+| Luau scripting: sandbox, hot reload, generated `astral.d.luau` / API docs, `astral-luau-check` | Working |
+| Assets: glTF/GLB (no skins/animation), cook, `.apak` packages, hot reload; scenes, prefabs, streamed worlds, terrain tiles | Working |
+| Audio (miniaudio, buses, 3D) | Basic: no filters, reverb or occlusion |
+| Editor (`examples/world_editor`) | Early: no project management, real Play-in-Editor or export |
+| Animation, vehicles, navigation, networking | Not started |
+
+Tests: Debug and Release with warnings-as-errors pass on Windows/MSVC except 7 hardware golden-image tests that
+fail on the reference PC (RTX 3060) — see [docs/status.md](docs/status.md).
+
+![RT showcase](docs/archive/legacy/images/m3.5-rt-showcase.png)
+
+*Screenshots are older captures (M3.5–M7) and will be replaced when the examples are rebuilt.*
 
 The same room as data: [`examples/scene_viewer/assets/showcase.scene`](examples/scene_viewer/assets/showcase.scene)
 places three prefabs (room, mirror pedestal, box ×3 with per-instance overrides) — edit the files while
 `scene_viewer` runs and the room updates.
 
-![Scene viewer](docs/images/m5c-scene-viewer.png)
+![Scene viewer](docs/archive/legacy/images/m5c-scene-viewer.png)
 
 ## First game: 3D Pong
 
@@ -76,7 +67,7 @@ places three prefabs (room, mirror pedestal, box ×3 with per-instance overrides
 lights and the sound, and a scene with prefabs describes everything you see. Keep the ball in the tunnel; where
 it hits your paddle bends its path. `pong --demo` lets the AI play both sides.
 
-![3D Pong](docs/images/m7-pong.png)
+![3D Pong](docs/archive/legacy/images/m7-pong.png)
 
 ## Build
 
@@ -105,7 +96,7 @@ astral_add_game(arena SOURCES src/main.cpp ASSETS content)   # exe reads content
 what changed) and stages `build/packages/arena/` = `arena` + `arena.apak`, ready to copy anywhere.
 The packaged showcase below renders the same image as the loose files:
 
-![Packaged scene](docs/images/m6-packaged-scene.png)
+![Packaged scene](docs/archive/legacy/images/m6-packaged-scene.png)
 
 ## Use in your game
 
@@ -139,20 +130,22 @@ modules/<name>/src/                     private implementation
 modules/<name>/tests/                   unit tests
 templates/blank/                         a blank game: copy it to start (features, Luau, tests, packaging)
 examples/                               runnable games built like the template
-tests/consumer/                         find_package smoke test
+features/                               shared feature packages (copied into games)
+tests/consumer/                         find_package smoke test against the installed SDK
+tools/                                  command line tools and checks (docs/tools.md)
 cmake/                                  build helpers
 ```
 
 ## Rules
 
-- Dependencies point one way: `core → platform/gpu → render/world/physics/assets → app`.
+- Dependencies point one way: `core → shader/gpu/platform → world/physics/audio/script/render/assets → app → editor` ([docs/architecture.md](docs/architecture.md)).
 - No singletons, no global mutable state — pass dependencies in.
 - No third-party types in public headers.
 - Resources are referenced by generational `Handle<T>`, not raw pointers.
 
 ## Docs
 
-See [docs/](docs/README.md) (Turkish): architecture, roadmap, module docs, decision records.
+See [docs/](docs/README.md) (Turkish): status, roadmap, architecture, process, module docs, guides, decision records.
 
 ## License
 

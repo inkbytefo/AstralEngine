@@ -2,7 +2,7 @@
 
 - **Durum:** Kabul edildi
 - **Tarih:** 2026-11-23
-- **İlişkili ADR'ler:** [ADR-0007](0007-physics-jolt.md), [ADR-0023](0023-modular-game-code.md), [ADR-0034](0034-gameplay-contract-and-physics-pipeline.md), [ADR-0036](0036-world-authoring-and-level-instances.md)
+- **İlişkili ADR'ler:** [ADR-0010](0010-jolt-physics.md), [ADR-0023](0023-modular-game-code.md), [ADR-0034](0034-gameplay-api-and-physics-step-contract.md), [ADR-0036](0036-world-authoring-and-level-instances.md)
 - **Hedef faz:** P0 — Physics API v2
 
 ## Bağlam

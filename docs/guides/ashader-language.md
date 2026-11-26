@@ -1,53 +1,26 @@
-# Astral Shader Dili (`.ashader`) ve Materyal Sistemi (`.material`) — Tam Referans Kılavuzu
+# `.ashader` dil referansı
 
-Bu doküman, AstralEngine'in yerleşik shader dili olan **`.ashader`** ve veri odaklı materyal sistemi **`.material`** için kapsamlı başvuru kılavuzudur. Dilin tasarım felsefesini, söz dizimini, yerleşik değişkenlerini (built-in'ler), motorun arka planda ürettiği çoklu GPU pipeline'larını (Raster G-Buffer, Gölge, Forward Şeffaflık, Hibrit Işın İzleme / Ray Tracing), canlı düzenleme iş akışını, mevcut sınırları ve gelecek yol haritasını kapsar.
+> **Doğrulama:** master a113b55 (2026-11-26) kaynak incelemesi. Kaynak gerçekleri: ayrıştırıcı `modules/shader/src/ashader.cpp`, şablon üretici
+> `modules/render/src/surface_shader.cpp` ve `modules/render/src/surface_shader_rt.cpp`, motor include'ları `modules/render/shaders/include/astral/`.
+> Shader örnekleri bu oturumda derlenmedi; derleme davranışı kodun okunmasından ve `modules/render/tests/` içindeki testlerden çıkarıldı.
+> Materyal dosyaları, doku projeksiyonu ve C++ tarafı için [shaders-and-materials.md](shaders-and-materials.md).
 
-![Astral Shader Showcase gece galerisi](../images/shader-showcase-night.png)
+`.ashader` = küçük, Godot benzeri bir **başlık** (`shader_type`, `render_mode`, `shading_model`, `uniform`, `varying`) + düz **GLSL 460** gövdesi.
+Ayrıştırıcı yalnız başlığı okur; gövde motorun ürettiği şablona yerleştirilip glslang ile derlenir (`modules/shader/include/astral/shader/ashader.hpp:1-5`).
+Hedef Vulkan 1.3 / SPIR-V 1.5 (`modules/shader/include/astral/shader/compile.hpp:1-5`).
 
----
+## 1. Dosya yapısı ve satır numaraları
 
-## İçindekiler
+- Yorumlar `//` ve `/* */` desteklenir; CRLF `\n`'e çevrilir (`modules/shader/src/ashader.cpp:26-45`).
+- Üst düzey `;` ile biten ifadeler başlık sayılır (`shader_type`, `shading_model`, `render_mode`, `uniform`, `varying`); `{ ... }` blokları fonksiyon/yapıdır.
+  Fonksiyon adı = bloktan önceki son `(`'nin solundaki tanımlayıcıdır (`modules/shader/src/ashader.cpp:241-340`).
+- Başlık ifadeleri gövdeden **boşlukla** silinir, satırlar korunur; gövde `#line 1` ile başlar, sonu `#line 100000` ile biter. Bu yüzden derleyici hataları
+  doğrudan `.ashader` satırını gösterir; satır ≥ 100000 olan hatalar "(engine template)" etiketiyle `line = 0` raporlanır
+  (`modules/render/src/surface_shader.cpp:61-81`).
+- Hata biçimi: `dosya:satır: mesaj`. `shader_type` yoksa `1. satır: missing 'shader_type'` (`modules/shader/src/ashader.cpp:341`).
+- `shader_type` dosyanın **başında** olmalı: `shading_model` ifadesi ondan önce yazılırsa tür henüz varsayılan `surface` sayılır (`modules/shader/src/ashader.cpp:255-264`).
 
-1. [Tasarım Felsefesi ve Mimari Özeti](#1-tasarım-felsefesi-ve-mimari-özeti)
-2. [Hızlı Başlangıç: İlk Shader ve Materyaliniz](#2-hızlı-başlangıç-ilk-shader-ve-materyaliniz)
-3. [`.ashader` Dil Referansı](#3-ashader-dil-referansı)
-   - [3.1. `shader_type` Bildirimi](#31-shader_type-bildirimi)
-   - [3.2. `render_mode` Seçenekleri](#32-render_mode-seçenekleri)
-   - [3.3. `uniform` Bildirimleri, Tipler ve Varsayılan Değerler](#33-uniform-bildirimleri-tipler-ve-varsayılan-değerler)
-   - [3.4. `uniform` İpuçları (Hints) ve Editör Entegrasyonu](#34-uniform-ipuçları-hints-ve-editör-entegrasyonu)
-   - [3.5. `varying` ile Aşamalar Arası Veri Aktarımı](#35-varying-ile-aşamalar-arası-veri-aktarımı)
-   - [3.6. İsimlendirme Kuralları ve Makro İzolasyonu](#36-isimlendirme-kuralları-ve-makro-izolasyonu)
-4. [Giriş Noktaları ve Yerleşik Değişkenler (Built-ins)](#4-giriş-noktaları-ve-yerleşik-değişkenler-built-ins)
-   - [4.1. `shader_type surface` — `vertex()` Aşaması](#41-shader_type-surface--vertex-aşaması)
-   - [4.2. `shader_type surface` — `surface()` Aşaması](#42-shader_type-surface--surface-aşaması)
-   - [4.3. `shader_type sky` — `sky()` Aşaması](#43-shader_type-sky--sky-aşaması)
-   - [4.4. `shader_type post` — `post()` Aşaması](#44-shader_type-post--post-aşaması)
-5. [`.material` Dosya Formatı ve Kalıtım (Material Instances)](#5-material-dosya-formatı-ve-kalıtım-material-instances)
-6. [Motor İçinde Nasıl Çalışır? (Derleme ve Çizim Boru Hattı)](#6-motor-içinde-nasıl-çalışır-derleme-ve-çizim-boru-hattı)
-   - [6.1. Tek Kaynaktan Çoklu Pipeline Üretimi](#61-tek-kaynaktan-çoklu-pipeline-üretimi)
-   - [6.2. Hibrit Işın İzleme (Ray Tracing & DDGI) Entegrasyonu](#62-hibrit-ışın-izleme-ray-tracing--ddgi-entegrasyonu)
-   - [6.3. Bindless Doku ve `std430` Parametre Bloğu Düzeni](#63-bindless-doku-ve-std430-parametre-bloğu-düzeni)
-   - [6.4. `#line` Eşlemesi ve Çökmesiz Hot-Reload](#64-line-eşlemesi-ve-çökmesiz-hot-reload)
-7. [Sahne, Özellik (Feature) ve C++ API Entegrasyonu](#7-sahne-özellik-feature-ve-c-api-entegrasyonu)
-8. [Gerçek Dünya Örnekleri (`examples/shader_showcase`)](#8-gerçek-dünya-örnekleri-examplesshader_showcase)
-9. [Neler Var, Neler Yok? (Destek Matrisi ve Bilinen Sınırlar)](#9-neler-var-neler-yok-destek-matrisi-ve-bilinen-sınırlar)
-10. [Gelecek Yol Haritası: İleride Neler Eklenebilir?](#10-gelecek-yol-haritası-ileride-neler-eklenebilir)
-
----
-
-## 1. Tasarım Felsefesi ve Mimari Özeti
-
-AstralEngine'in shader dili ([ADR-0022](../decisions/0022-shader-and-material-language.md)), şu üç temel problemi çözmek üzere tasarlanmıştır:
-
-1. **Sıfır Boilerplate, Standart GLSL Gövdesi:** Yeni ve karmaşık bir dil ayrıştırıcısı (AST/compiler) icat etmek yerine Godot'nun `.gdshader` yaklaşımına benzer **küçük bir bildirimsel başlık** (`shader_type`, `render_mode`, `uniform`, `varying`) ve **standart GLSL 460 gövdesi** kullanılır. İnsanlar ve yapay zekâ modelleri GLSL'i zaten bilir; descriptor set'ler, push constant blokları, buffer device address (BDA) veya G-Buffer paketleme detaylarıyla uğraşmazlar.
-2. **Raster ve Ray Tracing Tutarlılığı:** Modern bir motorda bir yüzey hem birincil kameradan (raster G-Buffer veya şeffaf forward pass) hem gölge haritasından hem de ışın izlemeli (RT) yansımalardan ve küresel aydınlatma (DDGI) problarından görünür. `.ashader` dosyasında yalnızca tek bir `surface()` fonksiyonu yazarsınız; motor bu fonksiyonu hem raster hem de RT compute shader'larına otomatik olarak gömer.
-3. **Veri Odaklı Materyal Kalıtımı ve Canlı Akış:** Shader (`.ashader`) yüzeyin *davranışını ve matematiğini*, materyal (`.material`) ise o davranışa verilen *parametreleri* tanımlar. Bir materyal başka bir materyalden miras alabilir (`"parent"`) ve yalnızca değiştirdiği parametreleri yazar. Oyun çalışırken yapılan her değişiklik 0.25 saniye içinde yakalanır ve sahnede kesintisiz güncellenir.
-
----
-
-## 2. Hızlı Başlangıç: İlk Shader ve Materyaliniz
-
-### Adım 1: Shader Dosyasını Yazın (`assets/shaders/pulsing_ember.ashader`)
+## 2. İlk shader
 
 ```glsl
 shader_type surface;
@@ -65,496 +38,310 @@ void surface() {
 }
 ```
 
-### Adım 2: Materyal Dosyasını Oluşturun (`assets/materials/ember.material`)
+`assets/materials/ember.material`:
 
 ```json
-{
-  "format": "astral.material",
-  "version": 1,
+{ "format": "astral.material", "version": 1,
   "shader": "shaders/pulsing_ember.ashader",
-  "values": {
-    "glow_color": [1.0, 0.35, 0.05],
-    "pulse_speed": 3.2,
-    "glow_strength": 4.5
-  }
-}
+  "values": { "glow_color": [1.0, 0.35, 0.05], "pulse_speed": 3.2 } }
 ```
 
-### Adım 3: Sahneye Bağlayın (`assets/main.scene`)
-
-Sahnenizdeki herhangi bir `astral::PrimitiveMesh` bileşeninin `material_file` alanına materyal yolunu verin:
+Sahnede `astral::PrimitiveMesh` bileşeninin `material_file` alanına verilir:
 
 ```json
-{
-  "name": "EmberOrb",
-  "astral::LocalTransform": {
-    "position": [0.0, 1.2, 0.0],
-    "rotation": [0.0, 0.0, 0.0, 1.0],
-    "scale": [1.0, 1.0, 1.0]
-  },
-  "astral::PrimitiveMesh": {
-    "shape": "sphere",
-    "material_file": "materials/ember.material"
-  }
-}
+"astral::PrimitiveMesh": { "shape": "Sphere", "material_file": "materials/ember.material" }
 ```
 
-> **Canlı Düzenleme (Hot-Reload) ve Araçlar:**
-> - Oyun açıkken `.ashader` veya `.material` dosyasını kaydettiğinizde değişiklik anında ekrana yansır.
-> - Yazım veya derleme hatası yaparsanız oyun **çökmez**; hata `dosya:satır: mesaj` biçiminde loglanır ve ekranda **son çalışan sürüm** kalmaya devam eder.
-> - Oyun içinde **F1 → Windows → Materials** panelini açarak `range(...)` ve `source_color` ipuçlarından otomatik üretilen kaydırıcı ve renk seçicilerle parametreleri canlı test edebilirsiniz.
+(`shape` enum **adıyla** `Cube | Sphere | Plane`, `modules/app/include/astral/app/components.hpp:23-33`; bileşen adı `astral::PrimitiveMesh`, `astral::Transform`, `astral::Name`.)
 
----
+## 3. `shader_type`
 
-## 3. `.ashader` Dil Referansı
+| Tür | Giriş fonksiyonu | Çizildiği yer | Durum | Kaynak |
+|---|---|---|---|---|
+| `surface` | `surface()` ve/veya `vertex()` | G-buffer + gölge + ışın izleme varyantı; `blend_*` ise ileri (forward) şeffaflık | Çalışır | `modules/render/src/surface_shader.cpp:359-422` |
+| `sky` | `sky()` (zorunlu) | Tam ekran; yalnız geometri olmayan pikseller | Çalışır | `modules/render/src/surface_shader_rt.cpp:257-290` |
+| `post` | `post()` (zorunlu) | Tonemap sonrası tam ekran zinciri | Çalışır | aynı |
+| `particle` | `particle()` (zorunlu), isteğe bağlı `motion()` | `.vfx` parçacık izi | Çalışır | `modules/render/src/surface_shader_rt.cpp:69-116` |
+| `volume` | `volume()` (zorunlu) | `.vfx` hacim/duman (compute) | Çalışır | aynı |
+| `ui` | — | — | **Ayrıştırılır ama kullanılamaz**: "shader_type ui is not supported yet" | `modules/app/src/material_library.cpp:157-158` |
 
-Bir `.ashader` dosyası üst düzey başlık bildirimleri (`;`-ile biten ifadeler) ve standart GLSL fonksiyon/yapı tanımlarından oluşur. Yorum satırları (`// ...` ve `/* ... */`) tam desteklenir.
+- Bilinmeyen tür hatası: `(surface, particle, volume, post, sky, ui)` (`modules/shader/src/ashader.cpp:252`).
+- `particle` ve `volume` shader'larında **özel `varying` yasaktır** (`expected particle() with no custom varyings`, `modules/render/src/surface_shader_rt.cpp:72-77`).
+- `sky`/`post` için eksik `sky()`/`post()` hata verir (`modules/render/src/surface_shader_rt.cpp:266-269`).
+- `astral-cook` `.ashader` dosyalarını derlenip derlenmediği için doğrular ama SPIR-V'yi pakete **koymaz** (`modules/assets/src/cook.cpp:280-292`);
+  `ui` türü cook'ta doğrulanmaz.
 
-### 3.1. `shader_type` Bildirimi
+## 4. `render_mode`
 
-Her `.ashader` dosyası bir `shader_type` bildirimi içermek zorundadır:
+Virgülle ayrılmış liste, birden çok satır olabilir. Türe göre izin verilen adlar (`modules/shader/src/ashader.cpp:372-383`); listede olmayan ad `unknown render_mode` hatasıdır.
+
+| Tür | İzin verilenler |
+|---|---|
+| `surface` | `alpha_test`, `cull_disabled`, `cull_front`, `unshaded`, `blend_mix`, `blend_add`, `shadows_disabled`, `rt_simple` |
+| `particle` | `blend_mix`, `blend_add`, `unshaded` |
+| `volume` | `unshaded` |
+| `post` | `after_tonemap` |
+| `sky` | (hiçbiri) |
+| `ui` | `blend_mix`, `blend_add` |
+
+Etkiler (yalnız kodda **gerçekten** bir şey yapanlar):
+
+| Mod | Etki | Kaynak |
+|---|---|---|
+| `alpha_test` | `surface()` sonrası `if (ALPHA < ALPHA_SCISSOR) discard;`; gölge geçişine de fragment aşaması üretilir; ışın izlemede ayrı bir alfa işlevi (`astral_alpha_<ID>`, `ASTRAL_RT_ALPHA_TEST`) çalışır ve TLAS örneği "opak değil" işaretlenir | `modules/render/src/surface_shader.cpp:297`, `modules/render/src/surface_shader.cpp:397-416`, `modules/render/src/frame/instances.cpp:58-60` |
+| `cull_disabled` | İki yüzü de çizer; arka yüzde `FRONT_FACING=false` ve `NORMAL` tersine çevrilir. Gölge geçişi her zaman `cull none` | `modules/render/src/surface_shader.cpp:289-290`, `modules/render/src/stores/shader_store.cpp:77-91` |
+| `cull_front` | Yalnız arka yüzleri çizer | `modules/render/src/stores/shader_store.cpp:53` |
+| `shadows_disabled` | Güneş gölge geçişine girmez (`casts_shadows = false`) | `modules/render/src/surface_shader.cpp:373` |
+| `unshaded` | Aydınlatmayı atlar: çıktı `ALBEDO + EMISSION` (HDR; AO, roughness, metallic yok sayılır). G-buffer'da `SHADING_UNSHADED`, ileri geçişte doğrudan renk, RT'de `s.unshaded` | `modules/render/src/surface_shader.cpp:194`, `modules/render/src/surface_shader.cpp:211-217`, `modules/render/src/surface_shader.cpp:317-321`, `modules/render/shaders/include/astral/rt.glsl:639` |
+| `blend_mix` | Yüzey G-buffer'dan çıkar, ileri şeffaflık geçişinde alfa karışımıyla (`src_alpha, 1-src_alpha`) çizilir | `modules/render/src/surface_shader.cpp:378-392`, `modules/render/src/stores/shader_store.cpp:54-69` |
+| `blend_add` | Aynı geçiş, toplamsal karışım; ek olarak hava perspektifi/sis katkısı çıkarılır | `modules/render/src/surface_shader.cpp:199-205` |
+| `particle` + `blend_mix` | Karışım alfa; **varsayılan toplamsaldır** (`out.additive = !blend_mix`) | `modules/render/src/surface_shader_rt.cpp:79` |
+| `post` + `after_tonemap` | Tek geçerli mod ve zaten tek davranış (post her zaman tonemap sonrası) | `modules/render/src/paths/raster_path.cpp:111-118` |
+
+**Kabul edilir ama etkisizdir:** `rt_simple` (hiçbir yerde okunmuyor; `modules/shader/src/ashader.cpp:375` dışında geçmez), `particle`/`volume` için `unshaded`, `ui` modları.
+Bunları yazmak hata vermez, hiçbir şey değiştirmez.
+
+**Şeffaf (`blend_*`) yüzeylerin yeri:**
+- Ayrı **ileri geçiş**: opak sahne + sis hazırlandıktan sonra, **tonemap'ten önce** HDR hedefe çizilir; yani tonemap ve bloom'dan geçer
+  (`modules/render/src/paths/raster_path.cpp:115-116`, `modules/render/src/passes/transparent_pass.cpp`). (Eski belgelerdeki "tonemap sonrası" bilgisi yanlıştı.)
+- Derinlik testi var, derinlik yazma yok; sıralama **nesne merkezine uzaklık** (arkadan öne), üçgen sırası değil
+  (`modules/render/src/frame/instances.cpp:65-80`, `modules/render/src/stores/shader_store.cpp:62`).
+- Gölge geçişi, G-buffer ve ışın izleme varyantı üretilmez (`modules/render/include/astral/render/surface_shader.hpp:40-42`); TLAS örnekleri yalnız opak listeden kurulur, yani şeffaf
+  yüzeyler RT yansımalarında/GI'da yoktur (`modules/render/src/frame/instances.cpp:34-60`).
+
+## 5. `shading_model` (yalnız `surface`)
 
 ```glsl
-shader_type <tür>;
+shading_model clearcoat;     // standard | clearcoat | sheen | anisotropic | transmission | subsurface
 ```
 
-| Tür | Durum | Açıklama | Zorunlu Giriş Fonksiyonu |
-| :--- | :--- | :--- | :--- |
-| `surface` | **Aktif (Derlenir)** | 3B mesh yüzeyleri (opak, alfa kesimli veya şeffaf PBR/Unshaded yüzeyler). | `surface()` ve/veya `vertex()` |
-| `sky` | **Aktif (Derlenir)** | Tam ekran prosedürel veya dokulu HDR gökyüzü / arka plan. | `sky()` |
-| `post` | **Aktif (Derlenir)** | Tonemap sonrası tam ekran görüntü işleme (post-processing) zinciri. | `post()` |
-| `particle` | **Aktif (Derlenir)** | GPU billboard parçacıklarının renk ve opaklığı. | `particle()` |
-| `volume` | **Aktif (Derlenir)** | Yerel duman hücrelerinin görsel yoğunluğu ve saçılma rengi. | `volume()` |
-| `ui` | *Ayrıştırılır (Rezerve)* | 2B arayüz katmanı özel efektleri. | — |
+`surface` dışında bir türde yazılırsa hata (`shading_model is only supported for shader_type surface`), bilinmeyen ad hata (`modules/shader/src/ashader.cpp:255-264`).
+Varsayılan `standard`. Seçilen model G-buffer'a `emissive.a` içinde, modele özgü dört skaler ise `material_ext` ekinde yazılır
+(`modules/render/src/surface_shader.cpp:219-241`, [ADR-0033](../decisions/0033-advanced-pbr-and-path-tracer.md)).
 
----
+| Model | Okunan çıktılar (aralık/kelepçe) | Not |
+|---|---|---|
+| `standard` | — | `CLEARCOAT > 1e-4` yazarsan model **kendiliğinden `clearcoat`'a yükselir** (`modules/render/src/surface_shader.cpp:229`; `WETNESS` de clearcoat ekler) |
+| `clearcoat` | `CLEARCOAT` [0,1], `CLEARCOAT_ROUGHNESS` [0.02,1] | Üst dielektrik katman |
+| `sheen` | `SHEEN_COLOR` (≥0), `SHEEN_ROUGHNESS` [0.05,1] | Kumaş/kadife (Charlie NDF) |
+| `anisotropic` | `ANISOTROPY` [−0.95,0.95], `ANISOTROPY_ROTATION` (rad) | Teğet yön **mesh teğetinden değil**, `cross(yukarı, NORMAL)`'den türetilir ve normal etrafında döndürülür (`modules/render/shaders/include/astral/bsdf.glsl:240-245`) |
+| `transmission` | `TRANSMISSION` [0,1], `IOR` (≥1.01), `THICKNESS` (≥0.001), `ATTENUATION_COLOR`, `ATTENUATION_DISTANCE` (≥0.001) | G-buffer yolunda albedo `TRANSMISSION` oranında `ATTENUATION_COLOR`'a karışır (`modules/render/src/surface_shader.cpp:234`) |
+| `subsurface` | `SUBSURFACE` [0,1], `SUBSURFACE_COLOR` (≥0), `SUBSURFACE_RADIUS` | **Yarıçap yalnız ışın izlemeli ikincil vuruşlarda okunur**; birincil (G-buffer) yüzeyde sabit 0.5 (`modules/render/shaders/include/astral/primary.glsl:46-47`) |
 
-### 3.2. `render_mode` Seçenekleri
+`ATTENUATION_COLOR` birincil yüzeyde de albedo'dan yeniden kurulur (`modules/render/shaders/include/astral/primary.glsl:46`): raster yolunda Beer-Lambert rengi ayrı taşınmaz.
+Model seçmeden de `WETNESS` [0,1] (albedo'yu koyulaştırır, roughness'ı düşürür, su filmi clearcoat'ı ekler; `modules/render/shaders/include/astral/bsdf.glsl:29-38`) yazılabilir.
+Raster, hibrit RT, ReSTIR ve path tracer aynı `bsdf.glsl` matematiğini paylaşır ([ADR-0033](../decisions/0033-advanced-pbr-and-path-tracer.md)). Bu belgede **görsel doğruluk iddiası yok**; yalnız hangi
+girdinin okunduğu kodla doğrulandı. Test: `modules/render/tests/m13_pbr_test.cpp`.
 
-`render_mode` bildirimi isteğe bağlıdır. Virgülle ayrılmış birden fazla mod yazılabilir veya birden çok `render_mode` satırı kullanılabilir:
+## 6. `uniform`
 
 ```glsl
-render_mode alpha_test, cull_disabled;
+uniform <tip> <ad> [: ipucu, ipucu, ...] [= varsayılan];
 ```
 
-#### `shader_type surface;` için Geçerli Modlar
+| Tip | Bileşen | Varsayılan yazımı | `.material` JSON |
+|---|---|---|---|
+| `float` | 1 | `= 0.35` | `0.35` |
+| `vec2/vec3/vec4` | 2/3/4 | `= vec3(1, 0.2, 0.1)` veya tek sayı (tüm bileşenlere kopyalanır) | `[x,y,z]` veya tek sayı |
+| `int` | 1 | `= 4` | `4` (kesirli değer reddedilir) |
+| `bool` | 1 | `= true` | `true/false/1/0` |
+| `sampler2D` | 1 (bindless indeks) | varsayılan **alamaz** | doku yolu (string) |
 
-| Render Mode | Etki ve Pipeline Davranışı |
-| :--- | :--- |
-| *(Varsayılan)* | Opak G-Buffer geçişinde çizilir, arka yüzler kırpılır (`cull_back`), gölge haritasına girer ve RT/DDGI'da değerlendirilir. |
-| `alpha_test` | `surface()` sonrasında `if (ALPHA < ALPHA_SCISSOR) discard;` çalıştırır. Gölge haritası (shadow map) geçişi için de özel fragment shader üretir; böylece yaprak/kafes gibi kesimli yüzeyler doğru biçimde gölge düşürür. |
-| `cull_disabled` | İki yüzü de çizer (`VK_CULL_MODE_NONE`). Arka yüz piksellerinde `FRONT_FACING = false` olur ve `NORMAL` otomatik olarak kameraya doğru çevrilir (`-NORMAL`). |
-| `cull_front` | Ön yüzleri kırpar, yalnız arka yüzleri çizer (`VK_CULL_MODE_FRONT_BIT`). |
-| `blend_mix` | Yüzeyi G-Buffer'dan çıkarıp tonemap sonrasındaki **Forward Şeffaflık** geçişine taşır. Standart alfa karışımı (`src_alpha`, `1 - src_alpha`) uygular. |
-| `blend_add` | Yüzeyi **Forward Şeffaflık** geçişine taşır ve toplamsal (additive: `src_alpha`, `1`) karışım uygular. Hologram, enerji kalkanı ve plazma efektleri için idealdir. |
-| `shadows_disabled` | Mesh'in güneş gölge haritası (`shadow` pass) geçişinde çizilmesini kapatır. |
-| `unshaded` | Bildirimsel bayrak (mevcut sürümde `ALBEDO = vec3(0.0);` yapıp tüm rengi `EMISSION` üzerinden vermekle birlikte kullanılır). |
-| `rt_simple` | Çok karmaşık yüzeylerin RT varyantında basitleştirilmesi için ayrılmış bayrak. |
+Başka tip yoktur: `mat*`, dizi, `struct`, `sampler3D`, `samplerCube`, `sampler2DArray` uniform olamaz (`modules/shader/src/ashader.cpp:77-86`).
 
-#### `shader_type post;` için Geçerli Modlar
+- **Sayı doğrulaması ([ADR-0042](../decisions/0042-typed-shader-parameter-words.md)):** her bileşen tipli 32 bit kelimeye çevrilir; `float` için sonlu ve ±float aralığında, `int` için tam sayı ve int32 aralığında,
+  `bool` için 0/1 olmalı; aksi hâlde varsayılan **okunamaz** (hata) (`modules/shader/src/ashader.cpp:426-444`, `modules/shader/src/ashader.cpp:112-139`).
+- **Ayrılmış adlar:** tamamı BÜYÜK HARF/rakam/`_` olan adlar ve `astral_`/`gl_` ile başlayanlar yasak (`modules/shader/src/ashader.cpp:141-144`). Aynı ad iki kez bildirilemez.
+- **Makro yalıtımı:** her uniform yalnız senin gövdenin çevresinde `#define ad ...` ile tanımlanır ve sonra `#undef` edilir (`modules/render/src/surface_shader.cpp:30-68`); `n`, `f`, `id`
+  gibi şablon değişkenlerini uniform adı yapmak çakışmaz. Ama **kendi yardımcı fonksiyonların ve global sabitlerin** motor include'larıyla (`scene.glsl`, `color.glsl`,
+  `bsdf.glsl`) aynı global alanı paylaşır; bu include'lar `astral_` dışında adlar da tanımlar (örn. `fresnel_schlick`, `fresnel_dielectric`, `PI`): aynı adı kullanma
+  (çıkarım: yinelenen tanım glslang hatasıdır).
+- **Parametre bloğu:** uniform'lar materyal başına 4 baytlık kelimelerde bir blokta durur; `float/int/bool/sampler2D` 1 kelime, `vec2` 2 (hizalı), `vec3` 3 (4'e hizalı,
+  ardından gelen tek kelimelik uniform 4. kelimesine girebilir), `vec4` 4; toplam 4'ün katına yuvarlanır (`modules/shader/src/ashader.cpp:446-463`).
 
-| Render Mode | Etki ve Pipeline Davranışı |
-| :--- | :--- |
-| `after_tonemap` | *(Varsayılan)* Efekt tonemap geçişinden sonra, ekran renk uzayında (`[0, 1]`) çalışır. |
+### 6.1 İpuçları
 
-#### `shader_type sky;` için Geçerli Modlar
-- `sky` shader'ları ek `render_mode` almaz; derinliği `1.0` olan (geometri olmayan) piksellerde HDR tamponuna yazılır.
+| İpucu | Geçerli | Etki | Kaynak |
+|---|---|---|---|
+| `source_color` | `vec3/vec4`, `sampler2D` | Debug panelinde renk seçici; dokuyu sRGB olarak yükler | `modules/shader/src/ashader.cpp:207`, `modules/app/src/panels/materials_panel.cpp:37-46` |
+| `hint_normal` | `sampler2D` | Doku verilmezse düz normal `(0.5,0.5,1)` bağlanır (aksi hâlde beyaz) | `modules/render/include/astral/render/surface_shader.hpp:34` |
+| `range(min, max[, step])` / `hint_range(...)` | herhangi bir sayısal tip (ayrıştırıcı denetlemez) | **Yalnız `float`** için debug panelinde kaydırıcı; diğer tiplerde sürükleme kutusu | `modules/shader/src/ashader.cpp:215-227`, `modules/app/src/panels/materials_panel.cpp:31-35` |
+| `filter_linear`, `filter_linear_mipmap`, `filter_nearest`, `filter_nearest_mipmap` | `sampler2D` | Üç sabit örnekleyiciden birini seçer; **`_mipmap` eki ayrı davranış yaratmaz** (`Nearest*` → nearest, kalanlar → linear). Linear örnekleyiciler trilinear, nearest örnekleyici nearest mip modu kullanır | `modules/render/src/surface_shader.cpp:46-48`, `modules/gpu/src/device_init.cpp:375-392` |
+| `repeat`, `repeat_disable` | `sampler2D` | Linear için `LINEAR_REPEAT` / `LINEAR_CLAMP`. `filter_nearest*` her zaman `NEAREST_CLAMP`'tir: **`repeat` yok sayılır** | `modules/render/src/surface_shader.cpp:46-48`, `modules/gpu/shaders/include/astral/bindless.glsl:24-26` |
 
----
+Bilinmeyen ipucu hata verir. `LINEAR_REPEAT` örnekleyicisi 8× anizotropik filtreleme açar (cihaz destekliyorsa; `modules/gpu/src/device_init.cpp:382-385`).
 
-### 3.3. `uniform` Bildirimleri, Tipler ve Varsayılan Değerler
-
-Materyal dosyalarından (`.material`) veya oyun içi **Materials** panelinden kontrol edilebilen parametreler `uniform` ile tanımlanır:
+## 7. `varying` (yalnız `surface`)
 
 ```glsl
-uniform <tip> <ad> [: ipucu1, ipucu2, ...] [= varsayılan_değer];
+varying float wave;      // vertex()'te yaz, surface()'ta oku
 ```
 
-| GLSL Tipi | Bileşen Sayısı | `.ashader` Varsayılan Örneği | `.material` JSON Karşılığı | Açıklama |
-| :--- | :--- | :--- | :--- | :--- |
-| `float` | 1 | `= 0.35` veya `= 1.0f` | `0.35` | Tekil kayan noktalı sayı |
-| `vec2` | 2 | `= vec2(1.0, 2.0)` veya `= vec2(1.0)` | `[1.0, 2.0]` veya `1.0` | 2 bileşenli vektör (tek sayı verilirse tüm bileşenlere kopyalanır) |
-| `vec3` | 3 | `= vec3(1.0, 0.2, 0.1)` | `[1.0, 0.2, 0.1]` veya `1.0` | 3 bileşenli vektör veya RGB renk |
-| `vec4` | 4 | `= vec4(1.0)` | `[1.0, 1.0, 1.0, 1.0]` veya `1.0` | 4 bileşenli vektör veya RGBA renk |
-| `int` | 1 | `= 4` | `4` | Tam sayı (parametre bloğunda float olarak saklanır, okunurken `int(...)`'e çevrilir) |
-| `bool` | 1 | `= true` veya `= false` | `true` / `false` (veya `1` / `0`) | Mantıksal değer (`!= 0.0` olarak değerlendirilir) |
-| `sampler2D` | 1 (Bindless ID) | *(Varsayılan almaz)* | `"textures/albedo.png"` | 2B doku. Materyalde atanmazsa varsayılan beyaz `1×1` doku (`hint_normal` ise düz normal `(0.5, 0.5, 1.0)`) bağlanır. |
+- `vertex` çıkışı `layout(location = 7 + i) out <tip> <ad>`, fragment girişi aynı konumda `in` (`modules/render/src/surface_shader.cpp:133-135`, `modules/render/src/surface_shader.cpp:265-267`). Konum 0-6 motorundur.
+- Ayrıştırıcı tipi yazıldığı gibi saklar; kullanılabilir tipler `float vec2 vec3 vec4`. İnterpolasyon varsayılandır (`flat` yok).
+- Işın izleme varyantında `vertex()` çalışmaz: varying'ler genel değişken olarak tanımlanır ve **0 değerindedir** (`modules/render/include/astral/render/surface_shader.hpp:77-81`, `modules/render/src/surface_shader.cpp:308`).
+- `post/sky/particle/volume` shader'larında varying desteklenmez (particle/volume'da hata).
 
----
+## 8. Yerleşik değişkenler
 
-### 3.4. `uniform` İpuçları (Hints) ve Editör Entegrasyonu
+Tüm yerleşikler BÜYÜK HARFtir. `TIME` saniyedir.
 
-Uniform bildiriminde `:` sonrasında virgülle ayrılmış ipuçları verilebilir. Bu ipuçları hem doku örnekleme/renk uzayı davranışını hem de **F1 → Materials** panelindeki arayüz bileşenini belirler:
+### 8.1 `surface` — `vertex()`
 
-| İpucu | Geçerli Tipler | Ne İşe Yarar? |
-| :--- | :--- | :--- |
-| `source_color` | `vec3`, `vec4`, `sampler2D` | **Vektörlerde:** Editörde RGB/RGBA **Renk Seçici (Color Picker)** açar. **Dokularda:** Dokunun sRGB uzayında decode edilmesini ve donanımsal sRGB->Linear dönüşümüyle örneklenmesini sağlar. |
-| `hint_normal` | `sampler2D` | Dokunun bir teğet-uzayı (tangent-space) normal haritası olduğunu belirtir. Doğrusal (linear) renk uzayında yüklenir; materyalde doku verilmezse motorun yedek düz normal dokusunu `(0.5, 0.5, 1.0)` bağlar. |
-| `range(min, max)` veya `range(min, max, step)` | `float`, `int`, `vec2`, `vec3`, `vec4` | Editörde belirtilen alt/üst sınırlar ve adım (`step`, `0` ise sürekli) ile **Kaydırıcı (Slider)** oluşturur. `hint_range(...)` takma adı da desteklenir. |
-| `filter_linear_mipmap` | `sampler2D` | *(Varsayılan)* Trilinear (doğrusal + mipmap) filtreleme. |
-| `filter_linear` | `sampler2D` | Bilinear filtreleme. |
-| `filter_nearest` | `sampler2D` | En yakın komşu (piksel sanatı / keskin bakış) filtreleme (`CLAMP`). |
-| `filter_nearest_mipmap` | `sampler2D` | En yakın komşu filtreleme. |
-| `repeat` | `sampler2D` | *(Varsayılan)* UV `[0, 1]` dışına çıktığında dokuyu tekrarlar (`ASTRAL_SAMPLER_LINEAR_REPEAT`). |
-| `repeat_disable` | `sampler2D` | UV `[0, 1]` dışına çıktığında kenar piksellerini uzatır (`ASTRAL_SAMPLER_LINEAR_CLAMP`). |
-
----
-
-### 3.5. `varying` ile Aşamalar Arası Veri Aktarımı
-
-`shader_type surface;` içinde `vertex()` aşamasında hesaplanan bir değeri `surface()` (fragment) aşamasına interpolasyonlu olarak aktarmak için `varying` kullanılır:
-
-```glsl
-varying float wave;
-varying vec3 local_pos;
-```
-
-- Desteklenen tipler: `float`, `vec2`, `vec3`, `vec4`.
-- Motor, vertex aşamasında `layout(location = 6 + i) out <tip> <ad>;`, fragment aşamasında ise `layout(location = 6 + i) in <tip> <ad>;` bildirimlerini otomatik üretir.
-- Işın izleme (RT) varyantında `vertex()` çalışmadığı için varying değişkenleri RT chunk içinde yerel değişken olarak (`0` başlangıç değerli) tanımlanır.
-
----
-
-### 3.6. İsimlendirme Kuralları ve Makro İzolasyonu
-
-1. **Ayrılmış İsimler (`reserved`):**
-   - Uniform adları **tamamen BÜYÜK HARF** olamaz (örn. `TIME`, `ALBEDO`, `SCALE_2` yasaktır; yerleşik değişkenlerle karışmayı önler).
-   - Uniform adları `astral_` veya `gl_` ön ekiyle başlayamaz.
-2. **Çakışmasız Makro İzolasyonu:**
-   - Motor, tanımladığınız her uniform'u yalnızca sizin GLSL gövdenizin hemen öncesinde `#define <ad> ...` ile tanımlar ve gövdenizin hemen sonunda `#undef <ad>` ile temizler.
-   - Bu sayede uniform'unuza `scale`, `n`, `f`, `id`, `world` gibi motorun kendi iç şablonunda kullandığı değişken adlarını verseniz bile **hiçbir isim çakışması yaşanmaz**.
-3. **Kullanıcı Yardımcı Fonksiyonları:**
-   - `vertex()`, `surface()`, `sky()`, `post()` dışında istediğiniz kadar yardımcı GLSL fonksiyonu (`float fbm(vec3 p)`, `vec3 palette(float t)` vb.) tanımlayabilirsiniz.
-   - Birden çok `surface` shader'ı aynı RT compute shader içinde birleştirilirken motor her shader'ın üst düzey fonksiyonlarını `astral_s<ID>_<fonksiyon_adı>` makrosuyla otomatik ad alanına (namespace) alır; böylece iki farklı `.ashader` dosyasında aynı isimli `hash()` veya `noise()` fonksiyonu bulunması sorun çıkarmaz.
-   - **Dikkat:** Fonksiyon dışındaki üst düzey sabit/değişkenler (`const float PI2 = 6.28;`) makro listesine girmediği için iki farklı `surface` shader'ında aynı adla tanımlanmamalıdır; fonksiyon içinde tanımlayın veya shader ön eki (`lava_k`) kullanın (`PI` zaten `scene.glsl` içinde tanımlıdır).
-
----
-
-## 4. Giriş Noktaları ve Yerleşik Değişkenler (Built-ins)
-
-### 4.1. `shader_type surface` — `vertex()` Aşaması
-
-İsteğe bağlıdır. Tanımlandığında her köşe (vertex) için model->dünya dönüşümünden hemen önce çağrılır.
-
-| Değişken | Tip | Erişim | Başlangıç Değeri / Açıklama |
-| :--- | :--- | :--- | :--- |
-| `VERTEX` | `vec3` | **Okuma / Yazma** | Model (obje) uzayındaki köşe konumu. Deforme ettiğinizde hem G-Buffer hem gölge haritası hem de hareket vektörleri (motion vectors) yeni konumu kullanır. |
-| `NORMAL` | `vec3` | **Okuma / Yazma** | Model (obje) uzayındaki köşe normali. Sonrasında `transpose(inverse(mat3(MODEL_MATRIX))) * NORMAL` ile dünya uzayına taşınır. |
-| `UV` | `vec2` | **Okuma / Yazma** | Köşe doku koordinatı. Değiştirilirse fragment aşamasına yeni değer geçer. |
-| `WORLD_POSITION` | `vec3` | Salt Okunur | Köşenin deformasyon öncesi dünya uzayındaki konumu (`(MODEL_MATRIX * vec4(v.position, 1.0)).xyz`). Faz farkı oluşturmak için idealdir. |
-| `MODEL_MATRIX` | `mat4` | Salt Okunur | Nesnenin model->dünya dönüşüm matrisi (`inst.model`). |
-| `TIME` | `float` | Salt Okunur | Oyun başlangıcından itibaren geçen süre (saniye). |
-
----
-
-### 4.2. `shader_type surface` — `surface()` Aşaması
-
-Yüzeyin malzeme özelliklerini belirleyen ana fonksiyondur. Hem G-Buffer (opak/alpha_test) hem Forward (şeffaf) hem de Ray Tracing (RT/DDGI) yollarında çağrılır.
-
-#### Girdiler (Salt Okunur)
-
-| Değişken | Tip | Açıklama |
-| :--- | :--- | :--- |
-| `UV` | `vec2` | İnterpolasyonlu doku koordinatı. |
-| `NORMAL` | `vec3` | Normalize edilmiş dünya uzayı yüzey normali. `cull_disabled` modunda arka yüze bakılıyorsa otomatik olarak `-NORMAL` çevrilmiştir (ayrıca `surface()` içinde prosedürel olarak değiştirilebilir). |
-| `WORLD_POSITION` | `vec3` | Pikselin / ışın vuruş noktasının dünya uzayındaki 3B konumu. |
-| `VIEW_DIR` | `vec3` | Yüzey noktasından kameraya (RT'de ışın kaynağına) giden birim vektör (`normalize(camera_pos - WORLD_POSITION)`). Fresnel ve anizotropi hesapları için kullanılır. |
-| `FRONT_FACING` | `bool` | Üçgenin ön yüzüne mi (`true`) yoksa arka yüzüne mi (`false`) bakıldığı. |
-| `SCREEN_UV` | `vec2` | Ekran uzayı koordinatı (`[0, 1]`). *(Not: RT ikincil ışın vuruşlarında `vec2(0.0)` değerindedir).* |
-| `TIME` | `float` | Saniye cinsinden zaman. |
-| `PI` | `float` | `3.14159265359` (`scene.glsl` üzerinden gelir). |
-
-#### Çıktılar (Okuma / Yazma)
-
-| Değişken | Tip | Varsayılan | Aralık / Birim ve Açıklama |
-| :--- | :--- | :--- | :--- |
-| `ALBEDO` | `vec3` | `vec3(1.0)` | Yüzeyin temel yansıma rengi (doğrusal RGB, `[0, 1]`). Çıkışta `ALBEDO * AO` olarak uygulanır. |
-| `ROUGHNESS` | `float` | `0.6` | Mikro-yüzey pürüzlülüğü (`[0.02, 1.0]` aralığına kırpılır). `0.02` tam ayna, `1.0` tam mat yüzeydir. |
-| `METALLIC` | `float` | `0.0` | Metaliklik (`[0.0, 1.0]`). `0.0` dielektrik (plastik, taş, yaprak), `1.0` iletken metal. |
-| `EMISSION` | `vec3` | `vec3(0.0)` | Yüzeyin yaydığı doğrusal HDR ışıma (radiance). `> 1.0` değerler Bloom geçişini tetikler ve RT/DDGI yolunda çevredeki yüzeyleri gerçekten aydınlatır. |
-| `AO` | `float` | `1.0` | Mikro-gölgeleme / Ambient Occlusion çarpanı (`ALBEDO`'yu ölçekler). |
-| `ALPHA` | `float` | `1.0` | `blend_mix` / `blend_add` modlarında şeffaflık çarpanı (`[0, 1]`); `alpha_test` modunda eşik değeriyle karşılaştırılan değer. |
-| `ALPHA_SCISSOR` | `float` | `0.5` | `render_mode alpha_test;` aktifken `ALPHA < ALPHA_SCISSOR` olan piksellerin atılacağı (`discard`) eşik değeri. |
-| `NORMAL_MAP` | `vec3` | `vec3(0.5, 0.5, 1.0)` | Teğet uzayı (tangent-space) normal haritası değeri (`[0, 1]` aralığında; örn. `texture(normal_tex, UV).rgb`). Değiştirildiğinde motor `dFdx`/`dFdy` türevleriyle önceden hesaplanmış tangent'a ihtiyaç duymadan dünya normalini büker. |
-| `NORMAL_MAP_DEPTH` | `float` | `1.0` | `NORMAL_MAP`'in X ve Y bileşenlerinin şiddet çarpanı. |
-
----
-
-### 4.3. `shader_type sky` — `sky()` Aşaması
-
-Sahnedeki geometri olmayan (derinlik = `1.0`) arka plan pikselleri için tam ekran çalışır.
+İsteğe bağlı; her köşe için model→dünya dönüşümünden önce çağrılır (`modules/render/src/surface_shader.cpp:149`).
 
 | Değişken | Tip | Erişim | Açıklama |
-| :--- | :--- | :--- | :--- |
-| `EYEDIR` | `vec3` | Salt Okunur | Kameradan o pikselin sonsuzdaki noktasına giden normalize edilmiş dünya uzayı bakış yönü (`EYEDIR.y` ufukta `0`, tepede `+1`, aşağıda `-1`). |
-| `SUN_DIR` | `vec3` | Salt Okunur | Güneşin/ayın bulunduğu yöne giden birim vektör (`-normalize(sun.direction)`). `length(EYEDIR - SUN_DIR)` veya `dot(EYEDIR, SUN_DIR)` ile güneş/ay diski çizilebilir. |
-| `SUN_COLOR` | `vec3` | Salt Okunur | Sahnedeki güneşin `color * intensity` değeri (HDR). |
-| `TIME` | `float` | Salt Okunur | Saniye cinsinden zaman. |
-| `COLOR` | `vec3` | **Okuma / Yazma** | Başlangıçta `vec3(0.0)`. Yazılan doğrusal HDR gökyüzü rengi (`max(COLOR, 0.0)` olarak HDR tamponuna kaydedilir; sonrasında Bloom ve Tonemap'ten geçer). |
+|---|---|---|---|
+| `VERTEX` | `vec3` | R/W | Nesne uzayı konum; G-buffer, gölge ve hareket vektörleri yeni konumu kullanır (`modules/render/src/surface_shader.cpp:150-160`) |
+| `NORMAL` | `vec3` | R/W | Nesne uzayı normal; sonra normal matrisiyle dünyaya taşınır |
+| `UV`, `UV1` | `vec2` | R/W | Birinci/ikinci doku koordinatı; fragmana geçer |
+| `WORLD_POSITION` | `vec3` | R | Deformasyon **öncesi** dünya konumu (yazmak sonucu etkilemez; dünya konumu `VERTEX`'ten hesaplanır) |
+| `MODEL_MATRIX` | `mat4` | R | Model→dünya |
+| `TIME` | `float` | R | |
 
----
+### 8.2 `surface` — `surface()`
 
-### 4.4. `shader_type post` — `post()` Aşaması
+Girdiler (okunur): `UV`, `UV1`, `NORMAL_UV` (normal haritası koordinatı, varsayılan `UV`; yazılabilir), `NORMAL` (dünya, arka yüzde ters), `WORLD_POSITION`,
+`VIEW_DIR` (yüzeyden kameraya), `FRONT_FACING`, `SCREEN_UV` (ışın izleme vuruşlarında `vec2(0)`), `TIME`, `PI` (`modules/render/shaders/include/astral/scene.glsl:91`)
+(`modules/render/src/surface_shader_internal.hpp:59-66`, `modules/render/src/surface_shader.cpp:283-293`).
 
-Tonemap ve şeffaflık geçişleri tamamlandıktan sonra tam ekran görüntü üzerinde çalışır. Birden çok post materyali zincirleme (ping-pong) bağlanabilir.
+Çıktılar ve **varsayılanları** (`modules/render/src/surface_shader_internal.hpp:68-74`):
+
+| Değişken | Tip | Varsayılan | Not |
+|---|---|---|---|
+| `ALBEDO` | `vec3` | `vec3(1)` | Çıkışta `ALBEDO * AO` |
+| `ROUGHNESS` | `float` | `0.6` | [0.02, 1]'e kelepçelenir (`modules/render/shaders/include/astral/brdf.glsl:12`) |
+| `METALLIC` | `float` | `0.0` | [0, 1] |
+| `EMISSION` | `vec3` | `vec3(0)` | HDR; RT/GI'da gerçekten ışık verir |
+| `AO` | `float` | `1.0` | Yalnız albedo'yu çarpar (ayrı ortam gölgeleme terimi yok) |
+| `ALPHA` | `float` | `1.0` | `blend_*` şeffaflığı; `alpha_test` karşılaştırması. Opak G-buffer geçişinde **yok sayılır** |
+| `ALPHA_SCISSOR` | `float` | `0.5` | `alpha_test` eşiği |
+| `NORMAL_MAP` | `vec3` | `vec3(0.5,0.5,1)` | Teğet uzayı normal haritası değeri [0,1]; ekran türevleriyle bükülür (teğet gerekmez). Varsayılandan farklıysa uygulanır |
+| `NORMAL_MAP_DEPTH` | `float` | `1.0` | Normal haritası xy çarpanı |
+| `WETNESS` | `float` | `0.0` | §5 |
+| `CLEARCOAT`, `CLEARCOAT_ROUGHNESS` | `float` | `0.0`, `0.1` | §5 |
+| `SHEEN_COLOR`, `SHEEN_ROUGHNESS` | `vec3`, `float` | `0`, `0.5` | §5 |
+| `ANISOTROPY`, `ANISOTROPY_ROTATION` | `float` | `0`, `0` | §5 |
+| `TRANSMISSION`, `IOR`, `THICKNESS` | `float` | `0`, `1.5`, `0.01` | §5 |
+| `ATTENUATION_COLOR`, `ATTENUATION_DISTANCE` | `vec3`, `float` | `vec3(1)`, `1.0` | §5 |
+| `SUBSURFACE`, `SUBSURFACE_COLOR`, `SUBSURFACE_RADIUS` | `float`, `vec3`, `float` | `0`, `vec3(1)`, `0.5` | §5 |
+
+Modelin okumadığı çıktıyı yazmak zararsızdır ve etkisizdir. Yardımcı fonksiyonlar **hem vertex hem fragment aşamasında** derlenir (`vertex()` fragment'tan,
+`surface()` vertex'ten silinir, `modules/render/src/surface_shader.cpp:136`, `modules/render/src/surface_shader.cpp:271`): bir yardımcı yalnız fragment'ta bulunan bir yerleşiğe (`ALBEDO`, `VIEW_DIR`…) dokunursa vertex
+aşamasında derleme hatası alırsın (çıkarım). Yardımcıyı yalnız bir aşamadan çağır ve o aşamanın yerleşiklerini parametre olarak ver.
+
+### 8.3 `sky` — `sky()`
 
 | Değişken | Tip | Erişim | Açıklama |
-| :--- | :--- | :--- | :--- |
-| `SCREEN_UV` | `vec2` | Salt Okunur | Ekran koordinatı (`[0, 1]`, sol-üst/alt Vulkan ekran uzayı). |
-| `SCREEN_TEXTURE` | `sampler2D` | Salt Okunur | Bir önceki geçişin tam ekran dokusu (`ASTRAL_SAMPLER_LINEAR_CLAMP` ile). Kromatik aberrasyon, bulanıklaştırma veya ekran bükme için `texture(SCREEN_TEXTURE, uv)` ile farklı UV'lerden örneklenebilir. |
-| `TIME` | `float` | Salt Okunur | Saniye cinsinden zaman. |
-| `COLOR` | `vec3` | **Okuma / Yazma** | Başlangıçta o pikselin mevcut ekran rengi (sRGB/display uzayında `[0, 1]`) hazır yüklüdür. Değiştirilip bırakıldığında `[0, 1]` aralığına kırpılarak ekrana yazılır. |
+|---|---|---|---|
+| `EYEDIR` | `vec3` | R | Kameradan piksele dünya yönü |
+| `SUN_DIR` | `vec3` | R | Güneşe doğru birim vektör |
+| `SUN_COLOR` | `vec3` | R | Güneşin `color * intensity` değeri (HDR) |
+| `TIME` | `float` | R | |
+| `COLOR` | `vec3` | W | Doğrusal HDR renk; başlangıç `vec3(0)`; negatifler 0'a kırpılır (`modules/render/src/surface_shader_rt.cpp:162-164`) |
+| `IBL_CAPTURE` | `const bool` | R | Gökyüzü ışık haritasına çekilirken `true`; `RenderSettings::sky_ibl` açıkken aynı `sky()` yüzeyler/yansımalar için ortam ışığı üretir (`modules/render/src/surface_shader_rt.cpp:143`, `modules/render/src/surface_shader_rt.cpp:277`) |
 
----
+Yalnız derinliği 1.0 (geometri olmayan) piksellere yazar (`modules/render/src/surface_shader_rt.cpp:150-155`; render hattı `modules/render/src/stores/shader_store.cpp:124-140`).
+Bağlama: `ctx.sky = ctx.materials().load_material("materials/dusk_sky.material")` (`modules/app/include/astral/app/app.hpp:112-113`); `Atmosphere::sky_material` ve `drive_sky`
+aynı alanı sürebilir (`modules/app/include/astral/app/components.hpp:52`, `modules/app/include/astral/app/components.hpp:60`).
 
-## 5. `.material` Dosya Formatı ve Kalıtım (Material Instances)
+### 8.4 `post` — `post()`
 
-`.material` dosyaları saf JSON (veya cook sonrasında ikili JSON) belgeleridir.
+| Değişken | Tip | Erişim | Açıklama |
+|---|---|---|---|
+| `COLOR` | `vec3` | R/W | Başlangıçta o pikselin **ekran** rengi [0,1] (tonemap sonrası, gama kodlu); çıkışta [0,1]'e kırpılır |
+| `SCREEN_UV` | `vec2` | R | `[0,1]` ekran koordinatı |
+| `SCREEN_TEXTURE` | `sampler2D` | R | Önceki geçişin tam ekran dokusu, `LINEAR_CLAMP` örnekleyiciyle |
+| `TIME` | `float` | R | |
 
-### Temel Şema
+`ctx.post` bir `std::vector<MaterialHandle>`'dır; materyaller sırayla (ping-pong) uygulanır, `post` olmayan türdekiler yok sayılır
+(`modules/render/src/passes/post_pass.cpp:5-12`, `modules/render/src/passes/post_pass.cpp:15-43`). `COLOR` hedef biçim sRGB ise motor doğrusal→sRGB çevirir ve sonra geri çevirir, yani `post()` her durumda
+ekran kodlu renk görür (`modules/render/src/surface_shader_rt.cpp:169-176`). **Gözlem (çalıştırılarak doğrulanmadı):** `SCREEN_TEXTURE` doğrudan örneklenince hedef sRGB ise
+doku donanımda doğrusala çözülür; yani `texture(SCREEN_TEXTURE, uv)` ile `COLOR` aynı kodlamada olmayabilir (`modules/render/src/surface_shader_rt.cpp:142`, `modules/render/src/surface_shader_rt.cpp:169-176`).
 
-```json
-{
-  "format": "astral.material",
-  "version": 1,
-  "shader": "shaders/glass.ashader",
-  "values": {
-    "tint": [0.24, 0.92, 0.78],
-    "edge_tint": [0.94, 0.70, 0.25],
-    "opacity": 0.12,
-    "ring_strength": 0.48
-  }
-}
-```
+### 8.5 `particle` ve `motion()`
 
-### Ebeveyn Zinciri (`"parent"`) ile Türetme
+İki aşama vardır ve `AGE`, `LIFETIME`, `LIFE_T` **aşamaya göre farklı anlam taşır** (`modules/render/shaders/particle.vert:18-41`, `modules/render/shaders/particle.frag:35-48`):
 
-Unreal Engine'deki *Material Instance* mantığıyla bir materyal başka bir `.material` dosyasını `"parent"` olarak gösterebilir:
+| Değişken | `particle()` (fragment) | `motion()` (vertex, isteğe bağlı) |
+|---|---|---|
+| `AGE` | **Efektin** yaşı (`position_age.w`), tüm parçacıklar için aynı | **Bu parçacığın** yaşı (rastgele gecikme düşülmüş) |
+| `LIFETIME` | Efekt süresi | Efekt süresi |
+| `LIFE_T` | Parçacığın `age/lifetime` oranı [0,1] (vertex'ten gelir) | Aynı oran |
+| `UV` | Dörtgen üzerinde [0,1]² | — |
+| `WORLD_POSITION` | Parçacığın dünya konumu | R/W: yazdığın konum çizilir |
+| `COLOR` | `vec3` R/W, başlangıç efekt rengi | — |
+| `ALPHA` | `float` R/W, başlangıç yumuşak kenar×solma, çıkışta [0,1] | — |
+| `ORIGIN`, `WIND`, `RANDOM`, `SIZE` | — | `ORIGIN` yayıcı konumu, `WIND` sürüklenme, `RANDOM` parçacık başına [0,1), `SIZE` R/W metre (negatif 0'a) |
 
-```json
-{
-  "format": "astral.material",
-  "version": 1,
-  "parent": "materials/glass.material",
-  "values": {
-    "tint": [0.19, 0.34, 1.0],
-    "edge_tint": [0.82, 0.32, 1.0],
-    "opacity": 0.22
-  }
-}
-```
+`particle()`'ta **`TIME` tanımlı değildir** (parçacık için `AGE` kullan). `LIFETIME`/`LIFE_T` her iki aşamada derlenir (`modules/render/tests/particle_builtins_test.cpp:8-29`);
+`motion()` yoksa motorun kendi vertex aşaması kullanılır ve `LIFE_T` yine fragment'ta okunur. Çıktı `particle.frag` içinde kendi ACES tonemap'inden geçer ve tonemap
+**sonrasına** çizilir (`modules/render/shaders/particle.frag:65-67`, `modules/render/src/paths/raster_path.cpp:117`); varsayılan karışım toplamsaldır.
 
-**Kalıtım Kuralları:**
-- Çocuk materyal `"shader"` alanını yazmak zorunda değildir; zincirdeki ilk tanımlı `"shader"` kullanılır (isterse çocuk `"shader"` alanını da ezebilir).
-- `"values"` içindeki her anahtar için **çocuk materyalin değeri kazanır**; çocukta yazılmayan uniform'lar ebeveynden, ebeveynde de yoksa `.ashader` içindeki varsayılan değerden (`= ...`), orada da yoksa `0.0`'dan (dokularda yedek dokudan) alınır.
-- Kalıtım zinciri en fazla **16 seviye** derinliğe inebilir; döngüsel referanslar (`A -> B -> A`) otomatik tespit edilip hatayla raporlanır.
-- Hot-reload sistemi bir materyalin **tüm ebeveyn zincirini** (`dependencies`) izler: ebeveyn `.material` dosyasını değiştirdiğinizde ondan türeyen tüm alt materyaller de otomatik güncellenir.
-- `.material` içinde shader'da var olmayan bir uniform adı yazılırsa veya tip uyuşmazsa oyun durmaz; log'a `Warn` seviyesinde uyarı düşülür ve o parametre için shader varsayılanı kullanılır.
+### 8.6 `volume`
 
----
+`volume()` her dolu hacim hücresi için bir compute çağrısıdır (`modules/render/src/surface_shader_rt.cpp:22-66`):
 
-## 6. Motor İçinde Nasıl Çalışır? (Derleme ve Çizim Boru Hattı)
+| Değişken | Tip | Erişim | Açıklama |
+|---|---|---|---|
+| `UVW` | `vec3` | R | Hacim içi [0,1]³ koordinat |
+| `WORLD_POSITION` | `vec3` | R | Hücre merkezi |
+| `TIME`, `AGE` | `float` | R | Saniye; efekt yaşı |
+| `TINT` | `vec3` | W | Başlangıç `vec3(1)`; [0,8]'e kırpılır |
+| `DENSITY` | `float` | W | Başlangıç `1.0`; [0,1] |
+| `EMISSION` | `vec3` | W | Başlangıç `vec3(0)`; [0,64] |
 
-```
-┌───────────────────────────┐
-│   .ashader kaynak metni   │
-└─────────────┬─────────────┘
-              │ parse_ashader()  (Astral::Shader — Katman 1)
-              ▼
-┌───────────────────────────┐
-│       ShaderSource        │  (type, render_modes, uniforms, varyings, functions, body)
-│   + layout_uniforms()     │  (std430 4-bayt kelime ofsetleri)
-└─────────────┬─────────────┘
-              │
-   ┌──────────┴────────────────────────────────────────────────┐
-   │ shader_type surface                                       │ shader_type sky / post
-   ▼                                                           ▼
-compile_surface_shader()                                compile_screen_shader()
-   ├─ Opak / alpha_test ise:                                   ├─ Tam ekran üçgen Vertex SPIR-V
-   │   ├─ G-Buffer Vertex & Fragment SPIR-V                    └─ Sky veya Post Fragment SPIR-V
-   │   ├─ Shadow Vertex SPIR-V (+ alpha_test ise Fragment)
-   │   └─ RT Chunk (GLSL parçası -> rt_lighting & ddgi_trace)
-   └─ blend_mix / blend_add ise:
-       └─ Forward Vertex & Fragment SPIR-V (kendi PBR + ACES'i)
-```
+`.vfx` içinde bir izin `material` alanı ile bağlanır; `volume` izi için `material` zorunludur (`modules/app/src/services/vfx_runtime.cpp:83-87`).
 
-### 6.1. Tek Kaynaktan Çoklu Pipeline Üretimi
+## 9. Raster ve ışın izleme farkları
 
-`compile_surface_shader` (`modules/render/src/surface_shader.cpp`), tek bir `.ashader` kaynağından kullanım moduna göre farklı GLSL aşamaları üretip **glslang** (Vulkan 1.3 / SPIR-V 1.5) ile derler:
+Opak `surface` shader'ın `surface()` gövdesinden bir **RT parçası** da üretilir; tüm canlı özel yüzeyler tek bir `astral/rt_custom.glsl`'de birleştirilir ve beş RT compute shader'ı
+(`rt_lighting`, `ddgi_trace`, ReSTIR temporal/spatial, `path_tracer`) bunlarla yeniden derlenir (`modules/render/src/surface_shader_rt.cpp:206-253`). RT vuruşunda:
 
-1. **Vertex Aşaması (`vertex_stage`):**
-   - `source.body_without("surface")` kullanarak `surface()` fonksiyonunu boşluklarla maskeler (satır numaraları bozulmaz) ve yalnız `vertex()` ile yardımcı fonksiyonları derler.
-   - Hem mevcut karenin (`unjittered_view_projection * world`) hem de önceki karenin (`prev_view_projection * (prev_model * vec4(VERTEX, 1.0))`) klip koordinatlarını hesaplayarak **TAA ve SVGF denoiser için piksel başına hız vektörlerini (`astral_out_velocity`)** üretir.
-2. **G-Buffer Fragment Aşaması (`Mode::GBuffer`):**
-   - `source.body_without("vertex")` ile derlenir.
-   - 4 hedefe yazar:
-     - `location = 0`: `vec4(ALBEDO * AO, clamp(ROUGHNESS, 0.02, 1.0))`
-     - `location = 1`: `vec4(n, clamp(METALLIC, 0.0, 1.0))`
-     - `location = 2`: `vec4(EMISSION, 1.0)`
-     - `location = 3`: `vec2(velocity)`
-3. **Gölge Aşaması (`Mode::Shadow`):**
-   - Güneşin `light_view_projection` matrisiyle çalışır. `vertex()` deformasyonları gölgeye birebir yansır.
-   - Eğer `render_mode alpha_test;` varsa gölge geçişine fragment shader da bağlanır; böylece `ALPHA < ALPHA_SCISSOR` pikseller gölge haritasında da kesilir.
-4. **Forward Şeffaflık Aşaması (`Mode::Forward`):**
-   - `blend_mix` veya `blend_add` seçildiğinde yüzey G-Buffer'a girmez.
-   - Tonemap sonrasında, kameraya olan uzaklığa göre arkadan öne sıralanarak çizilir.
-   - İçinde gömülü `astral_lit(...)` fonksiyonu ile güneş ışığını, tüm noktasal ışıkları (`PointLight`), gök/yer ortam ışığını (`ambient`), `EMISSION` değerini ve ACES tonemapping'i (`astral_aces`) tek geçişte hesaplar.
+- `vertex()` çalışmaz (deformasyon yok; BLAS özgün köşelerle bir kez kurulur), varying'ler 0.
+- `dFdx/dFdy` 0 döner; `texture(s, uv)` sabit kaba mip (`textureLod(s, uv, 2.0)`) ile örneklenir; `SCREEN_UV = vec2(0)`.
+- `NORMAL_MAP` ve (opak) `ALPHA` yok sayılır; `alpha_test` için ayrı eşik işlevi çalışır (`modules/render/src/surface_shader.cpp:303-355`).
+- Her shader'ın üst düzey fonksiyon adları `astral_s<ID>_<ad>` makrolarıyla ad alanına alınır; **fonksiyon dışı global sabitler/değişkenler alınmaz**: iki `surface`
+  shader'ında aynı adlı global sabit birleşik RT derlemesini bozar (`modules/render/src/surface_shader.cpp:305-310`). Sabitleri fonksiyon içinde tanımla.
+- Birleşik RT derlemesi başarısız olursa (örn. yukarıdaki çakışma) motor önceden derlenmiş varsayılan RT shader'larına döner; raster aynen sürer, hata
+  `MaterialService::shader_error()` ve Materials panelinde görünür (`modules/render/src/stores/shader_store.cpp:181-209`, `modules/app/include/astral/app/material_service.hpp:29`).
+  Shader kümesi her değiştiğinde (oluşturma/hot reload) beş compute shader yeniden derlenir; kodun kendi yorumu bunları "motorun en yavaş derlemeleri" diye anar
+  (`modules/render/src/surface_shader_rt.cpp:242`). Ölçülmedi.
 
-### 6.2. Hibrit Işın İzleme (Ray Tracing & DDGI) Entegrasyonu
+## 10. Hata ve hot reload
 
-Opak bir `surface` shader'ı oluşturulduğunda motor onun `surface()` gövdesinden bir **RT Chunk** (`rt_chunk`) üretir:
-- Her özel shader'a bir slot numarası (`@ID@`) verilir.
-- Tüm aktif özel yüzeylerin `astral_run_<ID>(...)` fonksiyonları `astral/rt_custom.glsl` sanal başlığında bir `switch (shader)` tablosunda (`astral_custom_surface`) birleştirilir.
-- Motorun `rt_lighting.comp` ve `ddgi_trace.comp` compute shader'ları `#define ASTRAL_RT_CUSTOM` bayrağıyla çalışma anında yeniden derlenir.
-- Böylece bir yansıma ışını veya DDGI küresel aydınlatma ışını sahnedeki özel shader'lı bir nesneye (örneğin akan `lava.ashader` küresine) çarptığında, o vuruş noktasında gerçek `surface()` kodunuz çalışır; lavın hareketli sıcak kanalları zemindeki yansımada ve çevredeki duvarların dolaylı aydınlatmasında (GI) birebir görünür.
-- Türev komutları (`dFdx`, `dFdy`) compute shader'da bulunmadığı için RT varyantında otomatik olarak `0.0`'a, `texture(s, uv)` çağrıları ise `textureLod(s, uv, 2.0)`'a yönlendirilir.
+- Hata günlüğü: `shader <yol>\n  <yol>:<satır>: <mesaj>`; derlenemeyen sürümün yerine **son çalışan** sürüm kalır, materyaller eski handle ile çizilmeye devam eder
+  (`modules/app/src/material_library.cpp:117-160`).
+- `MaterialLibrary::update` her **0,25 sn**'de dosya zamanlarına bakar: değişen `.ashader` yeniden derlenir, ona bağlı materyaller yeniden bağlanır; her materyalin tüm
+  ebeveyn zinciri izlenir (`modules/app/src/material_library.cpp:262-300`).
+- Derleme SPIR-V disk önbelleğinden de cevap verebilir (`ASTRAL_SHADER_CACHE`, bkz. [writing-a-game.md](writing-a-game.md#7-paketleme)).
+- Hata ayıklama: Debug UI (F1) → **Materials** paneli her yüklü materyalin uniform'larını döker; değişiklik **yalnız bu oturum** içindir, dosyaya yazılmaz
+  (`modules/app/src/panels/materials_panel.cpp:78-90`).
 
-### 6.3. Bindless Doku ve `std430` Parametre Bloğu Düzeni
+## 11. Neler yok
 
-AstralEngine'de materyal parametreleri değiştikçe yeni descriptor set ayrılmaz ([ADR-0008](../decisions/0008-bindless-bda-glsl.md)):
-- `layout_uniforms(source)` fonksiyonu shader'daki uniform'ları 4-baytlık kelimeler (`uint32_t` / `float`) halinde hizalar:
-  - `float`, `int`, `bool`, `sampler2D`: boyut = 1 kelime, hizalama = 1 kelime.
-  - `vec2`: boyut = 2 kelime, hizalama = 2 kelime.
-  - `vec3`: boyut = 3 kelime, hizalama = 4 kelime *(ardından gelen tekil bir `float`/`int`/`sampler2D`, `vec3`'ün 4. kelimesine sıkıştırılır!)*.
-  - `vec4`: boyut = 4 kelime, hizalama = 4 kelime.
-  - Toplam blok boyutu 4 kelimenin katına yuvarlanır.
-- Tüm materyallerin parametre blokları tek bir GPU tamponunda (`AstralParams`, Buffer Device Address ile erişilir) arka arkaya dizilir. Her materyalin tablodaki `Material.custom.x` alanı, o materyalin bu tampondaki başlangıç ofsetini (`astral_base`) tutar.
-- `sampler2D` uniform'ları parametre bloğunda 1 kelimelik **bindless doku dizini** (`astral_textures[nonuniformEXT(astral_pu(offset))]`) olarak saklanır ve uniform ipuçlarına göre seçilen sabit örnekleyiciyle (`ASTRAL_SAMPLER_LINEAR_REPEAT`, `ASTRAL_SAMPLER_LINEAR_CLAMP` veya `ASTRAL_SAMPLER_NEAREST_CLAMP`) birleştirilir.
+| İstek | Durum |
+|---|---|
+| `DEPTH_TEXTURE` / derinlik okuma | **Yok** (`modules/` içinde geçmez). `post()` derinliği göremez; şeffaf yüzeyler arkadaki sahneyi örnekleyemez |
+| Ekran uzayı kırılma, `SCREEN_TEXTURE` şeffaf yüzeyde | Yok (yalnız `post`) |
+| `post` HDR (tonemap öncesi) | Yok; `post` her zaman tonemap **sonrası** (`modules/render/src/paths/raster_path.cpp:116-118`) |
+| `shader_type ui` | Ayrıştırılır, yüklenmez |
+| `sampler3D`, `samplerCube`, `sampler2DArray`, `mat*`, dizi/struct uniform | Yok |
+| Örnek başına uniform ezme | Yok: `MaterialOverride` bileşeni kodda bulunmuyor; yalnız glTF için `ModelRef::material_overrides` (slot adıyla `.material`) (`modules/assets/include/astral/assets/asset_manager.hpp:122-131`) |
+| `rt_simple`, `particle`/`volume` `unshaded` | Kabul edilir, etkisiz |
+| Şeffaf yüzey gölgesi/RT'de görünmesi | Yok (§4) |
+| SPIR-V'nin pakete gömülmesi | Yok; çalışma zamanında derlenir (disk önbelleğiyle) |
+| Kullanıcı `#ifdef` anahtarları | Tasarım gereği sunulmaz ([ADR-0022](../decisions/0022-shader-and-material-language.md)); GLSL ön işlemcisi teknik olarak kapalı mı doğrulanmadı |
+| Her yüzey için SSS yarıçapı/teğet yönlü anizotropi | §5'teki kısıtlar |
 
-### 6.4. `#line` Eşlemesi ve Çökmesiz Hot-Reload
+## Bilinen sınırlar
 
-1. Ayrıştırıcı (`parse_ashader`), başlık ifadelerini (`shader_type`, `render_mode`, `uniform`, `varying`) ve yorumları silmek yerine `\n` dışındaki karakterleri **boşluk (`' '`) karakteriyle değiştirir**.
-2. Kullanıcı gövdesi motor şablonuna sarılırken hemen önüne `#line 1`, hemen arkasına `#line 100000` eklenir.
-3. Bu sayede glslang'ın ürettiği her hata satır numarası, **doğrudan `.ashader` dosyanızdaki gerçek satır numarasıdır**. (`100000` ve üzerindeki satırlardan gelen hatalar ise motor şablonu hatası olarak etiketlenir).
-4. `MaterialLibrary::update(now)` her `0.25` saniyede bir dosya değişiklik zamanlarını kontrol eder. Yeni düzenleme derlenemezse eski `ShaderHandle` ve `MaterialHandle` silinmez; ekranda son geçerli görüntü kesintisiz devam eder.
-
----
-
-## 7. Sahne, Özellik (Feature) ve C++ API Entegrasyonu
-
-### 7.1. Sahnede (`.scene`) Kullanım
-
-Bir mesh entity'sine özel materyal atamak için `astral::PrimitiveMesh` bileşeninin `material_file` alanını kullanmanız yeterlidir:
-
-```json
-"astral::PrimitiveMesh": {
-  "shape": "sphere",
-  "material_file": "materials/lava.material"
-}
-```
-
-`WorldBridge`, sahneyi çizime hazırlarken `material_file` yolunu `MaterialLibrary::get(path)` üzerinden çözer ve önbelleğe alır.
-
-### 7.2. Gökyüzü (`sky`) ve Son İşlem (`post`) Bağlama (`MaterialService`)
-
-Gökyüzü ve ekran efektleri bir mesh'e bağlı olmadığı için oyun özelliğinizin (`FeatureContext`) `PreUpdate` veya kurulum aşamasında `ctx.materials().load_material(...)` ile yüklenip `ctx.set_sky_material(...)` ve `ctx.set_post_materials(...)` ile bağlanır (`examples/shader_showcase/src/features/showcase_look/showcase_look.cpp`):
-
-```cpp
-#include <astral/app/feature.hpp>
-#include <astral/app/material_service.hpp>
-
-void install_showcase_look(astral::FeatureContext& ctx) {
-    const std::string sky = ctx.setting_or<std::string>("sky_material", "materials/dusk_sky.material");
-    const std::string post = ctx.setting_or<std::string>("post_material", "materials/vignette.material");
-
-    ctx.systems().add(astral::Phase::PreUpdate, "showcase_look", [sky, post](astral::SystemContext& sys) {
-        if (const auto h = sys.materials().load_material(sky); h.valid()) {
-            sys.set_sky_material(h);
-        }
-        if (const auto h = sys.materials().load_material(post); h.valid()) {
-            sys.set_post_materials({&h, 1});
-        }
-    });
-}
-```
-
-### 7.3. Doğrudan `Astral::Shader` ve `Astral::Render` C++ API'si (Testler ve Araçlar İçin)
-
-Oyun kabuğu olmadan bir shader'ı birim testinde (`tests/game_test.cpp`) doğrulamak ve derlemek için:
-
-```cpp
-#include <astral/shader/ashader.hpp>
-#include <astral/render/surface_shader.hpp>
-#include <astral/render/material_file.hpp>
-
-// 1. Ayrıştırma
-astral::ShaderParse parsed = astral::parse_ashader(shader_text);
-CHECK(parsed.errors.empty());
-
-// 2. SPIR-V ve RT Chunk derlemesi
-if (parsed.source.type == astral::ShaderType::Surface) {
-    astral::SurfaceShaderBuild build = astral::compile_surface_shader(parsed.source, "my_shader.ashader");
-    CHECK(build.ok());
-} else {
-    astral::ScreenShaderBuild build = astral::compile_screen_shader(parsed.source, "my_screen.ashader");
-    CHECK(build.ok());
-}
-```
-
----
-
-## 8. Gerçek Dünya Örnekleri (`examples/shader_showcase`)
-
-`examples/shader_showcase/assets/shaders/` altında motorun tüm güncel yeteneklerini gösteren 9 referans shader bulunur:
-
-| Dosya | Tür ve Modlar | Gösterdiği Teknikler |
-| :--- | :--- | :--- |
-| [lava.ashader](../../examples/shader_showcase/assets/shaders/lava.ashader) | `surface` | UV dikiş izini yok etmek için küresel koordinatlarda 3B prosedürel gürültü (`lava_noise`), domain warping, bazalt kabuk gözenekleri (`AO`, `ROUGHNESS`) ve yüksek `EMISSION` ile RT zemin yansıması + GI aydınlatması. |
-| [alloy.ashader](../../examples/shader_showcase/assets/shaders/alloy.ashader) | `surface` | `dot(NORMAL, VIEW_DIR)` ile bakış açısına bağlı ince film (thin-film interference) kosinüs renk fazı ve anizotropik fırçalanmış metal (`METALLIC = 0.92`) halkaları. |
-| [foliage.ashader](../../examples/shader_showcase/assets/shaders/foliage.ashader) | `surface`<br>`alpha_test, cull_disabled` | `vertex()` içinde tabanı sabit (`1.0 - UV.y`) rüzgâr salınımı, `surface()` içinde prosedürel tırtıklı yaprak maskesi (`ALPHA`) ve nabız gibi parlayan biyolüminesan damarlar. |
-| [glass.ashader](../../examples/shader_showcase/assets/shaders/glass.ashader) | `surface`<br>`blend_mix` | Fresnel tabanlı kenar opaklığı ve renk geçişi (`tint` → `edge_tint`), kazınmış halkalar (`etching`) ve yapay speküler şerit (`stripe`). |
-| [hologram.ashader](../../examples/shader_showcase/assets/shaders/hologram.ashader) | `surface`<br>`blend_add, cull_disabled` | Dünya yüksekliğine (`WORLD_POSITION.y`) bağlı hareketli tarama çizgileri, hücre bazlı dijital telemetri sinyalleri ve parlak çerçeve köşeleri. |
-| [plasma_shell.ashader](../../examples/shader_showcase/assets/shaders/plasma_shell.ashader) | `surface`<br>`blend_add, cull_disabled` | `varying float wave;` kullanarak `vertex()` aşamasında `VERTEX += NORMAL * wave * displacement;` ile silüeti deforme eden ve aynı dalga tepelerini (`crest`) `surface()` aşamasında parlatan enerji kabuğu. |
-| [gallery_floor.ashader](../../examples/shader_showcase/assets/shaders/gallery_floor.ashader) | `surface` | `WORLD_POSITION.xz` ile dünya uzayında şaşırtmalı (staggered) bazalt karolar, derz aralarında düşen `METALLIC` / artan `ROUGHNESS` ve sergi kürsülerine uzanan parlayan iletken raylar. |
-| [dusk_sky.ashader](../../examples/shader_showcase/assets/shaders/dusk_sky.ashader) | `sky` | `EYEDIR` ile ufuk-zenit gradyanı, prosedürel dağ silüeti, `sky_hash` yıldız tarlası, iki katmanlı hareketli aurora perdesi ve `SUN_DIR` etrafında gölgeli hilal + atmosferik hale. |
-| [vignette.ashader](../../examples/shader_showcase/assets/shaders/vignette.ashader) | `post` | `SCREEN_TEXTURE` üzerinde merkezden dışa artan radyal kromatik aberrasyon (R/B kanal kaydırma), parlaklık (`luma`) bazlı sıcak/soğuk renk tonlaması ve kenar karartması (vignette). |
-
----
-
-## 9. Neler Var, Neler Yok? (Destek Matrisi ve Bilinen Sınırlar)
-
-### Şu An Tam Desteklenenler (Neler Var?)
-- **Shader Türleri:** `surface`, `sky`, `post`.
-- **Yüzey Modları:** Opak PBR, `alpha_test` (gölge haritası kesimi dahil), `cull_disabled`, `cull_front`, `blend_mix` (alfa şeffaflık), `blend_add` (toplamsal şeffaflık), `shadows_disabled`, `unshaded`.
-- **Giriş Fonksiyonları:** `vertex()`, `surface()`, `sky()`, `post()` ve sınırsız kullanıcı yardımcı fonksiyonu.
-- **Veri Aktarımı:** `float`, `vec2`, `vec3`, `vec4`, `int`, `bool`, `sampler2D` uniform'ları; `varying` ile vertex->fragment veri geçişi.
-- **Doku ve Normal Haritası:** Bindless `sampler2D`, sRGB (`source_color`), teğet gerektirmeyen türev tabanlı normal haritası (`NORMAL_MAP`, `NORMAL_MAP_DEPTH`, `hint_normal`), doğrusal/nearest ve repeat/clamp örnekleyicileri.
-- **Hibrit RT Uyumu:** Opak özel yüzeylerin `surface()` fonksiyonlarının `rt_lighting` ve `ddgi_trace` compute shader'larına otomatik gömülmesi.
-- **Materyal Sistemi:** `.material` JSON formatı, 16 derinliğe kadar `"parent"` kalıtım zinciri, ` astral-cook` ile derleme doğrulaması ve ikili JSON'a paketleme.
-- **Canlı Akış:** 0.25 sn aralıklı çökmesiz `.ashader` + `.material` hot-reload, `#line` ile birebir satır numarası eşlemesi, F1 → Materials canlı editör paneli.
-
-### Mevcut Sınırlar (Neler Yok / Dikkat Edilmesi Gerekenler)
-1. **Şeffaf Yüzeylerin (`blend_mix`, `blend_add`) Sınırları:**
-   - Şeffaf yüzeyler ayrı bir forward geçişte çizilir; gölge düşürmez, gölge haritasından gölge almaz (güneş + nokta ışıklarla doğrudan aydınlanır) ve TLAS/RT yansımalarına dahil edilmez.
-   - Şeffaf yüzeylerde arka planı büken ekran uzayı kırılma (`SCREEN_TEXTURE` okuma) henüz yalnızca `post` shader'larında vardır.
-2. **Ray Tracing Varyantındaki Kısıtlar:**
-   - RT ikincil ışınlarında `vertex()` deformasyonu, `ALPHA` / `alpha_test` kesimi, `NORMAL_MAP` ve ekran türevleri (`dFdx`/`dFdy`) çalıştırılmaz; BLAS mesh oluşturulurken orijinal köşe konumlarıyla bir kez kurulur.
-   - İki farklı `surface` shader'ında fonksiyon dışında aynı adla global sabit (`const float k = 1.0;`) tanımlanırsa birleşik RT shader derlemesi hata verir (bu durumda raster çalışmaya devam eder, `Renderer::shader_error()` hatayı bildirir). Sabitleri fonksiyon içinde tanımlayın veya benzersiz ön ek verin.
-3. **Gökyüzü (`sky`) ve Aydınlatma İlişkisi:**
-   - `shader_type sky` HDR arka planı çizer. `RenderSettings::sky_ibl` etkinse aynı `sky()` fonksiyonu yüzeyler, yansımalar ve RT ortam ışınları için HDR ışık haritası da üretir. `IBL_CAPTURE` yalnız ışık haritası üretilirken doğrudur. Ayar kapalıyken motor `astral::Environment` gökyüzü ve zemin renklerini kullanır.
-   - SDF şekilleri ayrı bir derinlik tamponu kullandığı için özel `sky` shader'ı SDF primitiflerinin üzerine yazabilir (mesh'lerde bu sorun yoktur).
-4. **Doku Tipleri:**
-   - Yalnızca 2B dokular (`sampler2D`) uniform olarak tanımlanabilir; `sampler3D`, `samplerCube` veya `sampler2DArray` henüz `.ashader` başlığında açılmamıştır.
-5. **Sabit `#ifdef` Yokluğu (Bilinçli Karar):**
-   - Shader varyant patlamasını (permutation explosion) önlemek için kullanıcı tanımlı `#ifdef` anahtarları ve harici `#include` yönergeleri kapalıdır.
-
----
-
-## 10. Gelecek Yol Haritası: İleride Neler Eklenebilir?
-
-`.ashader` mimarisi ve ayrıştırıcısı, motorun gelecek fazlarıyla (M14–M18) doğrudan genişleyecek şekilde kurgulanmıştır:
-
-1. **Aktif Edilecek Yeni `shader_type` Türleri:**
-   - **`shader_type ui;`:** 2B `UiCanvas` / HUD elemanları üzerinde SDF efektleri ve özel arayüz animasyonları için derlenecek.
-2. **HDR Öncesi Son İşlem (`render_mode before_tonemap`):**
-   - `shader_type post;` için şu anki `after_tonemap` noktasına ek olarak doğrusal HDR tamponu üzerinde (Bloom/Tonemap öncesinde) çalışan `before_tonemap` kancası eklenecek.
-3. **Ekran Uzayı Kırılma (Screen-Space Refraction) ve Derinlik Okuma:**
-   - `blend_mix` yüzeylerinin opak sahne rengini (`SCREEN_TEXTURE`) ve derinliğini (`DEPTH_TEXTURE`) okuyabilmesi sağlanarak buz, su (M16) ve mercek kırılmaları desteklenecek.
-4. **Örnek Başına Parametre Ezme (`MaterialOverride` Bileşeni):**
-   - Aynı `.material` dosyasını kullanan yüzlerce entity'nin, yeni bir materyal oluşturmadan ECS bileşeni üzerinden (`astral::MaterialOverride`) tekil uniform değerlerini (örneğin hasar parlaması veya takım rengi) örnek bazında (per-instance) değiştirebilmesi.
-5. **Cook Aşamasında Önceden Derlenmiş SPIR-V ve Pipeline Önbelleği:**
-   - Şu an `astral-cook` `.ashader` dosyalarının hatasız derlendiğini doğruluyor ve çalışma zamanında glslang SPIR-V üretiyor. İleride tüm varyantlar `.apak` paketi içine önceden derlenmiş SPIR-V olarak gömülerek çalışma zamanı derleme süresi sıfıra indirilecek.
-6. **RT Basitleştirme (`render_mode rt_simple`) ve Alfa Testli RT Hit Group'ları:**
-   - Çok ağır prosedürel yüzeylerin ikincil GI ışınlarında hafifletilmiş bir `surface_rt()` / `rt_simple` yoluyla çalıştırılması ve `alpha_test` yüzeylerin RT any-hit aşamasında da kesilmesi.
-7. **Görsel Düğüm Editörü (Visual Shader Graph → `.ashader` Üreticisi):**
-   - Ayrı bir ikili format yerine doğrudan okunabilir ve diff'lenebilir `.ashader` metni üreten düğüm tabanlı bir görsel tasarım aracı ([ADR-0022 §5](../decisions/0022-shader-and-material-language.md)).
+- `rt_simple` ve bazı `render_mode`'lar hata vermeden etkisizdir; yazım hatası yakalanır ama "işe yaramayan geçerli ad" yakalanmaz (`modules/shader/src/ashader.cpp:372-383`).
+- `SUBSURFACE_RADIUS` ve `ATTENUATION_COLOR` birincil yüzeyde tam taşınmaz (§5); anizotropi yönü mesh teğetini izlemez.
+- Şeffaf yüzey sıralaması nesne merkezine göredir; birbirine geçen büyük nesnelerde hatalı sıra olabilir (`modules/render/src/frame/instances.cpp:65-74`).
+- RT varyantında vertex deformasyonu, normal haritası ve türevler yok; yansımada raster'dan farklı görünüm normaldir (§9).
+- Tek özel shader'ın RT derlemesi bozarsa **tüm** özel yüzeyler RT'de varsayılana düşer (`modules/render/src/stores/shader_store.cpp:181-209`).
+- Yardımcı fonksiyon/global adları motor include'larıyla çakışabilir; çakışma uyarısı yok, derleme hatası alırsın (çıkarım).
+- `post` içinde `SCREEN_TEXTURE` ile `COLOR` kodlama farkı (§8.4) çalıştırılarak doğrulanmadı.
+- Doku projeksiyonu (`MeshUV/Planar*/Triplanar`) yalnız standart PBR (`type: pbr`) materyallerinde vardır, `.ashader` yüzeylerine otomatik uygulanmaz
+  ([shaders-and-materials.md](shaders-and-materials.md)).

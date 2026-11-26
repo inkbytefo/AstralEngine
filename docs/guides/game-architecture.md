@@ -1,367 +1,345 @@
-# Astral Game Architecture — World, Scene, Prefab, ECS ve Gameplay
+# Oyun mimarisi: World, Scene, Prefab, Entity, Component, sistemler
 
-**25 Kasım 2026 · İncelenen kaynak:** [21a17b6fe217219f37b557e6dcaaf69802a534d1](https://github.com/inkbytefo/AstralEngine/commit/21a17b6fe217219f37b557e6dcaaf69802a534d1).
-Mevcut runtime'ın kaynak temelli rehberi; yeni Studio/AI hedef mimarisi değil. Örnekler gerçek repository formatları ve API'leriyle uyumlu olacak şekilde hazırlanmıştır, bu oturumda derlenip çalıştırılmadı. Önceki audit bulguları geçerlidir.
+> **Doğrulama:** master a113b55 (2026-11-26) kaynak incelemesi. Her iddia kaynak satırına bağlıdır; çalıştırılarak
+> doğrulanmayanlar "çıkarım" veya "doğrulanmadı" diye işaretlidir. Dosya biçimleri için
+> [scenes-and-worlds.md](scenes-and-worlds.md), oyun kurulumu için [writing-a-game.md](writing-a-game.md).
 
 ## 1. Zihinsel model
 
-Astral'da Game + FeatureSet davranışları kurar; App frame loop ve servisleri çalıştırır; C++ World runtime ECS container'dır. Bir .scene ya da .world dosyası bu ECS'ye veri sağlar. Entity bir kimlik, component veri, system davranıştır. Prefab tekrar kullanılan tek köklü scene şablonu. .world streaming haritasıdır, ECS'nin kendisi değildir.
-
 ```text
-Game Project (CMake, Game, FeatureSet, assets)
- ├─ Game / Feature packages (C++ + Luau)
- └─ Source data
-    ├─ .scene (küçük seviye / oda / menü)
-    │   └─ entity records, prefab instances, Parent refs
-    ├─ .world (büyük harita)
-    │   ├─ settings, grids, data layers
-    │   └─ <stem>.entities/*.ent
-    │       ├─ entity / prefab placement
-    │       └─ Level Instance (.scene placement)
-    └─ .prefab (tek köklü yeniden kullanılabilir entity ağacı)
-                         ↓ load / expand / stream
-App → Context → World (runtime ECS)
-                ├─ Entity(index,generation)
-                ├─ Component columns (archetypes)
-                └─ Systems / events / commands
-                         ↓ bridges
-              Jolt / Renderer / Audio / Luau
+Oyun projesi (CMake, Game, FeatureSet, assets)
+ ├─ Game / özellik paketleri (C++ sistemler + Luau kuralları)
+ └─ Kaynak veri: .scene  .prefab  .world + .ent  (+ .material, .ashader, glTF ...)
+                    │ load / expand / stream
+App ─ Context ─ World (ECS)
+                 ├─ Entity (index + generation)
+                 ├─ Component sütunları (archetype başına)
+                 ├─ Resource'lar, olay kuyrukları, Commands
+                 └─ Sistemler (C++ System + Luau modülleri), fazlara bağlı
+                    │ köprüler (bridge)
+          Jolt fizik · Renderer · Audio · Luau
 ```
 
-Aynı runtime World'e birden fazla scene yüklenebilir; load_scene additive'dir, otomatik eski scene unload yok. .world open/close MapRuntime tarafından yönetilir; düz scene'ler ile map ownership aynı değildir. `astral.world` adlı save_world serialization formatı, `astral.map` formatındaki .world haritasından ayrıdır.
+- **Entity** yalnız kimliktir; **component** düz veridir; **sistem** davranıştır (`modules/world/include/astral/world/world.hpp:116-120`).
+- **Scene** (`.scene`) ve **prefab** (`.prefab`) JSON belgeleridir; yüklenince World'e entity olarak girerler. **`.world`** bir
+  streaming haritasıdır, ECS'nin kendisi değildir (`modules/world/include/astral/world/map.hpp:1-3`).
+- Bir `App` bir `World` sahiplenir; `load_scene` World'e **ekler**, eski sahneyi silmez
+  (`modules/app/include/astral/app/scene_service.hpp:17`). Birden fazla World örneği de kurulabilir; her biri benzersiz
+  `WorldId` taşır (`modules/world/include/astral/world/world.hpp:35`, `modules/world/include/astral/world/world.hpp:128`).
 
-Kaynak: [scene.hpp](../../modules/world/include/astral/world/scene.hpp), [map.hpp](../../modules/world/include/astral/world/map.hpp), [WorldBridge](../../modules/app/src/services/world_bridge.cpp), [scene.cpp](../../modules/world/src/scene.cpp).
+## 2. Entity ve kimlik katmanları
 
-## 2. Dosya türleri
+`Entity` = `Handle<EntityTag>`: `index` + `generation`, `generation == 0` "hiç geçerli değil"
+(`modules/world/include/astral/world/detail/archetype.hpp:13`, `modules/core/include/astral/core/handle.hpp:13-18`).
+Silinen slot yeniden kullanılırken `generation` artar, eski handle çözülmez.
 
-| Tür | Format | Kullanım | Runtime karşılığı |
+| Kimlik | Ne | Kalıcı mı | Kaynak |
 |---|---|---|---|
-| .scene | astral.scene v1 | küçük level, oda, arena, menu | entity kayıtları topluca açılır |
-| .prefab | astral.scene v1 | tekrar kullanılan tek köklü nesne ve parçaları | PrefabInstance + PrefabPart |
-| .world | astral.map v1 | geniş harita, grids/layers/settings | MapRuntime, MapState, CellStreamer |
-| .ent | astral.entity v1 | bir harita yerleştirmesi; entity/prefab/level instance | CellMember, persistent MapEntity::id |
-| .cell | astral.cell v1 | cooker tarafından üretilen streaming cell | yüklenir/boşaltılır |
-| ECS save | astral.world | save_world / load_world verisi | component serialization; harita manifesti değil |
+| `Entity` | Çalışma zamanı handle'ı | Hayır; kaydetme/ağ anahtarı yapma | `modules/world/include/astral/world/detail/archetype.hpp:13` |
+| `WorldEntityRef{WorldId, Entity}` | Handle + sahip World; `world.owns(ref)` | Hayır | `modules/world/include/astral/world/world.hpp:38-43`, `modules/world/include/astral/world/world.hpp:130` |
+| `SceneId` / `DocumentEntityId` | Sahne/prefab belgesindeki kayıt numarası (`"2"`, prefab içi `"2/5"`) | Evet, dosyada | `modules/world/include/astral/world/scene.hpp:59-90` |
+| `MapEntity::id` | Harita yerleşiminin kalıcı numarası (1 … 2³²−1) | Evet | `modules/world/include/astral/world/map.hpp:41-48` |
 
-ModelRef glTF/GLB referansı, PrimitiveMesh built-in şekil verisi, .material/.ashader görsel kaynak; runtime MeshRenderer native mesh/material handle taşır ve dosyaya ham handle yazılmaz.
+- `World::alive(e)` canlılığı doğrular; `e.valid()` yalnız `generation != 0` der (`modules/world/include/astral/world/world.hpp:135`).
+- Ölü entity'ye `world.get<T>(e)` `nullptr` döner; ölü entity'ye **`world.add(e, ...)` süreci durdurur**
+  (`ASTRAL_ASSERT(s, "add() on a dead entity")`, `modules/world/include/astral/world/world.hpp:388`, her yapılandırmada açık).
+  Kareler arası tuttuğun handle'ı kullanmadan önce `alive` kontrol et. Luau'da `entity:alive()` var (`modules/script/src/api.cpp:19`).
+- `Name{value}` insan okur addır, benzersiz kimlik değildir; `find_by_name` eşitler arasında sıra vermez
+  (`modules/world/include/astral/world/scene.hpp:45-48`, `modules/world/include/astral/world/scene.hpp:161`).
 
-## 3. .scene: basit arena
+## 3. Component
 
-Gerçek şablon: [main.scene](../../templates/blank/assets/main.scene). Aşağıdaki küçük türev, prefab dosyası aşağıda tanımlanır.
+Component = düz struct. Kurallar ve ne denetlendiği:
 
-```json
-{
-  "format": "astral.scene",
-  "version": 1,
-  "sun": {"direction": [-0.4, -1, -0.5], "intensity": 1.6},
-  "environment": {"ambient": 0.3, "exposure": 0.6},
-  "entities": [
-    {"id": 1, "components": {
-      "astral::Name": {"value": "camera"},
-      "astral::Transform": {"position": [0, 1.2, 4.5]},
-      "astral::Camera": {}
-    }},
-    {"id": 2, "components": {
-      "astral::Name": {"value": "floor"},
-      "astral::Transform": {"position": [0, -0.6, 0], "scale": [12, 1, 12]},
-      "astral::PrimitiveMesh": {"shape": "Plane", "material": {"roughness": 0.8}}
-    }},
-    {"id": 3, "prefab": "prefabs/lamp.prefab",
-     "components": {"astral::Transform": {"position": [3, 0, 0]}},
-     "parts": {"2": {"components": {"astral::PointLight": {"intensity": 8}}}}}
-  ]
-}
-```
+| Kural | Denetim | Kaynak |
+|---|---|---|
+| Move-constructible ve **nothrow** | Derleme zamanı `static_assert` | `modules/world/include/astral/world/component.hpp:66-67` |
+| `T*` işaretçisi yalnız bir sonraki yapısal değişikliğe kadar geçerli | Yok (sözleşme) | `modules/world/include/astral/world/world.hpp:140` |
+| Yapısal değişiklik (`create/destroy/add/remove`) `each`/`parallel_each` içinde yasak | Çalışma zamanı `ASTRAL_ASSERT`; her yapılandırmada süreci durdurur | `modules/world/src/world.cpp:224-228` |
+| Reflect edilebilir: `ASTRAL_REFLECT(Tip, alanlar...)`, en çok 32 alan | `static_assert` | `modules/core/include/astral/core/reflect.hpp:157` |
 
-`ctx.scenes().load_scene("levels/arena.scene")` asset_root'a göre yükler. Loader format/ID kontrolü yapar, bütün top-level Entity'leri oluşturup SceneId map kurar, component ve prefab'ları uygular, entity refs resolve eder; LoadResult.errors kontrol edilmeli. Bir sahne otomatik isolated World değildir. Başarısız load partial entity bırakabilir; transactional load geliştirme planında. `save_scene` runtime scene snapshot'ı yazar; gameplay save ile aynı iş değildir. Genel root .scene hot reload'ını her frame garanti etme: [FrameLoop](../../modules/app/src/services/frame_loop.cpp) asset/material/script/prefab/model sync çağırıyor, arbitrary loaded root scene replace yolu bu kaynakta gösterilmiyor.
-
-## 4. .prefab: tekrar kullanım
-
-`assets/prefabs/lamp.prefab`:
-
-```json
-{
-  "format": "astral.scene",
-  "version": 1,
-  "entities": [
-    {"id": 1, "components": {
-      "astral::Name": {"value": "lamp"},
-      "astral::Transform": {},
-      "astral::PrimitiveMesh": {"shape": "Cube"}
-    }},
-    {"id": 2, "components": {
-      "astral::Name": {"value": "light"},
-      "astral::Parent": {"entity": 1},
-      "astral::Transform": {"position": [0, 1, 0]},
-      "astral::PointLight": {"intensity": 15, "radius": 8}
-    }}
-  ]
-}
-```
-
-Prefab exactly one root; children Parent ile bağlanır. Sahnedeki instance 3 kendi position'ını ve light part 2 intensity override'ını saklar; başka instance etkilenmez. Nested prefab ve variant desteklenir; root'un kendisi prefab instance olabilir. Root components / removed / parts / deleted alanları ile farklar. Instance içi document ref `"3/2"`; root ref `3`. `PrefabLibrary` source revisions ile flattened template cache'ler; `sync_prefabs` changed templates için instance parçalarını yeniden üretir ve overrides korur. Part runtime handle'ları reload'da değişebilir.
+Depolama: aynı component kümesine sahip entity'ler bir **archetype**'ta sıkı dizilir; component ekleme/çıkarma entity'yi başka
+archetype'a taşır (`modules/world/include/astral/world/world.hpp:116-118`). `ComponentId` tipin etiket adresidir; **koşular arasında kararlı değildir**, kaydetme
+anahtarı olarak kullanılmaz (`modules/world/include/astral/world/component.hpp:11-16`).
 
 ```cpp
-Entity lamp = ctx.scenes().spawn_prefab(
-    "prefabs/lamp.prefab", {.position = {3, 0, 0}});
-Entity light = find_part(ctx.world, lamp, "light");
-```
-
-Spawn error loglanabilir ve root handle dönmesi tam başarılı prefab kanıtı değildir. Handle alındıktan sonra gerekli component/part kontrolü yap. Prefab ownership ile Parent transform relationship aynı kavram değildir.
-
-Gerçek örnek: [pong paddle.prefab](../../examples/pong/assets/prefabs/paddle.prefab) root paddle + top/bottom/left/right children.
-
-## 5. .world ve .ent: streaming harita
-
-```text
-assets/
-  maps/
-    arena.world
-    arena.entities/
-      1.ent
-      2.ent
-  levels/
-    courtyard.scene
-  prefabs/
-    lamp.prefab
-```
-
-`arena.world`:
-
-```json
-{
-  "format": "astral.map",
-  "version": 1,
-  "settings": {},
-  "grids": [{"name": "main", "cell_size": 128, "load_range": 384}],
-  "layers": [{"name": "props", "active": true}]
-}
-```
-
-`arena.entities/1.ent`:
-
-```json
-{
-  "format": "astral.entity",
-  "version": 1,
-  "grid": "main",
-  "layers": ["props"],
-  "entity": {
-    "id": 1,
-    "prefab": "prefabs/lamp.prefab",
-    "components": {"astral::Transform": {"position": [200, 0, 20]}}
-  }
-}
-```
-
-`arena.entities/2.ent` level instance:
-
-```json
-{
-  "format": "astral.entity",
-  "version": 1,
-  "grid": "main",
-  "entity": {
-    "id": 2,
-    "level_instance": {
-      "scene": "levels/courtyard.scene",
-      "position": [500, 0, 200],
-      "scale": [1, 1, 1]
-    }
-  }
-}
-```
-
-Schema source: [map.cpp](../../modules/world/src/map.cpp), [level_instance.cpp](../../modules/world/src/level_instance.cpp). Source map reads .entities folder, expands level instances, assigns cells by ground plane floor(x/cell_size), floor(z/cell_size). Cooked map index plus .cells/*.cell; runtime loose path can construct cells from source. For first example lamp x=200,z=20 → cell (1,0) at 128m. Streaming sources from active StreamingSource, fallback first active Camera. Cell loaded within range of its square; budget and async load. always_loaded:true for persistent game rules/player as needed; empty layers visible, any named layer active visible. .world settings free-form, game must consume its rules; do not assume arbitrary key applies gravity/render automatically.
-
-```cpp
-if (!ctx.maps().open_world("maps/arena.world")) {
-    ctx.quit();
-    return;
-}
-```
-
-Level Instance differs from prefab: source .scene may have multiple roots; placement expands into map entities with deterministic persistent IDs and world-space transforms, each independently assigned to cell. No artificial transform parent. Supports nested scenes and per-instance overrides/deleted lists, depth/entity limits; .world inside .world not supported. Source edit vs instance override distinction. E1 is present in actual source; old scenes-and-worlds guide saying planned is stale.
-
-MapState tracks Unknown/Unloaded/Alive/Destroyed, load_count and cell diffs for unloaded entities. Runtime references across cells should use persistent MapEntity id/MapEntityRef/CrossCellRef + lookup; raw Entity can go stale after unload/reload. In-memory CellDiff is not automatic permanent save. Floating origin uses double world positions and local float transforms. Read [MapState](../../modules/world/include/astral/world/map_state.hpp) and [ADR-0036](../decisions/0036-world-authoring-and-level-instances.md). A09/AG13/PH03 remain open.
-
-## 6. Entity and hierarchy
-
-Entity runtime handle = index + generation, owned by one World; `World::alive(e)` validates, not merely handle.valid(). WorldEntityRef includes WorldId; `world.owns(ref)` verifies world association. File record id (SceneId), DocumentEntityId (record + prefab part path), MapEntity id and runtime Entity are distinct. Do not serialize index/generation as permanent ID; Name human-readable not unique identity.
-
-Parent is component `Parent{Entity entity}`, not object ownership. Transform is local, WorldTransform calculated by update_transforms; root world=local, child world=parent world * local. Parent missing/dead is ignored; cycle handling exists, authoring should prohibit cycle. Do not write WorldTransform manually. Parent hierarchy doesn't generally imply recursive destroy; prefab part ownership separately managed. RigidBody documented root-only. Character/physics geometry uses desc, don't assume visual scale automatically changes collision.
-
-```cpp
-using namespace astral;
-Entity player = ctx.world.create(Name{"Player"}, Transform{});
-Entity camera = ctx.world.create(
-    Name{"Camera"}, Transform{.position = {0, 1.7f, 0}},
-    Parent{player}, Camera{});
-Entity sword = ctx.world.create(
-    Name{"Sword"}, Transform{.position = {0.5f, 1.0f, 0}},
-    Parent{player});
-```
-
-[Transform](../../modules/world/include/astral/world/transform.hpp), [implementation](../../modules/world/src/transform.cpp), [World](../../modules/world/include/astral/world/world.hpp), [components.hpp](../../modules/app/include/astral/app/components.hpp). Camera looks -Z; Y up. Local rotation quaternion [x,y,z,w]. Transform update occurs after physics/post-update in frame loop; latest WorldTransform not guaranteed in early FixedUpdate (PHR02).
-
-## 7. Component system
-
-Pure data, not GameObject methods or inheritance. Same set of component types → same archetype; SoA columns contiguous, add/remove moves entity to different archetype; storage may relocate on structural changes. Component types must be nothrow move constructible; C06 typed add replacement contract tracked. World stores instances; C++ definitions in game/engine headers, values in JSON/Luau or code. Runtime ComponentId per-type address; not persistent key. TypeRegistry + reflection names provide serialized fields/schema; register BEFORE loading scenes.
-
-```cpp
-namespace arena {
-struct Health { int value = 100; };
-struct Player { float speed = 6.0f; };
-struct Enemy {};
-}
+namespace arena { struct Health { int value = 100; }; struct Player { float speed = 6.0f; }; struct Enemy {}; }
 ASTRAL_REFLECT(arena::Health, value)
 ASTRAL_REFLECT(arena::Player, speed)
-```
+ASTRAL_REFLECT_EMPTY(arena::Enemy)     // alansız etiket component'i
 
-In feature installation use feature.component<T>(); manifest declares ownership. Outside FeatureSet ctx.types.add<T>() for reflection. Plain nonreflected component can be used internally but not automatically exposed in scene/Inspector/Luau. Dynamic Luau components through astral.define_component with supported field types (f32,i32,u32,bool,vec2,vec3,vec4,quat,entity); schema cannot change while running, restart required.
-
-```cpp
 Entity e = ctx.world.create(Transform{}, arena::Health{}, arena::Player{});
-if (auto* health = ctx.world.get<arena::Health>(e))
-    health->value -= 10;
+if (auto* h = ctx.world.get<arena::Health>(e)) h->value -= 10;   // mutable get = "değişti" damgası
 ctx.world.add(e, arena::Enemy{});
 ctx.world.remove<arena::Enemy>(e);
-ctx.world.each<const arena::Health>([&](Entity ent, const arena::Health& h) {
-    if (h.value <= 0) ctx.world.commands().destroy(ent);
+ctx.world.each<const arena::Health>([&](Entity ent, const arena::Health& hp) {
+    if (hp.value <= 0) ctx.world.commands().destroy(ent);          // yapısal değişiklik = komut kuyruğu
 });
 ```
 
-Do not retain component pointers across structural changes. During each/parallel_each, defer create/destroy/add/remove via commands. const read not marked changed, mutable access conservatively changed. Query with/without/changed/added, resources one per type per World, typed EventReader and send. parallel_each only own row, SystemAccess explicit reads/writes or exclusive default; event/resource/service access and nested ticks risks C01/CR01/CR06 remain open. Do not assume full thread safety.
+(`ASTRAL_REFLECT_EMPTY` kullanımı `modules/app/include/astral/app/components.hpp:300` ile aynı kalıp.)
 
-Engine component examples: Name/Transform/Parent, PrimitiveMesh/ModelRef/MeshRenderer, Camera, PointLight/RectLight, RigidBody/CharacterController, Joint/JointMotor, AudioSource, TerrainRef, Atmosphere, VFX. Consult actual registered schema/API rather than guessing serializable fields.
+### 3.1 Kayıt: sahne dosyasında ve Luau'da görünmek
 
-## 8. Gameplay: Game, FeatureSet, systems, events
+`ctx.types` (`TypeRegistry`) kaydedilebilir component'leri adıyla tutar. Motorun kendi component'leri `App` kurulurken
+kayıtlıdır; seninkileri `ctx.types.add<T>()` (özellik içinde `feature.component<T>()`) ile **sahneyi yüklemeden önce** eklersin
+(`modules/world/include/astral/world/serialize.hpp:288-320`). Yüklenmeyen/bilinmeyen component adı `LoadResult::errors`'a
+yazılır ve atlanır (`modules/world/src/serialize.cpp:161`).
 
-Repository pattern from [Blank](../../templates/blank/README.md), [Pong](../../examples/pong/src/game.cpp), [AGENTS](../../AGENTS.md):
-```text
-src/game.cpp
-src/game.hpp
-src/features/spin/spin.hpp       # component definitions + reflection
-src/features/spin/spin.cpp       # install function
-assets/features/spin/feature.json
-assets/features/spin/spin.luau    # behaviour
-assets/main.scene
-tests/game_test.cpp
-```
+Motorun kayıtlı component'leri (`modules/app/src/app.cpp:45-79`, `modules/world/src/serialize.cpp:83-88`):
 
-Actual Blank feature (abridged):
+| Grup | Component'ler |
+|---|---|
+| Dünya | `Name`, `Transform`, `Parent`, `LevelInstanceMember`, `CrossCellRef` |
+| Görünüm | `Camera`, `Atmosphere`, `PointLight`, `RectLight`, `Sdf`, `ModelRef`, `PrimitiveMesh`, `TerrainRef` |
+| Fizik | `RigidBody`, `CharacterController`, `Joint`, `JointMotor`, `WindZone`, `WaterBody`, `Buoyant`, `AirDrag`, `Airfoil` |
+| Diğer | `AudioSource`, `AudioListener`, `StreamingSource`, `Script` (Luau, `modules/script/src/host.cpp:92`) |
+
+Çalışma zamanı üretimi olan `ModelPiece`, `TerrainTileDraw` ve VFX iç component'leri kaydedilmez/kaydetmeye dahil edilmez
+(`types.exclude<...>`, `modules/app/src/app.cpp:57`, `modules/app/src/services/vfx_runtime.cpp:185-189`,
+`modules/app/src/services/render_bridge.cpp:144`).
+
+**Luau'da tanımlanan component'ler** `astral.define_component("game::Cooldown", {left = {type = "f32", default = 0}})`: tipler
+`f32 i32 u32 bool vec2 vec3 vec4 quat entity` (string ve enum yok), en çok 256 bayt (`modules/world/include/astral/world/serialize.hpp:349-353`,
+`modules/script/src/api.cpp:33-35`). Sahne, kayıt ve inspector bunları C++ component'i gibi bilir.
+Yansıtılmış ama alanı iç içe reflect edilen yapı olan alanlar (`PrimitiveMesh.material`) `FieldKind::Other`'dır ve script'e görünmez
+(`modules/world/include/astral/world/fields.hpp:28`, `modules/script/src/api.cpp:156`).
+
+### 3.2 Değişiklik izleme ve resource
+
+- Mutable `get<T>` / `each<T&>` o component'i "değişti" sayar; salt okuma için `const T` yaz (`modules/world/include/astral/world/world.hpp:160-165`). Bir sistemin içinde
+  `world.query<const Health>().changed<Health>().each(...)` "bu sistem en son koştuğundan beri değişenler" demektir; App her sisteme
+  kendi başlangıç noktasını verir (`modules/world/include/astral/world/world.hpp:178-182`, `modules/world/include/astral/world/world.hpp:282-291`).
+- `world.set_resource<T>(value)` / `world.resource<T>()`: tip başına bir değer, World'e ait (`modules/world/include/astral/world/world.hpp:214-217`).
+- `Commands`: `spawn/destroy/add/remove` kaydeder, `apply_commands()` uygular; kayıt iş parçacığı güvenlidir
+  (`modules/world/include/astral/world/world.hpp:84-90`). App her faz sonunda uygular (`modules/app/src/services/frame_loop.cpp:118-123`).
+
+## 4. Hiyerarşi ve transform
+
 ```cpp
-namespace blank {
-struct Spin {
-    astral::Vec3 axis{0, 1, 0};
-    float speed = 1.0f;
-};
-void install_spin(astral::FeatureContext& feature) {
-    feature.component<Spin>();
-}
-}
-ASTRAL_REFLECT(blank::Spin, axis, speed)
+Entity player = ctx.world.create(Name{"Player"}, Transform{});
+Entity camera = ctx.world.create(Name{"Camera"}, Transform{.position = {0, 1.7f, 0}}, Parent{player}, Camera{});
 ```
 
-Reflection must be visible before instantiation: in actual code Spin and reflection live in header, install_spin in .cpp. Use actual files [spin.hpp](../../templates/blank/src/features/spin/spin.hpp), [spin.cpp](../../templates/blank/src/features/spin/spin.cpp) for compile-ready split.
+- `Transform` yerel, `Parent{Entity}` onu başka bir entity'ye göre yapar, `WorldTransform` hesaplanmış dünya matrisidir
+  (`modules/world/include/astral/world/transform.hpp:10-24`). `WorldTransform`'u **yazma**.
+- `update_transforms` her karede `PostUpdate`'ten sonra koşar (`modules/app/src/services/frame_loop.cpp:84-86`); yani
+  `Update`/`FixedUpdate` içinde okuduğun `WorldTransform` bir önceki karenindir. Var olmayan ebeveyn yok sayılır, döngüler kırılır
+  (`modules/world/include/astral/world/transform.hpp:28-30`).
+- **Ebeveyn silinince çocuklar silinmez** (`World::destroy` yalnız o entity'yi siler, `modules/world/src/world.cpp:276-286`). Çocukları sen
+  yok et; prefab parçaları ayrıdır: instance silinince parçalar da gider (`modules/world/include/astral/world/scene.hpp:23-26`).
+- `RigidBody` **yalnız kök** entity'de desteklenir; `desc` oluşturulurken bir kez okunur, şekli/hareket tipini değiştirmek için
+  component'i değiştir (`modules/app/include/astral/app/components.hpp:83-87`).
+- Kamera `−Z`'ye bakar, Y yukarı (`modules/app/include/astral/app/components.hpp:74-75`). Döndürme dosyada `[x, y, z, w]` (`modules/world/src/level_instance.cpp:40-47`).
 
-Actual manifest:
-```json
-{
-  "format": "astral.feature",
-  "version": 1,
-  "name": "spin",
-  "description": "Things that turn.",
-  "depends_on": [],
-  "components": ["blank::Spin"],
-  "events": [],
-  "exports": {"headers": ["spin.hpp"]},
-  "scripts": ["features/spin/spin.luau"],
-  "actions": []
-}
-```
-Game on_start:
+## 5. Sistemler, fazlar ve olaylar
+
+### 5.1 Kare sırası
+
+`FrameLoop::run_frame` (`modules/app/src/services/frame_loop.cpp:64-91`):
+
+| Sıra | Aşama | Not |
+|---|---|---|
+| 1 | Girdi yönlendirme | `modules/app/src/services/frame_loop.cpp:66`, `modules/app/src/services/frame_loop.cpp:93-96` |
+| 2 | `world.update_events()` | Geçen karede gönderilen olaylar bu karede hâlâ okunur, sonra düşer (`modules/app/src/services/frame_loop.cpp:67`) |
+| 3 | Dünya streaming | Açık harita varsa (`modules/app/src/services/frame_loop.cpp:68-71`) |
+| 4 | Asset/materyal/script/prefab/model senkronu | Hot reload burada (`modules/app/src/services/frame_loop.cpp:109-116`) |
+| 5 | `PreUpdate` | C++ sistemleri → Luau → komutlar uygulanır |
+| 6 | `Game::on_update` | `PreUpdate`'ten sonra, `Update`'ten önce (`modules/app/src/services/frame_loop.cpp:75`, `modules/app/src/services/frame_loop.cpp:125-129`) |
+| 7 | `Update` | |
+| 8 | Fizik: 0…N × (alan yeniden kurulumu → `FixedUpdate` → komutlar → gövde senkronu → fizik komutları → kinematik/karakter → alan kuvvetleri → `step`) | `modules/app/src/services/physics_bridge.cpp:378-426` |
+| 9 | Çarpışma/tetik olayları gönderilir, simüle edilen transform'lar yazılır | `modules/app/src/services/physics_bridge.cpp:423-425` |
+| 10 | `PostUpdate` | |
+| 11 | Atmosfer, `update_transforms`, primitif/ses senkronu, render | `modules/app/src/services/frame_loop.cpp:85-88` |
+| 12 | Debug/HUD temizlenir, `time.elapsed`/`frame` ilerler | `modules/app/src/services/frame_loop.cpp:180-185` |
+
+Her fazda önce o fazın C++ sistemleri, sonra Luau modülleri koşar (`modules/app/src/services/frame_loop.cpp:118-123`); ikisinin arasında paylaşılan durum
+component'tir. Faz sırası kare sırası testleriyle sabitlenmiştir (`modules/app/tests/frame_order_test.cpp:85`, `modules/app/tests/frame_order_test.cpp:142`).
+
+`Time`: `delta` önceki karenin süresi (saat `max_delta` ile kelepçeli, `modules/core/src/clock.cpp:19-28`), `fixed_delta` `1/physics_rate`
+(`modules/app/src/app.cpp:296`), `elapsed`, `frame` (`modules/app/include/astral/app/components.hpp:265-270`). Fizik birikimi en çok
+`max_physics_steps` (varsayılan 4) adım atar; fazlası **düşer**, birikim bir adıma kırpılır (`modules/app/src/services/physics_bridge.cpp:414`,
+`modules/app/include/astral/app/app.hpp:225`).
+
+### 5.2 C++ sistemi, erişim bildirimi ve paralellik
+
 ```cpp
-void BlankGame::on_start(astral::Context& ctx) {
-    astral::FeatureSet game;
-    game.add("spin", install_spin);
-    if (!game.install(ctx)) {
-        ctx.quit();
-        return;
-    }
-    ctx.scenes().load_scene("main.scene");
-}
-```
-
-Scene entity component:
-```json
-"blank::Spin": {"axis": [0, 1, 0.3], "speed": 1.2}
-```
-
-Actual Luau system:
-```lua
---!strict
-astral.system({
-    name = "spin",
-    phase = "Update",
-    query = {"astral::Transform", "blank::Spin"},
-    update = function(ctx, _, transform, spin)
-        local turn = astral.quat.axis_angle(spin.axis, spin.speed * ctx.delta)
-        transform.rotation = astral.quat.normalize(astral.quat.mul(turn, transform.rotation))
-    end,
-})
-```
-
-C++ alternative system for non-physics movement (illustrative, register Phase::Update via ctx.add_system or FeatureContext::system):
-```cpp
-class PlayerMovement final : public astral::System {
+class Gravity final : public System {
 public:
-    void update(astral::Context& ctx) override {
-        const auto move = ctx.input.wasd();
-        ctx.world.each<astral::Transform, const arena::Player>(
-            [&](astral::Transform& t, const arena::Player& p) {
-                t.position += astral::Vec3{move.x, 0, -move.y} * p.speed * ctx.time.delta;
-            });
+    void configure(SystemAccess& access) override { access.query<Transform, const Falling>(); }
+    void update(Context& ctx) override {
+        ctx.world.each<Transform, const Falling>([&](Transform& t, const Falling& f) { t.position.y -= f.speed * ctx.time.delta; });
+    }
+};
+ctx.add_system<Gravity>(Phase::Update);
+```
+
+- `SystemAccess` okunan/yazılan component'leri bildirir; bildirmeyen sistem **dışlayıcı** sayılır ve tek başına ana iş parçacığında koşar
+  (`modules/app/include/astral/app/system.hpp:22-55`).
+- Zamanlayıcı, kayıt sırasındaki **ardışık** ve birbiriyle çakışmayan sistemleri dalgalar halinde paralel koşturur
+  (`modules/app/src/services/system_scheduler.cpp:108-125`); `AppDesc::parallel_systems` / `Context::set_parallel_systems` ile kapanır
+  (`modules/app/include/astral/app/app.hpp:253-254`, `modules/app/include/astral/app/app.hpp:192-194`).
+- Bildirilen erişimi doğrulayan bir mekanizma kodda bulunamadı: yanlış bildirim yarış durumudur (doğrulanmadı: çalışma zamanı denetimi yok).
+- Sistem sırası **anlam taşır**: aynı entity'ye çakışan fizik setter'larında sonra kayıtlı olan kazanır (§7). `parallel_each(jobs, fn)` içinde
+  `fn` yalnız kendi entity'sine dokunmalı (`modules/world/include/astral/world/world.hpp:166-168`).
+- Hafif biçim: `ctx.add_system(Phase::Update, "ad", [](Context& c) {...}, SystemAccess{}.query<...>())` (`modules/app/include/astral/app/app.hpp:144-150`).
+
+### 5.3 Olaylar
+
+```cpp
+struct Damage { Entity target; int amount = 0; };
+ASTRAL_REFLECT(Damage, target, amount)            // script'e açmak için; yalnız C++ içinde kalacaksa gerekmez
+ctx.events.add<Damage>();                         // adla gönder/dinle (Luau): FeatureContext::event<T>() de yapar
+ctx.world.send(Damage{target, 30});               // C++ gönderimi
+
+class Hurt final : public System {                // C++ okuyucu
+    EventReader<Damage> damage_;
+public:
+    void update(Context& ctx) override {
+        damage_.read(ctx.world, [&](const Damage& d) { /* ... */ });
     }
 };
 ```
-For physical characters set CharacterController move/jump or physics service, not direct Transform every frame; fixed authoritative motion and input buffering follow physics contract. Heavy engine math in C++, gameplay rules Luau first, state in components, events decouple features. A feature exports component/event declarations and approved headers; no direct cross-feature implementation calls. FeatureSet topologically sorts dependencies, registers C++ and loads manifest actions/scripts. Current AG06 multiple .actions files overwrite issue: until fixed, use one shared action map per game and don't pretend feature composition is complete. Named action examples [pong.actions](../../examples/pong/assets/features/pong_rules/pong.actions); generate API.md and astral.d.luau from actual game executable with --script-api.
 
-Pong proves intended structure: pong_rules owns Court/Paddle/Ball/Match + Scored/Bounced; Luau Update handles input, FixedUpdate ball movement/scoring, PostUpdate visual depth marker. pong_audio and pong_scorelights C++ consume events; court.scene/prefabs data. Not a full physics-based FPS. No build/run in this audit.
+- Olay iki `update_events()` çağrısı yaşar; bir `EventReader` **en az iki karede bir** okumalı yoksa olay kaçar
+  (`modules/world/include/astral/world/world.hpp:46-47`, `modules/world/include/astral/world/world.hpp:329-331`). Her okuyucu her olayı bir kez görür.
+- `World::send` iş parçacığı güvenlidir (olay kuyruğu mutex'li, `modules/world/include/astral/world/world.hpp:450-456`). `EventReader::read` içinde aynı
+  tipte gönderirsen olay **sonraki okumada** görülür (`modules/world/include/astral/world/world.hpp:55-59`).
+- Luau: `astral.on("game::Damage", function(ctx, e) ... end, "FixedUpdate")`; varsayılan faz `Update`. Dinleyici kaydedildiği andan
+  **sonra** gönderilen olayları görür (`modules/script/src/bindings.cpp:288-290`). Bilinmeyen olay adı hata verir.
+- Motor olayları: `Contact`, `TriggerEntered`, `TriggerExited`, `JointBroken`, `JointDetached` (script'e açık,
+  `modules/app/src/app.cpp:70-74`), `PlayVfx`, `StopVfx`, `DisperseSmoke` (`modules/app/src/services/vfx_runtime.cpp:181-184`).
+  `OriginShifted` yalnız C++ `EventReader<OriginShifted>` ile okunur; `EventRegistry`'ye eklenmiş bir kayıt bulunamadı
+  (`modules/app/src/services/world_bridge.cpp:148`).
+- Fizik olayları adımlardan **sonra** gönderilir (`modules/app/src/services/physics_bridge.cpp:423`): aynı karenin `PostUpdate`'inde ve sonraki karenin
+  fazlarında okunabilir; `Update`'te dinleyen bir Luau modülü onları bir sonraki karede görür.
 
-## 9. Frame execution and gameplay guidelines
+## 6. Luau ile gameplay
 
-[FrameLoop](../../modules/app/src/services/frame_loop.cpp):
-input route → event age → streaming/origin → asset/material/script/prefab/model sync → PreUpdate → Game::on_update → Update → physics accumulator (0..N FixedUpdate + deferred commands + body sync + physics step) → PostUpdate → atmosphere → world transforms/primitives → audio → render → time advance.
-Each scripted phase C++ then Luau; apply deferred commands at boundaries. Physics contacts collected across steps and published by bridge. Use ctx.fixed_delta in Luau FixedUpdate, frame delta for presentation; do not assume current frame pressed() is consumed exactly once by fixed ticks (AGR01) or elapsed deterministic (PH04/AGR02). For now store explicit one-shot requests and consume once, regression-test; full TickInputBuffer planned.
+Luau yalnız `astral` tablosuna uzanır; tam yüzey oyunun kendi `API.md` + `astral.d.luau` çıktısıdır
+(`oyun --script-api docs/api`; katalog `modules/script/src/api.cpp:9-125`). Özet:
 
-Gameplay example responsibilities:
-- Player: input intentions + CharacterController.
-- Combat: Health, weapon/cooldown state, Damage/Hit events, fixed systems; melee animation/sweeps and network replication require capability proof.
-- Inventory: item ids and quantities in data; pickup events trigger rule; persistent state via validated save.
-- Match: rule entity (no Transform required), team, score, timer, win condition.
-- HUD/Audio/VFX: read state/events, not source of gameplay truth.
-- Scene/world: placement, authored configuration, not game rules. Spawn prefab for runtime entities.
-
-## 10. Choosing scene or world
-
-Small FPS arena, sword arena, football pitch, main menu, puzzle room: start .scene; compose prefab players/weapons/props. Open-world city/island: .world + .ent + reusable level instance .scene. Use multiple separate .scene files for authored levels but transition lifecycle explicitly (load_scene additive; AG13 map switch failure, AG01 save loading defects tracked). Don't introduce .world streaming just because game has multiple menus or levels.
-
-Proposed ARENA example folder structure (not an existing Astral project):
-```text
-arena/
-  CMakeLists.txt
-  src/game.cpp
-  src/features/{player,combat,match,hud,audio}/
-  assets/
-    levels/arena.scene
-    prefabs/player.prefab
-    prefabs/sword.prefab
-    features/{player,combat,match,hud,audio}/feature.json
-  tests/
+```lua
+astral.system { name = "x", phase = "FixedUpdate", query = {"A", "B"}, with = {...}, without = {"C"},
+                update = function(ctx, entity, a, b) end }            -- her eşleşen entity için
+astral.system { phase = "Update", run = function(ctx) end }           -- fazda bir kez
+astral.on("event::Name", function(ctx, payload) end, "FixedUpdate")  -- varsayılan faz: Update
+astral.send("event::Name", { field = value })
+astral.query({"A","B"})  astral.each({"A","B"}, function(entity, a, b) end)
+astral.spawn { ["astral::Name"] = {value = "x"} }  astral.find("x")
+entity:get("A")  :has  :add  :remove  :destroy()  :alive()  :id()
+astral.after(s, fn)  astral.every(s, fn)  astral.cancel(id)  astral.random()  astral.seed(n)
+astral.tween  astral.state_machine  astral.ease  astral.lerp  astral.quat.*  astral.input.*
+astral.physics.*  astral.fields.wind/water  astral.save/load/has_save
 ```
-Start from Blank; register types/features before scene load; one working gameplay vertical slice; add world when streaming is needed. Headless App run_frames and CTest, actual --script-api; package via template's build target. Current Studio project manager/PIE/AI tools are planned; manual code and assets are real workflow. See [writing-a-game](writing-a-game.md) and [GDX](../game-development-experience-roadmap.md).
 
-## 11. Known limitations and verification
+- `ctx` içinde `delta`, `fixed_delta`, `time` (`modules/script/src/host.cpp:354-359`). Sistem sırası: modül yükleme sırasıyla,
+  her modülde önce dinleyiciler sonra sistemler; ardından `behaviour`'lar ve `Update`'te zamanlayıcılar (`modules/script/src/host.cpp:363-378`).
+- `astral.behaviour{on_start, on_update, on_fixed_update}` `astral::Script{path}` component'li entity'ler içindir (`modules/script/src/api.cpp:26-28`).
+- Değerler: `vector` (Vec3), `{x=,y=}` (Vec2), `{x=,y=,z=,w=}` (Vec4/Quat), enum adı string, entity alanı entity ya da `nil`
+  (`modules/script/src/api.cpp:135-150`).
+- **Aşamalı modül yükleme ([ADR-0044](../decisions/0044-staged-script-module-load.md)):** modülün üst düzey kodu bir *bildirim aşamasıdır*. Dünyayı değiştiren çağrılar (`astral.spawn`,
+  `entity:add/remove/destroy`, alan yazma, `astral.send`, `astral.save/load`, fizik komutları) üst düzeyde hata verir; global
+  `on_load()` işlevinde veya bir callback içinde çağır (`modules/script/src/bindings.cpp:59-61`, `modules/script/src/host.cpp:173-183`).
+  Başarısız yükleme dünyayı, tip ve olay kayıtlarını değiştirmez (`modules/script/tests/msr_regression_test.cpp:140`, `modules/script/tests/msr_regression_test.cpp:161`).
+- **Hata ve bütçe:** callback hatası modülü durdurur (`ScriptHost::failed`), `dosya:satır: mesaj` loglanır; dosyayı düzeltince yeniden
+  yüklenir (`modules/script/include/astral/script/script.hpp:167-177`). Bir faz (veya modül yüklemesi) **100 ms**'yi aşarsa hata ile
+  kesilir (`modules/script/include/astral/script/script.hpp:155-158`; `AppDesc`'ten ayarlanamaz, `modules/app/src/services/script_bridge.cpp:113`).
+- Sandbox: Luau standart kütüphaneleri açık (`luaL_openlibs`) ve `luaL_sandbox` ile salt okunur yapılmış
+  (`modules/script/src/host.cpp:95`, `modules/script/src/host.cpp:108`). Dosya/süreç erişimi ve `require` yoktur (Luau'nun kendi davranışı; bu repoda ayrıca
+  sınanmadı). Determinizm için `os.time/os.clock` yerine `astral.random()`/`ctx.time` kullan.
+- Durumu script'te değil **component'te** tut: hot reload ve kayıt bunu varsayar (`modules/script/include/astral/script/script.hpp:2-4`).
+- Dinamik component şeması çalışırken değişmez; adı tekrar tanımlama (`modules/world/include/astral/world/serialize.hpp:349-353`).
 
-This guide does not fix previous findings. C01/C02/C06, PH01–05, AG01–13, A09/A10, AS01–13 etc. affect authoring/runtime reliability. Root scene hot reload not proven by FrameLoop; prefab/material/script reload supported but failure/atomicity issues documented. .world settings aren't automatic universal configuration; Level Instance support exists; source and cooked differences require tests. Examples are source-reviewed, not compiled/played. Engine docs old claims should be updated against current source after fixes; do not mark capability verified until actual test evidence. [MSR](../archive/msr/master-stabilization-roadmap.md).
+## 7. Fizik komut sözleşmesi ([ADR-0034](../decisions/0034-gameplay-api-and-physics-step-contract.md), [ADR-0043](../decisions/0043-deterministic-physics-command-producers.md))
+
+Fiziği `PhysicsService` (`ctx.physics_service()`) üzerinden kullan; `ctx.physics` (`PhysicsWorld`) doğrudan, adımı sana bırakan alt
+seviye yoldur ve sözleşmenin dışındadır (`modules/app/include/astral/app/app.hpp:78`, test: `modules/app/tests/physics_step_contract_test.cpp:198`).
+
+**Sabit adım döngüsü** (`modules/app/src/services/physics_bridge.cpp:378-426`):
+
+1. Kare başında gövde senkronu (yeni `RigidBody`'ler gerçek gövde olur).
+2. `accumulator += delta`; her sabit adım için (en çok `max_physics_steps`): alan dünyası yeniden kurulur → **`FixedUpdate` sistemleri**
+   (C++ sonra Luau) → `apply_commands` → gövde ve eklem senkronu → **kuyruktaki fizik komutları uygulanır** → kinematik hareket →
+   karakterler → alan kuvvetleri → `PhysicsWorld::step`.
+3. Adımlardan sonra temas/tetik olayları `World::send` ile gönderilir, dinamik gövdelerin `Transform`'u yazılır.
+
+**Komutlar** (`add_impulse`, `add_force`, `add_force_at`, `add_torque`, `add_angular_impulse`, `set_linear_velocity`,
+`set_angular_velocity`, `set_body_transform`, `wake/sleep`, eklem motoru ve `break_joint`) kuyruğa girer, iş parçacığı güvenlidir ve
+**adım sınırında** uygulanır (`modules/app/include/astral/app/physics_service.hpp:22-31`, `modules/app/include/astral/app/physics_service.hpp:56-79`):
+
+- Sıra anahtarı `(order_key, üretici, sıra)`. `order_key == 0` iken entity'ye göre belirlenir; eşit anahtarlarda **üretici sırası**
+  kazanır: sistem dışı kod önce, sonra sistemler **kayıt sırasıyla** (sonraki kazanır), sonra gönderim sırası ([ADR-0043](../decisions/0043-deterministic-physics-command-producers.md),
+  `modules/app/include/astral/app/physics_service.hpp:57-60`; test `modules/app/tests/physics_step_contract_test.cpp:380`). Bir sistem kendi paralel iş parçacıklarından
+  çakışan komut verirse açık `order_key` vermeli.
+- Sıfır adımlı karede biriken komutlar kaybolmaz, sonraki adıma taşınır (`modules/app/tests/physics_step_contract_test.cpp:50`); komut gecikmiş spawn'dan
+  sonra verilse de gövde senkronundan sonra uygulanır (`modules/app/tests/physics_step_contract_test.cpp:89`). Ölü entity veya gövdesiz entity komutları atlanır
+  ([ADR-0034](../decisions/0034-gameplay-api-and-physics-step-contract.md) §3).
+- Paralel ve seri zamanlama aynı sonucu verir (`modules/app/tests/physics_step_contract_test.cpp:165`).
+
+**Sorgular** (`raycast`, `raycast_batch`, `spherecast`, `overlap_sphere`, `overlap_box`, `linear_velocity`, `angular_velocity`) **son tamamlanmış
+adımın** anlık görüntüsünden okur; `query_state().step_index` hangi adım olduğunu söyler (`modules/app/include/astral/app/physics_service.hpp:15-27`, `modules/app/include/astral/app/physics_service.hpp:42-54`).
+`contacts()` `FixedUpdate` içinde önceki tamamlanmış adımın, başka yerde bu karedeki bütün adımların temaslarını verir (`modules/app/include/astral/app/physics_service.hpp:34-37`).
+Yani `FixedUpdate`'te bir komut verip aynı sistemde sonucunu sorgudan okuyamazsın.
+
+**Karakter:** `CharacterController::move` (yatay hız, m/s) her kare yazılır; `jump` bir sonraki sabit adımda **bir kez** tüketilir ve o adımda
+sıfırlanır (`modules/app/src/services/physics_bridge.cpp:299-313`). Luau: `astral.physics.move_character(entity, velocity, jump?)` aynı
+component alanlarını yazar (kuyruğa girmez, `modules/app/src/services/script_physics.cpp:100-107`), `character_state(entity)` son sabit adımın
+hız ve zemin durumunu verir. Karakter `Transform`'u fizik yazar; her kare doğrudan `Transform` yazma.
+
+**Tetik ve temas:** `BodyDesc::sensor = true` → `TriggerEntered`/`TriggerExited`; sensör olmayanlar `Contact` (`modules/app/src/services/physics_bridge.cpp:325-345`).
+Raycast sonucundan entity: `entity_of(hit)` (`modules/app/include/astral/app/components.hpp:115`). Luau raycast seçenekleri `{layers, ignore, sensors}`;
+`ignore` bir entity veya en çok 64 entity listesidir (`modules/script/src/bindings_services.cpp:171-204`).
+`AppDesc::physics_interpolation` açıkken dinamik gövdeler son iki adım arasında çizilir ve `Transform` simülasyonun biraz gerisinde kalır
+(`modules/app/include/astral/app/app.hpp:250-252`).
+
+Rüzgâr/su alanları `WindZone`/`WaterBody` entity'leriyle kurulur; `AirDrag`, `Buoyant`, `Airfoil` kuvvetleri kendiliğinden uygular
+(`modules/app/include/astral/app/components.hpp:117-166`).
+
+## 8. Kaydetme ve yükleme
+
+Üç ayrı mekanizma var; birbirinin yerine geçmez.
+
+| Mekanizma | Ne yazar | Nereye | Notlar |
+|---|---|---|---|
+| `ctx.scenes().save_scene(yol)` | Dünyadaki kayıtlı component'li her entity (+ `sun`/`environment`), prefab örnekleri **fark** olarak | `asset_root/yol` (gevşek dosya) | Düzenleyici/sahne snapshot'ı; paketli oyunda `asset_root` yazılabilir olmayabilir (`modules/app/src/services/world_bridge.cpp:59-72`) |
+| `save_world(world, types)` / `load_world(...)` | Düz anlık görüntü; prefab instance'ları sıradan entity olur | Sen yazarsın (`Json::dump`) | `load_world` **ekler**, dünyayı temizlemez; bilinmeyen component/alan raporlanır ve atlanır (`modules/world/include/astral/world/serialize.hpp:1-15`, `modules/world/include/astral/world/serialize.hpp:404-406`) |
+| Luau `astral.save(slot, {"A","B"})` / `astral.load(slot)` | Yalnız listelenen component'ler, bunlara sahip her entity | `<save_folder>/<slot>.json` (varsayılan `saves/`), önce geçici dosya sonra `rename` | `load`: önce başka bir World'e deneme yüklemesi yapılır (bozuk dosya canlı dünyayı bozmaz), sonra listelenen component'lerden birine sahip her entity **yok edilir** ve dosyadakiler yeniden yaratılır (`modules/script/src/bindings_services.cpp:58-108`, `modules/app/src/services/script_bridge.cpp:38-62`) |
+
+Dikkat edilecekler:
+
+- `save_world`/`astral.save` kayıtta olmayan entity'ye giden referansı **`null`** yazar (`modules/world/src/serialize.cpp:108`). `astral.load`
+  entity'leri yok edip yeniden yarattığı için, kaydedilmemiş component'lerin tuttuğu eski `Entity` handle'ları geçersizleşir.
+- Belgedeki entity numarası dosyadaki sıradır, kalıcı kimlik değildir (`modules/world/src/serialize.cpp:106-120`).
+- Şema sürümü: `TypeRegistry::set_schema_version(ad, sürüm, migrate)`; sürüm > 1 olan component'ler `"$schema_version"` yazar ([ADR-0034](../decisions/0034-gameplay-api-and-physics-step-contract.md) §1,
+  `modules/world/include/astral/world/serialize.hpp:341-344`). Luau slot adı yalnız harf, rakam, `_`, `-` olabilir (`modules/app/src/services/script_bridge.cpp:78-84`).
+- Harita hücre farkları (`CellDiff`) bellektedir, **diske yazılmaz** (§ scenes-and-worlds, `modules/world/include/astral/world/map_state.hpp:40-44`).
+- Zamanlama: `save_world` mevcut World durumunu o anda yazar; `FixedUpdate`'in ortasında çağırmak yerine `Update`'te çağır (öneri; kodda
+  buna dair bir denetim yok).
+
+## 9. Sahne mi dünya mı?
+
+| İhtiyaç | Seçim |
+|---|---|
+| Menü, oda, arena, tek seviye | `.scene` + prefab'lar; seviye geçişini kendin yaz (`load_scene` ekler; eskiyi sil/kapat) |
+| Büyük, akıtılan harita; uzak hücrelerde kalıcı değişiklik | `.world` + `.ent`; tekrar kullanılan parça için level instance |
+| Oyun kuralı verisi | Reflect edilmiş ayar component'i veya `feature.json` `settings`; `.world` `settings` serbest nesnedir, otomatik uygulanmaz (`modules/world/include/astral/world/map.hpp:30-34`) |
+
+Ayrıntı ve dosya biçimleri: [scenes-and-worlds.md](scenes-and-worlds.md).
+
+## Bilinen sınırlar
+
+- **Erişim bildirimi doğrulanmıyor:** `SystemAccess` güvene dayanır; yanlış bildirim yarış durumu üretir (`modules/app/include/astral/app/system.hpp:22-55`).
+- **Girdi kenarı ve `FixedUpdate` (çıkarım):** girdi karede bir kez güncellenir, `FixedUpdate` karede 0…N kez koşar; `pressed` adımlarda
+  birden çok görünebilir veya hiç görünmeyebilir. Tek seferlik isteği `Update`'te component'e yaz, `FixedUpdate`'te tüket (`modules/app/src/services/frame_loop.cpp:66`, `modules/app/src/services/frame_loop.cpp:133-142`,
+  `modules/app/src/services/physics_bridge.cpp:388`). Karakter `jump`'ı bunun istisnasıdır: motor tüketir (`modules/app/src/services/physics_bridge.cpp:311`).
+- **`FixedUpdate` içinde `WorldTransform` bir önceki karenindir** (`modules/app/src/services/frame_loop.cpp:86`); fizik sonrası güncel konum için `Transform`'a bak
+  (dinamik gövdeler için fizik yazar) veya `PostUpdate`'te oku.
+- **`save_scene` paketli oyunda anlamsız olabilir** (`asset_root` yazma) ve gameplay kaydı değildir; `astral.save` yalnız seçili component'leri
+  yazar ve entity kimliklerini yeniden üretir (§8).
+- **Luau yürütme bütçesi sabit 100 ms**, ayarlanamaz; yoğun yükte testler kırılabilir (`modules/script/include/astral/script/script.hpp:155-158`).
+- **`OriginShifted` script'e açık değil**; kayan orijin kullanan Luau kodu konum kaymasını bu olayla öğrenemez (`modules/app/src/services/world_bridge.cpp:148`).
+- **`add` ölü entity'de süreci durdurur** (hata dönmez, `modules/world/include/astral/world/world.hpp:388`); Luau'da ölü entity erişimi hata verir.
+- **Ebeveyn silme çocukları silmez**; `RigidBody` yalnız kök entity'de (`modules/app/include/astral/app/components.hpp:83-87`).
+- **Doğrulanmadı:** `parallel_each` + `Commands` birleşiminin tüm iç durum kombinasyonlarında iş parçacığı güvenliği; yalnız `Commands::push`
+  mutex'i ve `Events` kuyruğu mutex'i kodda görüldü (`modules/world/include/astral/world/world.hpp:107-111`, `modules/world/include/astral/world/world.hpp:450-456`).
