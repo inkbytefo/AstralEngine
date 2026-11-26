@@ -1,0 +1,12 @@
+{
+  "format": "astral.feature",
+  "version": 1,
+  "name": "orbits",
+  "description": "Orbit (circle around the origin, bobbing) and Tumble (rotation); both can be frozen. Rules in Luau.",
+  "depends_on": [],
+  "components": ["orbits::Orbit", "orbits::Tumble"],
+  "events": [],
+  "exports": { "headers": ["orbits.hpp"] },
+  "scripts": ["features/orbits/orbits.luau"],
+  "actions": []
+}

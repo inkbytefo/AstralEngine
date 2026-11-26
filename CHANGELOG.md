@@ -4,6 +4,9 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+### Added (examples yenileme E2, lighting)
+- `examples/lighting_showcase`: ışın izlemeli oda, SDF avlusu ve 36 ışıklı gece (ReSTIR); aynı anda tek istasyon yüklü; `1/2/3`, `P`, `R`, `V`; başsız testler. `rt_showcase` ve `sdf_scene` E5’e kadar durur. Bilinen: path tracer’da SDF yüzeylerinde halka artefaktı ([render](docs/modules/render.md)).
+
 ### Added (examples yenileme E1)
 - `examples/physics_showcase`: motorun fiziğini tek dünyada gösteren vitrin (yığın, eklemler, yüzeyler, su istasyonları; `--view`, `--capture`, başsız testler). Eski üç fizik örneği E5'e kadar durur.
 
