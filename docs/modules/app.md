@@ -115,18 +115,18 @@ Köprü başlıkları `src/` altındadır ve yüklenmez; halka açık yüzey yal
 
 `FrameLoop::run_frame` (`modules/app/src/services/frame_loop.cpp:64-91`) her frame'de şu sırayı izler:
 
-1. `dev_tools.begin_frame()` (profiler), `route_input` (F1 ve ImGui yakalaması, ham → oyun girdisi, eylemler güncellenir: `frame_loop.cpp:93-96`)
+1. `dev_tools.begin_frame()` (profiler), `route_input` (F1 ve ImGui yakalaması, ham → oyun girdisi, eylemler güncellenir: `modules/app/src/services/frame_loop.cpp:93-96`)
 2. `world.update_events()` (geçen frame'in olayları bu frame okunabilir, sonra silinir)
-3. Dünya akışı (`update_world`: akış kaynakları, kayan orijin kayması, hücre spawn; yalnızca açık harita ya da terrain akışı varsa: `frame_loop.cpp:98-107`)
-4. `update_assets_and_scenes`: asset yüklemeleri/hot reload, `.material`/`.ashader` değişiklikleri, **betik hot reload**, prefab senkronu, `ModelRef` parçaları (`frame_loop.cpp:109-116`)
-5. `time.delta = delta`, ardından **PreUpdate** (C++ sistemleri, sonra Luau, sonra `apply_commands`) (`frame_loop.cpp:118-123`)
+3. Dünya akışı (`update_world`: akış kaynakları, kayan orijin kayması, hücre spawn; yalnızca açık harita ya da terrain akışı varsa: `modules/app/src/services/frame_loop.cpp:98-107`)
+4. `update_assets_and_scenes`: asset yüklemeleri/hot reload, `.material`/`.ashader` değişiklikleri, **betik hot reload**, prefab senkronu, `ModelRef` parçaları (`modules/app/src/services/frame_loop.cpp:109-116`)
+5. `time.delta = delta`, ardından **PreUpdate** (C++ sistemleri, sonra Luau, sonra `apply_commands`) (`modules/app/src/services/frame_loop.cpp:118-123`)
 6. **`Game::on_update`** (+ `apply_commands`)
 7. **Update** (C++ sonra Luau; Luau zamanlayıcıları ve davranışlar burada çalışır)
 8. Terrain akış senkronu
 9. **Fizik** (`run_physics`): 0..N sabit adım. Her adımda: alan dünyası yeniden kurulur → **FixedUpdate** (C++ sistemleri, Luau, `vfx.update`, `GameplaySmoke::step`) → `apply_commands` → gövde senkronu → eklem motorları → sıraya alınmış komutlar → kinematik/karakter → `physics.step(fixed)` (`modules/app/src/services/frame_loop.cpp:133-148`, `modules/app/src/services/physics_bridge.cpp:378-425`)
 10. **PostUpdate**
 11. Atmosfer (`AtmosphereController::update`), dönüşüm yayılımı + terrain LOD + primitif senkronu, ses senkronu
-12. Render (debug overlay, ImGui, HUD, `RenderBridge::render_frame`), sonra `debug`/`hud` temizlenir, `time.elapsed`/`frame` ilerler (`frame_loop.cpp:162-185`)
+12. Render (debug overlay, ImGui, HUD, `RenderBridge::render_frame`), sonra `debug`/`hud` temizlenir, `time.elapsed`/`frame` ilerler (`modules/app/src/services/frame_loop.cpp:162-185`)
 
 `system.hpp`'deki faz yorumu aynı sırayı özetler (`modules/app/include/astral/app/system.hpp:17-19`). Sıra `modules/app/tests/frame_order_test.cpp`
 ile (0 ve 2 sabit adımlı frame'ler için) sabitlenmiştir.
@@ -136,7 +136,7 @@ ile (0 ve 2 sabit adımlı frame'ler için) sabitlenmiştir.
 `PhysicsBridge::step` birikimli (accumulator) sabit adım kullanır: `delta` birikir, `fixed = time.fixed_delta` (1/`physics_rate`) ile adımlanır, frame başına en fazla
 `max_physics_steps` adım atılır; üst sınıra ulaşınca kalan süre `fixed`'e kırpılarak **atılır** (zaman düşer, frame beklemez)
 (`modules/app/src/services/physics_bridge.cpp:385-414`). `Clock` ham delta'yı 0,25 sn'de kırpar (`modules/core/include/astral/core/clock.hpp:40`).
-`physics_interpolation` açıksa dinamik cisimler son iki adımın karışımıyla yazılır (`physics_bridge.cpp:424-426`).
+`physics_interpolation` açıksa dinamik cisimler son iki adımın karışımıyla yazılır (`modules/app/src/services/physics_bridge.cpp:424-426`).
 Fizik komutları (`add_impulse` vb.) iş parçacığı güvenli sıraya alınır ve adım sınırında uygulanır; sıra, "üretici" sırasına (sistemlerin kayıt sırası) bağlıdır (ADR-0043,
 `modules/app/include/astral/app/physics_service.hpp:57-60`). Sorgular son tamamlanan adımı okur (`PhysicsQueryState`:
 `modules/app/include/astral/app/physics_service.hpp:16`). Sıfır adımlı frame'de komutlar saklanır (test: `modules/app/tests/physics_step_contract_test.cpp`).
@@ -146,7 +146,7 @@ Fizik komutları (`add_impulse` vb.) iş parçacığı güvenli sıraya alınır
 `SystemScheduler` sistemleri faz başına tutar, **ardışık** ve birbirleriyle çakışmayan (`SystemAccess` yazma/okuma kesişimi yok, `exclusive` değil) sistemleri bir "dalga"
 yapıp JobSystem'de paralel çalıştırır; erişim bildirmeyen sistem tek başına ana iş parçacığında koşar (`modules/app/src/services/system_scheduler.cpp:108-128`,
 `modules/app/src/services/system_scheduler.cpp:139-160`). Değişiklik algılama (`added<T>`/`changed<T>`) paralel dalgada sistem başına tick ile korunur
-(`system_scheduler.cpp:38-59`). Çalışma sırasında eklenen sistemler faz sonuna ertelenir (`system_scheduler.cpp:84-86`, `system_scheduler.cpp:130-137`).
+(`modules/app/src/services/system_scheduler.cpp:38-59`). Çalışma sırasında eklenen sistemler faz sonuna ertelenir (`modules/app/src/services/system_scheduler.cpp:84-86`, `modules/app/src/services/system_scheduler.cpp:130-137`).
 
 ### Girdi betiği (ADR-0046) ve başsız çalışma
 
@@ -154,9 +154,9 @@ yapıp JobSystem'de paralel çalıştırır; erişim bildirmeyen sistem tek baş
 (headless/offscreen) App kendisi `input.begin_frame()` çağırır, böylece `pressed/released` kenarları doğru olur (`modules/app/src/app.cpp:199-205`). Test:
 `modules/app/tests/input_script_test.cpp`. (ADR-0046'nın dosyası, `docs/decisions/0046-headless-input-script.md`, bu çalışma ağacında yok; `docs/refactor` dalında.)
 
-Başsız (`headless`): pencere/GPU yok, fizik/betik/ses/asset çalışır, `renderer == nullptr`, render kaynağı üreten çağrılar geçersiz tutamaç döner (`modules/app/include/astral/app/material_service.hpp:316`).
+Başsız (`headless`): pencere/GPU yok, fizik/betik/ses/asset çalışır, `renderer == nullptr`, render kaynağı üreten çağrılar geçersiz tutamaç döner (`modules/app/include/astral/app/material_service.hpp:17`).
 Offscreen: GPU var, görüntü iç hedefe çizilir ve `App::read_frame` ile RGBA8 olarak okunur (`modules/app/src/app.cpp:393`, `modules/app/src/services/render_bridge.cpp:235-238`).
-`read_frame` **yalnızca offscreen** modda çalışır; pencereli modda `false` döner (hedef/readback yalnızca `offscreen` için oluşturulur: `render_bridge.cpp:161-166`).
+`read_frame` **yalnızca offscreen** modda çalışır; pencereli modda `false` döner (hedef/readback yalnızca `offscreen` için oluşturulur: `modules/app/src/services/render_bridge.cpp:161-166`).
 `run_game` içinde `--capture` modu: `offscreen = true`, 60 Hz sabit adım, N frame, son görüntüyü `.ppm` yazar (`modules/app/src/shell.cpp:146-176`).
 
 ### Shader önbelleği (ADR-0047)
@@ -172,39 +172,39 @@ ADR-0047 dosyası da `docs/refactor` dalındadır (`docs/decisions/0047-spirv-di
 ### Atmosfer (G1.1 sanatsal alanlar dahil)
 
 İlk (en düşük entity indeksli) **etkin** `Atmosphere` bileşeni güneşi ve ortam gökyüzünü sürer (`modules/app/src/services/atmosphere.cpp:78-84`): saat (`hours_per_second` ile akar),
-eğim, yön; fiziksel model hava kütlesinden güneş rengi/yoğunluğu hesaplar (`atmosphere.cpp:22-56`). G1.1 alanları: `twilight_color`/`twilight_strength` (ufuk civarında
+eğim, yön; fiziksel model hava kütlesinden güneş rengi/yoğunluğu hesaplar (`modules/app/src/services/atmosphere.cpp:22-56`). G1.1 alanları: `twilight_color`/`twilight_strength` (ufuk civarında
 gökyüzüne karışır: etki güneş yüksekliği −0,05 çevresinde tepe yapar, ±0,25 genişlikte söner), `horizon_tint` (alçak güneşte güneş rengini çarpar), `sky_tint` (gökyüzünü her zaman çarpar), `drive_sun` / `drive_sky` (false: o alanı oyuna bırakır)
-(`modules/app/include/astral/app/components.hpp:46-61`, `atmosphere.cpp:43-54`, `atmosphere.cpp:104-116`). Varsayılanlar saf fizik sonucunu değiştirmez (test:
-`modules/app/tests/atmosphere_test.cpp`, "G1.1 default artistic controls…"). Atmosfer devre dışı kalınca yazarın ışığı geri yüklenir (`atmosphere.cpp:83-94`); bu geri yükleme yalnızca son
+(`modules/app/include/astral/app/components.hpp:46-61`, `modules/app/src/services/atmosphere.cpp:43-54`, `modules/app/src/services/atmosphere.cpp:104-116`). Varsayılanlar saf fizik sonucunu değiştirmez (test:
+`modules/app/tests/atmosphere_test.cpp`, "G1.1 default artistic controls…"). Atmosfer devre dışı kalınca yazarın ışığı geri yüklenir (`modules/app/src/services/atmosphere.cpp:83-94`); bu geri yükleme yalnızca son
 sürülen kısım (`drove_sun_`/`drove_sky_`) için yapılır.
 
 ### VFX çalışma zamanı
 
 `.vfx` (`"format": "astral.vfx"`, `version: 1`) zaman çizelgesidir: en çok 32 iz; iz türleri `smoke`, `volume`, `particles`, `light`, `decal`, `sound`
 (`modules/app/src/services/vfx_runtime.cpp:17-25`, `modules/app/src/services/vfx_runtime.cpp:57-98`). `play` bir `VfxPlayback` varlığı yaratır (aynı anda en çok 64), iz başlangıçları
-`start`'a göre sıralı çocuk varlıklara dönüşür; `age >= end` olunca oyun biter ve çocuklarla birlikte silinir — **döngü yoktur** (`vfx_runtime.cpp:145-175`, `vfx_runtime.cpp:210-243`).
-Şablon, belge sürümüne göre önbelleklenir; dosya hot reload ile değişince yeniden ayrıştırılır (`vfx_runtime.cpp:156-174`). VFX zamanı **sabit adımda** ilerler
-(`FrameLoop::run_fixed_update` içinde `vfx_.update`: `frame_loop.cpp:137`), yani `physics_rate` düşükse çözünürlük düşer ve sıfır adımlı frame'de ilerlemez.
-Luau tarafından `PlayVfx`/`StopVfx` olayları gönderilir (`vfx_runtime.cpp:194-204`).
+`start`'a göre sıralı çocuk varlıklara dönüşür; `age >= end` olunca oyun biter ve çocuklarla birlikte silinir — **döngü yoktur** (`modules/app/src/services/vfx_runtime.cpp:145-175`, `modules/app/src/services/vfx_runtime.cpp:210-243`).
+Şablon, belge sürümüne göre önbelleklenir; dosya hot reload ile değişince yeniden ayrıştırılır (`modules/app/src/services/vfx_runtime.cpp:156-174`). VFX zamanı **sabit adımda** ilerler
+(`FrameLoop::run_fixed_update` içinde `vfx_.update`: `modules/app/src/services/frame_loop.cpp:137`), yani `physics_rate` düşükse çözünürlük düşer ve sıfır adımlı frame'de ilerlemez.
+Luau tarafından `PlayVfx`/`StopVfx` olayları gönderilir (`modules/app/src/services/vfx_runtime.cpp:194-204`).
 
 ### HUD ve F1 hata ayıklama arayüzü
 
 `ctx.hud` (`UiCanvas`) 3B görüntünün üstünde, debug arayüzünün altında çizilir; her frame sonunda temizlenir
 (`modules/app/src/services/dev_tools.cpp:82-87`, `modules/app/src/services/frame_loop.cpp:181-182`). `Context::font` yerleşik Roboto Medium'dur (Türkçe harfler dahil;
-`modules/app/include/astral/app/app.hpp:98-99`); headless'ta tek bir paylaşılan Font kullanılır (`dev_tools.cpp:15-20`).
-F1 ImGui arayüzünü açar/kapar; açıkken ImGui'nin yakaladığı klavye/fare oyun girdisinden silinir (`dev_tools.cpp:44-59`). Yerleşik paneller: Performance, Scene, Inspector, Render, World, Materials, Demo
+`modules/app/include/astral/app/app.hpp:98-99`); headless'ta tek bir paylaşılan Font kullanılır (`modules/app/src/services/dev_tools.cpp:15-20`).
+F1 ImGui arayüzünü açar/kapar; açıkken ImGui'nin yakaladığı klavye/fare oyun girdisinden silinir (`modules/app/src/services/dev_tools.cpp:44-59`). Yerleşik paneller: Performance, Scene, Inspector, Render, World, Materials, Demo
 (`modules/app/src/panels/debug_panel.cpp:77-85`); oyun kendi paneli için `Game::on_debug_ui` içinde `<imgui.h>` kullanır (ImGui türleri motorun public başlıklarında yoktur). Arayüz
 yalnızca renderer varsa ve `debug_ui` açıksa kurulur; docking ve klavye gezintisi açıktır (`modules/app/src/debug_ui.cpp:134-136`). Editör bu arayüzü
 `debug_ui_builtin_panels = false` ile tüm dockspace'i kendi panelleriyle doldurmak için kullanır.
 
 ## Güçlü yanlar
 
-- **Net, test edilmiş frame sırası.** Sıra tek dosyada (`frame_loop.cpp:64-91`) ve `frame_order_test.cpp` ile 0 ve 2 sabit adım için sabitlenmiş; yıkım sırası da testli.
+- **Net, test edilmiş frame sırası.** Sıra tek dosyada (`modules/app/src/services/frame_loop.cpp:64-91`) ve `frame_order_test.cpp` ile 0 ve 2 sabit adım için sabitlenmiş; yıkım sırası da testli.
 - **Sıfır GPU ile tam çalışma.** `headless` modda fizik, betik, ses, asset, dünya akışı, HUD yerleşimi çalışır; 30 test dosyasının çoğu başsızdır (`modules/app/CMakeLists.txt:71-105`).
 - **Deterministik yakalama.** `fixed_timestep` + `--capture` + `input_script` ile tekrarlanabilir görüntü/test üretilir (`modules/app/src/shell.cpp:162-166`).
 - **Fizik komutları deterministik.** Üretici sırası paralel/seri sistemlerde aynı sonucu verir (`modules/app/tests/physics_angular_test.cpp`, `physics_step_contract_test.cpp`).
 - **Dar servis arayüzleri.** `Context`'in sahneyi/haritayı/fiziği/betiği ilgilendiren işleri saf sanal arayüzlerde; test ve editör kendi uygulamasını verebilir (`modules/app/tests/context_services_test.cpp`).
-- **Özellik paketi sınırı makine ile doğrulanır.** Manifest "API"dir: listelenmeyen bileşen/olay kaydı hata; bağımlılık döngüsü/eksik bağımlılık adlandırılmış hata (`feature.cpp:58-64`, `feature.cpp:86-129`).
+- **Özellik paketi sınırı makine ile doğrulanır.** Manifest "API"dir: listelenmeyen bileşen/olay kaydı hata; bağımlılık döngüsü/eksik bağımlılık adlandırılmış hata (`modules/app/src/feature.cpp:58-64`, `modules/app/src/feature.cpp:86-129`).
 - **Başarısız yeniden yükleme güvenli.** Hatalı betik/`.material` düzenlemesi son iyi sürümü yerinde bırakır (`modules/app/tests/script_app_test.cpp`, `material_app_test.cpp`).
 
 ## Zayıf yanlar ve bilinen sınırlar
@@ -212,17 +212,17 @@ yalnızca renderer varsa ve `debug_ui` açıksa kurulur; docking ve klavye gezin
 - **Boyut bütçesi doygun.** `AppDesc` 25/25 ve `App::Impl` 25/25 veri üyesi (sınır 25): yeni alan eklemek önce yapı bölmeyi gerektirir. `Context` 31 üyeyle açık bir istisna taşır (`tools/size_budget.json:3-7`;
   `python tools/check_sizes.py` çıktısı: `app.hpp:215 AppDesc (25 of 25)`, `app.cpp:170 App::Impl (25 of 25)`, `Context (31 > 25)`). `Context`, 31 genel alanıyla hâlâ "her şeye erişim" nesnesidir
   (gerekçe: "kaynak uyumluluğu için M14'e kadar", `tools/size_budget.json:6`).
-- **`read_frame` yalnızca offscreen.** Pencereli modda ekran görüntüsü alma API'si yok (`render_bridge.cpp:235-238`).
+- **`read_frame` yalnızca offscreen.** Pencereli modda ekran görüntüsü alma API'si yok (`modules/app/src/services/render_bridge.cpp:235-238`).
 - **VFX döngüsüz ve sabit adıma bağlı.** Süresiz/döngülü efekt tanımlanamaz (`age >= end` → silinir); `physics_rate` ve sıfır adımlı frame'ler VFX ilerlemesini etkiler; aynı anda 64 oynatma ve 32 iz sınırı sabit kodlu
-  (`vfx_runtime.cpp:61`, `vfx_runtime.cpp:146`, `frame_loop.cpp:137`).
+  (`modules/app/src/services/vfx_runtime.cpp:61`, `modules/app/src/services/vfx_runtime.cpp:146`, `modules/app/src/services/frame_loop.cpp:137`).
 - **Zamanlayıcı "açgözlü ardışık dalga" kurar.** Erişimi bildirmeyen ya da `exclusive` bir sistem tüm ardışık paralelliği böler; farklı yerlerdeki çakışmayan sistemler yeniden sıralanmaz
-  (`system_scheduler.cpp:108-128`). Sistem erişimini doğru bildirmek geliştiricinin sorumluluğundadır; yanlış bildirim yarış üretir ve derleyici/çalışma zamanı denetlemez
-  (yalnızca TSan CI işi bazı App testlerini koşturur: `.github/workflows/ci.yml:107-108`; Windows'ta tsan/asan koşturulmadı).
+  (`modules/app/src/services/system_scheduler.cpp:108-128`). Sistem erişimini doğru bildirmek geliştiricinin sorumluluğundadır; yanlış bildirim yarış üretir ve derleyici/çalışma zamanı denetlemez
+  (yalnızca TSan CI işi bazı App testlerini koşturur: `../../.github/workflows/ci.yml:107-108`; Windows'ta tsan/asan koşturulmadı).
 - **GPU'lu testler GPU yoksa sessizce "geçer".** Örn. `if (!app.context().renderer) return; // no GPU` (`modules/app/tests/devtools_app_test.cpp:102`): test başarılı görünür ama hiçbir şeyi doğrulamamış olur.
-- **Shader önbelleği için App düzeyinde test yok.** Yalnızca klasör çözümleme birim testleri var (`modules/app/tests/shader_cache_location_test.cpp`); `setup_shader_compiles` bağlantısı (`app.cpp:211-219`) ve budama doğrudan test edilmiyor.
+- **Shader önbelleği için App düzeyinde test yok.** Yalnızca klasör çözümleme birim testleri var (`modules/app/tests/shader_cache_location_test.cpp`); `setup_shader_compiles` bağlantısı (`modules/app/src/app.cpp:211-219`) ve budama doğrudan test edilmiyor.
   `ViewportService` (editör yüzeyi) App testlerinde de doğrudan kapsanmıyor; yalnızca `examples/world_editor/tests` dolaylı kullanır.
 - **`FeatureSet::install` geri alma yapmaz.** Bir özellik hata verirse önceki özelliklerin kayıtları (bileşen/olay/betik) yerinde kalır; `install` ilk hatada `false` döner ve oyun `ctx.quit()` etmelidir
-  (`feature.cpp:154-168`, yorum `modules/app/include/astral/app/feature.hpp:9`). `FeatureContext::declare` yalnızca `component<T>()`/`event<T>()` üzerinden denetler; `ctx.types.add<T>()` ile doğrudan kayıt manifest denetimini aşar.
+  (`modules/app/src/feature.cpp:154-168`, yorum `modules/app/include/astral/app/feature.hpp:9`). `FeatureContext::declare` yalnızca `component<T>()`/`event<T>()` üzerinden denetler; `ctx.types.add<T>()` ile doğrudan kayıt manifest denetimini aşar.
 - **Hot reload yoklaması.** Betik/actions izleyicisi her 0,5 sn'de izlenen her dosyayı okuyup içerik özeti karşılaştırır, ana iş parçacığında (`modules/app/src/services/script_bridge.cpp:225-240`).
 - **`Context` iş parçacığı sözleşmesi örtük.** Paralel sistemlerde `ctx.world` dışındaki alanlara (ör. `ctx.debug`, `ctx.hud`, `ctx.sun`) yazmanın güvenli olup olmadığı belgelenmemiş; yalnızca World bileşen erişimi ve fizik/komut kuyruğu paralel için tasarlanmış (doğrulanmadı).
 - **Üçüncü parti tür sızıntısı denetimi metin aramasıdır.** `CheckPublicHeaders.cmake` yasaklı alt dizgeleri (`Jolt/`, `vulkan/`, `SDL_`…) arar; ImGui adı listede yok (ImGui, `Astral::App`'in PUBLIC bağımlılığıdır: `modules/app/CMakeLists.txt:69`; public başlıklarda ImGui türü bulunmaması yalnızca kurala dayanır).
@@ -243,9 +243,9 @@ yalnızca renderer varsa ve `debug_ui` açıksa kurulur; docking ve klavye gezin
 | Debug UI, HUD, profil | `devtools_app_test.cpp`, `debug_panels_test.cpp` |
 | FeatureSet, kabuk, önbellek konumu | `feature_test.cpp`, `shell_test.cpp`, `shader_cache_location_test.cpp` |
 
-CI'daki TSan işi yalnızca `ecs_app_test`, `frame_order_test`, `physics_app_test`, `world_app_test`'i koşturur (`.github/workflows/ci.yml:107-108`). Bu PC'deki durum (RTX 3060, MSVC 19.51, Debug+Release):
+CI'daki TSan işi yalnızca `ecs_app_test`, `frame_order_test`, `physics_app_test`, `world_app_test`'i koşturur (`../../.github/workflows/ci.yml:107-108`). Bu PC'deki durum (RTX 3060, MSVC 19.51, Debug+Release):
 `astral_app_tests` geçer; paralel yük altında yalnızca `pong_tests` ve `spinning_cubes_tests` (örnek oyunlar, Luau 100 ms bütçesi) kararsız (ana ajan ölçümü, bkz. [script.md](script.md)).
-**Kapsanmayanlar:** pencereli `run()` döngüsü (küçültme uykusu `app.cpp:378-381`), Vulkan doğrulama katmanı, `ViewportService`, SPIR-V önbelleğinin App içindeki bağlantısı, çok pencereli/pencere-yeniden-boyutlama davranışı.
+**Kapsanmayanlar:** pencereli `run()` döngüsü (küçültme uykusu `modules/app/src/app.cpp:378-381`), Vulkan doğrulama katmanı, `ViewportService`, SPIR-V önbelleğinin App içindeki bağlantısı, çok pencereli/pencere-yeniden-boyutlama davranışı.
 
 ## Performans
 
