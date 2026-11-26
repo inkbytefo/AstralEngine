@@ -98,6 +98,11 @@ if(ASTRAL_BUILD_TESTS)
     endif()
     add_test(NAME astral_public_headers_clean
         COMMAND ${CMAKE_COMMAND} -DROOT=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/CheckPublicHeaders.cmake)
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.28)
+        add_test(NAME test_environment_check
+            COMMAND ${CMAKE_COMMAND} -DCTEST=${CMAKE_CTEST_COMMAND} -DBUILD_DIR=${CMAKE_BINARY_DIR}
+                    -P ${CMAKE_SOURCE_DIR}/cmake/CheckTestEnvironment.cmake)
+    endif()
 endif()
 
 if(ASTRAL_BUILD_EXAMPLES)
@@ -111,4 +116,22 @@ endif()
 
 if(ASTRAL_INSTALL)
     include(AstralInstall)
+endif()
+
+# Tests keep their SPIR-V cache in the build folder, never in the user's profile (the App's default).
+# Runs last so it reaches every test registered above, in every subdirectory. Needs CMake 3.28
+# (set_property(TEST ... DIRECTORY)); older CMake keeps the App's default location.
+if(ASTRAL_BUILD_TESTS AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.28)
+    function(_astral_set_test_shader_cache dir)
+        get_property(tests DIRECTORY "${dir}" PROPERTY TESTS)
+        if(tests)
+            set_property(TEST ${tests} DIRECTORY "${dir}" APPEND PROPERTY ENVIRONMENT_MODIFICATION
+                         "ASTRAL_SHADER_CACHE=set:${CMAKE_BINARY_DIR}/test-shader-cache")
+        endif()
+        get_property(subdirs DIRECTORY "${dir}" PROPERTY SUBDIRECTORIES)
+        foreach(sub IN LISTS subdirs)
+            _astral_set_test_shader_cache("${sub}")
+        endforeach()
+    endfunction()
+    _astral_set_test_shader_cache("${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
