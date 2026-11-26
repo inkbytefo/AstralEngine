@@ -26,11 +26,12 @@ Bu sayfa motorun bugün ne kadar hazır olduğunu dürüstçe özetler. Ayrınt�
 
 ## 2. Test durumu
 
-Debug ve Release, `-DASTRAL_WARNINGS_AS_ERRORS=ON`: build temiz, ctest 94 testten 87'si geçiyor (2026-11-26, `a113b55`). Dalga A/B sonrası (`357ff85`'e giden dal, Debug ve Release): yine yalnız aşağıdaki 7 `golden_hw` düştü; toplam test sayısı bu koşuda kaydedilmedi.
+Debug ve Release, `-DASTRAL_WARNINGS_AS_ERRORS=ON`: build temiz, 69 ctest testinden yalnız aşağıdaki 3 `golden_hw` düşüyor (2026-11-27, `b13528b`, examples yenileme sonrası; Windows, RTX 3060). Eski örnekler silinince test sayısı azaldı.
 
 | Durum | Test | Not |
 |---|---|---|
-| ❌ Her koşumda düşüyor | `golden_hw_scene_viewer`, `golden_hw_rt_showcase`, `golden_hw_pong`, `golden_hw_shader_showcase`, `golden_hw_hello_triangle`, `golden_hw_spinning_cubes`, `golden_hw_physics_playground` | Bu PC'de ton farkı (ör. `hello_triangle` köşe RGB −11, SSIM 0.9445 < 0.95). Kök neden incelenmedi |
+| ❌ Her koşumda düşüyor | `golden_hw_pong`, `golden_hw_hello_triangle`, `golden_hw_spinning_cubes` | Bu PC'de ton farkı (ör. `hello_triangle` köşe RGB −11, SSIM 0.9445 < 0.95). Kök neden incelenmedi |
+| — Golden testi yok | `physics_showcase`, `lighting_showcase`, `materials_showcase`, `world_showcase`, `vfx_showcase`, `asset_viewer` | Referanslar yalnız lavapipe'ta (CI) üretilir; henüz üretilmedi. Silinen örneklerin 7 golden bloğu ve 9 referansı kaldırıldı |
 | ⚠️ Paralel yükte ara sıra | `pong_tests`, `spinning_cubes_tests` | Luau 100 ms bütçe aşımı; muhtemel neden: bütçe duvar saati ve tüm faz için ortak (`modules/script/src/host.cpp:21`) |
 | ⚠️ Paralel yükte ara sıra | `astral_render_tests` | DDGI regresyon testinde SIGSEGV (`modules/render/tests/render_audit_test.cpp`); seri koşumda geçiyor |
 | — Bu GPU'da atlanıyor | `golden_*` (lavapipe) | Donanımdan bağımsız görüntü testleri yalnız CI'da |
@@ -71,6 +72,7 @@ Dalga B'de düzeltilip çıkarılanlar: RT/PT güneş gölgesi bayrağı, `MeshS
 | shader | SPIR-V optimizer kapalı (çalışma zamanı etkisi ölçülmedi) | `modules/shader/src/compile.cpp:141` | Doğrulandı |
 | render | Path tracer radyansı 64'e kırpılıyor; ikincil isabetlerde normal/detay haritası ve POM yok | `modules/render/shaders/path_tracer.comp:372` | Doğrulandı |
 | render | `blend_*` yüzeyler TLAS'ta değil (RT/PT'de görünmez); partiküller tonemap sonrası çiziliyor | [render.md](modules/render.md) | — |
+| render | Path tracer SDF yüzeylerinde koyu halka + nokta çiziyor (hibrit RT'de yok) | [render.md](modules/render.md) | Gözlendi (capture), nedeni incelenmedi |
 | render | Bazı `render_mode`'lar (`rt_simple`, `after_tonemap`, `unshaded` particle/volume) kabul ediliyor ama kullanılmıyor | `modules/shader/src/ashader.cpp:372-382` | — |
 | script | `astral-luau-check` sistem callback parametrelerindeki alan hatalarını, bilinmeyen query component'lerini ve olay alanı hatalarını yakalamıyor | `modules/script/src/api.cpp:223` | Ajan tarafından denendi |
 | editor_core | `AgentTaskManager::cancel` worker'ı join ediyor; codex süreci zaman aşımı olmadan çalıştığı için UI kilitlenebilir; komut satırı kaçışsız | `modules/editor_core/src/agent_task.cpp:313-315` | — |
