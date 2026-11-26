@@ -275,7 +275,7 @@ Dil tanımı ve ayrıştırıcı `Astral::Shader` modülündedir ([shader.md](sh
 |---|---|---|
 | Güneş | `DirectionalLight`. Raster: tek ortografik gölge haritası + 3×3 PCF. RT: piksel başına açısal yarıçaplı konide 1 gölge ışını (`angular_radius` varsayılan 0.0047 rad); yumuşak gölge denoiser'a bırakılır | `modules/render/include/astral/render/renderer.hpp:197-203`, `modules/render/shaders/lighting.comp:17-35`, `modules/render/shaders/include/astral/rt.glsl:563-577` |
 | Nokta ışık | `PointLight`; yarıçapta `(1-(d/r)^4)^2/(d²+1)` sönümü. Raster'da gölgesiz; RT'de `source_radius` ile yumuşak gölge. Doğrudan döngü eşiği: birincil vuruşta ≤4, ikincilde ≤2 ışık; üstü RIS (veya ReSTIR) | `modules/render/include/astral/render/renderer.hpp:170-176`, `modules/render/shaders/include/astral/rt.glsl:500-551,585-607` |
-| Dikdörtgen alan ışığı | `RectLight` (yalnız RT yolu ve path tracer); iki yüzlü seçeneği; kameraya ve yansımalara görünür, fiziksel yumuşak gölge. Doğrudan döngü eşiği: birincil ≤2, ikincil ≤1; üstü RIS (veya ReSTIR) | `modules/render/include/astral/render/renderer.hpp:178-188`, `modules/render/shaders/include/astral/rt.glsl:612-634`, `modules/render/shaders/composite.comp:49-58` |
+| Dikdörtgen alan ışığı | `RectLight` (yalnız RT yolu ve path tracer); iki yüzlü seçeneği; kameraya ve yansımalara görünür, fiziksel yumuşak gölge. Doğrudan döngü eşiği: birincil ≤2, ikincil ≤1; üstü RIS (veya ReSTIR) | `modules/render/include/astral/render/renderer.hpp:178-188`, `modules/render/shaders/include/astral/rt.glsl:612-631`, `modules/render/shaders/composite.comp:54-61` |
 | DDGI | Tek (cascade'siz), düzgün probe ızgarası; varsayılan 8×8×8 probe, 128 ışın/probe (16..512'ye kırpılır), histerezis 0.97 (büyük ışık değişiminde adaptif düşer). Hacim `gi.volume_min == volume_max` ise her karede mesh ve SDF sınırlarına otomatik sığdırılır; hacim >%1 kayarsa geçmiş sıfırlanır. İki atlas çifti (RGBA16F irradiance 8×8+kenar, RG16F mesafe momentleri 16×16+kenar) | `modules/render/include/astral/render/renderer.hpp:268-274`, `modules/render/src/passes/ddgi_pass.cpp:72-124`, `modules/render/shaders/ddgi_update.comp:25-28` |
 | Yakın alan GI | Piksel başına 1 kosinüs ışını, `near_gi_radius` (0.75 m) içinde vurursa o yüzeyin gerçek ışığı; yoksa DDGI | `modules/render/shaders/rt_lighting.comp:114-133` |
 | ReSTIR DI | Yerel ışık sayısı (nokta+rect) > 2 ise, bkz. pass tablosu. Rezervuar tamponları 3 × 16 B × piksel sayısı | `modules/render/src/paths/ray_traced_path.cpp:171`, `modules/render/src/passes/rt_lighting_pass.cpp:13-35` |
@@ -295,7 +295,7 @@ Dil tanımı ve ayrıştırıcı `Astral::Shader` modülündedir ([shader.md](sh
 test: `modules/render/tests/renderer_test.cpp:590`). Tek `projection.glsl` raster G-buffer (`gbuffer.frag`) ve RT/path tracer (`rt.glsl`) tarafından
 ortak kullanılır (`modules/render/shaders/include/astral/projection.glsl:7-77`, `modules/render/shaders/gbuffer.frag:20-21`,
 `modules/render/shaders/include/astral/rt.glsl:11-20`). Yönelim kuralı: dikey yüzlerde dünya yukarısı (+Y) doku V'sidir, U ekranda sağa akar (ayna yok);
-Y yüzlerinde U=Z, V=X (`modules/render/shaders/include/astral/projection.glsl:48-58`). `PlanarXY/XZ/YZ` sırasıyla Z, Y, X eksenli yüze eşlenir
+Y yüzlerinde U=Z, V=X (`modules/render/shaders/include/astral/projection.glsl:40-58`). `PlanarXY/XZ/YZ` sırasıyla Z, Y, X eksenli yüze eşlenir
 (`modules/render/shaders/include/astral/projection.glsl:30-32`). Bu yönelim 31e2c48'de düzeltildi; kodda başka bir ADR-0051 dosyası yoktur (aşağıdaki "Kararlar").
 
 RT/path tracer ikincil vuruşlarında yalnız projeksiyonlu normal haritası uygulanır; `MeshUV` normal haritası, detay dokuları ve POM yalnız birincil
@@ -404,3 +404,143 @@ aerial ve sis kapalı (`modules/render/include/astral/render/renderer.hpp:197-21
 `DebugDraw` düz veri toplayıcıdır (GPU gerektirmez); çizgiler tonemap'ten sonra derinlik testli ya da `on_top` çizilir. `UiLayer` piksel uzayında indeksli üçgenler + komut başına
 doku, kırpma ve SDF yumuşaklığıdır; ImGui, HUD ve sprite aynı biçimi üretir. `Font` stb_truetype ile SDF atlası kurar (varsayılan Roboto Medium gömülü; ASCII, Latin-1, Latin Extended-A
 yani Türkçe harfler, ₺) (`modules/render/include/astral/render/text.hpp:28-50`, `modules/render/src/passes/debug_lines_pass.cpp:30-70`, `modules/render/src/passes/ui_pass.cpp:23-50`).
+
+## Güçlü yanlar
+
+- **Temiz sınır:** ECS'i bilmeyen, düz veriyle çalışan tek `Renderer` sınıfı; aynı sözleşme `App` ve doğrudan kullanan araçlar için geçerli
+  (`modules/render/include/astral/render/renderer.hpp:358-360`). Kaynaklar handle'dır, geçersiz handle çökertmez (mesh atlanır, materyal varsayılana düşer).
+- **Üç yol, tek BSDF/G-buffer kütüphanesi:** raster, hibrit RT ve path tracer aynı M13 BSDF'lerini, aynı `projection.glsl`'i ve aynı özel `surface()` parçalarını kullanır; "raster, RT ve PT"
+  çapraz testleri vardır (`modules/render/tests/m13_pbr_test.cpp:188-305,461`).
+- **Tam hibrit zincir tek modülde:** RT gölge, DDGI, ReSTIR DI, yakın alan GI, RT yansıma, SVGF benzeri denoiser, TAA, bloom, froxel sis, GPU partikül ve GPU duman atlası; RT donanımı yoksa
+  raster'a düşer (`modules/render/src/renderer.cpp:85`).
+- **Kaçırılan kare dayanıklılığı:** zamansal geçmiş yalnız GPU gönderimi başarılı olunca ilerler; başarısız boyutlandırma/ayırma "boyut 0" ile işaretlenip sonraki karede yeniden denenir
+  (`modules/render/src/paths/ray_traced_path.cpp:348-365`, `modules/render/src/passes/rt_lighting_pass.cpp:29-34`).
+- **Gözlemlenebilirlik:** pass başına GPU süresi, `RenderStats` ve path tracer sıfırlama nedeni (test edilmiş) kamerayı oynatmadan teşhisi mümkün kılar
+  (`modules/render/include/astral/render/renderer.hpp:336-352`, `modules/render/tests/m13_pbr_test.cpp:583-690`).
+- **Özel shader tek kaynak:** bir `.ashader` hem G-buffer/gölge/forward hem RT parçası olarak derlenir; hatalar `.ashader` satırına eşlenir; RT parçası derlenemezse sahne bozulmaz, neden
+  `shader_error()`'da kalır (test: `modules/render/tests/renderer_test.cpp:946`).
+- **Hızlı başlangıç altyapısı:** SPIR-V önbelleği, eşzamanlı derleme, paralel `build_mips` ve busy callback; ölçülen etki "Performans" bölümündedir.
+- **Girdi doğrulaması:** mesh indeksi, materyal parametre ofseti, denoiser iterasyonu, `ParamTexture` ofseti sınırlıdır ve regresyon testleri vardır (`modules/render/tests/msr_regression_test.cpp`).
+- **Test genişliği:** 142 `TEST_CASE`; matematik sözleşmeleri (white-furnace, VNDF, oktahedral kodlama, offset_ray, sRGB, bloom DC kazancı) ve piksel okuyan uçtan uca testler.
+
+## Zayıf yanlar ve bilinen sınırlar
+
+### A. Doğrulanmış performans boşlukları
+
+| # | Boşluk | Ayrıntı ve kaynak |
+|---|---|---|
+| A1 | **Render scale / yarı çözünürlük RT yok.** | Tüm RT hedefleri (geometri geçmişi, rezervuarlar, denoiser, TAA, path tracer birikimi) hedef texture boyutunda yaratılır; ölçek ayarı `RenderSettings`'te yok, upscaler (DLSS/FSR/TAAU) yok (`modules/render/src/paths/ray_traced_path.cpp:127-139`, `modules/render/src/passes/rt_lighting_pass.cpp:13-35`, `modules/render/include/astral/render/renderer.hpp:280-318`). Maliyet ayarı yalnız ışın/pürüzlülük/iterasyon düzeyindedir. |
+| A2 | **À-trous tam çözünürlük, paylaşımlı bellek yok.** | Her iterasyon her piksel için 5×5 = 25 dokunuş yapar (her dokunuşta geometri + diffuse + speküler fetch ve `camera_ray` yeniden kurma); `shared` bellek kullanılmaz, kernel adımı `1<<i` olduğundan dokunuşlar iterasyonla uzaklaşıp önbellek tutarlılığını kaybeder (`modules/render/shaders/denoise_atrous.comp:18,53-80`, adım: `modules/render/src/passes/denoise_pass.cpp:131`). Harici ölçüm: 2 geçiş 2.6 ms, 3 geçiş 4.4 ms (bkz. Performans). |
+| A3 | **ReSTIR maliyeti ve sabit kodlu ">2 ışık" eşiği.** | Eşik üç yerde ayrı ayrı sabit yazılıdır (`modules/render/src/paths/ray_traced_path.cpp:171,356`, `modules/render/src/passes/rt_lighting_pass.cpp:86-87`); aday sayısı (24), zamansal/uzamsal M sınırları (20/60), komşu sayısı (3) ve yarıçap (24 px) shader sabitidir, ayardan değişmez (`modules/render/shaders/include/astral/restir.glsl:11-13`, `modules/render/shaders/restir_di_spatial.comp:15-16`). Rezervuar tamponları 3 × 16 B × piksel (1080p'de ≈100 MB, hesap). Harici ölçüm: rt_ultra'da temporal+spatial ≈ 10.9 ms (yeniden ölçülmedi). Eşiğin hemen üzerindeki 3 ışıkta bu hattın RIS'e göre kazandırıp kazandırmadığı ölçülmedi. |
+| A4 | **İkincil ışın başına O(N) RectLight döngüsü.** | `trace_env_or_surface` her yansıma/kırılma ışınında tüm rect ışıkları analitik olarak keser (`modules/render/shaders/rt_lighting.comp:35-41`); path tracer her sekmede aynısını yapar (`modules/render/shaders/path_tracer.comp:181-186`); RIS ağırlıkları ve MIS seçim olasılığı da O(N)'dir (`modules/render/shaders/include/astral/rt.glsl:462-472,618-631`), kamera ışını için `composite` da (`modules/render/shaders/composite.comp:54-61`). Rect ışık sayısı sınırlanmamış, hızlandırma yapısı yok. |
+| A5 | **Transmission dallanması (en çok 3 ışın).** | Şeffaflık modelli piksel yansıma ışını + içe kırılma ışını + çıkış arayüzü ışını izler (strength ≥ 0.95 ise yakın alan GI ışını atlanır) (`modules/render/shaders/rt_lighting.comp:118,154-207`); aynı warp'ta farklı yollar ıraksar. Ölçülmedi. |
+| A6 | **Sis/duman açıkken raster gölge haritası.** | RT yolunda bile sis veya duman varsa raster `ShadowPass` çalışır ve froxel güneş görünürlüğü bu 1 örnekli sert haritadan okunur; RT gölgeleriyle tutarsızdır ve ek geçiş/çizim maliyeti getirir (`modules/render/src/paths/ray_traced_path.cpp:220-227,246-249`, `modules/render/shaders/fog_integrate.comp:13-21`). |
+| A7 | **SpotLight yok.** | Işık tipleri `PointLight`, `RectLight`, `DirectionalLight`'tır (`modules/render/include/astral/render/renderer.hpp:170-203`); render ve shader kodunda spot koni terimi bulunmaz (grep). |
+| A8 | **DoF yok; post shader'lar tonemap sonrası ve derinliksiz.** | `post()` yalnız LDR `SCREEN_TEXTURE`, `SCREEN_UV`, `TIME` görür; derinlik, normal, hız ya da HDR erişimi yok (`modules/render/src/passes/post_pass.cpp:13-42`, `modules/render/src/surface_shader_rt.cpp:168-174`). DoF, SSAO, hareket bulanıklığı, HDR öncesi efekt yazılamaz; `render_mode after_tonemap` parse edilir ama okunmaz. |
+| A9 | **`App::read_frame` yalnız offscreen.** | Pencereli modda swapchain okunmaz; `offscreen_readback_` yoksa false döner (`modules/app/src/services/render_bridge.cpp:235-239`, `modules/app/include/astral/app/app.hpp:286-287`). Render modülünün kendisi readback sunmaz. |
+
+### B. Doğruluk ve özellik sınırları
+
+- **Path tracer "referans" olarak eksik ve yanlı:** radyans 64'e kırpılır (`modules/render/shaders/path_tracer.comp:371`; ReSTIR'sız hibrit için `modules/render/shaders/rt_lighting.comp:300-301` diffuse 64, speküler 256), yani
+  yorumlardaki "unbiased" (`modules/render/include/astral/render/renderer.hpp:306`) kırpma nedeniyle yanlıdır. `MeshUV` normal haritası, detay albedo/normal ve POM ikincil/PT vuruşlarında uygulanmaz
+  (`modules/render/shaders/include/astral/rt.glsl:232-234`); decal'lar yalnız ilk vuruşta (`modules/render/shaders/path_tracer.comp:211`). Nokta ışık sayısı > 4 ise tek bir ışık düzgün örneklenir, rect ışık
+  seçimi 1/N'dir (`modules/render/shaders/path_tracer.comp:68-75,99-103`): çok ışıkta gürültü artar. Testler yalnız PT ile hibrit RT'nin ortalama parlaklığını karşılaştırır
+  (`modules/render/tests/m13_pbr_test.cpp:405`).
+- **Şeffaf yüzeyler (`blend_mix/blend_add`) ışın izleme dünyasında yoktur:** TLAS'a girmez, RT yansıma/GI/gölge ve path tracer'da görünmez, gölge düşürmez/almaz; TAA geçmişine girmez; sıralama nesne
+  orijinine göredir, kırılma (ekranı bükme) yok (`modules/render/src/frame/instances.cpp:35-39,58-63`, `modules/render/src/passes/taa_pass.cpp:51-54`). Cam için `Transmission` modeli kullanılır (opak G-buffer + RT kırılma).
+- **Partiküller tonemap sonrası LDR hedefe çizilir:** bloom, pozlama ve TAA'dan etkilenmez; toplamalı karışım LDR'de kırpılır; özel `particle()` shader'ı LDR renk üretir
+  (`modules/render/src/paths/ray_traced_path.cpp:258-259`, `modules/render/src/paths/raster_path.cpp:116-117`, `modules/render/src/passes/particle_pass.cpp:12-16`).
+- **Raster yol sade:** AA (MSAA/FXAA/TAA) yok, bloom yok, rect ışık yok, nokta ışık gölgesi yok, ortam yalnız gradyan ya da `sky_ibl` (`modules/render/src/paths/raster_path.cpp:96-120`,
+  `modules/render/shaders/lighting.comp:113-205`).
+- **Tek gölge haritası, kademe yok:** tüm mesh sınırlarına sıkı oturan tek ortografik harita; büyük sahnede çözünürlük düşer (`modules/render/src/passes/shadow_pass.cpp:15-50`).
+- **SDF:** her piksel ve her RT ışını tüm şekil listesini tarar (O(N)); RT'de trace ≤128, occluded ≤96 raymarch adımı ve her adım tüm şekilleri değerlendirir; hız vektörü yalnız kameradan türer, SDF verisi değişince
+  hibrit RT'nin tüm zamansal geçmişi geçersiz olur (hareketli SDF ile her karede denoiser/TAA yeniden başlar) (`modules/render/shaders/include/astral/rt.glsl:299-350`,
+  `modules/render/src/paths/ray_traced_path.cpp:118-125`). Kamera bir SDF şeklinin içindeyse o şekil şeffaf görünür (test: `modules/render/tests/renderer_test.cpp`, "a camera inside an SDF shape").
+- **DDGI:** probe sayısı için üst sınır yok (yalnız alt sınır 2; `rays_per_probe` 16..512); ışın tamponu `nx*ny*nz*rays*16` bayttır (ör. 64³ probe × 512 ışın = 2 GiB, hesap) (`modules/render/src/passes/ddgi_pass.cpp:73-76,116-117`).
+  Hacim otomatik sığdırıldığında (`volume_min == volume_max`) sınır kutusu %1'den fazla değişirse geçmiş sıfırlanır; sahnenin dış nesnesi hareket eden/eklenip çıkan sahnelerde GI yeniden başlar
+  (`modules/render/src/passes/ddgi_pass.cpp:78-96`; çalışma anı etkisi ölçülmedi). Tek düzgün ızgara (cascade yok), prob taşıma (relocation) yok, büyük hacimde aralık `extent/n` olarak seyrelir.
+- **Mesh'ler statik:** deforme/skinned mesh için BLAS güncelleme yok; `update_mesh` tamponları ve BLAS'ı baştan kurar (`modules/render/src/stores/mesh_store.cpp:58-68`). LOD, GPU güdümlü culling, occlusion culling,
+  meshlet, örnek başına materyal override (glTF'ye özgü `ModelMaterialOverride` dışında) yok. CPU görüş hacmi elemesi yalnız G-buffer'da, grup granülünde (gruptaki tek görünür örnek tüm grubu çizdirir) ve yalnız
+  standart-materyalli gruplarda; gölge ve TLAS girdilerine uygulanmaz (`modules/render/src/passes/gbuffer_pass.cpp:10-41`).
+- **Doku:** yalnız CPU kutu filtreli mip; BC sıkıştırma yok (cook edilmiş veri alınır), texture streaming yok, yükleme bloklayıcı ve mip başına ayrı `write_texture`
+  (`modules/render/src/stores/texture_store.cpp:97-124,139-165`). `max_ray_distance`, `shadow_map_size`, `gi.probes_*` doğrulanmaz; `normalized()` yalnız üç alanı kırpar (`modules/render/src/renderer.cpp:73-78`).
+- **Tonemap/kamera:** yalnız ACES ve sabit pozlama; otomatik pozlama, renk derecelendirme/LUT, vignette, film grain yok (`modules/render/shaders/tonemap.frag:8-20`). Froxel fazı sabit g=0.45 ve zamansal filtre yok
+  (`modules/render/shaders/fog_integrate.comp:23-40`). Froxel ızgarası 240×135 hücreyle kısıtlıdır: 1080p üstünde hücre ekran pikselini kapsar (`modules/render/src/passes/fog_pass.cpp:227-229`).
+- **Hata ve ayar hijyeni:** TLAS kurulamazsa RT karesi sessizce atlanır (`modules/render/src/paths/ray_traced_path.cpp:309`; hata raporu doğrulanmadı); `debug_view` değişimi zamansal geçmişi sıfırlamaz
+  (`modules/render/src/renderer.cpp:195-201`); `update_material` busy bildirimi vermez (başlık yorumu "updates" der) (`modules/render/src/renderer.cpp:164-168`,
+  `modules/render/include/astral/render/renderer.hpp:398-399`).
+
+### C. Tasarım borcu ve bütçe baskısı
+
+- **RenderGraph:** geçici texture aliasing'i, async compute, pass yeniden sıralama ve BDA tamponları için otomatik bağımlılık izleme yok; elle `memory_barrier()` ve `side_effect()` gerekir
+  (`modules/render/src/render_graph.cpp:81,145-161`, `modules/render/src/passes/rt_lighting_pass.cpp:49,66`). Kare kaydı tek iş parçacığında; Renderer'a dışarıdan pass ekleme kancası yok.
+- **Her karede tam yükleme:** tüm materyal tablosu, parametre bloğu ve örnek listesi her kare yeniden kurulup yüklenir; TLAS örnek listesi karşılaştırması CPU'dadır; `ShaderStore::find_by_key` O(shader sayısı)
+  (`modules/render/src/stores/material_store.cpp:103-134`, `modules/render/src/frame/instances.cpp:31,81,136`, `modules/render/src/stores/shader_store.cpp:159-166`).
+- **RT shader yeniden derlemesi render iş parçacığında, eşzamanlı:** özel yüzeyli shader eklenip silindiğinde sonraki RT karesi beş compute shader'ı derler (`modules/render/src/stores/shader_store.cpp:182-212`,
+  `modules/render/src/paths/ray_traced_path.cpp:301`); iş sistemi ve önbellek bunu hafifletir, soğuk önbellekte kare takılır (ölçülmedi). En az bir alfa testli özel shader tüm RT ışın sorgularını "opak değil" yapar
+  (`modules/render/shaders/include/astral/rt.glsl:299-312`).
+- **Kabul edilip yok sayılan `render_mode`'lar ve `shader_type ui`:** `rt_simple`, `after_tonemap`, particle/volume `unshaded` ve ui modları ayrıştırıcıda geçerlidir, renderer okumaz (`modules/shader/src/ashader.cpp:372-382`).
+- **Sıralamaya bağlı koşul:** `path_tracer_freeze_scene` bastırması `PathTracerReset` enum sırasına dayanır (`modules/render/src/paths/ray_traced_path.cpp:103-105`).
+- **Boyut bütçesi:** `render_ray_traced_path` 79/80 satır, `GpuFrame` 24/25 üye (`python tools/check_sizes.py` çıktısı; `modules/render/src/paths/ray_traced_path.cpp:299`, `modules/render/src/gpu_layouts.hpp:123`).
+  Yeni bir kare sabiti/pass eklemek bütçeyi aşar; `rt.glsl` 661 satırdır (`modules/render/shaders/include/astral/rt.glsl:661`).
+- **Platform:** RT için donanımsal ray query gerekir (`gpu::Feature::RayTracing`); yazılım yedeği yoktur. VRAM bütçe API'si yok (gpu modülünde), geçici texture havuzu üst sınırsızdır
+  (`modules/render/src/renderer.cpp:85`, `modules/render/src/render_graph.cpp:235-250`).
+
+## Testler
+
+`astral_render_tests` (CMake TIMEOUT 420 sn) 13 test dosyası (+ `test_main.cpp`) ve 142 `TEST_CASE` içerir (`modules/render/CMakeLists.txt:106-126`). Tüm testler `ASTRAL_SHADER_CACHE`'i build klasörüne yönlendirir (`CMakeLists.txt:135`, `cmake/CheckTestEnvironment.cmake:2`).
+
+| Dosya | Kapsam |
+|---|---|
+| `modules/render/tests/renderer_test.cpp` (63) | Raster ve RT uçtan uca: ilkel mesh'ler, derinlik, instancing, karo ışıkları, SDF (CSG, iç içe, derinlik), güneş/nokta/rect ışık, RT gölge, ayna, GI renk akışı, materyal paylaşımı, doku/normal harita, hareket vektörü, `update_mesh`, sıkıştırılmış mip, GPU zamanları, debug çizgi, UI, font, `.ashader` (raster + RT + hata geri dönüşü), `blend_*`, sky/post shader, aerial, froxel, duman, sky IBL, partikül, doku projeksiyonu (yönelim, normal) |
+| `modules/render/tests/m13_pbr_test.cpp` (18) | Çok-saçılımlı GGX ve Charlie/anizotropi/Beer-Lambert matematik sözleşmeleri; clearcoat, sheen, anizotropi, transmission, subsurface, ıslaklık+decal, detay+POM modelleri raster/RT/PT arasında; path tracer birikimi, sıfırlama, telemetri, freeze; yansıma pürüzlülük kesimi |
+| `modules/render/tests/render_audit_test.cpp` (17) | Matematik sözleşmeleri (VNDF, oktahedral, offset_ray, normal matrisi, sRGB/bloom) ve regresyonlar (DDGI sıfırlama/FP16 taşması, bloom DC, alfa testli RT gölge, forward PBR birimleri, rect MIS, unshaded, ReSTIR-RIS eşdeğerliği, sanal yansıma yeniden izdüşümü) |
+| `modules/render/tests/stores_test.cpp` (6), `passes_test.cpp` (4), `render_graph_test.cpp` (5) | Store yaşam döngüleri, `prepare_instances` gruplama/sıralama/TLAS, RT shader yeniden kurma/hata/kurtarma; gölge/DDGI/zamansal geçmiş/bloom/post pass'leri; graph sırası, ayıklama, havuz, erişim denetimi |
+| `modules/render/tests/msr_regression_test.cpp` (9) | REN03/05/06/07/08 (GrowBuffer, ofset, tek boyutlu mip, iterasyon sınırı, indeks) ve ADR-0042 int uniform'ları |
+| `modules/render/tests/surface_shader_test.cpp` (8), `material_file_test.cpp` (5), `material_crlf_test.cpp` (1), `particle_builtins_test.cpp` (2) | Surface shader aşamaları, satır eşlemesi, iş sistemi+önbellekle eşitlik, RT varyantları; `.material` ebeveyn zinciri ve uniform değerleri; CRLF; partikül yerleşikleri |
+| `modules/render/tests/mips_reference_test.cpp` (3), `renderer_busy_test.cpp` (1) | `build_mips` referans filtreyle eşitlik ve iş sistemiyle aynı bayt; busy callback sayımı |
+
+**Kapsanmayanlar / zayıf noktalar:**
+- Çoğu test `if (!f.device) return;` ile GPU yoksa assertion çalıştırmadan geçer; RT testleri RT donanımı yoksa atlanır (ör. `modules/render/tests/renderer_test.cpp:325`). Lavapipe golden testleri bu PC'de atlanır (lead doğrulaması).
+- `"the roughness cutoff saves ray-traced lighting time on matte scenes"` süreyi yalnız loglar, tasarruf iddiasını doğrulamaz (`CHECK(full >= -1.0f)`) (`modules/render/tests/m13_pbr_test.cpp:734-754`).
+- Doku projeksiyonu yönelim düzeltmesi (31e2c48) yalnız raster yolda test edilir (`Fixture` ray_tracing=false); RT/PT için yalnız Triplanar'ın kırmızı/mavi yarısı kontrol edilir
+  (`modules/render/tests/renderer_test.cpp:1591-1660`, `:607-624`). Aynı `projection.glsl` kullanıldığı için yönelim paylaşılır ama RT'de ayrıca doğrulanmamıştır.
+- PT-hibrit eşdeğerliği yalnız ortalama parlaklıktır (`modules/render/tests/m13_pbr_test.cpp:405`); RT/PT'de MeshUV normal haritası/detay eksikliği (B bölümü) test edilmez. ReSTIR yalnız RIS parlaklığıyla karşılaştırılır; çok rect ışık,
+  > 2 eşiği çevresi, DDGI üst sınırları, RenderGraph ayırma hatası enjeksiyonu (REN02), TAA hayaletlenmesi ve denoiser kalitesi için ölçüt yoktur. Performans regresyon testi yoktur.
+- **Kararsız:** paralel yükte `astral_render_tests` içindeki DDGI regresyon testinde (`modules/render/tests/render_audit_test.cpp:301`) SIGSEGV gözlendi; seri çalışmada geçer; kök neden araştırılmadı (lead gözlemi).
+- Hardware golden testleri (`golden_hw_*`, 7 örnek) bu PC'de (RTX 3060) tonlama farkıyla başarısız; neden araştırılmadı (lead gözlemi). tsan/asan Windows'ta çalıştırılmadı.
+
+## Performans
+
+Yalnız ölçülmüş sayılar; ortam: RTX 3060, MSVC 19.51, Ninja, `examples/the_architect` (kaynak: lead ölçümleri, 2026-11-26). Hesaplananlar ayrıca belirtilmiştir.
+
+| Ölçüm | Sonuç | Not |
+|---|---|---|
+| Başlangıç (`--capture --frames 4`), SPIR-V önbelleği öncesi | Debug 19.1 s, Release 4.18 s | |
+| Başlangıç, önbellekli | Debug soğuk 11.2 s / sıcak 3.95 s; Release soğuk 2.53 s / sıcak 1.76 s | Kalan maliyet: cihaz+pencere 0.3-0.6 s, DevTools/ImGui 0.2 s (Release) / 0.65 s (Debug), sıralı texture çözme/yükleme |
+| `rt.lighting`, 1080p, rt_high, Release | 10.43 ms (varsayılan); `max_reflection_roughness 0.35` ile 7.54 ms | Fark ≈ %27.7 (hesap). Test yalnız loglar, assert etmez |
+| ReSTIR DI temporal+spatial, rt_ultra | ≈ 10.9 ms | Harici rapor, yeniden ölçülmedi |
+| À-trous denoiser | 2.6 ms (2 geçiş) / 4.4 ms (3 geçiş) | Harici rapor, yeniden ölçülmedi |
+
+Test içinde loglanan ancak sabit sayı olarak kaydedilmeyen ölçümler: `build_mips` (1024×1024 sRGB, referans/seri/4 işçi) ve `rt.lighting` süresi (`modules/render/tests/mips_reference_test.cpp:104-119`,
+`modules/render/tests/m13_pbr_test.cpp:734-754`); bu test yalnız tablo-güdümlü filtrenin eski algoritmadan yavaş olmadığını doğrular. Kare süresi, VRAM kullanımı, raster yol maliyeti, path tracer örnek hızı,
+DDGI/denoiser/TAA tekil süreleri, farklı çözünürlükler ve çoklu ışık ölçeklenmesi: **Ölçülmedi**.
+
+## Kararlar
+
+- [ADR-0008](../decisions/0008-bindless-bda-glsl.md): bindless texture, buffer device address, GLSL
+- [ADR-0009](../decisions/0009-render-graph-hybrid-deferred.md): render graph üzerinde hibrit deferred renderer
+- [ADR-0011](../decisions/0011-hybrid-ray-traced-lighting.md): donanımsal ray query ile hibrit ışık
+- [ADR-0012](../decisions/0012-render-api-contract.md): render API sözleşmesi (çıkar → çiz)
+- [ADR-0018](../decisions/0018-terrain-and-sdf-world.md): SDF dünyası
+- [ADR-0022](../decisions/0022-shader-and-material-language.md): `.ashader` ve `.material`
+- [ADR-0024](../decisions/0024-volumetric-vfx.md): hacimsel VFX, GPU partikül, `volume`/`particle` shader türleri
+- [ADR-0030](../decisions/0030-refactor-rules-and-size-budget.md): refaktör kuralları ve boyut bütçesi
+- [ADR-0031](../decisions/0031-hardware-independent-golden-tests.md): donanımdan bağımsız görüntü testleri
+- [ADR-0033](../decisions/0033-advanced-pbr-and-path-tracer.md): gelişmiş PBR, decal, path tracer (M13)
+- [ADR-0042](../decisions/0042-typed-shader-parameter-words.md): shader parametrelerinde tipli word ABI
+
+Eksik kayıtlar: görev tanımı SPIR-V önbelleği/derleme servisleri ve busy callback (ADR-0047/0048), path tracer sıfırlama telemetrisi ve donma (ADR-0049), yansıma pürüzlülük kesimi (ADR-0050) ve doku
+projeksiyonu yönelimi (ADR-0051) için ADR numaraları verir; bu ağaçta `docs/decisions/` en çok 0044'e kadardır ve bu numaralı dosyalar yoktur. Davranışları yukarıda koddan belgelendi; ADR dosyaları
+eklenirse buraya bağlanmalıdır. Tarihsel notlar: `docs/archive/renderer/` ve `docs/archive/audits/rendering-deep-audit-2026-11-25.md` (REN01-REN10'un çoğu kodda kapalı görünüyor, tek tek doğrulanmadı; RR01, RR02, RR05 benzeri açık sorunlar
+yukarıdaki zayıf yanlara yeniden yazıldı).
