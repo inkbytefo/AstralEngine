@@ -1,0 +1,8 @@
+{
+  "format": "astral.material",
+  "version": 1,
+  "parent": "workflow/materials/uv_inspect.material",
+  "values": {
+    "show_density": true
+  }
+}

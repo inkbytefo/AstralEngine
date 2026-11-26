@@ -8,6 +8,7 @@
 #   physics_lab      P0: motorized SixDOF/SwingTwist/Hinge joints, breakable joints, materials, cooked shapes, batched queries
 #   physics_showcase the physics in one world: pile, joints, surfaces, water and wind (replaces the three above)
 #   lighting_showcase ray-traced room, SDF yard, many-lights night (replaces rt_showcase and sdf_scene)
+#   materials_showcase PBR models, .material workflow and .ashader night gallery (replaces material_showcase, material_workflow, shader_showcase)
 #   rt_showcase      the ray-traced "RGB room"
 #   material_showcase M13 advanced PBR studio: clearcoat, sheen, anisotropy, glass, SSS, wetness, decals & path tracer
 #   material_workflow material hot-reload & UV inspection scene workflow
@@ -28,6 +29,7 @@ add_subdirectory(physics_playground)
 add_subdirectory(physics_lab)
 add_subdirectory(physics_showcase)
 add_subdirectory(lighting_showcase)
+add_subdirectory(materials_showcase)
 add_subdirectory(rt_showcase)
 add_subdirectory(material_showcase)
 add_subdirectory(material_workflow)

@@ -1,0 +1,24 @@
+// An additive shell. The same moving wave shapes the silhouette and lights its crests.
+shader_type surface;
+render_mode blend_add, cull_disabled;
+
+uniform vec3 inner_color : source_color = vec3(0.17, 0.075, 1.0);
+uniform vec3 outer_color : source_color = vec3(0.18, 0.82, 1.0);
+uniform float displacement : range(0.0, 0.22, 0.01) = 0.084;
+
+varying float wave;
+
+void vertex() {
+    wave = sin(VERTEX.y * 17.0 + TIME * 2.2) * cos(VERTEX.x * 14.0 - VERTEX.z * 10.0 - TIME * 1.5);
+    VERTEX += NORMAL * wave * displacement;
+}
+
+void surface() {
+    float grazing = clamp(1.0 - abs(dot(NORMAL, VIEW_DIR)), 0.0, 1.0);
+    float arc = cos(UV.y * 44.0 + 3.6 * cos(UV.x * 6.283185) - TIME * 2.1);
+    float filament = smoothstep(0.7, 0.97, arc);
+    float crest = smoothstep(0.2, 0.95, wave);
+    ALBEDO = vec3(0.0);
+    EMISSION = inner_color * (0.07 + 0.48 * filament) + outer_color * (0.29 * crest + 0.38 * grazing);
+    ALPHA = 0.11 + 0.15 * filament + 0.23 * grazing;
+}
