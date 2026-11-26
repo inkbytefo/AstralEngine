@@ -1,0 +1,14 @@
+{
+  "format": "astral.scene",
+  "version": 1,
+  "entities": [
+    {
+      "id": 1,
+      "components": {
+        "astral::Name": { "value": "hill" },
+        "astral::Transform": {},
+        "astral::TerrainRef": { "asset": "terrain/hill.aterrain", "material_file": "terrain/ground.material" }
+      }
+    }
+  ]
+}

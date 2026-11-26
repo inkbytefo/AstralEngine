@@ -1,0 +1,1 @@
+{"format":"astral.entity","version":1,"entity":{"id":1,"components":{"astral::Name":{"value":"ground"},"astral::Transform":{"position":[2000.0,0.0,2000.0],"scale":[4000.0,1.0,4000.0]},"astral::PrimitiveMesh":{"shape":"Plane","material":{"base_color":[0.32,0.36,0.28,1.0],"roughness":0.8}}}},"always_loaded":true}
