@@ -1,0 +1,32 @@
+// Bioluminescent leaves. The tip moves furthest from the anchored base.
+shader_type surface;
+render_mode alpha_test, cull_disabled;
+
+uniform vec3 leaf_color : source_color = vec3(0.025, 0.20, 0.13);
+uniform vec3 vein_color : source_color = vec3(0.10, 0.95, 0.54);
+uniform float sway : range(0.0, 0.5, 0.01) = 0.19;
+uniform float wind_speed : range(0.0, 4.0, 0.05) = 1.4;
+
+void vertex() {
+    float tip = 1.0 - UV.y;
+    float wind = sin(TIME * wind_speed + WORLD_POSITION.x * 1.2 + WORLD_POSITION.z * 2.0);
+    VERTEX.y += (0.07 + wind * sway) * tip * tip;
+    VERTEX.x += wind * sway * 0.25 * tip;
+}
+
+void surface() {
+    float tip = 1.0 - UV.y;
+    float across = abs(UV.x * 2.0 - 1.0);
+    float outline = pow(max(sin(3.141593 * tip), 0.0), 0.82) * (0.96 - 0.32 * tip);
+    outline *= 0.94 + 0.06 * cos(tip * 95.0);
+    ALPHA = step(across, outline);
+
+    float spine = 1.0 - smoothstep(0.018, 0.075, across);
+    float branches = 1.0 - smoothstep(0.04, 0.14, abs(fract(tip * 8.0 - across * 0.7) - 0.5));
+    float tissue = 1.0 - smoothstep(0.1, max(outline, 0.101), across);
+    float pulse = 0.65 + 0.35 * sin(tip * 9.0 - TIME * 1.8);
+    float edge = smoothstep(max(outline - 0.035, 0.0), max(outline, 0.001), across);
+    ALBEDO = leaf_color * (0.56 + 0.44 * tissue + 0.25 * branches);
+    ROUGHNESS = 0.47 - 0.18 * spine;
+    EMISSION = vein_color * (spine * 0.48 + branches * tissue * 0.12 + edge * 0.32) * pulse;
+}
