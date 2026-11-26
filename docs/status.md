@@ -9,24 +9,24 @@ Bu sayfa motorun bugün ne kadar hazır olduğunu dürüstçe özetler. Ayrınt�
 | Modül | Olgunluk | Güçlü yanlar | En önemli zayıf yanlar |
 |---|---|---|---|
 | [core](modules/core.md) | Stabil | Log, handle, saat, iş sistemi, kayıpsız 64-bit JSON, reflection, profiler | İş sistemi tek kuyruk/tek mutex (work-stealing yok); JSON nesne araması doğrusal; matematik minimal |
-| [platform](modules/platform.md) | Kullanılabilir | SDL3 pencere, klavye/fare, gamepad, metin girişi, başsız mod, `keep_responsive` | Tam ekran, pencere konumu ve boyut olayı yok; yalnız ilk gamepad; IME yok; `wasd()` çaprazda normalize değil |
+| [platform](modules/platform.md) | Kullanılabilir | SDL3 pencere, klavye/fare, gamepad, metin girişi, başsız mod, `keep_responsive` | Tam ekran, pencere konumu ve boyut olayı yok; yalnız ilk gamepad; IME yok; `wasd()` bilinçli olarak normalize edilmez (çapraz uzunluk √2) |
 | [gpu](modules/gpu.md) | Kullanılabilir | Vulkan 1.3, bindless + BDA, ray query (BLAS/TLAS), timestamp | Tek iş parçacığı, tek kuyruk; doku/buffer yüklemeleri bloklayıcı; yalnız 2D doku; VRAM bütçesi ve pipeline önbelleği yok |
 | [shader](modules/shader.md) | Kullanılabilir | `.ashader` ayrıştırıcı, glslang, SPIR-V disk önbelleği, paralel derleme | SPIR-V optimizer kapalı; önbellek etiketi elle artırılır; `ui` shader türü ayrıştırılıyor ama kullanılmıyor |
 | [world](modules/world.md) | Stabil (ECS, sahne/prefab, serileştirme) · Kullanılabilir (harita durumu, Level Instance) | Kendi ECS'i, değişiklik takibi, olaylar, paralel zamanlayıcı, prefab override/nesting, hücre streaming, floating origin | Transform güncellemesinde değişiklik bayrağı yok; çok sayıda doğrusal arama; harita değişiklikleri yalnız bellekte |
-| [physics](modules/physics.md) | Kullanılabilir | Jolt v5.7.0; SixDOF/motor/kırılma eklemleri; toplu sorgular; rüzgâr/su alanları; karakter; deterministik komut sırası | Platformlar arası determinizm yok; SixDOF/SwingTwist'te `set_joint_limits` etkisiz; alanlar yalnız eksen hizalı kutu |
+| [physics](modules/physics.md) | Kullanılabilir | Jolt v5.7.0; SixDOF/motor/kırılma eklemleri; toplu sorgular; rüzgâr/su alanları; karakter; deterministik komut sırası | Platformlar arası determinizm yok; SixDOF/SwingTwist'te tek aralıklı `set_joint_limits` yalnız uyarı verir (`JointLimitsDesc` gerekir); alanlar yalnız eksen hizalı kutu |
 | [audio](modules/audio.md) | Kullanılabilir | miniaudio, bus'lar, 3D ses, sessiz cihaz | Filtre, reverb, oklüzyon, Luau API'si yok; yalnız 4 test |
-| [script](modules/script.md) | Kullanılabilir | Luau sandbox, hot reload, staged yükleme, üretilen `astral.d.luau`, `astral-luau-check` | Bütçe duvar saatiyle ölçülüyor ve ilk aşımdan sonra fazın geri kalanı bütçesiz kalıyor; bellek sınırı yok; tip denetimi callback parametrelerini yakalamıyor |
+| [script](modules/script.md) | Kullanılabilir | Luau sandbox, hot reload, staged yükleme, üretilen `astral.d.luau`, `astral-luau-check` | Bütçe modül ve faz başına ama duvar saatiyle ölçülüyor (yük altında sahte aşım; [ADR-0052](decisions/0052-script-budget-per-module.md)); bellek sınırı yok; tip denetimi callback parametrelerini yakalamıyor |
 | [render](modules/render.md) | Kullanılabilir | Raster + hibrit RT (DDGI, ReSTIR DI, RT gölge/yansıma, denoiser, TAA, bloom), SDF, decal, gelişmiş PBR, path tracer, özel shader'lar her yolda | RT maliyeti orta sınıf GPU'da yüksek (render scale yok); SpotLight ve DoF yok; path tracer kesin tarafsız değil |
 | [assets](modules/assets.md) | Kullanılabilir | glTF/GLB, cook (`astral-cook 7`), `.apak`, hot reload, arazi tile'ları | glTF skin/animasyon/morph atlanıyor; GPU yüklemesi ana iş parçacığında, bütçesiz; boşaltma (unload) yok |
 | [app](modules/app.md) | Stabil | Oyun kabuğu, servisler, sabit adımlı fizik köprüsü, FeatureSet, Atmosphere, VFX, HUD, debug UI, başsız/offscreen | `AppDesc` ve `App::Impl` 25/25 üye; `read_frame` yalnız offscreen; VFX loop'suz |
 | [editor](modules/editor.md) | `editor_core` Kullanılabilir · `editor` Deneysel | Belge/komut/transaction modeli, undo/redo, ajan önerisi akışı | Yalnız sabit demo projesini açar; Play yalnız fizik önizlemesi; UI hiç otomatik test edilmiyor |
-| [araçlar](tools.md) | Kullanılabilir | Cook, paketleme, özellik/katman/boyut/doküman denetimleri, kurulu SDK tüketici testi | Bazı denetimler sezgisel (satır regex'i, yalnız doğrudan kenar); bazıları araç yoksa sessizce atlıyor |
+| [araçlar](tools.md) | Kullanılabilir | Cook, paketleme, özellik/katman/boyut/doküman denetimleri, kurulu SDK tüketici testi | Bazı denetimler sezgisel (satır regex'i, yalnız doğrudan kenar); bazıları eski CMake'te (< 3.28) sessizce atlanıyor |
 
 **Hiç olmayanlar:** iskelet animasyonu, araç fiziği, navigasyon, ağ/multiplayer, SpotLight, alan derinliği, pencereli ekran görüntüsü, GPU bellek bütçesi API'si, entity başına materyal override.
 
 ## 2. Test durumu
 
-Debug ve Release, `-DASTRAL_WARNINGS_AS_ERRORS=ON`: build temiz, ctest 94 testten 87'si geçiyor (2026-11-26, `a113b55`).
+Debug ve Release, `-DASTRAL_WARNINGS_AS_ERRORS=ON`: build temiz, ctest 94 testten 87'si geçiyor (2026-11-26, `a113b55`). Dalga A/B sonrası (`357ff85`'e giden dal, Debug ve Release): yine yalnız aşağıdaki 7 `golden_hw` düştü; toplam test sayısı bu koşuda kaydedilmedi.
 
 | Durum | Test | Not |
 |---|---|---|
