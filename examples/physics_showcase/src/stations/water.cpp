@@ -84,7 +84,7 @@ void build_water_station(Context& ctx) {
     build_bridge(ctx);
     build_pad_and_glider(ctx);
     add_station(ctx, water_centre, "Su ve Rüzgâr",
-                "Hafif kasalar yüzer, taşlar batar · rüzgâr dönüp eser · menteşeli köprü · zıplama pedi (sensör + Luau) · planör", 27.0f);
+                "Hafif kasalar yüzer, taşlar batar · rüzgâr dönüp eser · menteşeli köprü · zıplama pedi (sensör + Luau) · planör", 34.0f);
 }
 
 } // namespace physics_showcase

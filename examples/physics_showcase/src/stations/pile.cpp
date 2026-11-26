@@ -31,13 +31,18 @@ void build_pile_station(Context& ctx) {
                 "Sol tık: top at · Sağ tık: baktığını it · Space: zıpla · F: uçan kamera", 16.0f);
 }
 
-void build_player(Context& ctx, Handles& h) {
+void build_player(Context& ctx, Handles& h, View view) {
     World& w = ctx.world;
+    const Vec3 start = view == View::Joints     ? joints_centre + Vec3{0, 0.2f, 4}
+                       : view == View::Surfaces ? surfaces_centre + Vec3{0, 0.2f, 12}
+                       : view == View::Water    ? Vec3{-31, plateau_height + 0.2f, 4}
+                                                : pile_centre + Vec3{0, 0.2f, 8};
+    const float yaw = view == View::Water ? radians(-90.0f) : 0.0f; // the water view faces +x, across the lake
     // The controller's position is at the feet, so the visible body is a child lifted to the capsule's centre.
-    h.player = w.create(Name{"player"}, Transform{.position = pile_centre + Vec3{0, 0.2f, 8}}, CharacterController{});
+    h.player = w.create(Name{"player"}, Transform{.position = start}, CharacterController{});
     w.create(Transform{.position = {0, 0.9f, 0}, .scale = {0.8f, 1.8f, 0.8f}}, Parent{h.player},
              MeshRenderer{ctx.meshes.sphere, ctx.materials().create_material({.base_color = {0.3f, 0.9f, 0.45f, 1}, .roughness = 0.4f})});
-    h.camera = w.create(Name{"camera"}, Transform{}, Camera{.far_plane = 500.0f}, player::PlayerCamera{});
+    h.camera = w.create(Name{"camera"}, Transform{}, Camera{.far_plane = 500.0f}, player::PlayerCamera{.yaw = yaw});
 }
 
 } // namespace physics_showcase

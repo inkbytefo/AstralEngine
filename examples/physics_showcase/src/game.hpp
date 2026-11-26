@@ -18,10 +18,13 @@ struct Handles {
 
 bool install_features(astral::Context& ctx);
 
+/// Where the player starts.
+enum class View : std::uint8_t { Pile, Joints, Surfaces, Water };
+
 class ShowcaseGame final : public astral::Game {
 public:
-    /// `overlays`: physics shapes, joints and fields over the picture.
-    explicit ShowcaseGame(bool overlays = false) : overlays_(overlays) {}
+    /// `overlays`: physics shapes, joints and fields over the picture. `view`: the station the player starts at.
+    explicit ShowcaseGame(bool overlays = false, View view = View::Pile) : overlays_(overlays), view_(view) {}
     void on_start(astral::Context& ctx) override;
     void on_update(astral::Context& ctx) override;
 
@@ -29,6 +32,7 @@ public:
 
 private:
     bool overlays_;
+    View view_;
 };
 
 } // namespace physics_showcase

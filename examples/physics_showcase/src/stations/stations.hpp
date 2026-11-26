@@ -23,7 +23,8 @@ void build_pile_station(astral::Context& ctx);       // pile.cpp: crate pyramid,
 void build_joints_station(astral::Context& ctx, Handles& h);    // joints.cpp
 void build_surfaces_station(astral::Context& ctx, Handles& h);  // surfaces.cpp
 void build_water_station(astral::Context& ctx);      // water.cpp: floaters, bridge, jump pad, glider
-void build_player(astral::Context& ctx, Handles& h); // pile.cpp
+/// The player and its camera at `view`'s station, looking at it from its south side.
+void build_player(astral::Context& ctx, Handles& h, View view); // pile.cpp
 
 /// A named place for the HUD.
 void add_station(astral::Context& ctx, astral::Vec3 centre, const char* title, const char* hint, float radius);

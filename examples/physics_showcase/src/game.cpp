@@ -79,7 +79,7 @@ void ShowcaseGame::on_start(Context& ctx) {
     build_pile_station(ctx);
     build_joints_station(ctx, handles);
     build_surfaces_station(ctx, handles);
-    build_player(ctx, handles);
+    build_player(ctx, handles, view_);
 
     ctx.sun = {.direction = normalize(Vec3{-0.55f, -0.62f, -0.45f}), .color = {1.0f, 0.95f, 0.86f}, .intensity = 2.2f};
     ctx.environment = {.sky = {0.42f, 0.58f, 0.85f}, .ground = {0.12f, 0.14f, 0.09f}, .ambient = 0.3f, .exposure = 0.55f,
