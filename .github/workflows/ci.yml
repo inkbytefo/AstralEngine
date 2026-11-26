@@ -41,6 +41,7 @@ jobs:
         run: |
           cmake -S tests/consumer -B consumer-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=${{ github.workspace }}/astral-install
           cmake --build consumer-build --target all consumer_game_package
+          ctest --test-dir consumer-build --output-on-failure
           ./consumer-build/astral_consumer
           ./consumer-build/consumer_game
           ./consumer-build/packages/consumer_game/consumer_game

@@ -13,6 +13,16 @@ astral_add_shaders(astral_consumer SOURCES fill.comp)
 # installed astral-cook.
 astral_add_game(consumer_game SOURCES game.cpp ASSETS assets)
 
+# The installed SDK ships astral-luau-check (GAP-FUNC-08): astral_check_scripts() finds it as
+# Astral::astral_luau_check without any hint, and the script below is type-checked against the game's astral.d.luau.
+enable_testing()
+add_executable(consumer_script_game script_game.cpp)
+target_link_libraries(consumer_script_game PRIVATE Astral::App)
+if(NOT TARGET Astral::astral_luau_check)
+    message(FATAL_ERROR "the installed Astral does not provide Astral::astral_luau_check")
+endif()
+astral_check_scripts(consumer_script_game GAME consumer_script_game SCRIPTS scripts)
+
 # E0 isolation check (ADR-0035): game and server targets must never link editor modules.
 get_target_property(_app_iface Astral::App INTERFACE_LINK_LIBRARIES)
 foreach(_dep IN LISTS _app_iface)
