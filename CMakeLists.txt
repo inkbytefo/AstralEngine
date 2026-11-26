@@ -86,6 +86,12 @@ if(ASTRAL_BUILD_TESTS)
         add_test(NAME layer_check_self_test
             COMMAND Python3::Interpreter -B -m unittest discover
                     -s "${CMAKE_CURRENT_SOURCE_DIR}/tools/tests" -p "test_check_layers.py" -v)
+        # The current docs must not point at missing files or past the end of cited sources.
+        add_test(NAME docs_check
+            COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_docs.py" --root "${CMAKE_SOURCE_DIR}")
+        add_test(NAME docs_check_self_test
+            COMMAND Python3::Interpreter -B -m unittest discover
+                    -s "${CMAKE_CURRENT_SOURCE_DIR}/tools/tests" -p "test_check_docs.py" -v)
         add_test(NAME editor_isolation_check
             COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_editor_isolation.py"
                     --manifest "${ASTRAL_MODULE_GRAPH_FILE}")
