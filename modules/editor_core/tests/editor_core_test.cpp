@@ -24,6 +24,7 @@ class FaultyMemoryFileSystem final : public IEditorFileSystem {
 public:
     std::map<std::string, std::string> files;
     int fail_after_writes = -1; // >= 0: fail on that write count
+    bool fail_once = false;     // true: only that one write fails (a transient error), later writes succeed
     int writes = 0;
 
     static std::string key_of(const std::filesystem::path& p) { return p.generic_string(); }
@@ -40,10 +41,16 @@ public:
     bool write_atomic(const std::filesystem::path& path, std::string_view text, std::string* error = nullptr) override {
         if (fail_after_writes >= 0 && writes >= fail_after_writes) {
             if (error) *error = "simulated disk full / partial write failure";
+            if (fail_once) fail_after_writes = -1;
             return false;
         }
         ++writes;
         files[key_of(path)] = std::string(text);
+        return true;
+    }
+
+    bool remove(const std::filesystem::path& path, std::string* = nullptr) override {
+        files.erase(key_of(path));
         return true;
     }
 
@@ -316,4 +323,81 @@ TEST_CASE("AgentTaskManager enforces policy gate, async review, selective approv
     CHECK(parsed->summary == "Rename floor");
     CHECK(parsed->commands.size() == 1);
     CHECK_FALSE(CodexCliProvider::parse_response("not json at all", ctx, "codex_cli", &err).has_value());
+}
+
+TEST_CASE("a transaction that fails to save removes the prefab files it created") {
+    FaultyMemoryFileSystem fs;
+    fs.files["scenes/level.scene"] = std::string(kInitialScene);
+    fs.files["prefabs/old.prefab"] = "old";
+    const TypeRegistry types = make_types();
+    EditorSession session(fs, types, "");
+    REQUIRE(session.open("scenes/level.scene"));
+    const std::string disk_before = fs.files["scenes/level.scene"];
+
+    Json prefab = Json::object();
+    prefab["format"] = "astral.scene";
+    prefab["version"] = 1.0;
+    prefab["entities"] = Json::array();
+    Transaction tx;
+    tx.summary = "Two prefabs, then the scene write fails";
+    tx.expected_revision = session.document().revision;
+    tx.commands.push_back({.kind = CommandKind::SavePrefab, .asset_path = "prefabs/new.prefab", .value = prefab});
+    tx.commands.push_back({.kind = CommandKind::SavePrefab, .asset_path = "prefabs/old.prefab", .value = prefab});
+    tx.commands.push_back({.kind = CommandKind::AddComponent, .target = {1, ""}, .component = "Lamp", .value = Json::object()});
+    fs.fail_after_writes = fs.writes + 2; // both prefabs are written, the scene is not
+    fs.fail_once = true;                  // the rollback's own writes succeed
+    const TransactionResult res = session.apply(tx);
+    CHECK_FALSE(res.ok);
+    CHECK(res.rolled_back);
+    CHECK(fs.files.count("prefabs/new.prefab") == 0); // created by the transaction: gone
+    CHECK(fs.files["prefabs/old.prefab"] == "old");   // existed before: restored
+    CHECK(fs.files["scenes/level.scene"] == disk_before);
+}
+
+namespace {
+Transaction one(EditorSession& session, EditorCommand cmd) {
+    Transaction tx;
+    tx.summary = "test";
+    tx.expected_revision = session.document().revision;
+    tx.commands.push_back(std::move(cmd));
+    return tx;
+}
+Json named(const char* name) {
+    Json c = Json::object();
+    Json n = Json::object();
+    n["value"] = name;
+    c["astral::Name"] = std::move(n);
+    return c;
+}
+std::optional<double> parent_of(const EditorSession& session, std::uint32_t id) {
+    const Json* rec = session.document().find_record(id);
+    if (!rec) return std::nullopt;
+    const Json* comps = rec->find("components");
+    const Json* parent = comps ? comps->find("astral::Parent") : nullptr;
+    if (!parent) return std::nullopt;
+    return (*parent)["entity"].as_number();
+}
+} // namespace
+
+TEST_CASE("reparenting refuses indirect cycles; deleting a parent moves its children to the root") {
+    FaultyMemoryFileSystem fs;
+    fs.files["scenes/level.scene"] = std::string(kInitialScene);
+    const TypeRegistry types = make_types();
+    EditorSession session(fs, types, "");
+    REQUIRE(session.open("scenes/level.scene"));
+    // 1 Floor <- 2 Table <- 3 Cup
+    REQUIRE(session.apply(one(session, {.kind = CommandKind::CreateEntity, .target = {2, ""}, .value = named("Table")})).ok);
+    REQUIRE(session.apply(one(session, {.kind = CommandKind::CreateEntity, .target = {3, ""}, .value = named("Cup")})).ok);
+    REQUIRE(session.apply(one(session, {.kind = CommandKind::ReparentEntity, .target = {2, ""}, .parent = {1, ""}})).ok);
+    REQUIRE(session.apply(one(session, {.kind = CommandKind::ReparentEntity, .target = {3, ""}, .parent = {2, ""}})).ok);
+
+    const TransactionResult cycle = session.apply(one(session, {.kind = CommandKind::ReparentEntity, .target = {1, ""}, .parent = {3, ""}}));
+    CHECK_FALSE(cycle.ok);
+    CHECK(cycle.error.find("cycle") != std::string::npos);
+    CHECK_FALSE(parent_of(session, 1).has_value());
+
+    REQUIRE(session.apply(one(session, {.kind = CommandKind::DeleteEntity, .target = {2, ""}})).ok);
+    CHECK(session.document().find_record(2) == nullptr);
+    REQUIRE(session.document().find_record(3) != nullptr);
+    CHECK_FALSE(parent_of(session, 3).has_value()); // no dangling parent: Cup is a root now
 }

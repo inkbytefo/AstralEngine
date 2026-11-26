@@ -79,6 +79,16 @@ bool LocalEditorFileSystem::write_atomic(const std::filesystem::path& path, std:
     return true;
 }
 
+bool LocalEditorFileSystem::remove(const std::filesystem::path& path, std::string* error) {
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+    if (ec) {
+        if (error) *error = "cannot remove " + path.string() + ": " + ec.message();
+        return false;
+    }
+    return true;
+}
+
 std::vector<std::filesystem::path> LocalEditorFileSystem::list_files(const std::filesystem::path& root,
                                                                      const std::vector<std::string>& extensions) const {
     std::vector<std::filesystem::path> out;

@@ -45,6 +45,7 @@ bool persist_staged_files(IEditorFileSystem& fs,
     auto rollback_prefabs = [&]() {
         for (auto it = written_backups.rbegin(); it != written_backups.rend(); ++it) {
             if (it->second) (void)fs.write_atomic(it->first, *it->second, nullptr);
+            else (void)fs.remove(it->first, nullptr); // the transaction created it: undo means gone (ADR-0053)
         }
     };
     for (const auto& [path, text] : staged_prefabs) {
