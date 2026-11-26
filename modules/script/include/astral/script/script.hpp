@@ -153,7 +153,9 @@ struct ScriptEnv {
 };
 
 struct ScriptLimits {
-    /// A phase (or a module load) that runs longer is stopped with an error (endless loops).
+    /// Time a module may run in one phase (its listeners and systems), and separately all behaviours
+    /// and all timers of a phase, and a module load. Longer is stopped with an error (endless loops)
+    /// and fails that module; what runs after it gets a fresh budget (ADR-0052).
     double budget_ms = 100.0;
 };
 
