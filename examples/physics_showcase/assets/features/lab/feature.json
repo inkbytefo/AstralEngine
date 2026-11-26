@@ -1,0 +1,12 @@
+{
+  "format": "astral.feature",
+  "version": 1,
+  "name": "lab",
+  "description": "Joints station: motorized joints, breakable joints, batched raycast sensors, the scene-authored character.",
+  "depends_on": [],
+  "components": ["lab::MotorOscillator", "lab::SensorArray", "lab::LabStats"],
+  "events": [],
+  "exports": { "headers": ["lab.hpp"] },
+  "scripts": ["features/lab/lab.luau"],
+  "actions": []
+}

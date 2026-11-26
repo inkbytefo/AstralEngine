@@ -1,0 +1,12 @@
+{
+  "format": "astral.feature",
+  "version": 1,
+  "name": "player",
+  "description": "The walking character, its third-person camera, and F to switch to free flight.",
+  "depends_on": ["fly_camera"],
+  "components": ["player::PlayerCamera"],
+  "events": [],
+  "exports": { "headers": ["player.hpp"] },
+  "scripts": [],
+  "actions": ["features/player/player.actions"]
+}
