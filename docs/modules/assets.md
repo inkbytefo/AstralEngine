@@ -144,6 +144,7 @@ değildir; bkz. [ADR-0039](../decisions/0039-terrain-foundation.md).
 
 ## Zayıf yanlar ve bilinen sınırlar
 
+- **Vitrin yazımında gözlendi (2026-11-27):** `AssetManager` tek asset kökü destekler (dışarıdan model açan `examples/asset_viewer` kendi feature dosyaları için yedek yol yazmak zorunda kaldı); çalışma anı `Model` köşe/üçgen sayısı ve sınır kutusu tutmaz; `.aterrain` katman/splatmap verisi taşımaz (`examples/world_showcase` katmanları shader'da hesaplar).
 - **Skin ve animasyon yok:** glTF'deki `skin`, `JOINTS_0`, `animations`, morph target yalnız uyarı verilip atlanır
   (`modules/assets/src/gltf.cpp:358`, `modules/assets/src/gltf.cpp:437`, `modules/assets/src/gltf.cpp:463`). İskeletli karakter
   veya animasyonlu model yüklenemez (statik poz).

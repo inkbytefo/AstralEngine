@@ -102,7 +102,8 @@ Ortak özellikler `features/` altındadır (`fly_camera`). Oyuna `python tools/s
 Yeni oyun için `templates/blank` klasörünü kopyala: özellik, Luau, test, `--capture` ve paketleme hazır gelir. Örnekler aynı düzende:
 - `examples/pong`: `pong_rules` Luau kuralları, `pong_scorelights`, `pong_audio`; testler `tests/game_test.cpp`.
 - `examples/spinning_cubes`: C++ paralel sistem + Luau.
-- `examples/hello_headless`: pencere ve GPU yok.
+- `examples/hello_headless`: pencere ve GPU yok; `AppDesc::input_script` senaryosu.
+- Vitrinler (istasyonlu, `--view`): `physics_showcase`, `lighting_showcase`, `materials_showcase`, `world_showcase`, `vfx_showcase`, `asset_viewer`.
 
 Dosya düzeni: `src/main.cpp` (standart kabuk), `src/game.cpp` (özellikleri kurar), `src/features/<ad>/`, `assets/features/<ad>/`,
 `tests/game_test.cpp`, `CMakeLists.txt` (`astral_add_game`, `astral_check_features`, `astral_check_scripts`).

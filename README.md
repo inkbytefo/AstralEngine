@@ -47,18 +47,32 @@ failures, measurements): [docs/status.md](docs/status.md). Plans: [docs/roadmap.
 | Editor (`examples/world_editor`) | Early: no project management, real Play-in-Editor or export |
 | Animation, vehicles, navigation, networking | Not started |
 
-Tests: Debug and Release with warnings-as-errors pass on Windows/MSVC except 7 hardware golden-image tests that
+Tests: Debug and Release with warnings-as-errors pass on Windows/MSVC except 3 hardware golden-image tests that
 fail on the reference PC (RTX 3060) — see [docs/status.md](docs/status.md).
 
 ![RT showcase](docs/archive/legacy/images/m3.5-rt-showcase.png)
 
 *Screenshots are older captures (M3.5–M7) and will be replaced when the examples are rebuilt.*
 
-The same room as data: [`examples/scene_viewer/assets/showcase.scene`](examples/scene_viewer/assets/showcase.scene)
+The same room as data: [`examples/asset_viewer/assets/showcase.scene`](examples/asset_viewer/assets/showcase.scene)
 places three prefabs (room, mirror pedestal, box ×3 with per-instance overrides) — edit the files while
-`scene_viewer` runs and the room updates.
+`asset_viewer` runs and the room updates.
 
 ![Scene viewer](docs/archive/legacy/images/m5c-scene-viewer.png)
+
+## Examples
+
+| Example | Shows |
+|---|---|
+| `hello_headless`, `hello_triangle`, `spinning_cubes` | Smallest starting points |
+| `pong` | A complete small game: Luau rules, save slots, gamepad |
+| [`physics_showcase`](examples/physics_showcase/README.md) | Rigid bodies, joints, surfaces, water and wind |
+| [`lighting_showcase`](examples/lighting_showcase/README.md) | Ray-traced room, SDF shapes, many lights (ReSTIR), path tracer |
+| [`materials_showcase`](examples/materials_showcase/README.md) | PBR shading models, decals, `.material` workflow, `.ashader` gallery |
+| [`world_showcase`](examples/world_showcase/README.md) | Streamed open world, floating origin, terrain |
+| [`vfx_showcase`](examples/vfx_showcase/README.md) | Atmosphere, fog, smoke, GPU particles, VFX and audio from Luau |
+| [`asset_viewer`](examples/asset_viewer/README.md) | glTF models and scenes, cook and package |
+| `world_editor` | Early standalone editor |
 
 ## First game: 3D Pong
 

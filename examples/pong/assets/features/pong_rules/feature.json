@@ -4,9 +4,9 @@
   "name": "pong_rules",
   "description": "The match: paddles, the ball, the AI, scoring. Rules are Luau; data are components.",
   "depends_on": [],
-  "components": ["pong::Court", "pong::Paddle", "pong::Ball", "pong::DepthMarker", "pong::Match"],
-  "events": ["pong::Scored", "pong::Bounced"],
+  "components": ["pong::Court", "pong::Paddle", "pong::Ball", "pong::DepthMarker", "pong::Match", "pong::MatchSave"],
+  "events": ["pong::Scored", "pong::Bounced", "pong::SaveNotice"],
   "exports": { "headers": ["types.hpp"] },
   "actions": ["features/pong_rules/pong.actions"],
-  "scripts": ["features/pong_rules/rules.luau", "features/pong_rules/scoreboard.luau"]
+  "scripts": ["features/pong_rules/rules.luau", "features/pong_rules/scoreboard.luau", "features/pong_rules/save.luau"]
 }

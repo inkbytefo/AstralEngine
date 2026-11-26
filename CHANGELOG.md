@@ -4,6 +4,13 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+### Removed (examples yenileme E5)
+- `physics_demo`, `physics_lab`, `physics_playground`, `rt_showcase`, `sdf_scene`, `material_showcase`, `material_workflow`, `shader_showcase`, `model_viewer`, `scene_viewer`, `open_world`, `terrain_lab`, `vfx_lab` örnekleri; bunlara ait 7 golden test bloğu ve 9 referans görüntü. Vitrinlerin golden testi henüz yok (referans yalnız CI/lavapipe’ta üretilir).
+
+### Added (examples yenileme E2–E4)
+- `materials_showcase` (PBR stüdyosu, `.material` akışı, `.ashader` galerisi), `world_showcase` (akışlı açık dünya, kayan orijin, arazi), `vfx_showcase` (atmosfer, duman, partikül, Luau’dan VFX ve ses), `asset_viewer` (glTF ve sahne görüntüleyici).
+- `pong`: maç kaydet/yükle (F5/F9, LB/RB) ve gamepad; `hello_headless`: `input_script` senaryosu (`--scenario`).
+
 ### Added (examples yenileme E2, lighting)
 - `examples/lighting_showcase`: ışın izlemeli oda, SDF avlusu ve 36 ışıklı gece (ReSTIR); aynı anda tek istasyon yüklü; `1/2/3`, `P`, `R`, `V`; başsız testler. `rt_showcase` ve `sdf_scene` E5’e kadar durur. Bilinen: path tracer’da SDF yüzeylerinde halka artefaktı ([render](docs/modules/render.md)).
 

@@ -1,0 +1,9 @@
+{
+  "format": "astral.actions",
+  "version": 1,
+  "actions": {
+    "trigger_vfx": { "type": "button", "keys": ["Space"], "gamepad": ["A"] },
+    "stop_vfx": { "type": "button", "keys": ["X"], "gamepad": ["B"] },
+    "disperse_smoke": { "type": "button", "keys": ["C"], "gamepad": ["X"] }
+  }
+}

@@ -6,8 +6,12 @@
       "type": "axis2",
       "x": { "negative": ["A", "Left"], "positive": ["D", "Right"] },
       "y": { "negative": ["S", "Down"], "positive": ["W", "Up"] },
-      "stick": "left"
+      "stick": "left",
+      "dpad": true
     },
-    "look": { "type": "axis2", "mouse_delta": [0.012, -0.012] }
+    "aim": { "type": "axis2", "stick": "right" },
+    "look": { "type": "axis2", "mouse_delta": [0.012, -0.012] },
+    "save_match": { "type": "button", "keys": ["F5"], "gamepad": ["LeftShoulder"] },
+    "load_match": { "type": "button", "keys": ["F9"], "gamepad": ["RightShoulder"] }
   }
 }

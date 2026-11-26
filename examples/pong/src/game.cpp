@@ -2,6 +2,7 @@
 
 #include "features/pong_rules/rules.hpp"
 
+#include <algorithm>
 #include <string>
 
 using namespace astral;
@@ -41,6 +42,11 @@ void PongGame::on_start(Context& ctx) {
 }
 
 void PongGame::on_update(Context& ctx) {
+    notices_.read(ctx.world, [&](const SaveNotice& n) {
+        notice_kind_ = n.kind;
+        notice_timer_ = 2.0f;
+    });
+    if (notice_timer_ > 0.0f) notice_timer_ = std::max(0.0f, notice_timer_ - ctx.time.delta);
     const Match* m = ctx.singleton<Match>();
     if (!m) return;
     draw_hud(ctx, *m);
@@ -72,7 +78,16 @@ void PongGame::draw_hud(Context& ctx, const Match& m) const {
                      {.size = 64 * unit, .color = won ? blue : red, .align = TextAlign::Center, .shadow = true});
     }
     if (!demo_) {
-        ctx.hud.text(font, "WASD / oklar / fare: raket   •   F1: debug   •   Esc: çıkış", {screen.x * 0.5f, screen.y - 34 * unit},
+        if (notice_timer_ > 0.0f) {
+            const char* msg = notice_kind_ == SaveNotice::Kind::Saved
+                                  ? "Maç kaydedildi"
+                                  : (notice_kind_ == SaveNotice::Kind::Loaded ? "Maç yüklendi" : "Kayıtlı maç yok");
+            ctx.hud.text(font, msg, {screen.x * 0.5f, screen.y - 66 * unit},
+                         {.size = 20 * unit, .color = {0.85f, 0.95f, 1.0f, 0.9f}, .align = TextAlign::Center, .shadow = true});
+        }
+        ctx.hud.text(font,
+                     "WASD / oklar / fare / gamepad: raket   •   F5 / LB: kaydet   •   F9 / RB: yükle   •   F1: debug   •   Esc: çıkış",
+                     {screen.x * 0.5f, screen.y - 34 * unit},
                      {.size = 18 * unit, .color = {1, 1, 1, 0.7f}, .align = TextAlign::Center});
     }
 }

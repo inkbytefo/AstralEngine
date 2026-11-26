@@ -54,7 +54,7 @@ Değer kuralları (`modules/render/src/material_file.cpp:73-125`):
   "values": { "base_color": [0.8, 0.76, 0.7, 1], "roughness": 0.89, "base_color_texture": "textures/stone.png" } }
 ```
 
-(`examples/material_workflow/assets/materials/stone.material`)
+(`examples/materials_showcase/assets/workflow/materials/stone.material`)
 
 - Doku yuvaları (string yol): `base_color_texture`, `metallic_roughness_texture`, `normal_texture`, `emissive_texture`,
   `detail_albedo_texture`, `detail_normal_texture`, `detail_height_texture` (`modules/app/src/material_library.cpp:186-194`).
@@ -74,7 +74,7 @@ Değer kuralları (`modules/render/src/material_file.cpp:73-125`):
   "values": { "mapping": { "projection": "Triplanar", "tile_size_m": 2, "blend_sharpness": 4, "world_space": true } } }
 ```
 
-(`examples/material_workflow/assets/materials/stone_triplanar.material`)
+(`examples/materials_showcase/assets/workflow/materials/stone_triplanar.material`)
 
 - Çocuk önce okunur, aynı ad için **çocuğun değeri kazanır** (`modules/render/src/material_file.cpp:62-64`).
 - `shader`/`type` zincirde ilk bulunan yerden alınır. Çocuk başka bir `shader` yazarak shader'ı değiştirebilir
@@ -128,12 +128,13 @@ Bütün yollar `MaterialLibrary::get` içinden geçer. Materyal ilk kullanımda 
 | Son işlem | `ctx.post.push_back(load_material(...))` (`shader_type post`); sırayla, tonemap sonrası | `modules/app/include/astral/app/app.hpp:114-115` |
 | Efekt | `.vfx` izinde `"material"` (particle / volume / smoke); `volume` izinde zorunlu | `modules/app/src/services/vfx_runtime.cpp:83-87`, `modules/app/src/services/vfx_runtime.cpp:103` |
 
-Örnek C++ bağlama (`examples/shader_showcase/src/features/showcase_look/showcase_look.cpp:17-24`):
+Örnek C++ bağlama (`examples/materials_showcase/src/stations/gallery.cpp:14-17`):
 
 ```cpp
-ctx.sky = ctx.materials().load_material(sky_path);
-const auto post = ctx.materials().load_material(post_path);
-if (post.valid()) ctx.post.push_back(post);
+ctx.sky = ctx.materials().load_material(gallery_sky_material);
+if (const MaterialHandle post = ctx.materials().load_material(gallery_post_material); post.valid()) {
+    ctx.post.push_back(post);
+}
 ```
 
 Başsız (headless) çalışmada ya da materyal kurulamazsa `load_material` geçersiz handle döner ve bu durum günlüğe yazılır. Geçersiz materyal

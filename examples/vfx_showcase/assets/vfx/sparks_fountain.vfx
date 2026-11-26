@@ -1,0 +1,11 @@
+{
+  "format": "astral.vfx",
+  "version": 1,
+  "tracks": [
+    {"type": "sound", "asset": "sounds/spark_burst.wav", "start": 0.0, "duration": 0.5, "strength": 0.75},
+    {"type": "light", "start": 0.0, "duration": 1.8, "size": 8, "strength": 10, "color": [1.0, 0.55, 0.18]},
+    {"type": "particles", "material": "materials/sparks.material", "start": 0.0, "duration": 2.2, "size": 0.048,
+     "count": 280, "strength": 3.0, "soft_distance_m": 0.25, "restitution": 0.65, "lighting": 0.35,
+     "color": [1.0, 0.52, 0.16]}
+  ]
+}

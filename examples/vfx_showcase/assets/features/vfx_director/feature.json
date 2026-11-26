@@ -1,0 +1,12 @@
+{
+  "format": "astral.feature",
+  "version": 1,
+  "name": "vfx_director",
+  "description": "Luau-driven VFX timelines, capsule smoke dispersion, and spatial one-shot AudioSource cues.",
+  "depends_on": [],
+  "components": ["vfx_director::Beacon", "vfx_director::SmokeDisperser", "vfx_director::SoundOneShot"],
+  "events": [],
+  "exports": { "headers": ["vfx_director.hpp"] },
+  "scripts": ["features/vfx_director/vfx_director.luau"],
+  "actions": ["features/vfx_director/vfx_director.actions"]
+}

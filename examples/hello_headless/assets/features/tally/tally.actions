@@ -1,0 +1,9 @@
+{
+  "format": "astral.actions",
+  "version": 1,
+  "actions": {
+    "pause": { "type": "button", "keys": ["P"] },
+    "boost": { "type": "button", "keys": ["Space"] },
+    "reset": { "type": "button", "keys": ["R"] }
+  }
+}
