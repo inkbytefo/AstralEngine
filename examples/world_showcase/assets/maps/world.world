@@ -1,0 +1,26 @@
+{
+  "format": "astral.map",
+  "version": 1,
+  "settings": {
+    "name": "World Showcase",
+    "size_m": 4000.0
+  },
+  "grids": [
+    {
+      "name": "main",
+      "cell_size": 128,
+      "load_range": 384
+    },
+    {
+      "name": "landmarks",
+      "cell_size": 512,
+      "load_range": 2000
+    }
+  ],
+  "layers": [
+    {
+      "name": "night",
+      "active": false
+    }
+  ]
+}

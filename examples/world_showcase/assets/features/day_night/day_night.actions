@@ -1,0 +1,7 @@
+{
+  "format": "astral.actions",
+  "version": 1,
+  "actions": {
+    "toggle_night": { "type": "button", "keys": ["N"] }
+  }
+}

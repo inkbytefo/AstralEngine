@@ -1,0 +1,9 @@
+{
+  "format": "astral.material",
+  "version": 1,
+  "parent": "workflow/materials/stone_triplanar.material",
+  "values": {
+    "roughness": 0.42,
+    "wetness": 0.85
+  }
+}

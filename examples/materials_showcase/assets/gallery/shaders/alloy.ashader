@@ -1,0 +1,19 @@
+// Brushed conductive metal with a view-dependent thin-film tint.
+shader_type surface;
+
+uniform vec3 metal_color : source_color = vec3(0.45, 0.42, 0.54);
+uniform float film : range(0.0, 1.0, 0.01) = 0.82;
+uniform float polish : range(0.08, 0.7, 0.01) = 0.15;
+
+void surface() {
+    float grazing = 1.0 - clamp(dot(NORMAL, VIEW_DIR), 0.0, 1.0);
+    float cut = cos(UV.y * 31.41593 + sin(UV.x * 12.56637) * 2.4);
+    float bands = 0.5 + 0.5 * sin(UV.y * 138.2301 + cut * 0.65);
+    float phase = (grazing * 1.68 + cut * 0.12 + UV.y * 0.38) * 6.283185;
+    vec3 interference = 0.54 + 0.43 * cos(phase + vec3(0.0, 2.15, 4.05));
+
+    ALBEDO = mix(metal_color, interference, film * (0.5 + 0.45 * grazing)) * (0.78 + 0.22 * bands);
+    METALLIC = 0.92;
+    ROUGHNESS = clamp(polish + bands * 0.15, 0.08, 0.8);
+    EMISSION = interference * (0.035 + 0.18 * pow(grazing, 2.0)) * film;
+}

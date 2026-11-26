@@ -1,0 +1,9 @@
+{
+  "format": "astral.material",
+  "version": 1,
+  "shader": "studio/shaders/car_paint.ashader",
+  "values": {
+    "base_tint": [0.03, 0.14, 0.62, 1.0],
+    "coat_roughness": 0.03
+  }
+}

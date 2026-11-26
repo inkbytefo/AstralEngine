@@ -8,6 +8,7 @@
 #   physics_lab      P0: motorized SixDOF/SwingTwist/Hinge joints, breakable joints, materials, cooked shapes, batched queries
 #   physics_showcase the physics in one world: pile, joints, surfaces, water and wind (replaces the three above)
 #   lighting_showcase ray-traced room, SDF yard, many-lights night (replaces rt_showcase and sdf_scene)
+#   materials_showcase PBR models, .material workflow and .ashader night gallery (replaces material_showcase, material_workflow, shader_showcase)
 #   rt_showcase      the ray-traced "RGB room"
 #   material_showcase M13 advanced PBR studio: clearcoat, sheen, anisotropy, glass, SSS, wetness, decals & path tracer
 #   material_workflow material hot-reload & UV inspection scene workflow
@@ -18,6 +19,7 @@
 #   open_world       a 4 x 4 km streamed map, floating origin, day and night
 #   world_editor     standalone AI-first native desktop editor (E0/E1/E2)
 #   terrain_lab      chunked terrain LOD & collision streaming lab
+#   world_showcase   4 x 4 km streamed world, floating origin, terrain layers & LOD, day/night (replaces open_world and terrain_lab)
 #   vfx_lab          volumetric atmosphere, smoke, and VFX timeline lab
 add_subdirectory(hello_headless)
 add_subdirectory(hello_triangle)
@@ -28,6 +30,7 @@ add_subdirectory(physics_playground)
 add_subdirectory(physics_lab)
 add_subdirectory(physics_showcase)
 add_subdirectory(lighting_showcase)
+add_subdirectory(materials_showcase)
 add_subdirectory(rt_showcase)
 add_subdirectory(material_showcase)
 add_subdirectory(material_workflow)
@@ -38,4 +41,5 @@ add_subdirectory(pong)
 add_subdirectory(open_world)
 add_subdirectory(world_editor)
 add_subdirectory(terrain_lab)
+add_subdirectory(world_showcase)
 add_subdirectory(vfx_lab)

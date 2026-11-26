@@ -1,0 +1,23 @@
+// Layered glass with colored grazing angles and broad etched rings.
+shader_type surface;
+render_mode blend_mix;
+
+uniform vec3 tint : source_color = vec3(0.24, 0.92, 0.78);
+uniform vec3 edge_tint : source_color = vec3(0.94, 0.70, 0.25);
+uniform float opacity : range(0.0, 0.9, 0.01) = 0.12;
+uniform float ring_strength : range(0.0, 1.0, 0.01) = 0.48;
+
+void surface() {
+    float facing = clamp(dot(NORMAL, VIEW_DIR), 0.0, 1.0);
+    float fresnel = pow(1.0 - facing, 2.7);
+    float rim = pow(1.0 - facing, 6.0);
+    float band_position = abs(fract(UV.y * 7.0 + 0.12 * sin(UV.x * 12.56637)) - 0.5);
+    float etching = (1.0 - smoothstep(0.045, 0.13, band_position)) * ring_strength;
+    float stripe = pow(max(dot(NORMAL, normalize(vec3(-0.8, 0.45, 0.55))), 0.0), 23.0);
+    vec3 glass_color = mix(tint, edge_tint, smoothstep(0.15, 0.95, fresnel + 0.24 * NORMAL.y));
+
+    ALBEDO = glass_color * (0.15 + 0.24 * etching);
+    ROUGHNESS = mix(0.065, 0.38, etching);
+    EMISSION = glass_color * (0.06 + 0.5 * rim + 0.22 * etching) + vec3(0.65, 0.85, 1.0) * stripe;
+    ALPHA = clamp(opacity + 0.67 * fresnel + 0.31 * etching + 0.17 * stripe, 0.0, 0.96);
+}

@@ -1,0 +1,1 @@
+{"format":"astral.entity","version":1,"entity":{"id":62,"components":{"astral::Name":{"value":"tower_62"},"astral::Transform":{"position":[673.9,43.5,3589.6],"scale":[12.0,87.1,12.0]},"astral::PrimitiveMesh":{"shape":"Cube","material":{"base_color":[0.75,0.3,0.25,1.0],"roughness":0.8}}}},"grid":"landmarks"}

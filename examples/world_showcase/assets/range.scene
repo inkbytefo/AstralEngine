@@ -1,0 +1,19 @@
+{
+  "format": "astral.scene",
+  "version": 1,
+  "entities": [
+    {
+      "id": 1,
+      "components": {
+        "astral::Name": { "value": "range" },
+        "astral::Transform": {},
+        "astral::TerrainRef": {
+          "asset": "terrain/range.aterrain",
+          "material_file": "terrain/range.material",
+          "render_radius_m": 280,
+          "collision_radius_m": 320
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "format": "astral.material",
+  "version": 1,
+  "type": "pbr",
+  "values": {
+    "base_color": [
+      0.11,
+      0.13,
+      0.16,
+      1
+    ],
+    "roughness": 0.53
+  }
+}
