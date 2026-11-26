@@ -19,6 +19,7 @@
 #   open_world       a 4 x 4 km streamed map, floating origin, day and night
 #   world_editor     standalone AI-first native desktop editor (E0/E1/E2)
 #   terrain_lab      chunked terrain LOD & collision streaming lab
+#   world_showcase   4 x 4 km streamed world, floating origin, terrain layers & LOD, day/night (replaces open_world and terrain_lab)
 #   vfx_lab          volumetric atmosphere, smoke, and VFX timeline lab
 add_subdirectory(hello_headless)
 add_subdirectory(hello_triangle)
@@ -40,4 +41,5 @@ add_subdirectory(pong)
 add_subdirectory(open_world)
 add_subdirectory(world_editor)
 add_subdirectory(terrain_lab)
+add_subdirectory(world_showcase)
 add_subdirectory(vfx_lab)

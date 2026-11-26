@@ -1,0 +1,12 @@
+{
+  "format": "astral.feature",
+  "version": 1,
+  "name": "day_night",
+  "description": "Day and night: the N key flips the open map's \"night\" layer, the sun and the sky.",
+  "depends_on": [],
+  "components": ["day_night::DayNight"],
+  "events": [],
+  "exports": { "headers": ["day_night.hpp"] },
+  "scripts": [],
+  "actions": ["features/day_night/day_night.actions"]
+}

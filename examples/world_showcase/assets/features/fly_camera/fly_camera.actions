@@ -1,0 +1,16 @@
+{
+  "format": "astral.actions",
+  "version": 1,
+  "actions": {
+    "move": {
+      "type": "axis2",
+      "x": { "negative": ["A"], "positive": ["D"] },
+      "y": { "negative": ["S"], "positive": ["W"] },
+      "stick": "left"
+    },
+    "rise": { "type": "axis", "negative": ["Q"], "positive": ["E"] },
+    "fast": { "type": "button", "keys": ["LeftShift"], "gamepad": ["RightShoulder"] },
+    "look": { "type": "axis2", "mouse_delta": [1, 1], "stick": "right", "stick_scale": [12, -12] },
+    "look_hold": { "type": "button", "mouse": ["Right"] }
+  }
+}

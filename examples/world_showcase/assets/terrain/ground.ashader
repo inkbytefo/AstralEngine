@@ -1,0 +1,10 @@
+shader_type surface;
+
+void surface() {
+    float variation = sin(UV.x * 0.55) * cos(UV.y * 0.41);
+    float grass = smoothstep(0.72, 0.97, NORMAL.y);
+    vec3 earth = vec3(0.27, 0.20, 0.14);
+    vec3 meadow = vec3(0.17, 0.29, 0.09);
+    ALBEDO = mix(earth, meadow, grass) * (0.88 + 0.12 * variation);
+    ROUGHNESS = 0.95;
+}
