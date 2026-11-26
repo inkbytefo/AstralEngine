@@ -566,7 +566,8 @@ void direct_light(Frame f, LightingInputs li, Surface s, vec3 v, bool primary_hi
     if (sun_active) {
         vec3 l = sample_cone(to_sun, f.rt_params.x, vec2(rnd(seed), rnd(seed)));
         float nl = dot(s.n, l);
-        bool lit = (nl > 0.0) ? !occluded(li.tlas, li.shapes, li.sdf_count, origin, l, max_t)
+        bool sun_shadows = f.sun_color.w > 0.5;
+        bool lit = (nl > 0.0) ? (!sun_shadows || !occluded(li.tlas, li.shapes, li.sdf_count, origin, l, max_t))
                               : (s.shading_model == SHADING_SUBSURFACE);
         if (lit) {
             vec3 d_rad, sp_rad;

@@ -374,6 +374,29 @@ TEST_CASE("ray-traced sun shadows darken what lies under a caster") {
     CHECK(luminance(f.at(pixels, {1.0f, 0, 0})) < luminance(f.at(pixels, {-2.5f, 0, 0})) - 60);
 }
 
+TEST_CASE("DirectionalLight::shadows = false also turns the ray-traced and path-traced sun shadow off") {
+    for (const bool path_tracer : {false, true}) {
+        CAPTURE(path_tracer);
+        RenderSettings settings = rt_settings();
+        settings.path_tracer = path_tracer;
+        Fixture f(settings);
+        if (!rt_available(f)) return;
+        f.look_from({0, 6, 0.01f}, {0, 0, 0});
+        const MeshHandle plane = f.renderer->create_mesh(make_plane(10.0f));
+        const MeshHandle cube = f.renderer->create_mesh(make_cube());
+        const std::array items{Item{.mesh = plane, .color = {0.8f, 0.8f, 0.8f, 1}},
+                               Item{.mesh = cube, .transform = translate({0, 1.5f, 0}), .color = {0.8f, 0.8f, 0.8f, 1}}};
+        const RenderScene scene{.meshes = f.inst(items),
+                                .sun = {.direction = {0.6f, -1, 0}, .intensity = 3.0f, .shadows = false},
+                                .environment = dim_sky};
+        const auto pixels = converge(f, scene, path_tracer ? 32 : 8);
+        // Where the shadow would fall the floor is lit like open floor (the cube still blocks some sky light).
+        const int under = luminance(f.at(pixels, {1.0f, 0, 0}));
+        const int open = luminance(f.at(pixels, {-2.5f, 0, 0}));
+        CHECK_MESSAGE(under > open - 30, "under the caster ", under, ", open floor ", open);
+    }
+}
+
 TEST_CASE("a rect area light lights the floor and is visible to the camera") {
     Fixture f(rt_settings());
     if (!rt_available(f)) return;
