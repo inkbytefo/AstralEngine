@@ -1,0 +1,26 @@
+{
+  "format": "astral.actions",
+  "version": 1,
+  "actions": {
+    "orbit_keys": {
+      "type": "axis2",
+      "x": { "negative": ["Left"], "positive": ["Right"] },
+      "y": { "negative": ["Down"], "positive": ["Up"] },
+      "stick": "right",
+      "stick_scale": [1, 1]
+    },
+    "orbit_zoom": {
+      "type": "axis",
+      "negative": ["Equal", "PageUp"],
+      "positive": ["Minus", "PageDown"]
+    },
+    "orbit_drag": {
+      "type": "button",
+      "mouse": ["Left"]
+    },
+    "orbit_delta": {
+      "type": "axis2",
+      "mouse_delta": [1, 1]
+    }
+  }
+}

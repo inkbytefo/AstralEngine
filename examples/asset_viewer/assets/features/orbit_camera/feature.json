@@ -1,0 +1,12 @@
+{
+  "format": "astral.feature",
+  "version": 1,
+  "name": "orbit_camera",
+  "description": "Orbit camera around a target: left mouse drag or arrow keys to orbit, wheel or +/- to zoom. Rule in Luau.",
+  "depends_on": [],
+  "components": ["orbit::OrbitCamera"],
+  "events": [],
+  "exports": { "headers": ["orbit_camera.hpp"] },
+  "scripts": ["features/orbit_camera/orbit_camera.luau"],
+  "actions": ["features/orbit_camera/orbit_camera.actions"]
+}
