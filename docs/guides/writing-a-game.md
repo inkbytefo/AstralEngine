@@ -126,8 +126,8 @@ if (!game.install(ctx)) ctx.quit();
 
 | Durum | Seçim | Neden (kaynak) |
 |---|---|---|
-| Oyun kuralı, girdi, sayaç, durum makinesi | Luau | Hot reload (0,5 sn'de bir içerik özeti karşılaştırılır, `modules/app/src/services/script_bridge.cpp:227`); hata `dosya:satır` ile loglanır, bozuk dosya eski sürümü bırakır (`modules/script/include/astral/script/script.hpp:167-170`) |
-| Binlerce entity üstünde sıcak döngü | C++ | Luau fazı toplamda 100 ms bütçesiyle sınırlı ve aşılınca durdurulur (`modules/script/include/astral/script/script.hpp:155-158`); bütçe `AppDesc`'ten ayarlanamıyor (`modules/app/src/services/script_bridge.cpp:113`) |
+| Oyun kuralı, girdi, sayaç, durum makinesi | Luau | Hot reload (0,5 sn'de bir içerik özeti karşılaştırılır, `modules/app/src/services/script_bridge.cpp:227`); hata `dosya:satır` ile loglanır, bozuk dosya eski sürümü bırakır (`modules/script/include/astral/script/script.hpp:169-172`) |
+| Binlerce entity üstünde sıcak döngü | C++ | Luau fazı toplamda 100 ms bütçesiyle sınırlı ve aşılınca durdurulur (`modules/script/include/astral/script/script.hpp:155-160`); bütçe `AppDesc`'ten ayarlanamıyor (`modules/app/src/services/script_bridge.cpp:113`) |
 | Paralel çalışması gereken iş | C++ | C++ sistemleri erişimini bildirirse çakışmayanlar paralel dalgalarda koşar (`modules/app/include/astral/app/system.hpp:22-23`); Luau tek iş parçacığında, C++ sistemlerinden sonra koşar (`modules/app/include/astral/app/app.hpp:127-128`) |
 | İç içe reflect alanına (`PrimitiveMesh.material`) yazmak | C++ | `FieldKind::Other` alanlar script'e görünmez (`modules/world/include/astral/world/fields.hpp:28`, `modules/script/src/api.cpp:156`) |
 | Motor servisi (renderer, ses, `PhysicsWorld`) | C++ | Luau yalnız `astral` tablosuna uzanır (`modules/script/include/astral/script/script.hpp:2-4`) |

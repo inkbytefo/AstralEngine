@@ -58,11 +58,12 @@ Hepsi RTX 3060 12 GB, `examples/the_architect`. Başka bir ortamda ölçülmedi.
 ## 4. Bilinen hatalar ve tutarsızlıklar
 
 Doküman çalışması sırasında kodda bulundu, düzeltilmedi. "Doğrulandı" = kaynakta ayrıca kontrol edildi.
+Dalga A'da (2026-11-26) düzeltilip listeden çıkarılanlar: başsız ses mikseri ([ADR-0054](decisions/0054-headless-silent-mixer-clock.md)), script bütçesi
+([ADR-0052](decisions/0052-script-budget-per-module.md)), katman gizlemede diff kaybı, editör rollback/ebeveyn döngüsü/silme ([ADR-0053](decisions/0053-editor-rollback-and-hierarchy-rules.md)).
 
 | Alan | Sorun | Kaynak | Durum |
 |---|---|---|---|
-| app/audio | Başsız ve offscreen modda sessiz ses cihazı hiç ilerletilmiyor: tek seferlik sesler bitmiyor, sesler `max_voices`'a kadar birikiyor | `modules/app/src/services/audio_bridge.cpp:23` | Doğrulandı |
-| app/audio | Ses önbelleği hiç boşaltılmıyor; başarısız yükleme kalıcı olarak önbellekte kalıyor | `modules/app/src/services/audio_bridge.cpp:32-46` | — |
+| app/audio | Ses önbelleği hiç boşaltılmıyor; başarısız yükleme kalıcı olarak önbellekte kalıyor | `modules/app/src/services/audio_bridge.cpp:34-48` | — |
 | gpu | `Feature::MeshShaders` yalnız eklentinin varlığına bakıyor; eklenti hiç etkinleştirilmiyor | `modules/gpu/src/device.cpp:301-302` | Doğrulandı |
 | gpu | `immediate` komut ayırma/gönderme sonuçlarını yok sayıp bekliyor (cihaz kaybında takılabilir) | `modules/gpu/src/device.cpp:210-223` | Tekrarlanmadı |
 | gpu | `write_texture` dokunun kopyalama hedefi kullanımını kontrol etmiyor | `modules/gpu/src/resources.cpp:383-390` | — |
@@ -76,13 +77,9 @@ Doküman çalışması sırasında kodda bulundu, düzeltilmedi. "Doğrulandı" 
 | render | `blend_*` yüzeyler TLAS'ta değil (RT/PT'de görünmez); partiküller tonemap sonrası çiziliyor | [render.md](modules/render.md) | — |
 | render | Bazı `render_mode`'lar (`rt_simple`, `after_tonemap`, `unshaded` particle/volume) kabul ediliyor ama kullanılmıyor | `modules/shader/src/ashader.cpp:372-382` | — |
 | render | `update_material` busy callback'i çağırmıyor | `modules/render/src/renderer.cpp:164-168` | — |
-| script | Bütçe ilk aşımdan sonra `max`'a çekiliyor; fazdaki sonraki modüller bütçesiz çalışıyor | `modules/script/src/host.cpp:21-24` | Doğrulandı |
 | script | `astral-luau-check` sistem callback parametrelerindeki alan hatalarını, bilinmeyen query component'lerini ve olay alanı hatalarını yakalamıyor | `modules/script/src/api.cpp:223` | Ajan tarafından denendi |
-| editor_core | `ReparentEntity` yalnız kendine ebeveynliği reddediyor, dolaylı döngüleri değil; `DeleteEntity` sarkan referans bırakıyor | `modules/editor_core/src/command.cpp:238-241` | Doğrulandı |
 | editor_core | `AgentTaskManager::cancel` worker'ı join ediyor; codex süreci zaman aşımı olmadan çalıştığı için UI kilitlenebilir; komut satırı kaçışsız | `modules/editor_core/src/agent_task.cpp:313-315` | — |
-| editor_core | Transaction geri alma yeni oluşturulan prefab dosyalarını silmiyor | `modules/editor_core/src/transaction.cpp:45-49` | — |
 | world | `EventReader::read` ile ilk `World::send` arasında olası veri yarışı | `modules/world/include/astral/world/world.hpp:334` | Doğrulanmadı |
-| world | Katmanla gizlenmiş entity'lerin değişiklikleri kayboluyor | `modules/world/src/map_state.cpp:250` | — |
 | assets | Yalnız occlusion için kullanılan doku hiç cook edilmiyor (sıkıştırmasız RGBA8 kalıyor) | `modules/assets/src/texture_codec.cpp:140` | — |
 | tools | `astral_check_scripts`, `astral-luau-check` yoksa uyarı vermeden atlıyor | `cmake/AstralGame.cmake:90-96` | — |
 | docs | ADR-0040'ta geçen `layout_fixups` alanının koddaki adı `recording.fixups` | `modules/gpu/src/vk_device.hpp:110` | — |

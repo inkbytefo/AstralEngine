@@ -130,7 +130,7 @@ sözcük = 256 bayt; boyuta göre 64 `Blob<N>` örneğinden biri seçilir ve kim
 (`modules/world/src/dynamic.cpp:13`, `modules/world/src/dynamic.cpp:48`, `modules/world/src/dynamic.cpp:90`). Tip verisi
 `World::keep_alive` ile dünya ömrünce tutulur (`modules/world/src/dynamic.cpp:126`).
 `rollback_dynamic(entry_count)` girdileri `retired_` listesine taşır; `ComponentId` bir daha kullanılmaz
-(`modules/world/src/dynamic.cpp:167`). Script host başarısız yüklemede bunu çağırır (`modules/script/src/host.cpp:157`,
+(`modules/world/src/dynamic.cpp:167`). Script host başarısız yüklemede bunu çağırır (`modules/script/src/host.cpp:163`,
 karar: [../decisions/0044-staged-script-module-load.md](../decisions/0044-staged-script-module-load.md)).
 Dinamik olaylar tek `Events<DynamicEvent>` kuyruğunu paylaşır; okuyucu ada göre süzer
 (`modules/world/src/dynamic.cpp:139`).
@@ -151,7 +151,7 @@ başlayarak çağrı başına `max_attach` kadar ekler; başarısız `attach` 1,
 (`modules/world/src/streaming.cpp:16`, `modules/world/src/streaming.cpp:68`). Gerçek G/Ç ve JobSystem kullanımı
 App'tedir (`CellLoader` uygulaması). `MapState::despawn_cell` hücrede oyunun yok ettiği ve değiştirdiği entity'leri
 `CellDiff` olarak dünya koordinatında hatırlar, hücre tekrar yüklenince uygular
-(`modules/world/src/map_state.cpp:207`, `modules/world/src/map_state.cpp:176`).
+(`modules/world/src/map_state.cpp:224`, `modules/world/src/map_state.cpp:176`).
 
 **Level instance.** `.scene`, haritaya yerleştirme dönüşümüyle dünya uzayında açılır (parent zinciri kurulmaz); iç
 entity kimlikleri `(instance_id, local_path)` üzerinden 31 bitlik FNV hash'inden türetilir, çakışmada artırılarak
@@ -221,9 +221,9 @@ bu belgede doğrulanmadı.
 - **Harita durumu yalnız bellekte:** `CellDiff` (`remembered_`) World modülünde diske yazılmaz; kayıt/yükleme için bir
   serileştirme API'si yok (`modules/world/include/astral/world/map_state.hpp:96`). Kalıcılık App/oyun tarafına bırakılmış;
   orada ne yapıldığı bu belgede doğrulanmadı.
-- **Katmanla gizlenen nesnenin değişiklikleri unutulur:** `refresh_layers` gizlerken diff kaydı almaz
-  (`modules/world/src/map_state.cpp:250`). Oyunun hücrede **yeni yarattığı** entity'ler `CellDiff`'e girmez (yalnız
-  `CellMember`'lı, yani haritadan gelen entity'ler izlenir) (`modules/world/src/map_state.cpp:207`).
+- **Katman gizleme değişiklikleri korur** (`despawn_cell` gibi diff yazar, oyunun sildiği entity tekrar doğmaz:
+  `modules/world/src/map_state.cpp:253`, test `modules/world/tests/map_state_test.cpp:120`). Ama oyunun hücrede **yeni yarattığı** entity'ler `CellDiff`'e girmez (yalnız
+  `CellMember`'lı, yani haritadan gelen entity'ler izlenir) (`modules/world/src/map_state.cpp:224`).
 - **Hücre ataması nesnenin konumuna göre**, sınır kutusuna göre değil: büyük nesne komşu hücreden görünse de kendi hücresi
   yüklenmeden gelmez (`modules/world/include/astral/world/map.hpp:88`). Hücreler yer düzleminde (x,z) kareler; yükseklik
   boyutu yok (`modules/world/include/astral/world/map.hpp:19`).
@@ -256,7 +256,7 @@ bu belgede doğrulanmadı.
 | `map_test.cpp`, `streaming_test.cpp`, `map_state_test.cpp`, `level_instance_test.cpp`, `origin_test.cpp` | `.world`/`.ent`, hücre ataması, cook; streaming (histerezis, iptal, bütçe, geri çekilme); diff, katman; level instance (döngü, sınır, çok hücreli); origin |
 
 Kapsanmayanlar: `TypeRegistry::rollback_dynamic` ve `EventRegistry::rollback_dynamic`'in World modülünde doğrudan testi
-yok (kullanım yeri script host: `modules/script/src/host.cpp:157`; script testlerinde dolaylı kapsanabilir, bu belgede
+yok (kullanım yeri script host: `modules/script/src/host.cpp:163`; script testlerinde dolaylı kapsanabilir, bu belgede
 doğrulanmadı). Paralel sistemde ilk `send` ile eşzamanlı okuma yarışı için test yok. TSan/ASan Windows'ta çalıştırılmadı.
 Repo kökündeki `bench/main.cpp` ECS, transform ve streaming benchmark'ları içerir; ADR-0032 CTest'te bir duman testi
 (`astral_benchmarks_smoke`) olduğunu söyler (CMake kaydı bu incelemede doğrulanmadı).

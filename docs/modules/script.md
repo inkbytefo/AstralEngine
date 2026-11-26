@@ -14,9 +14,9 @@ ve render API'si **yoktur**; yalnızca aşağıdaki `astral.*` yüzeyi vardır.
 
 | Tip / fonksiyon | Ne yapar | Kaynak |
 |---|---|---|
-| `ScriptHost` | Tek Luau durumu. `load(name, source)`, `unload`, `loaded`, `modules`, `failed`, `run(phase, frame)`, `take_errors` | `modules/script/include/astral/script/script.hpp:160` |
+| `ScriptHost` | Tek Luau durumu. `load(name, source)`, `unload`, `loaded`, `modules`, `failed`, `run(phase, frame)`, `take_errors` | `modules/script/include/astral/script/script.hpp:162` |
 | `ScriptEnv` | Ana bilgisayarın eriştikleri (World, TypeRegistry, EventRegistry, Logger, isteğe bağlı input/storage/physics/profiler); global yok | `modules/script/include/astral/script/script.hpp:144` |
-| `ScriptLimits{budget_ms=100}` | Bir faz (ya da modül yüklemesi) bu süreyi aşarsa hata ile durdurulur | `modules/script/include/astral/script/script.hpp:155-158` |
+| `ScriptLimits{budget_ms=100}` | Bir modülün bir fazdaki çalışması (ve ayrıca fazın tüm behaviour'ları, tüm zamanlayıcıları, bir modül yüklemesi) bu süreyi aşarsa hata ile durdurulur (ADR-0052) | `modules/script/include/astral/script/script.hpp:155-160` |
 | `ScriptPhase`, `ScriptFrame` | `PreUpdate/Update/FixedUpdate/PostUpdate`; `delta`, `fixed_delta`, `elapsed` (betikte `ctx.delta/fixed_delta/time`) | `modules/script/include/astral/script/script.hpp:35`, `modules/script/include/astral/script/script.hpp:38` |
 | `Script` (bileşen) | `path` ile bu dosyanın `astral.behaviour`'ını çalıştırır | `modules/script/include/astral/script/script.hpp:30` |
 | `ScriptPhysics` | Fizik/alan arayüzü: raycast/spherecast (filtreli), overlap, impulse/force/torque/force_at, hız, karakter, teleport, eklem motoru, rüzgâr/su | `modules/script/include/astral/script/script.hpp:90` |
@@ -39,7 +39,7 @@ Aşağıdaki liste kataloğun içeriğidir; `API.md`/`astral.d.luau` aynı katal
 | `astral.input` | `down`, `pressed`, `released`, `value`, `axis` (adlandırılmış eylemler) | `modules/script/src/api.cpp:121-126` |
 
 `astral.tween`, `astral.ease`, `astral.lerp` ve `astral.state_machine` C++'ta değil, Luau'da yazılmış bir ön ayarda (`prelude`) tanımlıdır; sandbox kapanmadan önce bir kez çalıştırılır
-(`modules/script/src/prelude.hpp:5`, `modules/script/src/host.cpp:99-108`). Kolaylık eğrileri: `linear, in_quad, out_quad, in_out_quad, in_cubic, out_cubic, in_out_cubic, out_back` (`modules/script/src/api.cpp:59-61`).
+(`modules/script/src/prelude.hpp:5`, `modules/script/src/host.cpp:105-114`). Kolaylık eğrileri: `linear, in_quad, out_quad, in_out_quad, in_cubic, out_cubic, in_out_cubic, out_back` (`modules/script/src/api.cpp:59-61`).
 `define_component` tipleri: `f32, i32, u32, bool, vec2, vec3, vec4, quat, entity` (`{type, default}` ile varsayılan) (`modules/script/src/api.cpp:33-35`, `modules/script/src/bindings.cpp:327`).
 Değer türleri: sayı/bool/string; `vector` (Luau yerleşik); `Vec2/Vec4/Quat` `{x=,y=,..}` tabloları; enum'lar ad dizgeleri; varlık alanları varlık ya da `nil`
 (`modules/script/src/api.cpp:262-263`). Tablo → JSON dönüşümü en çok 64 iç içe seviye kabul eder; kendini içeren tablo hata verir (`modules/script/src/convert.cpp:199-201`).
@@ -49,32 +49,32 @@ Değer türleri: sayı/bool/string; `vector` (Luau yerleşik); `Vec2/Vec4/Quat` 
 ### Durum, modüller, sandbox
 
 Tüm betikler **tek** `lua_State`'te çalışır (`luaL_newstate`, `luaL_openlibs`); `astral` tablosu ve ön ayar kurulduktan sonra `luaL_sandbox` global tabloları salt okunur yapar
-(`modules/script/src/host.cpp:93-108`). Her modül (dosya) kendi sandbox iş parçacığında (`luaL_sandboxthread`) yüklenir: global yazmaları o modüle özel kalır
-(`modules/script/src/host.cpp:123-126`). Luau'nun standart kütüphanesinde `io` yoktur ve `os` yalnızca `clock/date/difftime/time` sağlar (Luau 0.748 kaynağı: `VM/src/loslib.cpp`); testle de doğrulanmıştır
+(`modules/script/src/host.cpp:99-114`). Her modül (dosya) kendi sandbox iş parçacığında (`luaL_sandboxthread`) yüklenir: global yazmaları o modüle özel kalır
+(`modules/script/src/host.cpp:129-132`). Luau'nun standart kütüphanesinde `io` yoktur ve `os` yalnızca `clock/date/difftime/time` sağlar (Luau 0.748 kaynağı: `VM/src/loslib.cpp`); testle de doğrulanmıştır
 (`modules/script/tests/script_test.cpp:196-202`, "a script cannot reach the operating system"). `require` bu ana bilgisayarda tanımlı değildir (modül çözümleyici yok).
 Bir `Module`; sistemleri, dinleyicileri, davranış tablosunu, zamanlayıcıları ve `failed` bayrağını tutar (`modules/script/src/host_impl.hpp:47-54`).
 
 ### Faz çalıştırma sırası
 
 `ScriptHost::run(phase)` modülleri **yükleme sırasıyla** gezer; her modül için önce olay dinleyicileri, sonra o fazın sistemleri çalışır; ardından (yalnızca Update/FixedUpdate) davranışlar, en sonda (yalnızca Update) zamanlayıcılar
-(`modules/script/src/host.cpp:349-380`). App'te her fazın C++ sistemlerinden **sonra** çağrılır; `FixedUpdate` her sabit fizik adımında koşar
+(`modules/script/src/host.cpp:355-393`). App'te her fazın C++ sistemlerinden **sonra** çağrılır; `FixedUpdate` her sabit fizik adımında koşar
 (`modules/app/src/services/frame_loop.cpp:118-123`, `modules/app/src/services/frame_loop.cpp:133-136`). Per-entity sistemler önce eşleşen varlıkları toplar, sonra çağırır (betik çalışırken varlık yaratıp silebilir);
-her çağrıdan önce varlığın hâlâ canlı ve eşleşir olduğu yeniden denetlenir (`modules/script/src/host.cpp:224-247`). Davranışlarda `on_start` bir varlık+yol çifti için bir kez çalışır; yol değişirse ya da `Script` çıkarılıp
-eklenirse yeni örnektir (`modules/script/src/host.cpp:297-308`, test: `modules/script/tests/msr_regression_test.cpp:107`).
+her çağrıdan önce varlığın hâlâ canlı ve eşleşir olduğu yeniden denetlenir (`modules/script/src/host.cpp:230-253`). Davranışlarda `on_start` bir varlık+yol çifti için bir kez çalışır; yol değişirse ya da `Script` çıkarılıp
+eklenirse yeni örnektir (`modules/script/src/host.cpp:303-314`, test: `modules/script/tests/msr_regression_test.cpp:107`).
 
 ### Hata yalıtımı ve zaman bütçesi
 
-Bir geri çağrı hata verirse `protected_call` hatayı kaydeder ve **o modülü `failed` işaretler**; modül yeniden yüklenene kadar çalışmaz, diğer modüller sürer (`modules/script/src/host.cpp:78-89`, test:
+Bir geri çağrı hata verirse `protected_call` hatayı kaydeder ve **o modülü `failed` işaretler**; modül yeniden yüklenene kadar çalışmaz, diğer modüller sürer (`modules/script/src/host.cpp:79-95`, test:
 `modules/script/tests/script_test.cpp:150-163`). Zaman bütçesi Luau'nun `interrupt` kancasındadır: `ScriptHost::run` ve `load` başında duvar saati (steady_clock) son tarihi kurulur ve aşılırsa
-`luaL_error` ile "script exceeded its time budget" fırlatılır (`modules/script/src/host.cpp:18-25`, `modules/script/src/host.cpp:68-71`, `modules/script/src/host.cpp:119`, `modules/script/src/host.cpp:352`). Varsayılan 100 ms (`modules/script/include/astral/script/script.hpp:157`). Test: `modules/script/tests/script_test.cpp:164-170`.
+`luaL_error` ile "script exceeded its time budget" fırlatılır (`modules/script/src/host.cpp:18-26`, `modules/script/src/host.cpp:125`). `run` son tarihi her modülden önce, behaviour'lardan ve zamanlayıcılardan önce yeniden kurar; aşımla durdurulan çağrıdan sonra `protected_call` yeni bütçe kurar (`modules/script/src/host.cpp:373`, `modules/script/src/host.cpp:385-390`, `modules/script/src/host.cpp:84-88`, ADR-0052). Varsayılan 100 ms (`modules/script/include/astral/script/script.hpp:159`). Test: `modules/script/tests/script_test.cpp:164-183`.
 
 ### Aşamalı modül yükleme ve sıcak yeniden yükleme (ADR-0044)
 
 `ScriptHost::load` yeni modülü ayrı iş parçacığında çalıştırır; üst düzey kod yalnızca **bildirim aşamasıdır** (`Impl::loading`): dünyayı değiştiren çağrılar (`astral.spawn`, `entity:add/remove/destroy`,
 alan yazma, `astral.send`, `save/load`, tüm `astral.physics` komutları) hata verir ("… is not allowed while the module loads; call it from on_load() or a callback": `modules/script/src/bindings.cpp:59-61`).
 `define_component`/`define_event` hemen kaydolur ama başarısızlıkta `rollback_dynamic` ile geri alınır; başarılı yükleme eski modülün yerine geçtikten sonra modülün global `on_load()` fonksiyonu çağrılır
-(`modules/script/src/host.cpp:139-184`). Başarısız yeniden yükleme dünyayı, tipleri ve olayları değiştirmez; eski modül çalışmaya devam eder (testler: `modules/script/tests/msr_regression_test.cpp:140-211`).
-Bayt kodu (`"ALBC"`) ve kaynak aynı yoldan yüklenir (`modules/script/src/host.cpp:130-138`).
+(`modules/script/src/host.cpp:145-190`). Başarısız yeniden yükleme dünyayı, tipleri ve olayları değiştirmez; eski modül çalışmaya devam eder (testler: `modules/script/tests/msr_regression_test.cpp:140-211`).
+Bayt kodu (`"ALBC"`) ve kaynak aynı yoldan yüklenir (`modules/script/src/host.cpp:136-144`).
 App tarafında `ScriptBridge` izlenen her betiğin içerik özetini tutar ve geliştirme modunda (pack yokken) **her 0,5 sn'de** dosyayı yeniden okuyup özet değiştiyse yeniden yükler; başarılıysa "reloaded …" yazar
 (`modules/app/src/services/script_bridge.cpp:225-240`, `modules/app/src/services/frame_loop.cpp:113`).
 
@@ -82,7 +82,7 @@ App tarafında `ScriptBridge` izlenen her betiğin içerik özetini tutar ve gel
 
 - **Olaylar:** C++ olayları (`events.add<T>()`) alanlarıyla tabloya, betik olayları (`define_event`) serbest tabloya dönüşür. `astral.on` yalnızca **kayıttan sonra** gönderilen olayları görür (imleç kayıt anında sona alınır:
   `modules/script/src/bindings.cpp:277-293`). Dinleyici varsayılan fazı `Update`'tir.
-- **Zamanlayıcılar:** `after`/`every`/`cancel`; yalnızca `Update` fazında, `ctx.delta` ile azalır (`modules/script/src/host.cpp:319-345`). Modül `failed` ise zamanlayıcılar çalışmaz.
+- **Zamanlayıcılar:** `after`/`every`/`cancel`; yalnızca `Update` fazında, `ctx.delta` ile azalır (`modules/script/src/host.cpp:325-351`). Modül `failed` ise zamanlayıcılar çalışmaz.
 - **`astral.save/load`:** Seçilen bileşenleri taşıyan varlıkları `{"format":"astral.save","version":1}` belgesine yazar; `load` o bileşenlere sahip mevcut varlıkları **yok eder** ve slottakileri yeniden yaratır
   (önce geçici bir World'e doğrulama yüklemesi yapılır). Slot adı harf/rakam/`_`/`-` olabilir; `<save_folder>/<slot>.json`, atomik yazım (geçici dosya + rename)
   (`modules/script/src/bindings_services.cpp:58-122`, `modules/app/src/services/script_bridge.cpp:38-87`).
@@ -116,19 +116,20 @@ Gözlem (2026-11-26, yerel `build/debug` aracı, blank şablonunun ürettiği ta
 
 ## Zayıf yanlar ve bilinen sınırlar
 
-- **Zaman bütçesi duvar saatidir ve bir faz için tüm modüllerle paylaşılır.** `run` başında bir kez kurulur; tüm modüllerin toplam süresi 100 ms'yi aşarsa sıradaki modül suçlanır (`modules/script/src/host.cpp:352-376`). Bütçe aşıldığında son tarih
-  `time_point::max()`'e **sıfırlanır** (hata bir kez raporlansın diye), yani aynı `run` çağrısında sonra çalışan modüllerin bütçesi kalmaz (`modules/script/src/host.cpp:21-24`). Duvar saati yük altında sahte aşımlar üretir: bu PC'de paralel yük altında
-  `pong_tests` ve `spinning_cubes_tests` kararsız, seri çalışınca geçiyor (ana ajan ölçümü; neden olarak bütçe varsayımı, kesin kök neden araştırılmadı).
-- **Bellek sınırı yok.** `luaL_newstate` varsayılan ayırıcıyla çağrılır, betik başına bellek/yığın kotası konmamış (`modules/script/src/host.cpp:93`). Zaman bütçesi bytecode-seviyesindedir (`interrupt`); tek bir uzun yerel çağrının (örn. çok büyük `string.rep`)
+- **Zaman bütçesi duvar saatidir.** Modül başına ve faz başına kurulur; behaviour'lar ve zamanlayıcılar fazda birer ortak bütçe alır, aşımdan sonra
+  sıradaki çağrı yeni bütçe alır (`modules/script/src/host.cpp:373`, `modules/script/src/host.cpp:385-390`, `modules/script/src/host.cpp:79-90`; ADR-0052). Fazın toplam süresi
+  "modül sayısı × bütçe"ye kadar uzayabilir. Duvar saati yük altında sahte aşımlar üretir: bu PC'de paralel yük altında `pong_tests` ve `spinning_cubes_tests`
+  kararsız, seri çalışınca geçiyor (kök neden araştırılmadı; modül başına bütçenin etkisi ölçülmedi).
+- **Bellek sınırı yok.** `luaL_newstate` varsayılan ayırıcıyla çağrılır, betik başına bellek/yığın kotası konmamış (`modules/script/src/host.cpp:99`). Zaman bütçesi bytecode-seviyesindedir (`interrupt`); tek bir uzun yerel çağrının (örn. çok büyük `string.rep`)
   kesilebileceği doğrulanmadı.
 - **Tek `lua_State`, tek iş parçacığı.** Betikler ana iş parçacığında ve ardışık çalışır; paralel betik yok. Aynı `astral.random` üreteci tüm modüller arasında paylaşılır (`modules/script/src/host_impl.hpp:80`).
 - **Olay penceresi.** World olayları yalnızca iki `update_events()` çağrısı boyunca yaşar (`modules/world/include/astral/world/world.hpp:46`); `FixedUpdate` fazında dinleyen betik, ardışık iki frame'de sabit adım atılmazsa
   (yüksek FPS + düşük `physics_rate`) o olayı kaçırabilir. Kod okumasından çıkarım, test ya da yeniden üretim yok (**doğrulanmadı**).
 - **`astral-luau-check` beklenenden az yakalar.** Sistem/davranış geri çağrılarındaki bileşen alanları ve `query` dizgeleri statik denetlenmez (yukarıdaki gözlem); `AstralGame.cmake`'deki "yanlış bileşen, alan ya da olay adı ya da tür derlemeyi düşürür" ifadesi
   (`cmake/AstralGame.cmake:80-84`) yalnızca `entity:get`/`add` gibi tipli yollar için doğrudur. Denetleyicinin kendi testi yok (yalnızca tüketici/şablon projelerinde dolaylı).
-- **Hot reload yoklama tabanlı.** 0,5 sn'de bir tüm izlenen dosyalar ana iş parçacığında okunup özetlenir; yeniden yükleme anında modülün tüm dinleyicileri/zamanlayıcıları sıfırlanır (durum bileşenlerde olmalı) (`modules/app/src/services/script_bridge.cpp:225-240`, `modules/script/src/host.cpp:42-61`).
-  Zamanlayıcılar yeniden yüklemede sıfırlanır (`modules/script/src/host.cpp:49-56`); `on_start` yeniden çalışmaz, çünkü başlamış örnekler `Impl::started` içinde yol ile tutulur (`modules/script/src/host.cpp:297-302`).
-- **Bayt kodu doğrulanmaz.** `ScriptHost::load`, kaynağın ilk 4 baytı `ALBC` ise Luau bayt kodu gibi yükler (`modules/script/src/compile.cpp:12-15`, `modules/script/src/host.cpp:130`); geliştirme modunda gevşek `.luau` dosyası bu önekle başlarsa bayt kodu sayılır.
+- **Hot reload yoklama tabanlı.** 0,5 sn'de bir tüm izlenen dosyalar ana iş parçacığında okunup özetlenir; yeniden yükleme anında modülün tüm dinleyicileri/zamanlayıcıları sıfırlanır (durum bileşenlerde olmalı) (`modules/app/src/services/script_bridge.cpp:225-240`, `modules/script/src/host.cpp:43-62`).
+  Zamanlayıcılar yeniden yüklemede sıfırlanır (`modules/script/src/host.cpp:50-57`); `on_start` yeniden çalışmaz, çünkü başlamış örnekler `Impl::started` içinde yol ile tutulur (`modules/script/src/host.cpp:303-308`).
+- **Bayt kodu doğrulanmaz.** `ScriptHost::load`, kaynağın ilk 4 baytı `ALBC` ise Luau bayt kodu gibi yükler (`modules/script/src/compile.cpp:12-15`, `modules/script/src/host.cpp:136`); geliştirme modunda gevşek `.luau` dosyası bu önekle başlarsa bayt kodu sayılır.
   Luau, güvenilmeyen bayt kodu için tasarlanmamıştır (Luau belgesi; bu depoda test edilmedi). Pack içeriği güvenilir kabul edilir.
 - **API yüzeyi dar ve katalog elle yazılı.** Katalogdaki `luau_type` dizgeleri C++ uygulamasından türetilmez, elle yazılmıştır; parite testi yalnızca **adların** uyuştuğunu denetler, imzaların uygulamayla uyuştuğunu denetlemez.
   Ses, HUD, sahne/harita yükleme, kamera, malzeme ve açısal eklem motoru (`ScriptPhysics` arayüzünde yok) betikten erişilemez; VFX yalnızca `PlayVfx`/`StopVfx` olayıyla.
@@ -146,7 +147,7 @@ Gözlem (2026-11-26, yerel `build/debug` aracı, blank şablonunun ürettiği ta
 | `api_parity_test.cpp` (2) | canlı VM ↔ katalog ↔ `astral.d.luau`/`API.md` ↔ `TypeRegistry`; `save/load` varlık bağlama |
 | `api_test.cpp` (1), `compile_test.cpp` (2) | üretilen belge içeriği; bayt kodu aynı çalışır, söz dizimi hatası dosya:satır ile |
 
-**Kapsanmayanlar:** bellek tüketimi/kota, çok modüllü bütçe paylaşımı (aşımdan sonraki modüller), `FixedUpdate` olay kaçırma, bayt kodu bozukluğu, `astral-luau-check` çıktısı, gerçek `ScriptPhysics` uygulaması (`modules/app/src/services/script_physics.cpp` yalnızca App testlerinde).
+**Kapsanmayanlar:** bellek tüketimi/kota, `FixedUpdate` olay kaçırma, bayt kodu bozukluğu, `astral-luau-check` çıktısı, gerçek `ScriptPhysics` uygulaması (`modules/app/src/services/script_physics.cpp` yalnızca App testlerinde).
 
 ## Performans
 
@@ -159,5 +160,6 @@ Gözlem (2026-11-26, yerel `build/debug` aracı, blank şablonunun ürettiği ta
 - [ADR-0028 Betik araçları ve paylaşılan özellikler](../decisions/0028-script-tooling-and-shared-features.md)
 - [ADR-0034 Gameplay API ve fizik adım sözleşmesi](../decisions/0034-gameplay-api-and-physics-step-contract.md)
 - [ADR-0043 Deterministik fizik komut üreticileri](../decisions/0043-deterministic-physics-command-producers.md)
+- [ADR-0052 Zaman bütçesi modül ve faz başına](../decisions/0052-script-budget-per-module.md)
 - [ADR-0044 Aşamalı betik modülü yüklemesi](../decisions/0044-staged-script-module-load.md)
 - [ADR-0045 Sorgularda birden çok yok sayılan gövde](../decisions/0045-query-filter-ignore-list.md)
