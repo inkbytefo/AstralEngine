@@ -4,7 +4,7 @@
 - **Tarih:** 2026-11-24
 - **Kapsam:** M15’in ilk uygulanabilir terrain sürümü
 - **İlişkili kararlar:** [ADR-0018](0018-terrain-and-sdf-world.md), [ADR-0021](0021-world-and-level-system.md), [ADR-0036](0036-world-authoring-and-level-instances.md), [ADR-0038](0038-physics-api-v2.md)
-- **Uygulama:** [Görev planı](../superpowers/plans/2026-11-24-m15-terrain-foundation.md)
+- **Uygulama:** [Görev planı](../archive/legacy/superpowers/plans/2026-11-24-m15-terrain-foundation.md)
 
 ## Veri ve koordinatlar
 
