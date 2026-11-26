@@ -72,9 +72,9 @@ RTTI ve kod üreteci yoktur.
 
 **Logger.** Seviye `atomic`, formatlama kilit dışında, sink'lere dağıtım `mutex_` altında
 (`modules/core/include/astral/core/log.hpp:70`, `modules/core/src/log.cpp:32`). Varsayılan seviye `Info`
-(`log.hpp:82`). Sink'in aynı logger'a yazması kilitlenir (`log.hpp:34`).
+(`modules/core/include/astral/core/log.hpp:82`). Sink'in aynı logger'a yazması kilitlenir (`modules/core/include/astral/core/log.hpp:34`).
 
-**Profiler.** Yalnızca `begin_frame()` çağıran thread'den kullanılır (`profiler.hpp:10`). Kare sonunda
+**Profiler.** Yalnızca `begin_frame()` çağıran thread'den kullanılır (`modules/core/include/astral/core/profiler.hpp:10`). Kare sonunda
 `current_`/`last_` swap edilir, açık kapsamlar kapatılır (`modules/core/src/profiler.cpp:28`). Kapsam adı
 `const char*` olarak saklanır: ömrü profiler'dan uzun olmalı.
 
@@ -96,35 +96,35 @@ RTTI ve kod üreteci yoktur.
 
 - **JobSystem basit:** tek paylaşımlı kuyruk, tek mutex, her olayda `notify_all`; work-stealing, öncelik,
   bağımlılık grafı yok (`modules/core/src/jobs.cpp:20`, `:71`, `:118`). `wait` yardımı kuyrukta doğrusal tarama
-  yapar (`:39`). İş tipi `std::function` (heap tahsisi olabilir; `jobs.hpp:35`). Ölçülmüş bir ölçeklenme verisi yok.
+  yapar (`:39`). İş tipi `std::function` (heap tahsisi olabilir; `modules/core/include/astral/core/jobs.hpp:35`). Ölçülmüş bir ölçeklenme verisi yok.
 - **`submit()` istisna güvenli değil:** sayaç önce artırılır, kuyruğa ekleme (`push_back`) bellek hatası
   atarsa sayaç takılı kalır (`modules/core/src/jobs.cpp:113-116`). Bir `JobCounter` farklı bir `JobSystem` ile
-  kullanılırsa `wait` takılır; yalnızca belgelenmiş (`jobs.hpp:32`), çalışma zamanında denetlenmez.
+  kullanılırsa `wait` takılır; yalnızca belgelenmiş (`modules/core/include/astral/core/jobs.hpp:32`), çalışma zamanında denetlenmez.
 - **`Json` nesneleri doğrusal arama:** `find`, `operator[]` ve ayrıştırıcının her üye eklemesi (`out[key] = ...`)
   üye sayısıyla O(n) (`modules/core/src/json.cpp:316`, `:446`); çok üyeli nesnelerde ayrıştırma O(n²). Başlık
-  bunu bilerek "yüksek verimli ayrıştırıcı değil" diye belirtir (`json.hpp:4`). İkili okuyucu da aynı
-  `out[key]` yolunu kullanır (`json_binary.cpp:105`).
-- **Yinelenen anahtar sessizce birleşir:** son değer kazanır, konum ilk görünümde kalır (`json.cpp:316`).
-- **Ayrıştırıcı katı değil:** baştaki sıfırlar kabul edilir (`007` -> 7, `json.cpp:174`); NaN/Inf yazarken
-  `null`'a dönüşür, yani kayıplı (`json.cpp:43`). Metin derinlik sınırı (256) için test bulunamadı
+  bunu bilerek "yüksek verimli ayrıştırıcı değil" diye belirtir (`modules/core/include/astral/core/json.hpp:4`). İkili okuyucu da aynı
+  `out[key]` yolunu kullanır (`modules/core/src/json_binary.cpp:105`).
+- **Yinelenen anahtar sessizce birleşir:** son değer kazanır, konum ilk görünümde kalır (`modules/core/src/json.cpp:316`).
+- **Ayrıştırıcı katı değil:** baştaki sıfırlar kabul edilir (`007` -> 7, `modules/core/src/json.cpp:174`); NaN/Inf yazarken
+  `null`'a dönüşür, yani kayıplı (`modules/core/src/json.cpp:43`). Metin derinlik sınırı (256) için test bulunamadı
   (derinlik testi yalnızca ikili biçim için, `modules/core/tests/bytes_test.cpp:81`).
-- **Sessiz tip değiştirme:** non-const `operator[](key)` nesne olmayan değeri sessizce boş nesneye çevirir
-  (`json.cpp:443`), `push_back` diziye (`json.cpp:466`).
-- **İkili biçim tip bilgisini kısmen kaybeder:** `3.0` yazılıp `3` (tamsayı) olarak okunur (`json_binary.cpp:37`).
+- **Sessiz tip değiştirme:** non-const `operator[]` (anahtarla) nesne olmayan değeri sessizce boş nesneye çevirir
+  (`modules/core/src/json.cpp:443`), `push_back` diziye (`modules/core/src/json.cpp:466`).
+- **İkili biçim tip bilgisini kısmen kaybeder:** `3.0` yazılıp `3` (tamsayı) olarak okunur (`modules/core/src/json_binary.cpp:37`).
   Değer olarak eşit, ama `is_integer()` farklı.
 - **Logger sınırlı:** dosya sink'i yok (yalnızca `ConsoleSink`, `MemorySink`); `MemorySink` seviye ve konumu
   saklamaz, yalnızca mesaj metnini (`modules/core/src/log.cpp:53`). Sink içinden aynı logger'a yazmak kilitlenir
-  (`log.hpp:34`).
-- **Profiler tek thread:** worker thread'lerden kapsam kaydı desteklenmez (`profiler.hpp:10`); GPU süreleri ayrı
+  (`modules/core/include/astral/core/log.hpp:34`).
+- **Profiler tek thread:** worker thread'lerden kapsam kaydı desteklenmez (`modules/core/include/astral/core/profiler.hpp:10`); GPU süreleri ayrı
   (`Renderer::gpu_timings`, bkz. `modules/app/include/astral/app/app.hpp:86`).
 - **Math minimal:** `Quat` için slerp/euler yok, `Vec2` yalnızca `+ - *`; `look_at` yukarı vektör bakış
   yönüne paralelse `normalize` sıfır vektör döndürür ve dejenere matris çıkar, korunma yok
   (`modules/core/src/math.cpp:83-91`); `inverse` tekil matriste sessizce birim matris döndürür
-  (`math.cpp:48`). `rotation_of` shear'ı desteklemez (`math.hpp:158`).
+  (`modules/core/src/math.cpp:48`). `rotation_of` shear'ı desteklemez (`modules/core/include/astral/core/math.hpp:158`).
 - **`HandlePool`:** thread-safe değil, `for_each` içinde create/destroy yasak, generation 2^32-1 yeniden
-  kullanımda sarar (`handle.hpp:24-26`, `:72`).
+  kullanımda sarar (`modules/core/include/astral/core/handle.hpp:24-26`, `:72`).
 - **Reflection sınırı 32 alan:** daha geniş tip bölünmelidir (ADR-0030); `ASTRAL_REFLECT_ENUM` için sayı sınırı
-  denetimi yok (`reflect.hpp:174`). ADR-0030 ayrıca her struct için 25 veri üyesi bütçesi koyar
+  denetimi yok (`modules/core/include/astral/core/reflect.hpp:174`). ADR-0030 ayrıca her struct için 25 veri üyesi bütçesi koyar
   (`tools/check_sizes.py:33`); reflection'ın 32'lik üst sınırı bu bütçeden gevşektir.
 - `ASTRAL_REFLECT_ENUM` ve `enum_name`/`enum_from_name` core testlerinde yok; yalnızca world ve script
   testlerinde kullanılıyor (`modules/world/tests/scene_test.cpp:21`, `modules/script/tests/api_test.cpp:20`).

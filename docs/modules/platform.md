@@ -45,34 +45,34 @@ olmadığından `App` kendisi `begin_frame` çağırır (`modules/app/include/as
 **Tuş eşlemesi.** SDL **scancode** (fiziksel konum) kullanılır, düzen duyarlı keycode değil
 (`modules/platform/src/window.cpp:16`). Eşlenmeyen tuşlar `Key::Unknown` olur ve `set_key` tarafından yok sayılır
 (`modules/platform/src/input.cpp:61`). Fare için yalnızca sol/sağ/orta düğme var; X1/X2 yok sayılır
-(`window.cpp:86-94`).
+(`modules/platform/src/window.cpp:86-94`).
 
-**Gamepad.** SDL gamepad alt sistemi `Window::create` içinde başlatılır (`window.cpp:117`). Yalnızca **ilk
-bağlanan** gamepad açılır (`window.cpp:163-168`); düğmeler Xbox düzenine eşlenir, sol/sağ çubukların Y ekseni
-"yukarı pozitif" olacak şekilde ters çevrilir (`window.cpp:186`, `:188`), eksenler `[-1,1]`'e kırpılır
-(`input.cpp:52`). Ölü bölge, titreşim ve çoklu gamepad yoktur. `App` tarafında eylem eşlemesi
+**Gamepad.** SDL gamepad alt sistemi `Window::create` içinde başlatılır (`modules/platform/src/window.cpp:117`). Yalnızca **ilk
+bağlanan** gamepad açılır (`modules/platform/src/window.cpp:163-168`); düğmeler Xbox düzenine eşlenir, sol/sağ çubukların Y ekseni
+"yukarı pozitif" olacak şekilde ters çevrilir (`modules/platform/src/window.cpp:186`, `:188`), eksenler `[-1,1]`'e kırpılır
+(`modules/platform/src/input.cpp:52`). Ölü bölge, titreşim ve çoklu gamepad yoktur. `App` tarafında eylem eşlemesi
 `modules/app/src/input_actions.cpp` içindedir (bu modülün dışı).
 
-**Metin girişi.** `set_text_input(true)` `SDL_StartTextInput` çağırır (`window.cpp:223-227`); `TEXT_INPUT` olayı
-`Input::add_text` ile UTF-8 olarak birikir (`window.cpp:162`). `App` içinde yalnızca DevTools/ImGui metin alanları
+**Metin girişi.** `set_text_input(true)` `SDL_StartTextInput` çağırır (`modules/platform/src/window.cpp:223-227`); `TEXT_INPUT` olayı
+`Input::add_text` ile UTF-8 olarak birikir (`modules/platform/src/window.cpp:162`). `App` içinde yalnızca DevTools/ImGui metin alanları
 için açılıp kapanır (`modules/app/src/services/dev_tools.cpp:71`).
 
 **Pencere ömrü ve headless.** `Window::create` önce `SDL_WINDOW_VULKAN` ile pencere açar; başarısız olursa
 (ör. SDL "dummy" sürücüsü) Vulkan bayrağı olmadan yeniden dener ve `vulkan=false` işaretler
-(`window.cpp:119-130`). Bu durumda `surface_source()` eklenti ve `create_surface` doldurmaz, yalnızca
-`drawable_size` verir (`window.cpp:272`); sunum mümkün değildir. Bu, testlerin ekransız çalışmasını sağlar
+(`modules/platform/src/window.cpp:119-130`). Bu durumda `surface_source()` eklenti ve `create_surface` doldurmaz, yalnızca
+`drawable_size` verir (`modules/platform/src/window.cpp:272`); sunum mümkün değildir. Bu, testlerin ekransız çalışmasını sağlar
 (`modules/platform/tests/window_test.cpp:11-18`). SDL alt sistemleri referans sayımlıdır ve `~Impl` içinde
-bırakılır (`window.cpp:104-112`). Not: `App`'in "headless" kipi (`AppDesc::headless`) hiç pencere
+bırakılır (`modules/platform/src/window.cpp:104-112`). Not: `App`'in "headless" kipi (`AppDesc::headless`) hiç pencere
 oluşturmaz (`modules/app/include/astral/app/app.hpp:220`); platform katmanındaki "headless" ise SDL dummy sürücüsü
 demektir; ikisi farklı şeylerdir.
 
-**`keep_responsive`.** Yalnızca `SDL_PumpEvents()` çağırır (`window.cpp:138`); olaylar kuyrukta kalır ve bir
+**`keep_responsive`.** Yalnızca `SDL_PumpEvents()` çağırır (`modules/platform/src/window.cpp:138`); olaylar kuyrukta kalır ve bir
 sonraki `poll`'da işlenir. `App` bunu `Renderer::set_busy_callback` üzerinden en fazla 50 ms'de bir çağırır
 (`modules/app/src/app.cpp:226-231`). Test: `modules/platform/tests/window_test.cpp:36` (100 çağrı sonrası bekleyen
 kapanış isteği kaybolmaz).
 
 **Yüzey.** `surface_source()` SDL'den Vulkan instance eklentilerini ve bir `create_surface` kapanışını verir;
-`gpu::Device` bunları kullanır (`window.cpp:269-286`). Platform `gpu`'ya bağımlıdır (yalnızca `Extent2D` ve
+`gpu::Device` bunları kullanır (`modules/platform/src/window.cpp:269-286`). Platform `gpu`'ya bağımlıdır (yalnızca `Extent2D` ve
 `SurfaceSource` için, `modules/platform/include/astral/platform/window.hpp:3`); `tools/module_layers.json` bunu izin
 verilen bağımlılık olarak listeler.
 
@@ -81,7 +81,7 @@ verilen bağımlılık olarak listeler.
 - `Input` SDL'den bağımsız saf veri olduğu için kenar mantığı, gamepad kırpma ve metin birikimi pencere olmadan
   birim testlidir (`modules/platform/tests/input_test.cpp`, 8 test).
 - Ekransız ortamda (CI'da xvfb, yerelde SDL dummy) pencere testleri çalışır; Vulkan yoksa pencere yine açılır ve
-  `supports_vulkan()` ile ayırt edilir (`window.cpp:125-130`).
+  `supports_vulkan()` ile ayırt edilir (`modules/platform/src/window.cpp:125-130`).
 - Tuş eşlemesi fiziksel konuma dayalı: WASD kontrolü klavye düzenine bağlı değil.
 - `keep_responsive` olay kaybetmeden yükleme sırasında pencereyi canlı tutar ve gerçek uygulamada bağlanmıştır
   (`modules/app/src/app.cpp:226`).
@@ -91,23 +91,23 @@ verilen bağımlılık olarak listeler.
 
 - **Pencere yönetimi çok sınırlı:** tam ekran, pencere konumu/boyutu ayarı, kenarlıksız kip, çoklu monitör ve
   vsync dışı sunum kipleri `Window` API'sinde yok (`modules/platform/include/astral/platform/window.hpp:36-83`).
-  Pencere yeniden boyutlandırma olayı işlenmez; `size()` her çağrıda SDL'den sorulur (`window.cpp:201`).
+  Pencere yeniden boyutlandırma olayı işlenmez; `size()` her çağrıda SDL'den sorulur (`modules/platform/src/window.cpp:201`).
 - **Gamepad:** yalnızca tek (ilk) gamepad; o çıkarılırsa o anda bağlı başka bir gamepad otomatik açılmaz, yalnızca
-  yeni `GAMEPAD_ADDED` olayı açar (`window.cpp:163-175`). Ölü bölge, titreşim, çubuk basma dışı ek düğmeler
-  (paddle, touchpad), tetikleyici düğme olayı yok (`input.hpp:29-33`).
-- **Klavye kapsamı kısmi:** numpad, F13+, CapsLock, PrintScreen vb. `Key::Unknown` olur (`window.cpp:26-63`,
-  `input.hpp:12-24`). Fare yalnızca 3 düğme (`input.hpp:26`).
+  yeni `GAMEPAD_ADDED` olayı açar (`modules/platform/src/window.cpp:163-175`). Ölü bölge, titreşim, çubuk basma dışı ek düğmeler
+  (paddle, touchpad), tetikleyici düğme olayı yok (`modules/platform/include/astral/platform/input.hpp:29-33`).
+- **Klavye kapsamı kısmi:** numpad, F13+, CapsLock, PrintScreen vb. `Key::Unknown` olur (`modules/platform/src/window.cpp:26-63`,
+  `modules/platform/include/astral/platform/input.hpp:12-24`). Fare yalnızca 3 düğme (`modules/platform/include/astral/platform/input.hpp:26`).
 - **Dokunmatik/kalem yok.** `SDL_EVENT_FINGER_*` olayları için `poll` içinde `case` yok (`modules/platform/src/window.cpp:144`).
 - **IME desteği eksik:** yalnızca biten metin (`TEXT_INPUT`) alınır; kompozisyon (`TEXT_EDITING`) olayı
-  işlenmez (`window.cpp:162`). Bu, CJK girişi için yetersiz olabilir (doğrulanmadı: SDL'in bu kodda başka bir yolla
+  işlenmez (`modules/platform/src/window.cpp:162`). Bu, CJK girişi için yetersiz olabilir (doğrulanmadı: SDL'in bu kodda başka bir yolla
   gösterdiği bir kompozisyon yok).
 - **WASD köşegeni normalize değil:** `axis`/`wasd` her ekseni ayrı -1..1 verir; W+D `(1, 1)` olur (uzunluk
   ~1.41) (`modules/platform/src/input.cpp:84-89`). Test başlığı "normalised" dese de değer 1,1'i doğrular
   (`modules/platform/tests/input_test.cpp:48-53`).
 - **Fare konumu pencere koordinatındadır, piksel değil:** yüksek DPI'da `pixel_density()` ile çarpmak çağıranın işidir
-  (`window.hpp:61-63`).
-- **Platform kapsamı:** CI yalnızca Linux (gcc, clang, xvfb) ve Windows (MSVC) üzerinde (`.github/workflows/ci.yml:14`,
-  `:55`, `:74`); macOS için CI işi yok. Windows CI'da pencere/GPU testleri GPU yoksa atlanır (`ci.yml:71`).
+  (`modules/platform/include/astral/platform/window.hpp:61-63`).
+- **Platform kapsamı:** CI yalnızca Linux (gcc, clang, xvfb) ve Windows (MSVC) üzerinde (`../../.github/workflows/ci.yml:14`,
+  `:55`, `:74`); macOS için CI işi yok. Windows CI'da pencere/GPU testleri GPU yoksa atlanır (`../../.github/workflows/ci.yml:71`).
   Bu makinede Windows/MSVC derlemesi ve testleri geçiyor (lead'in doğrulaması).
 - **Thread kuralı belgelenmemiş:** `Window` ve `Input`'un hangi thread'den kullanılabileceği başlıkta yazmıyor
   (SDL olay döngüsü genelde ana thread ister; bu kodda denetlenmiyor, doğrulanmadı).
