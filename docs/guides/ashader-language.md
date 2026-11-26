@@ -117,7 +117,7 @@ shading_model clearcoat;     // standard | clearcoat | sheen | anisotropic | tra
 
 `surface` dışında bir türde yazılırsa hata (`shading_model is only supported for shader_type surface`), bilinmeyen ad hata (`modules/shader/src/ashader.cpp:255-264`).
 Varsayılan `standard`. Seçilen model G-buffer'a `emissive.a` içinde, modele özgü dört skaler ise `material_ext` ekinde yazılır
-(`modules/render/src/surface_shader.cpp:219-241`, ADR-0033).
+(`modules/render/src/surface_shader.cpp:219-241`, [ADR-0033](../decisions/0033-advanced-pbr-and-path-tracer.md)).
 
 | Model | Okunan çıktılar (aralık/kelepçe) | Not |
 |---|---|---|
@@ -130,7 +130,7 @@ Varsayılan `standard`. Seçilen model G-buffer'a `emissive.a` içinde, modele �
 
 `ATTENUATION_COLOR` birincil yüzeyde de albedo'dan yeniden kurulur (`modules/render/shaders/include/astral/primary.glsl:46`): raster yolunda Beer-Lambert rengi ayrı taşınmaz.
 Model seçmeden de `WETNESS` [0,1] (albedo'yu koyulaştırır, roughness'ı düşürür, su filmi clearcoat'ı ekler; `modules/render/shaders/include/astral/bsdf.glsl:29-38`) yazılabilir.
-Raster, hibrit RT, ReSTIR ve path tracer aynı `bsdf.glsl` matematiğini paylaşır (ADR-0033). Bu belgede **görsel doğruluk iddiası yok**; yalnız hangi
+Raster, hibrit RT, ReSTIR ve path tracer aynı `bsdf.glsl` matematiğini paylaşır ([ADR-0033](../decisions/0033-advanced-pbr-and-path-tracer.md)). Bu belgede **görsel doğruluk iddiası yok**; yalnız hangi
 girdinin okunduğu kodla doğrulandı. Test: `modules/render/tests/m13_pbr_test.cpp`.
 
 ## 6. `uniform`
@@ -149,7 +149,7 @@ uniform <tip> <ad> [: ipucu, ipucu, ...] [= varsayılan];
 
 Başka tip yoktur: `mat*`, dizi, `struct`, `sampler3D`, `samplerCube`, `sampler2DArray` uniform olamaz (`modules/shader/src/ashader.cpp:77-86`).
 
-- **Sayı doğrulaması (ADR-0042):** her bileşen tipli 32 bit kelimeye çevrilir; `float` için sonlu ve ±float aralığında, `int` için tam sayı ve int32 aralığında,
+- **Sayı doğrulaması ([ADR-0042](../decisions/0042-typed-shader-parameter-words.md)):** her bileşen tipli 32 bit kelimeye çevrilir; `float` için sonlu ve ±float aralığında, `int` için tam sayı ve int32 aralığında,
   `bool` için 0/1 olmalı; aksi hâlde varsayılan **okunamaz** (hata) (`modules/shader/src/ashader.cpp:426-444`, `modules/shader/src/ashader.cpp:112-139`).
 - **Ayrılmış adlar:** tamamı BÜYÜK HARF/rakam/`_` olan adlar ve `astral_`/`gl_` ile başlayanlar yasak (`modules/shader/src/ashader.cpp:141-144`). Aynı ad iki kez bildirilemez.
 - **Makro yalıtımı:** her uniform yalnız senin gövdenin çevresinde `#define ad ...` ile tanımlanır ve sonra `#undef` edilir (`modules/render/src/surface_shader.cpp:30-68`); `n`, `f`, `id`
@@ -331,7 +331,7 @@ Opak `surface` shader'ın `surface()` gövdesinden bir **RT parçası** da üret
 | `rt_simple`, `particle`/`volume` `unshaded` | Kabul edilir, etkisiz |
 | Şeffaf yüzey gölgesi/RT'de görünmesi | Yok (§4) |
 | SPIR-V'nin pakete gömülmesi | Yok; çalışma zamanında derlenir (disk önbelleğiyle) |
-| Kullanıcı `#ifdef` anahtarları | Tasarım gereği sunulmaz (ADR-0022); GLSL ön işlemcisi teknik olarak kapalı mı doğrulanmadı |
+| Kullanıcı `#ifdef` anahtarları | Tasarım gereği sunulmaz ([ADR-0022](../decisions/0022-shader-and-material-language.md)); GLSL ön işlemcisi teknik olarak kapalı mı doğrulanmadı |
 | Her yüzey için SSS yarıçapı/teğet yönlü anizotropi | §5'teki kısıtlar |
 
 ## Bilinen sınırlar

@@ -343,7 +343,7 @@ astral_add_game(blank SOURCES src/main.cpp ASSETS assets)   # templates/blank/CM
 - **Luau bütçesi sabit 100 ms ve ayarlanamıyor** (`modules/app/src/services/script_bridge.cpp:113`); yoğun test makinelerinde kırılganlık kaynağı.
 - **`App` tek kullanımlık:** `run`/`run_frames` ikinci kez çağrılamaz (`modules/app/src/services/frame_loop.cpp:44-48`); her test yeni `App` kurar.
 - **`input_script` yalnız klavye:** fare ve gamepad betiklenemez (`modules/app/include/astral/app/app.hpp:207-213`).
-- **`AppDesc` 25 üyede, bütçe sınırında** (`modules/app/include/astral/app/app.hpp:215-258`; 25 üye sınırı ADR-0030; `Context` için ayrı istisna `tools/size_budget.json:1-8`); yeni ayar eklemek önce yeniden gruplamayı gerektirir.
+- **`AppDesc` 25 üyede, bütçe sınırında** (`modules/app/include/astral/app/app.hpp:215-258`; 25 üye sınırı [ADR-0030](../decisions/0030-refactor-rules-and-size-budget.md); `Context` için ayrı istisna `tools/size_budget.json:1-8`); yeni ayar eklemek önce yeniden gruplamayı gerektirir.
 - **Shader'lar paketlenirken derlenmiyor:** ilk çalıştırmada derleme + disk önbelleği (`modules/assets/src/cook.cpp:284`); soğuk başlangıç Debug'da onlarca saniye
   sürebilir (ana ajanın ölçümü: the_architect Debug soğuk 11,2 sn, Release soğuk 2,5 sn).
 - **Doğrulanmadı:** `find_package(Astral)` ile dış kullanım akışı bu oturumda çalıştırılmadı; yalnız CI tanımı okundu.

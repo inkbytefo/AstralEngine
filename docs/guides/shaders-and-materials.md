@@ -39,7 +39,7 @@ Değer kuralları (`modules/render/src/material_file.cpp:73-125`):
 
 | Uniform tipi | Kabul edilen değer | Not |
 |---|---|---|
-| `float`, `int`, `bool` | sayı ya da `true/false` | Kelimeler ADR-0042'ye göre yazılır: float bitleri, int32, bool 0/1 |
+| `float`, `int`, `bool` | sayı ya da `true/false` | Kelimeler [ADR-0042](../decisions/0042-typed-shader-parameter-words.md)'ye göre yazılır: float bitleri, int32, bool 0/1 |
 | `vec2/3/4` | Tam boyda dizi **ya da tek sayı** | Tek sayı her bileşeni doldurur (`modules/render/src/material_file.cpp:102-106`) |
 | `sampler2D` | Varlık yolu (string) | `source_color` sRGB, `hint_normal` düz normal varsayılanı (`modules/render/include/astral/render/material_file.hpp:46-51`). Boş string = doku yok |
 
@@ -98,7 +98,7 @@ Değer kuralları (`modules/render/src/material_file.cpp:73-125`):
 | `blend_sharpness` | `4` | Triplanar: yüz ağırlıklarının üssü, [1, 32]'ye kırpılır (`modules/render/src/stores/material_store.cpp:94`) |
 | `world_space` | `true` | `true`: dünya konumundan. `false`: nesnenin yerel eksenleri ve kökünden (ölçek etkilemez, eksenler normalize) (`modules/render/shaders/include/astral/projection.glsl:22-27`) |
 
-Yön kuralı (ADR-0051): her dikey yüzde doku V'si dünya yukarısına (+Y) bakar. U, yüze dışarıdan bakınca sağa gider: +Z → +X, −Z → −X,
+Yön kuralı ([ADR-0051](../decisions/0051-projected-texture-orientation.md)): her dikey yüzde doku V'si dünya yukarısına (+Y) bakar. U, yüze dışarıdan bakınca sağa gider: +Z → +X, −Z → −X,
 +X → −Z, −X → +Z. Zemin/tavan: U = Z, V = X (`modules/render/shaders/include/astral/projection.glsl:40-51`). Normal haritası teğet
 çerçevesi de aynı tabloyu kullanır (`modules/render/shaders/include/astral/projection.glsl:64-76`). `world_space` modunda kayan köken (floating origin)
 fazı CPU'da `tile_size_m`'ye göre sarılır. Bu yüzden köken kayınca desen kaymaz (`modules/render/src/stores/material_store.cpp:97-99`,
@@ -106,7 +106,7 @@ test `modules/render/tests/renderer_test.cpp:568`).
 
 Testler: yön `modules/render/tests/renderer_test.cpp:1611`, normal haritası `modules/render/tests/renderer_test.cpp:1642`, triplanar seçim
 `modules/render/tests/renderer_test.cpp:590`. RT ve path tracer aynı yardımcıyı kullanır (`modules/render/shaders/include/astral/rt.glsl:19`)
-ama yalnız raster yolu test edildi (ADR-0051).
+ama yalnız raster yolu test edildi ([ADR-0051](../decisions/0051-projected-texture-orientation.md)).
 
 **Özel `.ashader` yüzeylerinde projeksiyon yok.** Shader materyali kurulurken `MaterialDesc` yalnız `shader`, `params` ve `textures` ile doldurulur;
 `mapping` varsayılan `MeshUV` kalır (`modules/app/src/material_library.cpp:229-238`). Planar ya da triplanar eşleme istersen `WORLD_POSITION` ile
@@ -182,7 +182,7 @@ Ayrıntılar ve kaynaklar [ashader-language.md §4 ve §9](ashader-language.md#9
 ## 8. Paketleme
 
 `astral-cook` `.ashader` dosyalarını derleyerek doğrular ama SPIR-V'yi pakete koymaz. Shader'lar çalışma anında derlenir; SPIR-V disk
-önbelleği (`ASTRAL_SHADER_CACHE`, ADR-0047) ikinci açılışı hızlandırır (`modules/assets/src/cook.cpp:280-292`).
+önbelleği (`ASTRAL_SHADER_CACHE`, [ADR-0047](../decisions/0047-spirv-disk-cache.md)) ikinci açılışı hızlandırır (`modules/assets/src/cook.cpp:280-292`).
 
 ## Bilinen sınırlar
 
@@ -191,7 +191,7 @@ Ayrıntılar ve kaynaklar [ashader-language.md §4 ve §9](ashader-language.md#9
 - Ebeveyn birleştirmesi sığdır: iç içe nesneler (`mapping`, `clearcoat`, ...) bütün olarak değişir (§2).
 - Özel shader yolunda yanlış ad ya da tip yalnız uyarıdır. PBR yolunda aynı hata materyali kurdurmaz. İki yol tutarsız.
 - Doku projeksiyonu yalnız `type: pbr` materyallerinde var. Planar/Triplanar'da `uv_scale` ve `uv_rotation` okunmaz (§3).
-- Projeksiyonun RT/path tracer görünümü test edilmedi (ADR-0051).
+- Projeksiyonun RT/path tracer görünümü test edilmedi ([ADR-0051](../decisions/0051-projected-texture-orientation.md)).
 - Materials panelindeki değişiklikler kaydedilmez. Dokular ve PBR materyalleri panelden düzenlenemez.
 - Luau'dan materyal API'si yok.
 - Hot reload 0,25 sn aralıkla dosya zamanı yoklar. Dosya sistemi olayı kullanılmaz. Çok sayıda materyalde her yoklama tüm zinciri `stat` eder

@@ -238,7 +238,7 @@ astral.physics.*  astral.fields.wind/water  astral.save/load/has_save
 - `astral.behaviour{on_start, on_update, on_fixed_update}` `astral::Script{path}` component'li entity'ler içindir (`modules/script/src/api.cpp:26-28`).
 - Değerler: `vector` (Vec3), `{x=,y=}` (Vec2), `{x=,y=,z=,w=}` (Vec4/Quat), enum adı string, entity alanı entity ya da `nil`
   (`modules/script/src/api.cpp:135-150`).
-- **Aşamalı modül yükleme (ADR-0044):** modülün üst düzey kodu bir *bildirim aşamasıdır*. Dünyayı değiştiren çağrılar (`astral.spawn`,
+- **Aşamalı modül yükleme ([ADR-0044](../decisions/0044-staged-script-module-load.md)):** modülün üst düzey kodu bir *bildirim aşamasıdır*. Dünyayı değiştiren çağrılar (`astral.spawn`,
   `entity:add/remove/destroy`, alan yazma, `astral.send`, `astral.save/load`, fizik komutları) üst düzeyde hata verir; global
   `on_load()` işlevinde veya bir callback içinde çağır (`modules/script/src/bindings.cpp:59-61`, `modules/script/src/host.cpp:173-183`).
   Başarısız yükleme dünyayı, tip ve olay kayıtlarını değiştirmez (`modules/script/tests/msr_regression_test.cpp:140`, `modules/script/tests/msr_regression_test.cpp:161`).
@@ -251,7 +251,7 @@ astral.physics.*  astral.fields.wind/water  astral.save/load/has_save
 - Durumu script'te değil **component'te** tut: hot reload ve kayıt bunu varsayar (`modules/script/include/astral/script/script.hpp:2-4`).
 - Dinamik component şeması çalışırken değişmez; adı tekrar tanımlama (`modules/world/include/astral/world/serialize.hpp:349-353`).
 
-## 7. Fizik komut sözleşmesi (ADR-0034, ADR-0043)
+## 7. Fizik komut sözleşmesi ([ADR-0034](../decisions/0034-gameplay-api-and-physics-step-contract.md), [ADR-0043](../decisions/0043-deterministic-physics-command-producers.md))
 
 Fiziği `PhysicsService` (`ctx.physics_service()`) üzerinden kullan; `ctx.physics` (`PhysicsWorld`) doğrudan, adımı sana bırakan alt
 seviye yoldur ve sözleşmenin dışındadır (`modules/app/include/astral/app/app.hpp:78`, test: `modules/app/tests/physics_step_contract_test.cpp:198`).
@@ -269,12 +269,12 @@ seviye yoldur ve sözleşmenin dışındadır (`modules/app/include/astral/app/a
 **adım sınırında** uygulanır (`modules/app/include/astral/app/physics_service.hpp:22-31`, `modules/app/include/astral/app/physics_service.hpp:56-79`):
 
 - Sıra anahtarı `(order_key, üretici, sıra)`. `order_key == 0` iken entity'ye göre belirlenir; eşit anahtarlarda **üretici sırası**
-  kazanır: sistem dışı kod önce, sonra sistemler **kayıt sırasıyla** (sonraki kazanır), sonra gönderim sırası (ADR-0043,
+  kazanır: sistem dışı kod önce, sonra sistemler **kayıt sırasıyla** (sonraki kazanır), sonra gönderim sırası ([ADR-0043](../decisions/0043-deterministic-physics-command-producers.md),
   `modules/app/include/astral/app/physics_service.hpp:57-60`; test `modules/app/tests/physics_step_contract_test.cpp:380`). Bir sistem kendi paralel iş parçacıklarından
   çakışan komut verirse açık `order_key` vermeli.
 - Sıfır adımlı karede biriken komutlar kaybolmaz, sonraki adıma taşınır (`modules/app/tests/physics_step_contract_test.cpp:50`); komut gecikmiş spawn'dan
   sonra verilse de gövde senkronundan sonra uygulanır (`modules/app/tests/physics_step_contract_test.cpp:89`). Ölü entity veya gövdesiz entity komutları atlanır
-  (ADR-0034 §3).
+  ([ADR-0034](../decisions/0034-gameplay-api-and-physics-step-contract.md) §3).
 - Paralel ve seri zamanlama aynı sonucu verir (`modules/app/tests/physics_step_contract_test.cpp:165`).
 
 **Sorgular** (`raycast`, `raycast_batch`, `spherecast`, `overlap_sphere`, `overlap_box`, `linear_velocity`, `angular_velocity`) **son tamamlanmış
@@ -311,7 +311,7 @@ Dikkat edilecekler:
 - `save_world`/`astral.save` kayıtta olmayan entity'ye giden referansı **`null`** yazar (`modules/world/src/serialize.cpp:108`). `astral.load`
   entity'leri yok edip yeniden yarattığı için, kaydedilmemiş component'lerin tuttuğu eski `Entity` handle'ları geçersizleşir.
 - Belgedeki entity numarası dosyadaki sıradır, kalıcı kimlik değildir (`modules/world/src/serialize.cpp:106-120`).
-- Şema sürümü: `TypeRegistry::set_schema_version(ad, sürüm, migrate)`; sürüm > 1 olan component'ler `"$schema_version"` yazar (ADR-0034 §1,
+- Şema sürümü: `TypeRegistry::set_schema_version(ad, sürüm, migrate)`; sürüm > 1 olan component'ler `"$schema_version"` yazar ([ADR-0034](../decisions/0034-gameplay-api-and-physics-step-contract.md) §1,
   `modules/world/include/astral/world/serialize.hpp:341-344`). Luau slot adı yalnız harf, rakam, `_`, `-` olabilir (`modules/app/src/services/script_bridge.cpp:78-84`).
 - Harita hücre farkları (`CellDiff`) bellektedir, **diske yazılmaz** (§ scenes-and-worlds, `modules/world/include/astral/world/map_state.hpp:40-44`).
 - Zamanlama: `save_world` mevcut World durumunu o anda yazar; `FixedUpdate`'in ortasında çağırmak yerine `Update`'te çağır (öneri; kodda

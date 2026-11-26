@@ -12,7 +12,7 @@ Ayrıntılı rehberler: [oyun yazmak](docs/guides/writing-a-game.md), [oyun mima
 1. Oyunun ürettiği `API.md` ve `astral.d.luau` dosyalarını oku. Üretmek için: `<oyun> --script-api docs/api` (oyun açılınca yazar) ya da
    `<oyun> --script-api-only docs/api` (`modules/app/src/shell.cpp:76-80`). Her component, alan, enum ve olay orada. Kodu tahmin etme.
 2. Önce başarısız test yaz (başsız `App`, `fixed_timestep = 1/60`), sonra kuralı yaz, sonra testi geçir. Girdi gereken testte
-   `AppDesc::input_script` kullan: kare numarasıyla tuş basma/bırakma (`modules/app/include/astral/app/app.hpp:207-213`, ADR-0046).
+   `AppDesc::input_script` kullan: kare numarasıyla tuş basma/bırakma (`modules/app/include/astral/app/app.hpp:207-213`, [ADR-0046](docs/decisions/0046-headless-input-script.md)).
 3. Derle ve koş: `cmake --preset debug && cmake --build --preset debug && ctest --preset debug`
    (Linux'ta pencereli testler için `xvfb-run -a ctest --preset debug`).
 4. Sınır ve tip denetimi: `ctest --preset debug -R "features_check|script_types"`. `<oyun>_features_check` `astral-features check` çalıştırır.
@@ -76,7 +76,7 @@ Ortak özellikler `features/` altındadır (`fly_camera`). Oyuna `python tools/s
 - `RigidBody.desc` ve `CharacterController.desc` C++'tan ya da sahne dosyasından gelir.
 - Karakter: sabit adımda `astral.physics.move_character(entity, velocity, jump?)` çağır, önceki adımı `character_state(entity)` ile oku.
 - Sorgular: `raycast`, `raycast_batch`, `spherecast`, `overlap_sphere`, `overlap_box`. Seçenek tablosu `{ignore = {e1, e2}, sensors = true}`
-  (ADR-0045).
+  ([ADR-0045](docs/decisions/0045-query-filter-ignore-list.md)).
 - Gövdeler: `impulse`, `force`, `force_at`, `torque`, `angular_impulse`, `set_velocity`, `velocity`, `set_angular_velocity`, `angular_velocity`,
   `teleport`, `wake`, `sleep`.
 - Eklemler: `set_joint_motor_mode/velocity/position`, `break_joint`.

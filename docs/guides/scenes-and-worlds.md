@@ -192,7 +192,7 @@ haritada `Parent` kullanan test bulunamadı): bir `.ent` kaydı **başka bir `.e
 
 ## 5. Level Instance: bir `.scene`'i haritaya yerleştirmek
 
-Hazır bir `.scene`'i (köy, bina) haritaya `level_instance` kaydıyla yerleştirirsin (ADR-0036; `modules/world/include/astral/world/level_instance.hpp:1-5`):
+Hazır bir `.scene`'i (köy, bina) haritaya `level_instance` kaydıyla yerleştirirsin ([ADR-0036](../decisions/0036-world-authoring-and-level-instances.md); `modules/world/include/astral/world/level_instance.hpp:1-5`):
 
 ```json
 { "format": "astral.entity", "version": 1, "grid": "main",
