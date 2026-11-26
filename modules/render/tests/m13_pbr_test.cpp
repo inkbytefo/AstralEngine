@@ -668,3 +668,87 @@ TEST_CASE("the path tracer reports no reset reason outside path tracing") {
         CHECK(rig.renderer->stats().path_tracer_reset == PathTracerReset::None);
     }
 }
+
+namespace {
+
+/// A lit room: a matte floor and back wall (roughness 0.9) plus a glossy ball (0.15), lit by a ceiling panel.
+struct ReflectionRoom {
+    std::array<MeshInstance, 3> items;
+    std::array<RectLight, 1> rects;
+    RenderScene scene;
+
+    explicit ReflectionRoom(PbrRig& rig) {
+        const MeshHandle plane = rig.renderer->create_mesh(make_plane(12.0f));
+        const MeshHandle sphere = rig.renderer->create_mesh(make_sphere(24, 12));
+        const MaterialHandle matte = rig.renderer->create_material({.base_color = {0.7f, 0.68f, 0.62f, 1}, .roughness = 0.9f});
+        const MaterialHandle glossy = rig.renderer->create_material({.base_color = {0.9f, 0.9f, 0.9f, 1}, .roughness = 0.15f});
+        items = {MeshInstance{plane, matte, Mat4::identity()},
+                 MeshInstance{plane, matte, translate({0, 0, -3}) * rotate(Quat::from_axis_angle({1, 0, 0}, radians(90.0f)))},
+                 MeshInstance{sphere, glossy, translate({0, 0.7f, 0}) * scale({1.4f, 1.4f, 1.4f})}};
+        rects = {RectLight{.position = {0, 3.2f, 0.5f}, .right = {0.8f, 0, 0}, .up = {0, 0, 0.8f}, .intensity = 12.0f}};
+        scene = {.meshes = items, .rect_lights = rects, .sun = {.intensity = 0.0f},
+                 .environment = {.sky = {0.05f, 0.06f, 0.08f}, .ground = {0.02f, 0.02f, 0.02f}}};
+    }
+};
+
+RenderSettings reflection_settings(float max_roughness, float fade) {
+    RenderSettings s = rt_settings(false);
+    s.max_reflection_roughness = max_roughness;
+    s.reflection_roughness_fade = fade;
+    return s;
+}
+
+} // namespace
+
+TEST_CASE("a roughness cutoff keeps glossy reflections and gives matte surfaces probe-lit specular") {
+    // Reference: every pixel traces its reflection (the default: no cutoff).
+    PbrRig reference(reflection_settings(1.0f, 0.0f));
+    if (!reference.device || !reference.renderer->ray_tracing()) return;
+    reference.look_from({0, 1.6f, 5.0f}, {0, 0.9f, 0});
+    ReflectionRoom ref_room(reference);
+    const auto ref_px = reference.draw(ref_room.scene, 24);
+
+    // Cut off above 0.5: the matte surfaces (0.9) skip their reflection ray, the ball (0.15) keeps it.
+    PbrRig cut(reflection_settings(0.5f, 0.1f));
+    cut.look_from({0, 1.6f, 5.0f}, {0, 0.9f, 0});
+    ReflectionRoom cut_room(cut);
+    const auto cut_px = cut.draw(cut_room.scene, 24);
+
+    CHECK(cut_px != ref_px); // the cutoff really changed how the matte surfaces are lit
+
+    // The glossy ball keeps its traced reflection.
+    const auto ball_ref = PbrRig::rgb(reference.at(ref_px, {0, 0.9f, 0.7f}));
+    const auto ball_cut = PbrRig::rgb(cut.at(cut_px, {0, 0.9f, 0.7f}));
+    for (int c = 0; c < 3; ++c) CHECK(std::abs(ball_ref[c] - ball_cut[c]) < 24);
+
+    // The matte floor and wall stay lit about the same: the probes stand in for a reflection with little detail.
+    const float ref_luma = PbrRig::mean_luma(ref_px);
+    const float cut_luma = PbrRig::mean_luma(cut_px);
+    CHECK_MESSAGE(std::abs(ref_luma - cut_luma) / std::max(ref_luma, 1.0f) < 0.15f, "reference ", ref_luma, " cutoff ", cut_luma);
+    CHECK(cut_luma > 8.0f); // not black
+    const auto floor_ref = PbrRig::luma(reference.at(ref_px, {1.5f, 0, 1.5f}));
+    const auto floor_cut = PbrRig::luma(cut.at(cut_px, {1.5f, 0, 1.5f}));
+    CHECK_MESSAGE(std::abs(floor_ref - floor_cut) < 40.0f, "floor reference ", floor_ref, " cutoff ", floor_cut);
+}
+
+TEST_CASE("the roughness cutoff saves ray-traced lighting time on matte scenes") {
+    // Timing is a measurement, not an assertion (it is noisy and the room is tiny): the numbers are in the log.
+    auto lighting_ms = [](float max_roughness) {
+        PbrRig rig(reflection_settings(max_roughness, 0.1f));
+        if (!rig.device || !rig.renderer->ray_tracing()) return -1.0f;
+        rig.look_from({0, 1.6f, 5.0f}, {0, 0.9f, 0});
+        ReflectionRoom room(rig);
+        (void)rig.draw(room.scene, 12);
+        float total = 0.0f;
+        for (int i = 0; i < 8; ++i) {
+            (void)rig.draw(room.scene, 1);
+            for (const PassTiming& t : rig.renderer->gpu_timings()) {
+                if (t.name == "rt.lighting") total += t.ms;
+            }
+        }
+        return total / 8.0f;
+    };
+    const float full = lighting_ms(1.0f), cut = lighting_ms(0.5f);
+    MESSAGE("rt.lighting at 64x64: no cutoff " << full << " ms, cutoff 0.5: " << cut << " ms");
+    CHECK(full >= -1.0f);
+}

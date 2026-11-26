@@ -220,12 +220,15 @@ struct RtLightingPush {
     GBufferIds g;
     std::uint32_t irr, dist, out_diffuse, out_specular, out_geometry;
     float near_gi_radius;
+    float max_reflection_roughness, reflection_roughness_fade;
 };
 static_assert(sizeof(RtLightingPush) <= gpu::max_push_constant_size);
 static_assert(offsetof(RtLightingPush, reservoirs) == 8);
 static_assert(offsetof(RtLightingPush, g) == 16);
 static_assert(offsetof(RtLightingPush, irr) == 56);
 static_assert(offsetof(RtLightingPush, near_gi_radius) == 76);
+static_assert(offsetof(RtLightingPush, max_reflection_roughness) == 80);
+static_assert(sizeof(RtLightingPush) == 88);
 
 struct RestirPush {
     std::uint64_t frame, prev_reservoirs, out_reservoirs;

@@ -293,6 +293,14 @@ struct RenderSettings {
     /// Near-field ray-traced GI range: within it, one ray per pixel gathers the actual bounce light
     /// (contact shadows + colour bleeding); beyond it the probes take over. 0 = probes only.
     float near_gi_radius = 0.75f;
+    /// Ray-traced reflections trace one reflection ray per pixel. Surfaces rougher than this (0..1) show a wide, detail-free
+    /// lobe, so they skip the ray and take their specular from the DDGI probes (which know occlusion) instead: much
+    /// cheaper on matte interiors and the rays that remain stay coherent. 1 = trace everything (the default, the
+    /// original look). Mirror-like and glossy surfaces always trace.
+    float max_reflection_roughness = 1.0f;
+    /// Roughness range above max_reflection_roughness over which pixels switch from the traced reflection to the probes
+    /// (a stochastic blend that the denoiser resolves), so there is no visible edge. 0 = a hard switch.
+    float reflection_roughness_fade = 0.15f;
     /// Spatiotemporal ReSTIR DI for multi-light scenes (> 2 local point/rect lights). False = single-frame RIS.
     bool restir_di = true;
     /// Unbiased progressive multi-bounce path tracer reference mode (M13, requires RT hardware).
@@ -460,5 +468,6 @@ ASTRAL_REFLECT(astral::Decal, transform, color, roughness, metallic, wetness, no
 ASTRAL_REFLECT_ENUM(astral::DebugView, None, Albedo, Normals, DiffuseLight, Specular, Motion)
 ASTRAL_REFLECT(astral::GiSettings, probes_x, probes_y, probes_z, rays_per_probe, hysteresis, volume_min, volume_max)
 ASTRAL_REFLECT(astral::RenderSettings, shadow_map_size, ray_tracing, gi, denoise_iterations, max_history, taa_blend,
-               bloom_strength, max_ray_distance, near_gi_radius, restir_di, path_tracer, path_tracer_max_bounces,
+               bloom_strength, max_ray_distance, near_gi_radius, max_reflection_roughness,
+               reflection_roughness_fade, restir_di, path_tracer, path_tracer_max_bounces,
                path_tracer_freeze_scene, debug_view, fog_self_shadows, fog_ddgi, sky_ibl)

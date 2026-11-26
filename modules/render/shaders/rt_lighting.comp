@@ -9,6 +9,7 @@ layout(push_constant, scalar) uniform Push {
     FrameRef frame; Reservoirs reservoirs;
     GBufferIds g; uint irr; uint dist;
     uint out_diffuse; uint out_specular; uint out_geometry; float near_gi_radius;
+    float max_reflection_roughness; float reflection_roughness_fade;
 } pc;
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -220,6 +221,20 @@ void main() {
                 lobe_pdf = 1.0 - p_coat;
             }
         }
+        // Surfaces rougher than max_reflection_roughness show a wide, detail-free lobe: skip the reflection ray (the
+        // incoherent, expensive part) and take the specular from the DDGI probes, which know about occlusion. Over the
+        // fade range the choice is stochastic and the denoiser resolves it. At the default cutoff (1.0) this never runs,
+        // not even the random number, so the picture is exactly what it was.
+        bool from_probes = false;
+        if (!sample_coat && s.shading_model != SHADING_ANISOTROPIC && s.roughness > pc.max_reflection_roughness) {
+            float probe_t = clamp((s.roughness - pc.max_reflection_roughness) / max(pc.reflection_roughness_fade, 1e-4), 0.0, 1.0);
+            from_probes = probe_t >= 1.0 || rnd(seed) < probe_t;
+        }
+        if (from_probes) {
+            // A rough lobe points between the mirror direction and the normal (the dominant direction).
+            vec3 dominant = normalize(mix(reflect(-v, s.n), s.n, s.roughness * s.roughness));
+            reflected = ddgi_irradiance(f, pc.irr, pc.dist, s.p, dominant, v) * dfg_raw / spec_demod;
+        }
         if (sample_coat) {
             float rc = clamp(s.mat_ext.y, ASTRAL_MIN_ROUGHNESS, 1.0);
             float ac = max(rc * rc, 0.002);
@@ -275,7 +290,7 @@ void main() {
                               (lobe_pdf * spec_demod);
             }
         }
-        if (dot(s.n, l) > 0.0 && any(greaterThan(spec_weight, vec3(0.0)))) {
+        if (!from_probes && dot(s.n, l) > 0.0 && any(greaterThan(spec_weight, vec3(0.0)))) {
             reflected = trace_env_or_surface(f, li, scene_instances, scene_materials, origin, l, is_mirror,
                                              true, s, nv, h_vec, a, seed, spec_hit_t) * spec_weight;
         }

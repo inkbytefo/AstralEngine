@@ -72,6 +72,8 @@ namespace {
 /// Brings user settings into the ranges the passes support (public fields can hold anything).
 RenderSettings normalized(RenderSettings s) noexcept {
     s.denoise_iterations = std::min(s.denoise_iterations, RenderSettings::max_denoise_iterations);
+    s.max_reflection_roughness = std::clamp(s.max_reflection_roughness, 0.0f, 1.0f);
+    s.reflection_roughness_fade = std::max(s.reflection_roughness_fade, 0.0f);
     return s;
 }
 } // namespace
