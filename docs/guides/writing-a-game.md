@@ -35,9 +35,9 @@ cmake --build build --target blank_package   # dağıtılabilir klasör: build/p
 ```
 
 - Motor reposunun içinde `templates/blank` `ASTRAL_BUILD_EXAMPLES` açıkken kendiliğinden eklenir
-  (`CMakeLists.txt:114-115`); dışarıdan `find_package(Astral 0.17 ...)` ile bulunur (`templates/blank/CMakeLists.txt:10`).
-  Sürüm numarasını kopyaladığın motorun sürümüyle eşle (`project(Astral VERSION 0.17.0 ...)`, `CMakeLists.txt:2`).
-- CI, şablonu kurulu motora karşı ayrıca derleyip test ediyor (`.github/workflows/ci.yml:48-53`).
+  (`../../CMakeLists.txt:114-115`); dışarıdan `find_package(Astral 0.17 ...)` ile bulunur (`templates/blank/CMakeLists.txt:10`).
+  Sürüm numarasını kopyaladığın motorun sürümüyle eşle (`project(Astral VERSION 0.17.0 ...)`, `../../CMakeLists.txt:2`).
+- CI, şablonu kurulu motora karşı ayrıca derleyip test ediyor (`../../.github/workflows/ci.yml:48-53`).
 
 ## 2. Oyunun üç parçası
 
