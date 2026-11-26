@@ -67,14 +67,46 @@ struct Bounced {
     float speed = 0.0f;           ///< m/s after the bounce.
 };
 
+/// Snapshot of a match saved to / loaded from an engine save slot (astral.save / astral.load).
+/// Kept on its own entity so loading only replaces the snapshot, leaving the court scene intact.
+struct MatchSave {
+    std::int32_t player = 0;
+    std::int32_t opponent = 0;
+    float serve_timer = 0.0f;
+    Side serve_to = Side::Player;
+    float game_over_timer = 0.0f;
+    std::uint32_t rallies = 0;
+    std::uint32_t serve_rng = 1;
+    std::uint32_t ai_rng = 1;
+    bool seeded = false;
+    astral::Vec3 ball_position{};
+    astral::Vec3 ball_velocity{};
+    astral::Vec3 player_position{0.0f, 0.0f, 8.4f};
+    bool player_coming = false;
+    astral::Vec2 player_plan_offset{};
+    astral::Vec3 opponent_position{0.0f, 0.0f, -8.4f};
+    bool opponent_coming = false;
+    astral::Vec2 opponent_plan_offset{};
+};
+
+/// Sent when a match is saved, loaded, or when no save slot exists yet (HUD feedback).
+struct SaveNotice {
+    enum class Kind : std::uint8_t { Saved, Loaded, Missing } kind = Kind::Saved;
+};
+
 } // namespace pong
 
 ASTRAL_REFLECT_ENUM(pong::Side, Player, Opponent)
 ASTRAL_REFLECT_ENUM(pong::Bounced::On, Serve, Wall, Paddle)
+ASTRAL_REFLECT_ENUM(pong::SaveNotice::Kind, Saved, Loaded, Missing)
 ASTRAL_REFLECT(pong::Court, half_extents, paddle_z, points_to_win, serve_delay, seed)
 ASTRAL_REFLECT(pong::Paddle, side, ai, half_size, speed, reaction, accuracy, coming, plan_offset)
 ASTRAL_REFLECT(pong::Ball, radius, serve_speed, max_speed, speedup, spin, velocity)
 ASTRAL_REFLECT_EMPTY(pong::DepthMarker)
 ASTRAL_REFLECT(pong::Match, player, opponent, serve_timer, serve_to, game_over_timer, rallies, serve_rng, ai_rng, seeded)
+ASTRAL_REFLECT(pong::MatchSave, player, opponent, serve_timer, serve_to, game_over_timer, rallies, serve_rng, ai_rng,
+               seeded, ball_position, ball_velocity, player_position, player_coming, player_plan_offset,
+               opponent_position, opponent_coming, opponent_plan_offset)
 ASTRAL_REFLECT(pong::Scored, by)
 ASTRAL_REFLECT(pong::Bounced, on, position, speed)
+ASTRAL_REFLECT(pong::SaveNotice, kind)

@@ -10,8 +10,10 @@ void install_rules(astral::FeatureContext& feature) {
     feature.component<Ball>();
     feature.component<DepthMarker>();
     feature.component<Match>();
+    feature.component<MatchSave>();
     feature.event<Scored>();
     feature.event<Bounced>();
+    feature.event<SaveNotice>();
 }
 
 } // namespace pong
