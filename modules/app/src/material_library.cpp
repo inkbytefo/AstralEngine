@@ -136,7 +136,7 @@ MaterialLibrary::Shader* MaterialLibrary::load_shader(const std::string& path, b
     ShaderHandle handle;
     UniformLayout layout;
     if (parsed.source.type == ShaderType::Surface) {
-        const SurfaceShaderBuild build = compile_surface_shader(parsed.source, path);
+        const SurfaceShaderBuild build = compile_surface_shader(parsed.source, path, renderer_.shader_compile_services());
         if (!build.ok()) {
             std::string all;
             for (const ShaderError& e : build.errors) all += "\n  " + path + ":" + std::to_string(e.line) + ": " + e.message;
@@ -146,7 +146,7 @@ MaterialLibrary::Shader* MaterialLibrary::load_shader(const std::string& path, b
         layout = build.layout;
     } else if (parsed.source.type == ShaderType::Post || parsed.source.type == ShaderType::Sky ||
                parsed.source.type == ShaderType::Volume || parsed.source.type == ShaderType::Particle) {
-        const ScreenShaderBuild build = compile_screen_shader(parsed.source, path);
+        const ScreenShaderBuild build = compile_screen_shader(parsed.source, path, renderer_.shader_compile_services());
         if (!build.ok()) {
             std::string all;
             for (const ShaderError& e : build.errors) all += "\n  " + path + ":" + std::to_string(e.line) + ": " + e.message;

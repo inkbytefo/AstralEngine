@@ -1,6 +1,12 @@
+#include <astral/core/jobs.hpp>
 #include <astral/render/surface_shader.hpp>
+#include <astral/shader/spirv_cache.hpp>
 
 #include <doctest/doctest.h>
+
+#include <chrono>
+#include <filesystem>
+#include <string>
 
 using namespace astral;
 
@@ -86,4 +92,123 @@ void surface() { ALBEDO = n * scale * f * s * base * uv; NORMAL_MAP = texture(ma
     const RtSurface rt[] = {{3, build.rt_chunk}};
     const RtVariants variants = compile_rt_variants(rt);
     CHECK_MESSAGE(variants.ok(), (variants.errors.empty() ? std::string() : variants.errors[0].message));
+}
+
+namespace {
+
+struct CacheDir {
+    std::filesystem::path path;
+    explicit CacheDir(const char* tag) {
+        path = std::filesystem::temp_directory_path() /
+               (std::string("astral_surface_cache_") + tag + "_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    }
+    ~CacheDir() {
+        std::error_code ec;
+        std::filesystem::remove_all(path, ec);
+    }
+};
+
+void check_same_build(const SurfaceShaderBuild& a, const SurfaceShaderBuild& b) {
+    CHECK(a.gbuffer_vertex == b.gbuffer_vertex);
+    CHECK(a.gbuffer_fragment == b.gbuffer_fragment);
+    CHECK(a.shadow_vertex == b.shadow_vertex);
+    CHECK(a.shadow_fragment == b.shadow_fragment);
+    CHECK(a.forward_vertex == b.forward_vertex);
+    CHECK(a.forward_fragment == b.forward_fragment);
+    CHECK(a.rt_chunk == b.rt_chunk);
+}
+
+} // namespace
+
+TEST_CASE("a surface shader compiled with jobs and a cache equals the serial uncached build") {
+    const ShaderParse p = parse_ashader(kLeaf);
+    REQUIRE(p.errors.empty());
+    const SurfaceShaderBuild serial = compile_surface_shader(p.source, "leaf.ashader");
+    REQUIRE(serial.ok());
+
+    CacheDir dir("surface");
+    JobSystem jobs(4);
+    SpirvCache cold_cache(dir.path);
+    const SurfaceShaderBuild cold = compile_surface_shader(p.source, "leaf.ashader", {.cache = &cold_cache, .jobs = &jobs});
+    REQUIRE(cold.ok());
+    check_same_build(cold, serial);
+    const std::uint64_t stages = cold_cache.stats().stores;
+    CHECK(stages == 4); // g-buffer fragment + vertex, shadow vertex + fragment (alpha_test)
+    CHECK(cold_cache.stats().hits == 0);
+
+    SpirvCache warm_cache(dir.path); // the next launch
+    const SurfaceShaderBuild warm = compile_surface_shader(p.source, "leaf.ashader", {.cache = &warm_cache, .jobs = &jobs});
+    REQUIRE(warm.ok());
+    check_same_build(warm, serial);
+    CHECK(warm_cache.stats().hits == stages);   // every stage came from disk: glslang never ran
+    CHECK(warm_cache.stats().misses == 0);
+}
+
+TEST_CASE("an edited surface shader misses the cache; a blend and a screen shader cache too") {
+    CacheDir dir("variants");
+    SpirvCache cache(dir.path);
+    const ShaderCompileServices services{.cache = &cache};
+    const ShaderParse leaf = parse_ashader(kLeaf);
+    REQUIRE(compile_surface_shader(leaf.source, "a.ashader", services).ok());
+    const std::uint64_t first = cache.stats().stores;
+    const ShaderParse edited = parse_ashader(std::string(kLeaf) + "\n// edited\n");
+    REQUIRE(edited.errors.empty());
+    REQUIRE(compile_surface_shader(edited.source, "a.ashader", services).ok());
+    CHECK(cache.stats().stores == 2 * first); // the changed text is a new entry, never the old one
+    CHECK(cache.stats().hits == 0);
+
+    const ShaderParse blend = parse_ashader("shader_type surface;\nrender_mode blend_mix;\nvoid surface() { ALBEDO = vec3(1.0); ALPHA = 0.5; }\n");
+    REQUIRE(blend.errors.empty());
+    const SurfaceShaderBuild serial_blend = compile_surface_shader(blend.source, "blend.ashader");
+    REQUIRE(serial_blend.ok());
+    const SurfaceShaderBuild cached_blend = compile_surface_shader(blend.source, "blend.ashader", services);
+    check_same_build(cached_blend, serial_blend);
+    const std::uint64_t hits_before = cache.stats().hits;
+    CHECK(compile_surface_shader(blend.source, "blend.ashader", services).ok());
+    CHECK(cache.stats().hits == hits_before + 2); // forward fragment + vertex
+
+    const ShaderParse sky = parse_ashader("shader_type sky;\nvoid sky() { COLOR = vec3(0.1, 0.2, 0.4); }\n");
+    REQUIRE(sky.errors.empty());
+    const ScreenShaderBuild serial_sky = compile_screen_shader(sky.source, "sky.ashader");
+    REQUIRE(serial_sky.ok());
+    const ScreenShaderBuild cached_sky = compile_screen_shader(sky.source, "sky.ashader", services);
+    CHECK(cached_sky.fragment == serial_sky.fragment);
+    CHECK(cached_sky.vertex == serial_sky.vertex);
+    CHECK(cached_sky.sky_capture == serial_sky.sky_capture);
+}
+
+TEST_CASE("the ray-traced variants compile in parallel and warm from the cache") {
+    const ShaderParse p = parse_ashader("shader_type surface;\nvoid surface() { ALBEDO = vec3(0.2, 0.4, 0.6); }\n");
+    REQUIRE(p.errors.empty());
+    const SurfaceShaderBuild build = compile_surface_shader(p.source, "rt.ashader");
+    REQUIRE(build.ok());
+    const RtSurface rt[] = {{3, build.rt_chunk}};
+    const RtVariants serial = compile_rt_variants(rt);
+    REQUIRE(serial.ok());
+
+    CacheDir dir("rt");
+    JobSystem jobs(4);
+    SpirvCache cold_cache(dir.path);
+    const RtVariants cold = compile_rt_variants(rt, {.cache = &cold_cache, .jobs = &jobs});
+    REQUIRE(cold.ok());
+    CHECK(cold.lighting == serial.lighting);
+    CHECK(cold.ddgi_trace == serial.ddgi_trace);
+    CHECK(cold.restir_temporal == serial.restir_temporal);
+    CHECK(cold.restir_spatial == serial.restir_spatial);
+    CHECK(cold.path_tracer == serial.path_tracer);
+    CHECK(cold_cache.stats().stores == 5);
+
+    SpirvCache warm_cache(dir.path);
+    const RtVariants warm = compile_rt_variants(rt, {.cache = &warm_cache, .jobs = &jobs});
+    REQUIRE(warm.ok());
+    CHECK(warm_cache.stats().hits == 5);
+    CHECK(warm_cache.stats().misses == 0);
+    CHECK(warm.path_tracer == serial.path_tracer);
+    CHECK(warm.lighting == serial.lighting);
+
+    // A different set of custom surfaces is a different shader text, so it must not reuse these entries.
+    const RtSurface other[] = {{3, build.rt_chunk}, {4, build.rt_chunk}};
+    SpirvCache other_cache(dir.path);
+    REQUIRE(compile_rt_variants(other, {.cache = &other_cache, .jobs = &jobs}).ok());
+    CHECK(other_cache.stats().misses == 5);
 }

@@ -14,6 +14,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -36,8 +37,11 @@ using TextureHandle = Handle<RenderTextureTag>;
 /// A compiled .ashader surface shader (Renderer::create_shader); materials point at it.
 using ShaderHandle = Handle<ShaderTag>;
 
-/// Box-filtered RGBA8 mip chain of an image (level 0 = `rgba`); colour images average in linear space.
-std::vector<std::vector<std::uint8_t>> build_mips(const ImageData& image);
+class JobSystem;
+
+/// Box-filtered RGBA8 mip chain of an image (level 0 = `rgba`); colour images average in linear space. With `jobs`
+/// the big levels are filtered concurrently; the bytes are the same either way.
+std::vector<std::vector<std::uint8_t>> build_mips(const ImageData& image, JobSystem* jobs = nullptr);
 
 /// Optional clearcoat dielectric top layer (M13, IOR 1.5).
 struct ClearcoatDesc {
@@ -289,15 +293,44 @@ struct RenderSettings {
     /// Near-field ray-traced GI range: within it, one ray per pixel gathers the actual bounce light
     /// (contact shadows + colour bleeding); beyond it the probes take over. 0 = probes only.
     float near_gi_radius = 0.75f;
+    /// Ray-traced reflections trace one reflection ray per pixel. Surfaces rougher than this (0..1) show a wide, detail-free
+    /// lobe, so they skip the ray and take their specular from the DDGI probes (which know occlusion) instead: much
+    /// cheaper on matte interiors and the rays that remain stay coherent. 1 = trace everything (the default, the
+    /// original look). Mirror-like and glossy surfaces always trace.
+    float max_reflection_roughness = 1.0f;
+    /// Roughness range above max_reflection_roughness over which pixels switch from the traced reflection to the probes
+    /// (a stochastic blend that the denoiser resolves), so there is no visible edge. 0 = a hard switch.
+    float reflection_roughness_fade = 0.15f;
     /// Spatiotemporal ReSTIR DI for multi-light scenes (> 2 local point/rect lights). False = single-frame RIS.
     bool restir_di = true;
     /// Unbiased progressive multi-bounce path tracer reference mode (M13, requires RT hardware).
     bool path_tracer = false;
     std::uint32_t path_tracer_max_bounces = 6;
+    /// Path tracer only: keep accumulating when the scene (instances, lights, sun, environment, time-driven shaders)
+    /// changes between frames. The result averages those states, which is what a capture wants when the changes are
+    /// known to be invisible (a light far off screen drifting by 1e-4 per frame). Camera moves, resizes and resource
+    /// edits still restart the accumulation. Off: any change restarts it (RenderStats::path_tracer_reset says why).
+    bool path_tracer_freeze_scene = false;
     DebugView debug_view = DebugView::None;
     bool fog_self_shadows = true; ///< Local media attenuate direct sun light within their own volume.
     bool fog_ddgi = true; ///< Sample diffuse probe lighting in fog on the hybrid path.
     bool sky_ibl = false; ///< Use the active sky material as the HDR lighting environment.
+};
+
+/// Why the path tracer restarted its accumulation (RenderStats::path_tracer_reset). The first cause found is reported;
+/// scene causes are checked before the camera so an unexpected drift is not hidden behind a camera move.
+enum class PathTracerReset : std::uint8_t {
+    None,        ///< Accumulating: nothing restarted it this frame.
+    Resize,      ///< The target size changed (also the first frame).
+    Geometry,    ///< Instances (mesh, material, transform), SDF shapes or decals changed.
+    Lights,      ///< Point or rect lights, or the sun changed.
+    Environment, ///< Sky/ground/ambient colours or the sky material changed.
+    Time,        ///< A time-driven custom shader (TIME) with a new scene time.
+    Camera,      ///< The camera moved or changed lens.
+    Resources,   ///< A texture, mesh, material or shader was updated or destroyed.
+    Settings,    ///< set_settings changed something the accumulation depends on.
+    Manual,      ///< reset_history() was called.
+    History,     ///< No usable history (a dropped frame, ray tracing just switched on).
 };
 
 struct RenderStats {
@@ -312,6 +345,7 @@ struct RenderStats {
     std::uint32_t rect_lights = 0;
     std::uint32_t decals = 0;
     std::uint32_t path_tracer_samples = 0;
+    PathTracerReset path_tracer_reset = PathTracerReset::None; ///< Why this frame restarted the path tracer (None = it did not).
     bool temporal_history_used = false; ///< Hybrid RT history was available to the temporal passes.
     std::uint32_t volume_bricks = 0; ///< Resident 8-cube pages in the shared volume atlas.
     std::uint32_t volume_brick_fallbacks = 0; ///< Volumes that exceeded the page budget.
@@ -354,6 +388,16 @@ public:
     /// A post or sky shader (shader_type post / sky); a material points at it, RenderScene::post / sky use it.
     ShaderHandle create_shader(const ScreenShaderBuild& build, std::string_view debug_name = {});
     void destroy(ShaderHandle shader);
+    /// The SPIR-V cache and job system that shader compiles use (borrowed: the owner keeps them alive, normally the
+    /// App; null = compile serially, no cache). The ray-traced variants recompile through them whenever custom
+    /// surface shaders change, and loaders that compile shaders for this Renderer pass them on.
+    void set_shader_compile_services(const ShaderCompileServices& services) noexcept;
+    /// Workers for CPU-heavy resource work (mip chains of uploaded textures). Borrowed; null = on the calling thread.
+    void set_job_system(JobSystem* jobs) noexcept;
+    [[nodiscard]] const ShaderCompileServices& shader_compile_services() const noexcept;
+    /// Called (on the creating thread) after every texture, mesh, material or shader this Renderer creates or
+    /// updates, so a long load can keep its window answering the OS. Keep it cheap; empty = none.
+    void set_busy_callback(std::function<void()> callback);
     /// Why the last attempt to compile the custom surfaces into the ray-traced shaders failed ("" = fine).
     /// While it fails, custom materials show their base values in ray-traced reflections and GI.
     [[nodiscard]] std::string_view shader_error() const noexcept;
@@ -397,6 +441,7 @@ public:
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
+    void reset_all_history(PathTracerReset reason);
 };
 
 } // namespace astral
@@ -423,5 +468,6 @@ ASTRAL_REFLECT(astral::Decal, transform, color, roughness, metallic, wetness, no
 ASTRAL_REFLECT_ENUM(astral::DebugView, None, Albedo, Normals, DiffuseLight, Specular, Motion)
 ASTRAL_REFLECT(astral::GiSettings, probes_x, probes_y, probes_z, rays_per_probe, hysteresis, volume_min, volume_max)
 ASTRAL_REFLECT(astral::RenderSettings, shadow_map_size, ray_tracing, gi, denoise_iterations, max_history, taa_blend,
-               bloom_strength, max_ray_distance, near_gi_radius, restir_di, path_tracer, path_tracer_max_bounces,
-               debug_view, fog_self_shadows, fog_ddgi, sky_ibl)
+               bloom_strength, max_ray_distance, near_gi_radius, max_reflection_roughness,
+               reflection_roughness_fade, restir_di, path_tracer, path_tracer_max_bounces,
+               path_tracer_freeze_scene, debug_view, fog_self_shadows, fog_ddgi, sky_ibl)

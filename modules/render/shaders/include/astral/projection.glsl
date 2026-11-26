@@ -37,9 +37,17 @@ TextureCoords material_coords(Material m, mat4 model, vec3 world, vec3 n, vec2 u
     return c;
 }
 
+// A face whose dominant axis is `axis` maps texture U and V onto these local axes. World up (+Y) is V on every vertical
+// face (X and Z), and U runs along screen-right when the face is seen from outside, so a texture is neither rotated nor
+// mirrored: +Z faces use +X, +X faces use -Z. sign_axis flips U on the faces that look the other way. Y faces (floors,
+// ceilings) have no "up": U = Z, V = X.
+const ivec3 PROJECTION_U_AXIS = ivec3(2, 2, 0);
+const ivec3 PROJECTION_V_AXIS = ivec3(1, 0, 1);
+const vec3 PROJECTION_U_FLIP = vec3(-1.0, 1.0, 1.0);
+
 vec2 projection_uv(TextureCoords c, int axis, vec2 offset) {
-    int u = (axis + 1) % 3, v = (axis + 2) % 3;
-    return vec2(c.p[u] * c.sign_axis[axis], c.p[v]) + offset;
+    float u_sign = PROJECTION_U_FLIP[axis] * c.sign_axis[axis];
+    return vec2(c.p[PROJECTION_U_AXIS[axis]] * u_sign, c.p[PROJECTION_V_AXIS[axis]]) + offset;
 }
 
 vec4 material_sample(uint tex, Material m, TextureCoords c, float lod) {
@@ -59,8 +67,8 @@ vec3 projected_normal(uint tex, Material m, TextureCoords c, vec3 n, float lod) 
         if (c.weights[axis] <= 0.0) continue;
         vec2 xy = ASTRAL_PROJECT_SAMPLE(tex, projection_uv(c, axis, m.uv_transform.zw), lod).xy * 2.0 - 1.0;
         float z = sqrt(max(0.0, 1.0 - dot(xy, xy)));
-        vec3 t = c.axes[(axis + 1) % 3] * c.sign_axis[axis];
-        vec3 b = c.axes[(axis + 2) % 3];
+        vec3 t = c.axes[PROJECTION_U_AXIS[axis]] * (PROJECTION_U_FLIP[axis] * c.sign_axis[axis]);
+        vec3 b = c.axes[PROJECTION_V_AXIS[axis]];
         vec3 perturb = (t * xy.x + b * xy.y) * m.params.y;
         result += c.weights[axis] * (n * z + perturb - n * dot(n, perturb));
     }

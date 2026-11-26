@@ -51,46 +51,68 @@ bool has_time_dependent_surface(const RayTracedPathContext& ctx, const RenderSce
                        });
 }
 
-std::uint64_t path_tracer_scene_signature(const RenderScene& scene, const FrameInstances& instances) {
-    std::uint64_t signature = 14695981039346656037ull;
-    const auto hash = [&signature](std::span<const std::byte> bytes) { hash_bytes(signature, bytes); };
-    const std::array<std::size_t, 5> counts{
-        instances.order.size(), instances.lights.size(), instances.rects.size(), instances.shapes.size(),
-        instances.decals.size()};
-    hash(std::as_bytes(std::span(counts)));
+/// Exact hashes of what the path tracer's picture depends on, in three groups so a reset can say which one changed.
+/// They are deliberately not quantized: the accumulation is an unbiased reference and any change is a different scene.
+struct PathTracerSignature {
+    std::uint64_t geometry = 0;    ///< Instances (mesh, material, transform), SDF shapes, decals.
+    std::uint64_t lights = 0;      ///< Point and rect lights, the sun.
+    std::uint64_t environment = 0; ///< Sky, ground and ambient colours.
+};
+
+PathTracerSignature path_tracer_scene_signature(const RenderScene& scene, const FrameInstances& instances) {
+    PathTracerSignature out;
+    out.geometry = out.lights = out.environment = 14695981039346656037ull;
+    const auto geometry = [&](std::span<const std::byte> bytes) { hash_bytes(out.geometry, bytes); };
+    const auto lights = [&](std::span<const std::byte> bytes) { hash_bytes(out.lights, bytes); };
+    const std::array<std::size_t, 3> geometry_counts{instances.order.size(), instances.shapes.size(), instances.decals.size()};
+    geometry(std::as_bytes(std::span(geometry_counts)));
     for (const GpuInstance& instance : std::span(instances.instances).first(instances.order.size())) {
-        hash(std::as_bytes(std::span(&instance.model, 1)));
-        hash(std::as_bytes(std::span(&instance.material, 1)));
-        hash(std::as_bytes(std::span(instance.vertices)));
-        hash(std::as_bytes(std::span(instance.indices)));
+        geometry(std::as_bytes(std::span(&instance.model, 1)));
+        geometry(std::as_bytes(std::span(&instance.material, 1)));
+        geometry(std::as_bytes(std::span(instance.vertices)));
+        geometry(std::as_bytes(std::span(instance.indices)));
     }
-    hash(std::as_bytes(std::span(instances.lights)));
-    hash(std::as_bytes(std::span(instances.rects)));
-    hash(std::as_bytes(std::span(instances.shapes)));
-    hash(std::as_bytes(std::span(instances.decals)));
-    const std::array lighting{
-        scene.sun.direction.x, scene.sun.direction.y, scene.sun.direction.z,
-        scene.sun.color.x, scene.sun.color.y, scene.sun.color.z, scene.sun.intensity, scene.sun.angular_radius,
-        scene.environment.sky.x, scene.environment.sky.y, scene.environment.sky.z,
-        scene.environment.ground.x, scene.environment.ground.y, scene.environment.ground.z, scene.environment.ambient};
-    hash(std::as_bytes(std::span(lighting)));
-    return signature;
+    geometry(std::as_bytes(std::span(instances.shapes)));
+    geometry(std::as_bytes(std::span(instances.decals)));
+    const std::array<std::size_t, 2> light_counts{instances.lights.size(), instances.rects.size()};
+    lights(std::as_bytes(std::span(light_counts)));
+    lights(std::as_bytes(std::span(instances.lights)));
+    lights(std::as_bytes(std::span(instances.rects)));
+    const std::array sun{scene.sun.direction.x, scene.sun.direction.y, scene.sun.direction.z, scene.sun.color.x,
+                         scene.sun.color.y, scene.sun.color.z, scene.sun.intensity, scene.sun.angular_radius};
+    lights(std::as_bytes(std::span(sun)));
+    const std::array environment{scene.environment.sky.x, scene.environment.sky.y, scene.environment.sky.z,
+                                 scene.environment.ground.x, scene.environment.ground.y, scene.environment.ground.z,
+                                 scene.environment.ambient};
+    hash_bytes(out.environment, std::as_bytes(std::span(environment)));
+    return out;
 }
 
 void update_path_tracer_history(RayTracedPathContext& ctx, const CameraData& camera,
                                 const RenderScene& scene, const Mat4& view_projection) {
-    const std::uint64_t signature = path_tracer_scene_signature(scene, ctx.frame_instances);
+    TemporalState& t = ctx.temporal;
+    const PathTracerSignature signature = path_tracer_scene_signature(scene, ctx.frame_instances);
     const std::uint64_t sky_key = ctx.passes.sky.environment_key(scene, ctx.settings, ctx.materials);
-    const bool sky_changed = sky_key != ctx.temporal.sky_key;
-    const bool time_changed = scene.time != ctx.temporal.prev_scene_time && has_time_dependent_surface(ctx, scene);
-    if (!ctx.temporal.history_valid || signature != ctx.temporal.path_tracer_scene_signature || sky_changed ||
-        time_changed || camera_changed(view_projection, ctx.temporal.prev_view_projection, camera.position,
-                                       ctx.temporal.prev_camera_position)) {
-        ctx.passes.path_tracer.reset();
+
+    PathTracerReset reason = PathTracerReset::None;
+    if (!t.history_valid) reason = PathTracerReset::History;
+    else if (signature.geometry != t.path_tracer_geometry_signature) reason = PathTracerReset::Geometry;
+    else if (signature.lights != t.path_tracer_lights_signature) reason = PathTracerReset::Lights;
+    else if (signature.environment != t.path_tracer_environment_signature || sky_key != t.sky_key) reason = PathTracerReset::Environment;
+    else if (scene.time != t.prev_scene_time && has_time_dependent_surface(ctx, scene)) reason = PathTracerReset::Time;
+    if (ctx.settings.path_tracer_freeze_scene && reason >= PathTracerReset::Geometry && reason <= PathTracerReset::Time) {
+        reason = PathTracerReset::None; // the caller asked to average over scene changes
     }
-    ctx.temporal.path_tracer_scene_signature = signature;
-    ctx.temporal.sky_key = sky_key;
-    ctx.temporal.prev_scene_time = scene.time;
+    if (reason == PathTracerReset::None &&
+        camera_changed(view_projection, t.prev_view_projection, camera.position, t.prev_camera_position)) {
+        reason = PathTracerReset::Camera;
+    }
+    if (reason != PathTracerReset::None) ctx.passes.path_tracer.reset(reason);
+    t.path_tracer_geometry_signature = signature.geometry;
+    t.path_tracer_lights_signature = signature.lights;
+    t.path_tracer_environment_signature = signature.environment;
+    t.sky_key = sky_key;
+    t.prev_scene_time = scene.time;
 }
 
 void update_sdf_history(TemporalState& temporal, std::span<const GpuSdfShape> shapes) {
@@ -349,6 +371,8 @@ void render_ray_traced_path(RayTracedPathContext& ctx, gpu::CommandList& cmd, gp
     ctx.stats.decals = static_cast<std::uint32_t>(ctx.frame_instances.decals.size());
     // Samples once this frame is submitted (the counter itself advances on submission).
     ctx.stats.path_tracer_samples = ctx.settings.path_tracer ? ctx.passes.path_tracer.sample_count() + 1u : 0u;
+    const PathTracerReset pt_reset = ctx.passes.path_tracer.take_reset_reason();
+    ctx.stats.path_tracer_reset = ctx.settings.path_tracer ? pt_reset : PathTracerReset::None;
     ctx.stats.gi_probes = ctx.settings.path_tracer ? 0u : ctx.passes.ddgi.probe_count();
     ctx.stats.passes = ctx.graph.stats().passes_executed;
 }

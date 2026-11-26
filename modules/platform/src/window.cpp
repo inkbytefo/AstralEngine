@@ -135,6 +135,8 @@ std::unique_ptr<Window> Window::create(const WindowDesc& desc) {
 Window::Window(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 Window::~Window() = default;
 
+void Window::keep_responsive() { SDL_PumpEvents(); }
+
 bool Window::poll(Input& input) {
     input.begin_frame();
     SDL_Event event;

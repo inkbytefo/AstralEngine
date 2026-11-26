@@ -356,7 +356,8 @@ std::string rt_chunk(const ShaderSource& source, const UniformLayout& layout) {
 
 } // namespace
 
-SurfaceShaderBuild compile_surface_shader(const ShaderSource& source, std::string_view name) {
+SurfaceShaderBuild compile_surface_shader(const ShaderSource& source, std::string_view name,
+                                          const ShaderCompileServices& services) {
     SurfaceShaderBuild out;
     if (source.type != ShaderType::Surface) {
         out.errors.push_back({1, "not a surface shader (shader_type " + std::string(to_string(source.type)) + ")"});
@@ -372,37 +373,46 @@ SurfaceShaderBuild compile_surface_shader(const ShaderSource& source, std::strin
     out.casts_shadows = !source.has_render_mode("shadows_disabled");
     out.alpha_test = source.has_render_mode("alpha_test");
     const std::vector<GlslInclude> includes = detail::engine_includes();
+    const std::string label(name);
 
     if (source.has_render_mode("blend_mix") || source.has_render_mode("blend_add")) {
         out.blend = true;
         out.additive = source.has_render_mode("blend_add");
         out.rt_chunk.clear();
-        GlslCompile forward_frag = compile_glsl(fragment_stage(source, out.layout, Mode::Forward), ShaderStage::Fragment, includes, name);
-        detail::collect_errors(forward_frag, out.errors, "fragment");
-        GlslCompile forward_vert = compile_glsl(vertex_stage(source, out.layout, Mode::Forward), ShaderStage::Vertex, includes, name);
-        detail::collect_errors(forward_vert, out.errors, "vertex");
+        const std::vector<GlslRequest> requests = {
+            {fragment_stage(source, out.layout, Mode::Forward), ShaderStage::Fragment, label},
+            {vertex_stage(source, out.layout, Mode::Forward), ShaderStage::Vertex, label}};
+        std::vector<GlslCompile> built = compile_glsl_batch(requests, includes, services);
+        detail::collect_errors(built[0], out.errors, "fragment");
+        detail::collect_errors(built[1], out.errors, "vertex");
         if (out.errors.empty()) {
-            out.forward_fragment = std::move(forward_frag.spirv);
-            out.forward_vertex = std::move(forward_vert.spirv);
+            out.forward_fragment = std::move(built[0].spirv);
+            out.forward_vertex = std::move(built[1].spirv);
         }
         return out;
     }
 
-    GlslCompile frag = compile_glsl(fragment_stage(source, out.layout, Mode::GBuffer), ShaderStage::Fragment, includes, name);
-    detail::collect_errors(frag, out.errors, "fragment");
-    GlslCompile vert = compile_glsl(vertex_stage(source, out.layout, Mode::GBuffer), ShaderStage::Vertex, includes, name);
-    detail::collect_errors(vert, out.errors, "vertex");
-    if (!out.errors.empty()) return out;
-    out.gbuffer_fragment = std::move(frag.spirv);
-    out.gbuffer_vertex = std::move(vert.spirv);
+    // Every stage is independent: compile them together (concurrently with a JobSystem). The first two are
+    // what the G-buffer needs; the shadow stages only matter once those succeeded, as before.
+    const bool alpha_test = source.has_render_mode("alpha_test");
+    std::vector<GlslRequest> requests = {
+        {fragment_stage(source, out.layout, Mode::GBuffer), ShaderStage::Fragment, label},
+        {vertex_stage(source, out.layout, Mode::GBuffer), ShaderStage::Vertex, label},
+        {vertex_stage(source, out.layout, Mode::Shadow), ShaderStage::Vertex, label}};
+    if (alpha_test) requests.push_back({fragment_stage(source, out.layout, Mode::Shadow), ShaderStage::Fragment, label});
+    std::vector<GlslCompile> built = compile_glsl_batch(requests, includes, services);
 
-    GlslCompile shadow_vert = compile_glsl(vertex_stage(source, out.layout, Mode::Shadow), ShaderStage::Vertex, includes, name);
-    detail::collect_errors(shadow_vert, out.errors, "shadow vertex");
-    out.shadow_vertex = std::move(shadow_vert.spirv);
-    if (source.has_render_mode("alpha_test")) {
-        GlslCompile shadow_frag = compile_glsl(fragment_stage(source, out.layout, Mode::Shadow), ShaderStage::Fragment, includes, name);
-        detail::collect_errors(shadow_frag, out.errors, "shadow fragment");
-        out.shadow_fragment = std::move(shadow_frag.spirv);
+    detail::collect_errors(built[0], out.errors, "fragment");
+    detail::collect_errors(built[1], out.errors, "vertex");
+    if (!out.errors.empty()) return out;
+    out.gbuffer_fragment = std::move(built[0].spirv);
+    out.gbuffer_vertex = std::move(built[1].spirv);
+
+    detail::collect_errors(built[2], out.errors, "shadow vertex");
+    out.shadow_vertex = std::move(built[2].spirv);
+    if (alpha_test) {
+        detail::collect_errors(built[3], out.errors, "shadow fragment");
+        out.shadow_fragment = std::move(built[3].spirv);
     }
     if (!out.errors.empty()) {
         out.gbuffer_fragment.clear();

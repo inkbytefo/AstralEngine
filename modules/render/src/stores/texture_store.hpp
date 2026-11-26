@@ -24,6 +24,8 @@ public:
     void destroy(TextureHandle handle);
 
     [[nodiscard]] bool supports(ImageFormat format) const noexcept;
+    /// Workers for mip chains (borrowed; null = serial).
+    void set_job_system(JobSystem* jobs) noexcept { jobs_ = jobs; }
     [[nodiscard]] const GpuTexture* get(TextureHandle handle) const noexcept { return textures_.get(handle); }
     [[nodiscard]] gpu::TextureHandle native_handle(TextureHandle handle) const noexcept;
     [[nodiscard]] bool is_linear_sampled(TextureHandle handle) const noexcept;
@@ -36,6 +38,7 @@ private:
     gpu::TextureHandle upload(const ImageData& image);
 
     gpu::Device& device_;
+    JobSystem* jobs_ = nullptr;
     HandlePool<GpuTexture, RenderTextureTag> textures_;
     TextureHandle white_{};       // stand-in for unset .ashader colour textures
     TextureHandle flat_normal_{}; // stand-in for unset .ashader normal maps

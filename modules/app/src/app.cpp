@@ -1,6 +1,7 @@
 #include <astral/app/app.hpp>
 
 #include "graphics_backend.hpp"
+#include "shader_cache_location.hpp"
 #include "services/atmosphere.hpp"
 #include "services/audio_bridge.hpp"
 #include "services/dev_tools.hpp"
@@ -14,6 +15,8 @@
 #include "services/world_bridge.hpp"
 
 #include <astral/platform/paths.hpp>
+#include <astral/render/renderer.hpp>
+#include <astral/shader/spirv_cache.hpp>
 #include <astral/platform/window.hpp>
 
 #include <algorithm>
@@ -174,6 +177,7 @@ struct App::Impl {
     Input game_input; ///< What the game sees: input minus what the debug UI took.
     Time time;
 
+    std::unique_ptr<SpirvCache> spirv_cache; ///< Compiled shaders on disk; outlives the renderer that borrows it.
     GraphicsBackend graphics;
     std::unique_ptr<AssetManager> assets;
     std::unique_ptr<PrefabLibrary> prefabs;
@@ -202,6 +206,30 @@ struct App::Impl {
     std::unique_ptr<ContextServices> services;
 
     explicit Impl(unsigned worker_threads) : jobs(worker_threads) {}
+
+    /// Shaders are compiled by glslang once per machine (SPIR-V cache) and a surface shader's stages concurrently.
+    void setup_shader_compiles(const AppDesc& desc) {
+        constexpr std::uint64_t kCacheBudgetBytes = std::uint64_t{512} << 20;
+        if (const std::filesystem::path dir = shader_cache_directory(desc.title, process_env); !dir.empty()) {
+            spirv_cache = std::make_unique<SpirvCache>(dir);
+            spirv_cache->prune(kCacheBudgetBytes);
+        }
+        graphics.renderer()->set_shader_compile_services({.cache = spirv_cache.get(), .jobs = &jobs});
+        graphics.renderer()->set_job_system(&jobs);
+    }
+
+    /// A load that takes seconds must not freeze the window ("not responding"): while resources are created the
+    /// renderer reports progress and the window answers the OS, at most every 50 ms.
+    void keep_window_responsive_while_loading() {
+        Window* const win = graphics.window();
+        if (!win) return;
+        graphics.renderer()->set_busy_callback([win, last = std::chrono::steady_clock::now()]() mutable {
+            const auto now = std::chrono::steady_clock::now();
+            if (now - last < std::chrono::milliseconds(50)) return;
+            last = now;
+            win->keep_responsive();
+        });
+    }
 
     void init_runtime(const AppDesc& desc, const std::filesystem::path& asset_root, const std::filesystem::path& pack) {
         const bool audio_device = desc.audio && !desc.headless && !desc.offscreen; // captures and tests mix silently
@@ -271,6 +299,10 @@ App::App(const AppDesc& raw_desc) : impl_(std::make_unique<Impl>(raw_desc.worker
                      [](const InputScriptEvent& a, const InputScriptEvent& b) { return a.frame < b.frame; });
 
     m.graphics.init(desc, m.log);
+    if (m.graphics.renderer()) {
+        m.setup_shader_compiles(desc);
+        m.keep_window_responsive_while_loading();
+    }
     m.context->window = m.graphics.window();
     m.context->device = m.graphics.device();
     m.context->renderer = m.graphics.renderer();

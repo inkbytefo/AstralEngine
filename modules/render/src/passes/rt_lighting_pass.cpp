@@ -96,6 +96,8 @@ RtLightingOutput RtLightingPass::add(RenderGraph& graph, const FrameInputs& inpu
 
     const FrameAddresses addr = inputs.addresses;
     const float near_gi_radius = std::max(inputs.settings.near_gi_radius, 0.0f);
+    const float max_reflection_roughness = inputs.settings.max_reflection_roughness;
+    const float reflection_roughness_fade = inputs.settings.reflection_roughness_fade;
     graph.add_pass(
         "rt.lighting",
         [gbuffer, ddgi, noisy_d, noisy_s, geometry](PassBuilder& b) {
@@ -107,7 +109,7 @@ RtLightingOutput RtLightingPass::add(RenderGraph& graph, const FrameInputs& inpu
             b.write_storage(geometry);
         },
         [pipe = pipelines.rt_lighting, addr, spatial_out, restir_active, gbuffer, ddgi, noisy_d, noisy_s, geometry,
-         near_gi_radius, w, h](PassContext& ctx) {
+         near_gi_radius, max_reflection_roughness, reflection_roughness_fade, w, h](PassContext& ctx) {
             if (restir_active) ctx.cmd.memory_barrier(); // reservoir_temp_ written by restir.spatial
             const RtLightingPush push{addr.frame,
                                       spatial_out,
@@ -117,7 +119,9 @@ RtLightingOutput RtLightingPass::add(RenderGraph& graph, const FrameInputs& inpu
                                       ctx.bindless(noisy_d),
                                       ctx.bindless(noisy_s),
                                       ctx.bindless(geometry),
-                                      near_gi_radius};
+                                      near_gi_radius,
+                                      max_reflection_roughness,
+                                      reflection_roughness_fade};
             ctx.cmd.bind_pipeline(pipe);
             ctx.cmd.push_constants(&push, sizeof(push));
             ctx.cmd.dispatch((w + 7) / 8, (h + 7) / 8);

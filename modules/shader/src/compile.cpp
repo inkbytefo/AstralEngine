@@ -1,5 +1,9 @@
 #include <astral/shader/compile.hpp>
 
+#include "sha256.hpp"
+
+#include <astral/core/jobs.hpp>
+
 #include <glslang/Public/ResourceLimits.h>
 #include <glslang/Public/ShaderLang.h>
 #include <SPIRV/GlslangToSpv.h>
@@ -72,9 +76,38 @@ void parse_log(const std::string& log, std::vector<ShaderError>& errors) {
     }
 }
 
-} // namespace
+/// Everything besides the source text that changes the SPIR-V glslang produces. Bump the tag when
+/// compile_uncached changes how it drives the compiler.
+std::string compiler_identity() {
+    const glslang::Version v = glslang::GetVersion();
+    return "astral-spirv-1|glslang " + std::to_string(v.major) + "." + std::to_string(v.minor) + "." +
+           std::to_string(v.patch) + "|glsl460|vulkan1.3|spirv1.5|noopt|nodebug";
+}
 
-GlslCompile compile_glsl(std::string_view source, ShaderStage stage, std::span<const GlslInclude> includes, std::string_view name) {
+detail::Sha256Digest digest_includes(std::span<const GlslInclude> includes) {
+    detail::Sha256 sha;
+    sha.update_u32(static_cast<std::uint32_t>(includes.size()));
+    for (const GlslInclude& file : includes) {
+        sha.update_field(file.name);
+        sha.update_field(file.text);
+    }
+    return sha.finish();
+}
+
+SpirvCacheKey make_key(std::string_view source, ShaderStage stage, std::string_view name,
+                       const detail::Sha256Digest& includes) {
+    static const std::string identity = compiler_identity();
+    detail::Sha256 sha;
+    sha.update_field(identity);
+    sha.update_u32(static_cast<std::uint32_t>(stage));
+    sha.update_field(name);
+    sha.update_field(source);
+    sha.update(std::span<const std::uint8_t>(includes));
+    return {sha.finish()};
+}
+
+GlslCompile compile_uncached(std::string_view source, ShaderStage stage, std::span<const GlslInclude> includes,
+                             std::string_view name) {
     initialize_once();
     GlslCompile out;
     const EShLanguage lang = language(stage);
@@ -110,6 +143,49 @@ GlslCompile compile_glsl(std::string_view source, ShaderStage stage, std::span<c
     glslang::GlslangToSpv(*program.getIntermediate(lang), out.spirv, &options);
     out.log = shader.getInfoLog();
     return out;
+}
+
+/// compile_uncached behind the cache; `includes_digest` is only read (and so only computed) with a cache.
+GlslCompile compile_with_cache(std::string_view source, ShaderStage stage, std::span<const GlslInclude> includes,
+                               std::string_view name, SpirvCache* cache, const detail::Sha256Digest& includes_digest) {
+    SpirvCacheKey key;
+    if (cache) {
+        key = make_key(source, stage, name, includes_digest);
+        GlslCompile cached;
+        if (cache->lookup(key, cached.spirv)) {
+            cached.from_cache = true;
+            return cached;
+        }
+    }
+    GlslCompile out = compile_uncached(source, stage, includes, name);
+    if (cache && out.ok()) cache->store(key, out.spirv);
+    return out;
+}
+
+} // namespace
+
+GlslCompile compile_glsl(std::string_view source, ShaderStage stage, std::span<const GlslInclude> includes, std::string_view name,
+                         const ShaderCompileServices& services) {
+    const detail::Sha256Digest digest = services.cache ? digest_includes(includes) : detail::Sha256Digest{};
+    return compile_with_cache(source, stage, includes, name, services.cache, digest);
+}
+
+std::vector<GlslCompile> compile_glsl_batch(std::span<const GlslRequest> requests, std::span<const GlslInclude> includes,
+                                            const ShaderCompileServices& services) {
+    std::vector<GlslCompile> results(requests.size());
+    const detail::Sha256Digest digest = services.cache ? digest_includes(includes) : detail::Sha256Digest{};
+    const auto run = [&](std::size_t i) {
+        const GlslRequest& r = requests[i];
+        results[i] = compile_with_cache(r.source, r.stage, includes, r.name, services.cache, digest);
+    };
+    if (services.jobs && requests.size() > 1) {
+        JobCounter counter;
+        for (std::size_t i = 0; i < requests.size(); ++i) services.jobs->submit(counter, [&run, i] { run(i); });
+        services.jobs->wait(counter);
+    } else {
+        for (std::size_t i = 0; i < requests.size(); ++i) run(i);
+    }
+    return results;
 }
 
 } // namespace astral
