@@ -42,9 +42,9 @@ condition variable (`modules/core/src/jobs.cpp:20`, `:90`). `submit` sayacı art
 kuyruktaki **o sayaca ait** işleri kendisi çalıştırır (`:134`, `:39`). Başka grubun işini çalıştırmamasının
 nedeni yığın tersinmesi kilitlenmesidir (ADR-0004; regresyon testi
 `modules/core/tests/jobs_test.cpp:99`). İşteki istisna sayaçta saklanır ve `wait` tarafından, ilkini yeniden
-fırlatarak, temizlenir (`:63`, `:151`). Yıkıcı kuyruktaki her işi bitirir sonra worker'ları join eder
-(`:101`). `parallel_for` `[0,count)` aralığını `batch` boyutlu parçalara bölüp parça başına bir iş gönderir
-(`:121`).
+fırlatarak, temizlenir (`modules/core/src/jobs.cpp:63`, `modules/core/src/jobs.cpp:151`). Yıkıcı kuyruktaki her işi bitirir sonra worker'ları join eder
+(`modules/core/src/jobs.cpp:101`). `parallel_for` `[0,count)` aralığını `batch` boyutlu parçalara bölüp parça başına bir iş gönderir
+(`modules/core/src/jobs.cpp:121`).
 
 **HandlePool.** `std::vector<Slot>` + serbest indeks listesi; her yeniden kullanımda generation artar,
 0 ("hiç geçerli değil") atlanır (`modules/core/include/astral/core/handle.hpp:62`). Thread-safe değildir
@@ -62,7 +62,7 @@ olarak tutulur, ekleme sırası dosyada korunur. Metin ayrıştırıcı özyinel
 zigzag varint (`:28`), `int64` üstü `TagUInt64` (`:17`). Tam sayı değerli `double`'lar da `TagInteger` olarak
 yazılır (`:37`), yani geri okununca `is_integer()` true olur (değer eşitliği korunur, `Json::operator==`
 `modules/core/src/json.cpp:386`). Okuyucu sayım değerini kalan bayt sayısıyla sınırlar (aşırı tahsisi önler,
-`:88`) ve 512 seviyeden derin iç içeliği reddeder (`:18`).
+`modules/core/src/json_binary.cpp:88`) ve 512 seviyeden derin iç içeliği reddeder (`modules/core/src/json_binary.cpp:18`).
 
 **Reflection.** Makro her alan için `Field{ad, üye işaretçisi}` üretir; sınır 32'dir ve
 `static_assert` ile okunur hata verir (`modules/core/include/astral/core/reflect.hpp:157`). 33+ alan için
@@ -90,7 +90,7 @@ RTTI ve kod üreteci yoktur.
 - `ASTRAL_REFLECT` limiti hem pozitif (32 alan çalışır, `modules/core/tests/reflect_test.cpp:53`) hem negatif
   (33 alan derlenmez ve beklenen mesajı verir, `modules/core/CMakeLists.txt:34-42`) olarak ctest'te denetlenir.
 - Kaynak dosyaların hepsi ADR-0030 bütçesinin (600 satır) altında; en büyüğü `json.cpp` 480 satır.
-- Repoda 87 `ASTRAL_REFLECT(` kullanımı var (grep ile sayıldı): reflection pratikte tüm bileşen/ayar tiplerinde kullanılıyor.
+- Repoda `ASTRAL_REFLECT(` geçen yaklaşık 87 satır var (grep; makro tanımı ve testler dahil): reflection bileşen ve ayar tiplerinde yaygın kullanılıyor.
 
 ## Zayıf yanlar ve bilinen sınırlar
 

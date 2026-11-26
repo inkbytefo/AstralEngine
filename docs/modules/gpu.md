@@ -96,7 +96,7 @@ başarısız yapacak şekilde sayar (`modules/gpu/tests/gpu_test_support.hpp:14-
 ## Güçlü yanlar
 
 - Doğrulama katmanıyla koşan, hata sayan gerçek Vulkan testleri; "hata sayısı beklenenle eşit değilse test başarısız"
-  (`modules/gpu/tests/gpu_test_support.hpp:35-39`). 35 test, 7 dosyada.
+  (`modules/gpu/tests/gpu_test_support.hpp:35-39`). 35 test, 6 dosyada.
 - Kaynak ömrü karmaşık durumlarda sınanmış: aynı anda birden fazla açık liste, drop edilen listeler, başka cihaza ait liste
   (MSR G01-G03, G09: `modules/gpu/tests/msr_regression_test.cpp:11-127`).
 - Hatalı kullanım çökertmez: sınır dışı kopya, geçersiz handle, 128 baytı aşan push constant, submit sonrası kullanım

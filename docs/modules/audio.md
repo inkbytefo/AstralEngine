@@ -109,10 +109,10 @@ cihazla çalışır, gerçek ses cihazı kullanılmaz:
 
 | Test | Kapsam |
 |---|---|
-| `sounds decode from memory; garbage is refused` (`:62`) | WAV çözme, süre/kanal bilgisi, bozuk/boş veri |
-| `voices play, end on their own, stop, and buses scale them` (`:74`) | çalma, kendiliğinden bitme, döngü, bus seviyesi, `stop`, `destroy` |
-| `3D voices pan towards their side and fade with distance` (`:108`) | sağa pan, uzaklıkla azalma (yalnızca 40 m'de < %30) |
-| `the voice limit holds` (`:127`) | `max_voices` |
+| `sounds decode from memory; garbage is refused` (`modules/audio/tests/audio_test.cpp:62`) | WAV çözme, süre/kanal bilgisi, bozuk/boş veri |
+| `voices play, end on their own, stop, and buses scale them` (`modules/audio/tests/audio_test.cpp:74`) | çalma, kendiliğinden bitme, döngü, bus seviyesi, `stop`, `destroy` |
+| `3D voices pan towards their side and fade with distance` (`modules/audio/tests/audio_test.cpp:108`) | sağa pan, uzaklıkla azalma (yalnızca 40 m'de < %30) |
+| `the voice limit holds` (`modules/audio/tests/audio_test.cpp:127`) | `max_voices` |
 
 App tarafı: `modules/app/tests/audio_app_test.cpp` (AudioSource çalma/izleme/bitme, `ctx.sound` önbelleği, entity silme).
 
