@@ -156,7 +156,7 @@ void FrameLoop::update_transforms_and_primitives() {
 
 void FrameLoop::update_audio() {
     ASTRAL_PROFILE_SCOPE(&dev_tools_.profiler(), "audio");
-    audio_bridge_.sync();
+    audio_bridge_.sync(time_.delta);
 }
 
 void FrameLoop::render_frame(Game& game, float delta) {
