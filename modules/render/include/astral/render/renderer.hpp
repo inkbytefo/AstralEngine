@@ -298,10 +298,31 @@ struct RenderSettings {
     /// Unbiased progressive multi-bounce path tracer reference mode (M13, requires RT hardware).
     bool path_tracer = false;
     std::uint32_t path_tracer_max_bounces = 6;
+    /// Path tracer only: keep accumulating when the scene (instances, lights, sun, environment, time-driven shaders)
+    /// changes between frames. The result averages those states, which is what a capture wants when the changes are
+    /// known to be invisible (a light far off screen drifting by 1e-4 per frame). Camera moves, resizes and resource
+    /// edits still restart the accumulation. Off: any change restarts it (RenderStats::path_tracer_reset says why).
+    bool path_tracer_freeze_scene = false;
     DebugView debug_view = DebugView::None;
     bool fog_self_shadows = true; ///< Local media attenuate direct sun light within their own volume.
     bool fog_ddgi = true; ///< Sample diffuse probe lighting in fog on the hybrid path.
     bool sky_ibl = false; ///< Use the active sky material as the HDR lighting environment.
+};
+
+/// Why the path tracer restarted its accumulation (RenderStats::path_tracer_reset). The first cause found is reported;
+/// scene causes are checked before the camera so an unexpected drift is not hidden behind a camera move.
+enum class PathTracerReset : std::uint8_t {
+    None,        ///< Accumulating: nothing restarted it this frame.
+    Resize,      ///< The target size changed (also the first frame).
+    Geometry,    ///< Instances (mesh, material, transform), SDF shapes or decals changed.
+    Lights,      ///< Point or rect lights, or the sun changed.
+    Environment, ///< Sky/ground/ambient colours or the sky material changed.
+    Time,        ///< A time-driven custom shader (TIME) with a new scene time.
+    Camera,      ///< The camera moved or changed lens.
+    Resources,   ///< A texture, mesh, material or shader was updated or destroyed.
+    Settings,    ///< set_settings changed something the accumulation depends on.
+    Manual,      ///< reset_history() was called.
+    History,     ///< No usable history (a dropped frame, ray tracing just switched on).
 };
 
 struct RenderStats {
@@ -316,6 +337,7 @@ struct RenderStats {
     std::uint32_t rect_lights = 0;
     std::uint32_t decals = 0;
     std::uint32_t path_tracer_samples = 0;
+    PathTracerReset path_tracer_reset = PathTracerReset::None; ///< Why this frame restarted the path tracer (None = it did not).
     bool temporal_history_used = false; ///< Hybrid RT history was available to the temporal passes.
     std::uint32_t volume_bricks = 0; ///< Resident 8-cube pages in the shared volume atlas.
     std::uint32_t volume_brick_fallbacks = 0; ///< Volumes that exceeded the page budget.
@@ -411,6 +433,7 @@ public:
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
+    void reset_all_history(PathTracerReset reason);
 };
 
 } // namespace astral
@@ -438,4 +461,4 @@ ASTRAL_REFLECT_ENUM(astral::DebugView, None, Albedo, Normals, DiffuseLight, Spec
 ASTRAL_REFLECT(astral::GiSettings, probes_x, probes_y, probes_z, rays_per_probe, hysteresis, volume_min, volume_max)
 ASTRAL_REFLECT(astral::RenderSettings, shadow_map_size, ray_tracing, gi, denoise_iterations, max_history, taa_blend,
                bloom_strength, max_ray_distance, near_gi_radius, restir_di, path_tracer, path_tracer_max_bounces,
-               debug_view, fog_self_shadows, fog_ddgi, sky_ibl)
+               path_tracer_freeze_scene, debug_view, fog_self_shadows, fog_ddgi, sky_ibl)

@@ -188,14 +188,14 @@ void Renderer::set_settings(const RenderSettings& settings_in) {
         m.rt = want_rt && m.enable_ray_tracing();
         // Meshes created on the raster path have no BLAS yet.
         if (m.rt) m.meshes.ensure_blas_all();
-        reset_history();
+        reset_all_history(PathTracerReset::Settings);
     }
     const GiSettings &a = old.gi, &b = settings.gi;
     if (a.probes_x != b.probes_x || a.probes_y != b.probes_y || a.probes_z != b.probes_z ||
         a.rays_per_probe != b.rays_per_probe || old.denoise_iterations != settings.denoise_iterations ||
         old.restir_di != settings.restir_di || old.path_tracer != settings.path_tracer ||
         old.path_tracer_max_bounces != settings.path_tracer_max_bounces || old.sky_ibl != settings.sky_ibl) {
-        reset_history();
+        reset_all_history(PathTracerReset::Settings);
     }
     if (old.shadow_map_size != settings.shadow_map_size && settings.shadow_map_size > 0) {
         m.passes.shadow.resize(settings.shadow_map_size);
@@ -204,10 +204,12 @@ void Renderer::set_settings(const RenderSettings& settings_in) {
 
 bool Renderer::ray_tracing() const noexcept { return impl_->rt; }
 
-void Renderer::reset_history() {
+void Renderer::reset_history() { reset_all_history(PathTracerReset::Manual); }
+
+void Renderer::reset_all_history(PathTracerReset reason) {
     impl_->temporal.history_valid = false;
     impl_->passes.ddgi.reset();
-    impl_->passes.path_tracer.reset();
+    impl_->passes.path_tracer.reset(reason);
 }
 
 void Renderer::render(gpu::CommandList& cmd, gpu::TextureHandle target, const CameraData& camera,

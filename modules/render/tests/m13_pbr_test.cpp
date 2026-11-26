@@ -551,3 +551,120 @@ TEST_CASE("M13 PBR: path tracer renders custom sky and forward blended glass/hol
     rig.renderer->destroy(sky_sh);
     rig.renderer->destroy(blend_sh);
 }
+
+namespace {
+
+struct PtScene {
+    std::array<MeshInstance, 2> items;
+    std::array<RectLight, 1> rects;
+    RenderScene scene;
+    MaterialHandle box_material;
+
+    explicit PtScene(PbrRig& rig) {
+        const MeshHandle plane = rig.renderer->create_mesh(make_plane(10.0f));
+        const MeshHandle cube = rig.renderer->create_mesh(make_cube());
+        const MaterialHandle floor_m = rig.renderer->create_material({.base_color = {0.75f, 0.75f, 0.72f, 1}, .roughness = 0.8f});
+        box_material = rig.renderer->create_material({.base_color = {0.82f, 0.22f, 0.18f, 1}, .roughness = 0.55f});
+        items = {MeshInstance{plane, floor_m, Mat4::identity()},
+                 MeshInstance{cube, box_material, translate({0, 0.6f, 0}) * scale({1.2f, 1.2f, 1.2f})}};
+        rects = {RectLight{.position = {0, 3.2f, 0.5f}, .right = {0.8f, 0, 0}, .up = {0, 0, 0.8f}, .intensity = 10.0f}};
+        scene = {.meshes = items, .rect_lights = rects, .sun = {.direction = {-0.4f, -0.8f, -0.3f}, .intensity = 2.0f},
+                 .environment = {.sky = {0.25f, 0.35f, 0.5f}, .ground = {0.1f, 0.1f, 0.1f}}};
+    }
+    /// Draws one frame and returns what the renderer reports about the path tracer.
+    static std::pair<std::uint32_t, PathTracerReset> frame(PbrRig& rig, const RenderScene& scene) {
+        (void)rig.draw(scene, 1);
+        return {rig.renderer->stats().path_tracer_samples, rig.renderer->stats().path_tracer_reset};
+    }
+};
+
+} // namespace
+
+TEST_CASE("path tracer reports why its accumulation restarted") {
+    PbrRig rig(rt_settings(true));
+    if (!rig.device || !rig.renderer->ray_tracing()) return;
+    rig.look_from({0, 1.5f, 4.5f}, {0, 1.0f, 0});
+    PtScene w(rig);
+
+    CHECK(PtScene::frame(rig, w.scene) == std::pair{1u, PathTracerReset::Resize}); // the first frame sizes the buffers
+    CHECK(PtScene::frame(rig, w.scene) == std::pair{2u, PathTracerReset::None});
+    CHECK(PtScene::frame(rig, w.scene) == std::pair{3u, PathTracerReset::None});
+
+    rig.look_from({0.5f, 1.5f, 4.5f}, {0, 1.0f, 0});
+    CHECK(PtScene::frame(rig, w.scene) == std::pair{1u, PathTracerReset::Camera});
+    CHECK(PtScene::frame(rig, w.scene).second == PathTracerReset::None);
+
+    w.items[1].transform = translate({1, 0.6f, 0});
+    CHECK(PtScene::frame(rig, w.scene) == std::pair{1u, PathTracerReset::Geometry});
+    CHECK(PtScene::frame(rig, w.scene).second == PathTracerReset::None);
+
+    w.rects[0].position.x += 0.5f;
+    CHECK(PtScene::frame(rig, w.scene) == std::pair{1u, PathTracerReset::Lights});
+    w.scene.sun.intensity = 2.5f;
+    CHECK(PtScene::frame(rig, w.scene) == std::pair{1u, PathTracerReset::Lights}); // the sun is a light
+    CHECK(PtScene::frame(rig, w.scene).second == PathTracerReset::None);
+
+    w.scene.environment.sky = {0.3f, 0.35f, 0.5f};
+    CHECK(PtScene::frame(rig, w.scene) == std::pair{1u, PathTracerReset::Environment});
+
+    // The case from the report: a light that drifts by a hair every frame restarts the accumulation every frame,
+    // and now says so.
+    for (int i = 0; i < 3; ++i) {
+        w.rects[0].intensity += 0.0005f;
+        CHECK(PtScene::frame(rig, w.scene) == std::pair{1u, PathTracerReset::Lights});
+    }
+    // A scene change and a camera move together: the scene cause is the one reported.
+    w.rects[0].intensity += 0.5f;
+    rig.look_from({0.7f, 1.5f, 4.5f}, {0, 1.0f, 0});
+    CHECK(PtScene::frame(rig, w.scene).second == PathTracerReset::Lights);
+
+    REQUIRE(rig.renderer->update_material(w.box_material, {.base_color = {0.2f, 0.5f, 0.8f, 1}}));
+    CHECK(PtScene::frame(rig, w.scene) == std::pair{1u, PathTracerReset::Resources});
+
+    auto settings = rt_settings(true);
+    settings.path_tracer_max_bounces = 3;
+    rig.renderer->set_settings(settings);
+    CHECK(PtScene::frame(rig, w.scene).second == PathTracerReset::Settings);
+
+    rig.renderer->reset_history();
+    CHECK(PtScene::frame(rig, w.scene).second == PathTracerReset::Manual);
+    CHECK(PtScene::frame(rig, w.scene).second == PathTracerReset::None);
+}
+
+TEST_CASE("freezing the scene keeps the path tracer accumulating through scene changes, not camera moves") {
+    auto settings = rt_settings(true);
+    settings.path_tracer_freeze_scene = true;
+    PbrRig rig(settings);
+    if (!rig.device || !rig.renderer->ray_tracing()) return;
+    rig.look_from({0, 1.5f, 4.5f}, {0, 1.0f, 0});
+    PtScene w(rig);
+
+    (void)PtScene::frame(rig, w.scene); // sizes the buffers
+    for (std::uint32_t i = 2; i <= 6; ++i) {
+        w.rects[0].intensity += 0.0005f; // background animation
+        w.items[1].transform = translate({0.001f * static_cast<float>(i), 0.6f, 0}) * scale({1.2f, 1.2f, 1.2f});
+        w.scene.environment.sky.x += 0.001f;
+        const auto [samples, reason] = PtScene::frame(rig, w.scene);
+        CHECK(samples == i);
+        CHECK(reason == PathTracerReset::None);
+    }
+    rig.look_from({0.5f, 1.5f, 4.5f}, {0, 1.0f, 0});
+    CHECK(PtScene::frame(rig, w.scene) == std::pair{1u, PathTracerReset::Camera});
+
+    // Unfreezing: the very same drift restarts it again.
+    rig.renderer->set_settings(rt_settings(true));
+    (void)PtScene::frame(rig, w.scene);
+    w.rects[0].intensity += 0.0005f;
+    CHECK(PtScene::frame(rig, w.scene) == std::pair{1u, PathTracerReset::Lights});
+}
+
+TEST_CASE("the path tracer reports no reset reason outside path tracing") {
+    PbrRig rig(rt_settings(false));
+    if (!rig.device || !rig.renderer->ray_tracing()) return;
+    PtScene w(rig);
+    for (int i = 0; i < 3; ++i) {
+        w.rects[0].intensity += 0.5f;
+        (void)rig.draw(w.scene, 1);
+        CHECK(rig.renderer->stats().path_tracer_reset == PathTracerReset::None);
+    }
+}

@@ -23,8 +23,7 @@ bool PathTracerPass::resize(std::uint32_t width, std::uint32_t height) {
     const bool ok = accum_[0].valid() && accum_[1].valid();
     width_ = ok ? width : 0;
     height_ = ok ? height : 0;
-    sample_index_ = 0;
-    ++generation_;
+    reset(PathTracerReset::Resize);
     return true;
 }
 
