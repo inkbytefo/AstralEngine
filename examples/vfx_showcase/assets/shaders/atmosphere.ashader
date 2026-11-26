@@ -1,0 +1,59 @@
+shader_type sky;
+
+// Altitude and optical distance in km. Coefficients are linear RGB / km.
+const float GROUND_RADIUS = 6360.0;
+const float AIR_RADIUS = 6420.0;
+const vec3 RAYLEIGH = vec3(0.0058, 0.0135, 0.0331);
+const vec3 MIE = vec3(0.0038);
+
+float air_exit(vec3 p, vec3 direction) {
+    float b = dot(p, direction);
+    return max(0.0, -b + sqrt(max(0.0, b * b + AIR_RADIUS * AIR_RADIUS - dot(p, p))));
+}
+
+vec2 air_density(vec3 p) {
+    float altitude = max(0.0, length(p) - GROUND_RADIUS);
+    return exp(-altitude / vec2(8.0, 1.2));
+}
+
+vec3 extinction(vec2 depth) {
+    return exp(-RAYLEIGH * depth.x - 1.1 * MIE * depth.y);
+}
+
+vec3 scatter_sky(vec3 eye, vec3 sun) {
+    vec3 observer = vec3(0.0, GROUND_RADIUS + 0.025, 0.0);
+    float step_size = air_exit(observer, eye) / 12.0;
+    vec2 view_depth = vec2(0.0);
+    vec3 rayleigh_sum = vec3(0.0);
+    vec3 mie_sum = vec3(0.0);
+    for (int i = 0; i < 12; ++i) {
+        vec3 p = observer + eye * ((float(i) + 0.5) * step_size);
+        vec2 density = air_density(p) * step_size;
+        vec2 middle_depth = view_depth + density * 0.5;
+        view_depth += density;
+        float b = dot(p, sun);
+        if (b < 0.0 && dot(p, p) - b * b < GROUND_RADIUS * GROUND_RADIUS) continue;
+        float sun_step = air_exit(p, sun) / 6.0;
+        vec2 sun_depth = vec2(0.0);
+        for (int j = 0; j < 6; ++j) {
+            sun_depth += air_density(p + sun * ((float(j) + 0.5) * sun_step)) * sun_step;
+        }
+        vec3 transmission = extinction(middle_depth + sun_depth);
+        rayleigh_sum += transmission * density.x;
+        mie_sum += transmission * density.y;
+    }
+    float mu = dot(eye, sun);
+    float rayleigh_phase = 0.0596831 * (1.0 + mu * mu);
+    float g = 0.76;
+    float mie_phase = 0.0795775 * (1.0 - g * g) / pow(max(0.01, 1.0 + g * g - 2.0 * g * mu), 1.5);
+    return 16.0 * (RAYLEIGH * rayleigh_sum * rayleigh_phase + MIE * mie_sum * mie_phase);
+}
+
+void sky() {
+    vec3 eye = normalize(vec3(EYEDIR.x, max(0.001, EYEDIR.y), EYEDIR.z));
+    vec3 night = vec3(0.005, 0.009, 0.019);
+    float disk = 1.0 - smoothstep(0.004, 0.005, length(EYEDIR - SUN_DIR));
+    vec3 lit = night + scatter_sky(eye, SUN_DIR);
+    if (!IBL_CAPTURE) lit += disk * SUN_COLOR * 10.0;
+    COLOR = mix(lit * 0.25, lit, smoothstep(-0.18, 0.0, EYEDIR.y));
+}

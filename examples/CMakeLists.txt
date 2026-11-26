@@ -19,6 +19,7 @@
 #   world_editor     standalone AI-first native desktop editor (E0/E1/E2)
 #   terrain_lab      chunked terrain LOD & collision streaming lab
 #   vfx_lab          volumetric atmosphere, smoke, and VFX timeline lab
+#   vfx_showcase     atmosphere, froxel fog, gameplay smoke, GPU particles, and Luau-driven VFX/audio (replaces vfx_lab)
 add_subdirectory(hello_headless)
 add_subdirectory(hello_triangle)
 add_subdirectory(spinning_cubes)
@@ -39,3 +40,4 @@ add_subdirectory(open_world)
 add_subdirectory(world_editor)
 add_subdirectory(terrain_lab)
 add_subdirectory(vfx_lab)
+add_subdirectory(vfx_showcase)
