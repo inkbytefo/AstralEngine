@@ -203,4 +203,4 @@ yalnızca tüketici/şablon CI'ında ve `ASTRAL_PACKAGE_GAMES` ile denenir. Gold
 - [ADR-0028 Betik araçları ve paylaşılan özellikler](decisions/0028-script-tooling-and-shared-features.md)
 - [ADR-0030 Refaktör kuralları ve boyut bütçesi](decisions/0030-refactor-rules-and-size-budget.md)
 - [ADR-0035 Bağımsız editör çekirdeği](decisions/0035-standalone-ai-assisted-editor-core.md) (editör izolasyonu)
-- `docs/decisions/0047-spirv-disk-cache.md`, `0048-startup-responsiveness-and-mips.md`: `docs/refactor` dalında, bu çalışma ağacında yok.
+- [ADR-0047](decisions/0047-spirv-disk-cache.md), [ADR-0048](decisions/0048-startup-responsiveness-and-mips.md)

@@ -160,4 +160,4 @@ Gözlem (2026-11-26, yerel `build/debug` aracı, blank şablonunun ürettiği ta
 - [ADR-0034 Gameplay API ve fizik adım sözleşmesi](../decisions/0034-gameplay-api-and-physics-step-contract.md)
 - [ADR-0043 Deterministik fizik komut üreticileri](../decisions/0043-deterministic-physics-command-producers.md)
 - [ADR-0044 Aşamalı betik modülü yüklemesi](../decisions/0044-staged-script-module-load.md)
-- `docs/decisions/0045-query-filter-ignore-list.md`: `docs/refactor` dalında, bu çalışma ağacında yok.
+- [ADR-0045 Sorgularda birden çok yok sayılan gövde](../decisions/0045-query-filter-ignore-list.md)

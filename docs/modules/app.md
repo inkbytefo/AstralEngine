@@ -152,7 +152,7 @@ yapıp JobSystem'de paralel çalıştırır; erişim bildirmeyen sistem tek baş
 
 `AppDesc::input_script`, App'e kopyalanır ve frame'e göre sıralanır (`modules/app/src/app.cpp:297-299`). Her frame başında `feed_input_script` çalışır; pencere yoksa
 (headless/offscreen) App kendisi `input.begin_frame()` çağırır, böylece `pressed/released` kenarları doğru olur (`modules/app/src/app.cpp:199-205`). Test:
-`modules/app/tests/input_script_test.cpp`. (ADR-0046'nın dosyası, `docs/decisions/0046-headless-input-script.md`, bu çalışma ağacında yok; `docs/refactor` dalında.)
+`modules/app/tests/input_script_test.cpp`. Karar: [ADR-0046](../decisions/0046-headless-input-script.md).
 
 Başsız (`headless`): pencere/GPU yok, fizik/betik/ses/asset çalışır, `renderer == nullptr`, render kaynağı üreten çağrılar geçersiz tutamaç döner (`modules/app/include/astral/app/material_service.hpp:17`).
 Offscreen: GPU var, görüntü iç hedefe çizilir ve `App::read_frame` ile RGBA8 olarak okunur (`modules/app/src/app.cpp:393`, `modules/app/src/services/render_bridge.cpp:235-238`).
@@ -167,7 +167,7 @@ aksi halde `%LOCALAPPDATA%` / `$XDG_CACHE_HOME` / `~/.cache` / temp altında `As
 (`modules/app/src/shader_cache_location.cpp:47-53`, `modules/app/src/shader_cache_location.cpp:26-34`). Giriş içerik-adresli olduğu için oyunlar klasör paylaşsa da yalnızca isabet
 paylaşırlar (`modules/app/src/shader_cache_location.hpp:22`). Ayrıca `Renderer::set_busy_callback` + `Window::keep_responsive` ile uzun yüklemede pencere ≤50 ms'de bir
 işletim sistemine yanıt verir (`modules/app/src/app.cpp:221-232`). Testler için ctest ortamı bu değişkeni derleme klasörüne yönlendirir (bkz. [tools.md](../tools.md)).
-ADR-0047 dosyası da `docs/refactor` dalındadır (`docs/decisions/0047-spirv-disk-cache.md`).
+Karar: [ADR-0047](../decisions/0047-spirv-disk-cache.md).
 
 ### Atmosfer (G1.1 sanatsal alanlar dahil)
 
@@ -264,4 +264,7 @@ CI'daki TSan işi yalnızca `ecs_app_test`, `frame_order_test`, `physics_app_tes
 - [ADR-0032 Ölçeklenebilir çalışma zamanı ve paralel zamanlayıcı](../decisions/0032-scalable-runtime-and-parallel-scheduler.md)
 - [ADR-0034 Gameplay API ve fizik adım sözleşmesi](../decisions/0034-gameplay-api-and-physics-step-contract.md)
 - [ADR-0043 Deterministik fizik komut üreticileri](../decisions/0043-deterministic-physics-command-producers.md)
-- `docs/decisions/0045-query-filter-ignore-list.md`, `0046-headless-input-script.md`, `0047-spirv-disk-cache.md`, `0048-startup-responsiveness-and-mips.md`: `docs/refactor` dalında, bu çalışma ağacında yok (birleştirme sonrası bağlantı eklenebilir).
+- [ADR-0045 Sorgularda birden çok yok sayılan gövde](../decisions/0045-query-filter-ignore-list.md)
+- [ADR-0046 Başsız çalışmada betikli girdi](../decisions/0046-headless-input-script.md)
+- [ADR-0047 SPIR-V disk önbelleği](../decisions/0047-spirv-disk-cache.md)
+- [ADR-0048 Yükleme sırasında pencere tepkisi](../decisions/0048-startup-responsiveness-and-mips.md)
