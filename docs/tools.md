@@ -60,12 +60,12 @@ Kök `CMakeLists.txt` testleri `../CMakeLists.txt:70-112` aralığında kaydeder
 - **Derleme:** Luau Analysis kütüphanesini de derler (kaynak yorumuna göre yaklaşık bir dakika); `ASTRAL_LUAU_CHECK` seçeneği, testler ya da kurulum kuralları açıksa varsayılan AÇIK, kurulumda `bin/` altına `astral-luau-check` olarak yüklenir
   (`tools/CMakeLists.txt:19-42`).
 - **CTest:** `astral_check_scripts(<ad> GAME <oyun-hedefi> SCRIPTS <klasör>)`, `<ad>_script_types` testini ekler; test `CheckScripts.cmake` ile önce oyunu `--script-api-only <klasör>` ile çalıştırıp (başsız, GPU'suz) `astral.d.luau` yazdırır,
-  sonra klasördeki her `.luau` dosyasını denetler. Betik bulunamazsa test düşer (`cmake/AstralGame.cmake:85-102`, `cmake/CheckScripts.cmake:1-15`). Örnek: `templates/blank/CMakeLists.txt:45`; `templates/blank` ve 9 örnek kullanır (`astral_check_scripts` araması).
+  sonra klasördeki her `.luau` dosyasını denetler. Betik bulunamazsa test düşer (`cmake/AstralGame.cmake:85-104`, `cmake/CheckScripts.cmake:1-15`). Örnek: `templates/blank/CMakeLists.txt:45`; `templates/blank` ve 9 örnek kullanır (`astral_check_scripts` araması).
 - **Ne yakaladığı (gözlem, 2026-11-26):** Yerel `build/debug` aracıyla, blank şablonunun ürettiği tanımlara karşı: yanlış faz sabiti, `entity:get("astral::Nope")` ve `entity:get(...)` sonucunda yanlış alan adı **yakalandı**;
   `astral.system{ update = function(ctx, _, transform, spin) ... }` içindeki bileşen parametrelerinin alan adı yanlışları, `query = {"Olmayan"}` dizgeleri ve `astral.on(...)` olay alanı yanlışı **yakalanmadı**
   (neden: üretilen tanım `update: ((ctx, entity, ...any) -> ())` verir, `modules/script/src/api.cpp:223`; bkz. [modules/script.md](modules/script.md)). `cmake/AstralGame.cmake:80-84` yorumundaki "yanlış bileşen, alan ya da olay adı ... derlemeyi düşürür" ifadesi bu yüzden
   yalnızca tipli yollar için doğrudur.
-- **Sessiz atlama:** `astral_check_scripts` aracı bulamazsa (`ASTRAL_LUAU_CHECK=OFF` ve SDK'da yok) **uyarısız** `return()` eder; test hiç kaydedilmez (`cmake/AstralGame.cmake:90-96`).
+- **Araç yoksa uyarı:** `astral_check_scripts` aracı bulamazsa (`ASTRAL_LUAU_CHECK=OFF` ve SDK'da yok) `message(WARNING)` verir ve test kaydetmez (`cmake/AstralGame.cmake:90-98`).
 
 ## `tools/check_sizes.py` ve boyut bütçesi (ADR-0030)
 
@@ -121,7 +121,7 @@ arşivinde `check=True` yüzünden hata ile çöker (`tools/check_docs.py:27`). 
 | `astral_add_module(NAME ...)`, `astral_add_tests(MODULE ...)` | Statik kütüphane `astral_<ad>` + takma ad `Astral::<Ad>` (ilk harf büyür: `editor_core` → `Astral::Editor_core`); testler `astral_<ad>_tests` (doctest, zaman aşımı 120 sn) | `cmake/AstralModule.cmake:7-54` |
 | `astral_export_module_graph` | Modül bağımlılık grafiğini JSON yazar (layer_check girdisi) | `cmake/AstralModule.cmake:94-226` |
 | `astral_add_game(<ad> SOURCES ... ASSETS <klasör>)` | `Astral::App`'e bağlı yürütülebilir; `ASTRAL_GAME_ASSETS` (kaynak asset klasörü) ve `ASTRAL_GAME_PACK` (`<ad>.apak`) tanımlarını verir; `<ad>_package` hedefi `astral-cook` ile `.apak` üretir ve `build/packages/<ad>/` altında çalıştırılabilir klasör hazırlar; `ASTRAL_PACKAGE_GAMES=ON` ise `ALL` ile | `cmake/AstralGame.cmake:11-56` |
-| `astral_check_features`, `astral_check_scripts` | Yukarıdaki `*_features_check`, `*_script_types` testleri | `cmake/AstralGame.cmake:63-102` |
+| `astral_check_features`, `astral_check_scripts` | Yukarıdaki `*_features_check`, `*_script_types` testleri | `cmake/AstralGame.cmake:63-104` |
 | `astral_add_shaders(<hedef> SOURCES ...)` | `glslc` ile GLSL → SPIR-V, gömülü `astral::shaders::<ad>`; `glslc` yoksa yapılandırma `FATAL_ERROR` | `cmake/AstralShaders.cmake:1-30` |
 | `astral_embed_file` | Dosyayı `astral::embedded::<sembol>` olarak ikiliye gömer (varsayılan font) | `cmake/AstralEmbed.cmake:1-19` |
 | `astral_set_warnings` | MSVC `/W4 /permissive- /utf-8`, diğerleri `-Wall -Wextra -Wpedantic -Wshadow -Wconversion`; `ASTRAL_WARNINGS_AS_ERRORS` ile hata | `cmake/AstralWarnings.cmake:1-15` |
@@ -170,7 +170,7 @@ Linux gcc-13/clang-18 (Release, uyarılar hata, lavapipe + xvfb, `ctest`, boyut 
 ## Zayıf yanlar ve bilinen sınırlar
 
 - **Denetimlerin bir kısmı sezgiseldir ve kolay atlanır:** `astral-features` satır regex'idir (`modules/app/src/feature_check.cpp:75-77`); `check_sizes.py` elle yazılmış tokenizer'dır; `check_editor_isolation.py` geçişli bağımlılığa bakmaz; `check_docs.py` yalnızca var olma/aralık denetler.
-- **`astral-luau-check` beklenenden az yakalar** (yukarıdaki gözlem) ve kendi testi yoktur; araç yoksa `astral_check_scripts` uyarısız hiçbir şey kaydetmez (`cmake/AstralGame.cmake:94-96`).
+- **`astral-luau-check` beklenenden az yakalar** (yukarıdaki gözlem) ve kendi testi yoktur; araç yoksa `astral_check_scripts` uyarı verip hiçbir şey kaydetmez (`cmake/AstralGame.cmake:94-98`).
 - **Python yoksa denetimler sessizce kaybolur** (`../CMakeLists.txt:99`); CMake < 3.28 ise test ortamı yalıtımı ve `test_environment_check` sessizce kaybolur.
 - **SDK kurulumu Windows'ta CI'da denenmez** (`../.github/workflows/ci.yml:55-91`); sürüm numarası iki yerde elle sabit.
 - **`astral-cook` sayısal argümanlarını doğrulamaz** (`tools/astral_cook/main.cpp:60-68`).

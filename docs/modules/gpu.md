@@ -48,7 +48,7 @@ buffer transfer src/dst, storage ve device address bayraklarını alır (`module
 destekliyse AS-build-input bayrağı da eklenir (`modules/gpu/src/resources.cpp:169`). `GpuOnly` buffer'a yazma ve okuma, her çağrıda
 yeni bir staging buffer + `Impl::immediate` (tek seferlik komut tamponu, tam bariyer, gönder ve **bekle**) ile
 yapılır (`modules/gpu/src/resources.cpp:224-270`, `modules/gpu/src/device.cpp:186-225`). Aynı yol `write_texture` için de geçerlidir
-(`modules/gpu/src/resources.cpp:383-437`).
+(`modules/gpu/src/resources.cpp:383-442`).
 
 **Bindless.** Tek descriptor set: binding 0 sampled image dizisi, binding 1 storage image dizisi (aynı indeks uzayı),
 binding 2 üç sabit sampler (`modules/gpu/src/device_init.cpp:336-339`). Kapasite en çok 16384'tür ve cihazın update-after-bind
@@ -58,7 +58,7 @@ Sabit sampler'lar `LinearClamp`, `LinearRepeat` (8x anizotropi, varsa) ve `Neare
 (`modules/gpu/src/device_init.cpp:370-385`). Shader tarafı sözleşmesi `modules/gpu/shaders/include/astral/bindless.glsl` içindedir.
 
 **Yaşam süresi.** Bir `HandlePool` per kaynak türü (`modules/gpu/src/vk_device.hpp:125-129`). Tek `timeline semaphore`;
-her `submit` değeri bir artırır (`modules/gpu/src/device.cpp:363`, `:399`). `destroy` handle'ı hemen öldürür ve gerçek silmeyi
+her `submit` değeri bir artırır (`modules/gpu/src/device.cpp:362`, `:399`). `destroy` handle'ı hemen öldürür ve gerçek silmeyi
 `Impl::retire` ile kuyruğa alır; kuyruk `begin_commands`, `wait` ve `wait_idle` içinde boşaltılır (`modules/gpu/src/device.cpp:28-36`,
 `:109-123`). Şu anda kayıt açık olan her komut slot'u çöp girdisine eklenir; o slot submit/drop edilene kadar kaynak
 yaşar (`modules/gpu/src/device.cpp:28-36`, `:86-93`; test `modules/gpu/tests/msr_regression_test.cpp:32`).
@@ -112,7 +112,7 @@ başarısız yapacak şekilde sayar (`modules/gpu/tests/gpu_test_support.hpp:14-
 - **Tek thread:** `Device` ve `CommandList` thread-safe değildir; çok thread'li kayıt yok (`modules/gpu/include/astral/gpu/device.hpp:38`,
   `modules/gpu/include/astral/gpu/command_list.hpp:44`). Tek kuyruk (`modules/gpu/src/device_init.cpp:230-233`).
 - **Yüklemeler bloklar ve kare başına pahalıdır:** her `write_texture` bir staging buffer ayırır, tek seferlik komut
-  tamponu gönderir ve GPU'yu bekler (`modules/gpu/src/resources.cpp:383-437`, `modules/gpu/src/device.cpp:186-225`). `read_buffer` ve `write_buffer`
+  tamponu gönderir ve GPU'yu bekler (`modules/gpu/src/resources.cpp:383-442`, `modules/gpu/src/device.cpp:186-225`). `read_buffer` ve `write_buffer`
   (GPU-only) de aynı yola girer; `read_buffer` ayrıca bekleyen **tüm** GPU işini bekler (`modules/gpu/src/resources.cpp:252`). Bunlar kayıt
   açıkken reddedilir (`modules/gpu/src/device.cpp:102-107`). Büyük sahnelerin yüklenmesinde sıralı texture yüklemesi bu yüzdendir
   (lead'in başlangıç ölçüm notuyla tutarlı; bu modül ölçülmedi).
@@ -128,24 +128,23 @@ başarısız yapacak şekilde sayar (`modules/gpu/tests/gpu_test_support.hpp:14-
   mip 0 (`modules/gpu/src/command_list.cpp:291-327`).
 - **Pipeline kısıtları:** stencil, çokgen modu, derinlik bias'ı, özel blend, specialization constant, pipeline cache yok
   (`modules/gpu/src/pipelines.cpp:112-153`). Pipeline oluşturma eşzamanlıdır ve çağıran thread'i bekletir.
-- **Mesh shader gerçek değil:** `Feature::MeshShaders` yalnızca `VK_EXT_mesh_shader` eklentisinin cihazda **bulunmasına**
-  bakar; eklenti açılmaz ve mesh shader API'si yoktur. `supports(MeshShaders)` true dönse bile kullanılamaz
-  (`modules/gpu/src/device.cpp:301-302`, `modules/gpu/src/device_init.cpp:260-281`). Ayrıca her çağrıda eklenti listesini yeniden sorar
-  (`modules/gpu/src/device_init.cpp:408-416`).
+- **Mesh shader yok:** `VK_EXT_mesh_shader` açılmaz ve mesh shader API'si yoktur; `supports(MeshShaders)` her zaman `false`
+  (`modules/gpu/src/device.cpp:301`, test `modules/gpu/tests/device_test.cpp:28`).
 - **VRAM bütçesi açıkta değil:** bellek kullanımı, VMA istatistikleri ve `VK_EXT_memory_budget` API'de yok (modül içinde
   `vmaGet*Budget`/istatistik çağrısı bulunamadı, grep). Bellek yetersizliğinde yalnızca genel "allocation failed" logu ve
   boş handle döner (`modules/gpu/src/resources.cpp:198`, `:334-335`).
 - **Cihaz kaybı yönetimi zayıf:** `Impl::immediate` `vkAllocateCommandBuffers` ve `vkQueueSubmit2` sonucunu denetlemez,
   `last_submitted`'i artırıp o değeri sonsuza dek bekler (`modules/gpu/src/device.cpp:192`, `:210-223`, `:131`); cihaz kaybolursa bu çağrılar
   asılı kalabilir (doğrulanmadı: gerçek bir cihaz kaybıyla denenmedi). `submit_internal` hatada loglar ve ilerlemez
-  (`modules/gpu/src/device.cpp:393-398`) ama kurtarma yoktur.
+  (`modules/gpu/src/device.cpp:392-397`) ama kurtarma yoktur.
 - **Cihaz seçimi sabit:** puanlama dışında cihaz seçme (ortam değişkeni, ayar) yok; çok GPU'lu makinede ayrık GPU
   seçilir (`modules/gpu/src/device_init.cpp:68-77`).
 - **BLAS'lar statik, bloklayan:** refit, update, compaction yok; skinned mesh'ler için yeniden kurulum gerekir; BLAS yalnızca
   uint32 indeksli opak üçgen (`modules/gpu/src/ray_tracing.cpp:70-127`). TLAS her çağrıda tamamen yeniden kurulur ve her çağrıda geçici bir
   buffer ayırır (`modules/gpu/src/ray_tracing.cpp:177-234`). Örnekler `TRIANGLE_FACING_CULL_DISABLE` ile sabitlenmiştir (`modules/gpu/src/ray_tracing.cpp:203`).
-- **`write_texture` kullanım bayrağı denetlemez:** `TransferDst` olmayan (ör. yalnızca `ColorTarget`) bir texture'a yazma
-  Vulkan geçersizliğidir ve burada engellenmez (`modules/gpu/src/resources.cpp:383-390`, `:276-286`).
+- **`write_texture` yalnız `Sampled` dokulara yazar:** yükleme kopyalar ve dokuyu shader-okuma düzenine geçirir; `Sampled` olmayan dokuda
+  hata log'lanır ve `false` döner (`modules/gpu/src/resources.cpp:387-391`, test `modules/gpu/tests/resource_test.cpp:143`). Yalnız `Storage`/hedef
+  dokuları CPU'dan doldurmanın yolu yoktur.
 - **Swapchain:** HDR sunum için özel yol yok (tercih `BGRA8Srgb` + sRGB doğrusal olmayan; bulunamazsa tanınan ilk format, `modules/gpu/src/swapchain.cpp:52-65`). Yeniden boyutlandırma `vkDeviceWaitIdle` ile tüm GPU'yu bekletir
   (`modules/gpu/src/swapchain.cpp:93`). `Swapchain` `Device`'tan önce yok edilmelidir (`modules/gpu/include/astral/gpu/swapchain.hpp:27-28`).
 - **Platform kapsamı:** CI'da Lavapipe (yazılım Vulkan) ve Windows'ta yalnızca GPU varsa çalışan testler var; macOS/MoltenVK
