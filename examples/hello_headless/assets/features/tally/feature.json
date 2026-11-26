@@ -8,5 +8,5 @@
   "events": [],
   "exports": { "headers": ["tally.hpp"] },
   "scripts": ["features/tally/tally.luau"],
-  "actions": []
+  "actions": ["features/tally/tally.actions"]
 }

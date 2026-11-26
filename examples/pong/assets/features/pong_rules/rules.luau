@@ -60,7 +60,7 @@ local function seed_match(court: any, m: any)
     m.serve_timer = court.serve_delay
 end
 
--- Your paddle: WASD / arrows ("move") or the mouse ("look"). Frame-rate based (input is per frame).
+-- Your paddle: WASD / arrows / gamepad ("move", "aim") or the mouse ("look"). Frame-rate based (input is per frame).
 astral.system({
     name = "player_control",
     phase = "Update",
@@ -74,10 +74,11 @@ astral.system({
             return
         end
         local move = astral.input.axis("move")
+        local aim = astral.input.axis("aim")
         local look = astral.input.axis("look")
         local p = transform.position
-        local x = p.x + clamp(move.x, -1, 1) * paddle.speed * ctx.delta + look.x
-        local y = p.y + clamp(move.y, -1, 1) * paddle.speed * ctx.delta + look.y
+        local x = p.x + clamp(move.x + aim.x, -1, 1) * paddle.speed * ctx.delta + look.x
+        local y = p.y + clamp(move.y + aim.y, -1, 1) * paddle.speed * ctx.delta + look.y
         transform.position = clamp_to_court(vector.create(x, y, p.z), paddle, court)
     end,
 })

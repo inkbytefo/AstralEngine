@@ -5,7 +5,11 @@
 #include <doctest/doctest.h>
 
 #include <cmath>
+#include <filesystem>
 #include <functional>
+#include <span>
+#include <string>
+#include <vector>
 
 using namespace astral;
 
@@ -26,8 +30,26 @@ struct Run final : Game {
     }
 };
 
-App make_app() {
-    return App({.headless = true, .fixed_timestep = 1.0f / 60.0f, .asset_root = ASTRAL_GAME_ASSETS, .hot_reload = false});
+struct TempSaveDir {
+    std::filesystem::path path;
+    explicit TempSaveDir(const char* tag) : path(std::filesystem::temp_directory_path() / tag) {
+        std::error_code ec;
+        std::filesystem::remove_all(path, ec);
+        std::filesystem::create_directories(path, ec);
+    }
+    ~TempSaveDir() {
+        std::error_code ec;
+        std::filesystem::remove_all(path, ec);
+    }
+};
+
+App make_app(std::string_view save_folder = "saves", std::span<const InputScriptEvent> script = {}) {
+    return App({.headless = true,
+                .fixed_timestep = 1.0f / 60.0f,
+                .asset_root = ASTRAL_GAME_ASSETS,
+                .hot_reload = false,
+                .save_folder = save_folder,
+                .input_script = script});
 }
 
 Entity named(World& w, const char* name) {
@@ -181,4 +203,232 @@ TEST_CASE("the match is heard: serves and bounces are events, the court sounds l
     CHECK(walls >= 1);
     CHECK(paddles >= 2);
     CHECK(most_voices >= 2); // the court hum plus effects
+}
+
+namespace {
+
+int count_children_of(World& w, Entity parent) {
+    int count = 0;
+    w.each<const Parent>([&](const Parent& p) {
+        if (p.entity == parent) ++count;
+    });
+    return count;
+}
+
+void seed_custom_match(World& w) {
+    pong::Match& m = *w.get<pong::Match>(named(w, "court"));
+    m.player = 3;
+    m.opponent = 2;
+    m.rallies = 12;
+    m.serve_rng = 12345;
+    m.ai_rng = 67890;
+    m.serve_timer = 0.0f;
+    m.seeded = true;
+    const Entity ball = named(w, "ball");
+    w.get<Transform>(ball)->position = {1.1f, -0.4f, 1.5f};
+    w.get<pong::Ball>(ball)->velocity = {2.0f, -1.0f, -6.0f};
+    w.get<Transform>(named(w, "player paddle"))->position = {-1.0f, 0.5f, 8.4f};
+    w.get<Transform>(named(w, "opponent paddle"))->position = {0.8f, -0.4f, -8.4f};
+}
+
+struct SaveSnapshotCheck {
+    bool file_written = false;
+    pong::Match restored{};
+    Vec3 ball_pos{}, player_pos{}, opponent_pos{};
+    Vec3 player_pip2{}, player_pip3{}, opp_pip1{}, opp_pip2{};
+    int player_children = 0, opp_children = 0;
+    std::size_t paddles = 0, balls = 0, pips = 0, courts = 0, sounds = 0;
+};
+
+void capture_snapshot(World& w, SaveSnapshotCheck& out) {
+    out.restored = *pong::match(w);
+    out.ball_pos = w.get<Transform>(named(w, "ball"))->position;
+    out.player_pos = w.get<Transform>(named(w, "player paddle"))->position;
+    out.opponent_pos = w.get<Transform>(named(w, "opponent paddle"))->position;
+    out.player_children = count_children_of(w, named(w, "player paddle"));
+    out.opp_children = count_children_of(w, named(w, "opponent paddle"));
+    out.paddles = w.count<pong::Paddle>();
+    out.balls = w.count<pong::Ball>();
+    out.pips = w.count<pong::ScorePip>();
+    out.courts = w.count<pong::Court>();
+    out.sounds = w.count<pong::Sounds>();
+    w.each<const pong::ScorePip, const PrimitiveMesh>([&](const pong::ScorePip& p, const PrimitiveMesh& m) {
+        if (p.side == pong::Side::Player && p.index == 2) out.player_pip2 = m.material.emissive;
+        if (p.side == pong::Side::Player && p.index == 3) out.player_pip3 = m.material.emissive;
+        if (p.side == pong::Side::Opponent && p.index == 1) out.opp_pip1 = m.material.emissive;
+        if (p.side == pong::Side::Opponent && p.index == 2) out.opp_pip2 = m.material.emissive;
+    });
+}
+
+void scramble_match(World& w) {
+    pong::Match& m = *w.get<pong::Match>(named(w, "court"));
+    m.player = 0;
+    m.opponent = 4;
+    m.rallies = 99;
+    w.get<Transform>(named(w, "ball"))->position = {-2.5f, 1.2f, -4.0f};
+    w.get<Transform>(named(w, "player paddle"))->position = {-2.0f, -1.0f, 8.4f};
+}
+
+} // namespace
+
+TEST_CASE("save and load match slots restore state, pips, and scene integrity") {
+    TempSaveDir saves("astral_pong_save_slot_test");
+    const std::string dir = saves.path.string();
+    const InputScriptEvent script[] = {
+        {.frame = 5, .key = Key::F5, .down = true},
+        {.frame = 6, .key = Key::F5, .down = false},
+        {.frame = 20, .key = Key::F9, .down = true},
+        {.frame = 21, .key = Key::F9, .down = false},
+    };
+    App app = make_app(dir, script);
+    Run run;
+    run.player_ai = false;
+    SaveSnapshotCheck s;
+    run.setup = [&](Context& ctx) { ctx.world.get<pong::Paddle>(named(ctx.world, "opponent paddle"))->ai = false; };
+    run.each_frame = [&](Context& ctx) {
+        if (ctx.time.frame == 5) seed_custom_match(ctx.world);
+        if (ctx.time.frame == 7) s.file_written = std::filesystem::exists(saves.path / "match.json");
+        if (ctx.time.frame == 15) scramble_match(ctx.world);
+        if (ctx.time.frame == 21) capture_snapshot(ctx.world, s);
+    };
+    app.run_frames(run, 22);
+    CHECK(app.context().scripts->take_errors().empty());
+    CHECK(s.file_written);
+    CHECK(s.restored.player == 3);
+    CHECK(s.restored.opponent == 2);
+    CHECK(s.restored.rallies == 12);
+    CHECK(s.restored.serve_rng == 12345);
+    CHECK(s.restored.ai_rng == 67890);
+    CHECK(s.ball_pos.x == doctest::Approx(1.1f + 2.0f / 60.0f).epsilon(0.01));
+    CHECK(s.ball_pos.y == doctest::Approx(-0.4f - 1.0f / 60.0f).epsilon(0.01));
+    CHECK(s.player_pos.x == doctest::Approx(-1.0f));
+    CHECK(s.player_pos.y == doctest::Approx(0.5f));
+    CHECK(s.opponent_pos.x == doctest::Approx(0.8f));
+    CHECK(s.opponent_pos.y == doctest::Approx(-0.4f));
+    CHECK(s.paddles == 2);
+    CHECK(s.balls == 1);
+    CHECK(s.pips == 10);
+    CHECK(s.courts == 1);
+    CHECK(s.sounds == 1);
+    CHECK(s.player_children == 4);
+    CHECK(s.opp_children == 5);
+    CHECK(s.player_pip2.z > 1.0f);
+    CHECK(s.player_pip3.z < 0.2f);
+    CHECK(s.opp_pip1.x > 1.0f);
+    CHECK(s.opp_pip2.x < 0.2f);
+}
+
+TEST_CASE("a saved match reloads into a new App session from the save folder") {
+    TempSaveDir saves("astral_pong_cross_session_test");
+    const std::string dir = saves.path.string();
+    const InputScriptEvent save_script[] = {
+        {.frame = 3, .key = Key::F5, .down = true},
+        {.frame = 4, .key = Key::F5, .down = false},
+    };
+    {
+        App app = make_app(dir, save_script);
+        Run run;
+        run.player_ai = false;
+        run.setup = [&](Context& ctx) { ctx.world.get<pong::Paddle>(named(ctx.world, "opponent paddle"))->ai = false; };
+        run.each_frame = [&](Context& ctx) {
+            if (ctx.time.frame == 3) seed_custom_match(ctx.world);
+        };
+        app.run_frames(run, 6);
+        CHECK(app.context().scripts->take_errors().empty());
+    }
+    const InputScriptEvent load_script[] = {
+        {.frame = 2, .key = Key::F9, .down = true},
+        {.frame = 3, .key = Key::F9, .down = false},
+    };
+    App app2 = make_app(dir, load_script);
+    Run run2;
+    run2.player_ai = false;
+    pong::Match reloaded{};
+    run2.setup = [&](Context& ctx) { ctx.world.get<pong::Paddle>(named(ctx.world, "opponent paddle"))->ai = false; };
+    run2.each_frame = [&](Context& ctx) {
+        if (ctx.time.frame == 3) reloaded = *pong::match(ctx.world);
+    };
+    app2.run_frames(run2, 4);
+    CHECK(app2.context().scripts->take_errors().empty());
+    CHECK(reloaded.player == 3);
+    CHECK(reloaded.opponent == 2);
+    CHECK(reloaded.rallies == 12);
+    CHECK(reloaded.serve_rng == 12345);
+    CHECK(reloaded.ai_rng == 67890);
+}
+
+TEST_CASE("loading with no existing save slot leaves the match unchanged and error-free") {
+    TempSaveDir saves("astral_pong_empty_slot_test");
+    const InputScriptEvent script[] = {
+        {.frame = 2, .key = Key::F9, .down = true},
+        {.frame = 3, .key = Key::F9, .down = false},
+    };
+    App app = make_app(saves.path.string(), script);
+    Run run;
+    run.player_ai = false;
+    pong::Match after{};
+    run.setup = [&](Context& ctx) { ctx.world.get<pong::Paddle>(named(ctx.world, "opponent paddle"))->ai = false; };
+    run.each_frame = [&](Context& ctx) {
+        if (ctx.time.frame == 1) ctx.world.get<pong::Match>(named(ctx.world, "court"))->player = 2;
+        if (ctx.time.frame == 4) after = *pong::match(ctx.world);
+    };
+    app.run_frames(run, 5);
+    CHECK(app.context().scripts->take_errors().empty());
+    CHECK(after.player == 2);
+}
+
+TEST_CASE("gamepad input actions move the player paddle and trigger save/load") {
+    TempSaveDir saves("astral_pong_gamepad_test");
+    App app = make_app(saves.path.string());
+    Run run;
+    run.player_ai = false;
+    Input pad;
+    Vec3 after_left_stick{}, after_deadzone{}, after_dpad{}, after_right_stick{};
+    bool saved_by_pad = false;
+    pong::Match after_pad_load{};
+    run.setup = [&](Context& ctx) { ctx.world.get<pong::Paddle>(named(ctx.world, "opponent paddle"))->ai = false; };
+    run.each_frame = [&](Context& ctx) {
+        World& w = ctx.world;
+        const std::uint64_t f = ctx.time.frame;
+        pad.begin_frame();
+        pad.set_gamepad_connected(true);
+        pad.set_gamepad_axis(GamepadAxis::LeftX, (f >= 1 && f <= 15) ? 1.0f : (f >= 16 && f <= 30) ? 0.05f : 0.0f);
+        pad.set_gamepad_axis(GamepadAxis::LeftY, (f >= 1 && f <= 15) ? 0.5f : (f >= 16 && f <= 30) ? 0.05f : 0.0f);
+        pad.set_gamepad_button(GamepadButton::DpadLeft, f >= 31 && f <= 45);
+        pad.set_gamepad_button(GamepadButton::DpadDown, f >= 31 && f <= 45);
+        pad.set_gamepad_axis(GamepadAxis::RightY, (f >= 46 && f <= 60) ? 1.0f : 0.0f);
+        pad.set_gamepad_button(GamepadButton::LeftShoulder, f == 62);
+        pad.set_gamepad_button(GamepadButton::RightShoulder, f == 65);
+        ctx.actions.update(pad);
+
+        const Vec3 p = w.get<Transform>(named(w, "player paddle"))->position;
+        if (f == 16) after_left_stick = p;
+        if (f == 31) after_deadzone = p;
+        if (f == 46) after_dpad = p;
+        if (f == 61) after_right_stick = p;
+        if (f == 62) {
+            pong::Match& m = *w.get<pong::Match>(named(w, "court"));
+            m.player = 2;
+            m.opponent = 1;
+        }
+        if (f == 64) {
+            saved_by_pad = std::filesystem::exists(saves.path / "match.json");
+            pong::Match& m = *w.get<pong::Match>(named(w, "court"));
+            m.player = 0;
+            m.opponent = 4;
+        }
+        if (f == 66) after_pad_load = *pong::match(w);
+    };
+    app.run_frames(run, 67);
+    CHECK(app.context().scripts->take_errors().empty());
+    CHECK(after_left_stick.x > 1.0f);
+    CHECK(after_left_stick.y > 0.5f);
+    CHECK(after_deadzone.x == doctest::Approx(after_left_stick.x));
+    CHECK(after_deadzone.y == doctest::Approx(after_left_stick.y));
+    CHECK(after_dpad.x < after_deadzone.x - 1.0f);
+    CHECK(after_dpad.y < after_deadzone.y - 1.0f);
+    CHECK(after_right_stick.y > after_dpad.y + 1.0f);
+    CHECK(saved_by_pad);
+    CHECK(after_pad_load.player == 2);
+    CHECK(after_pad_load.opponent == 1);
 }

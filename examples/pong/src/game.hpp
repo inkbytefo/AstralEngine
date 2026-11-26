@@ -31,6 +31,9 @@ private:
     void draw_hud(astral::Context& ctx, const Match& m) const;
     bool demo_;
     int shown_ = -1;
+    astral::EventReader<SaveNotice> notices_;
+    SaveNotice::Kind notice_kind_ = SaveNotice::Kind::Saved;
+    float notice_timer_ = 0.0f;
 };
 
 /// Current match state (null before the court scene is loaded).
