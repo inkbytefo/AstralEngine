@@ -326,6 +326,8 @@ public:
     void set_joint_motor_position(JointHandle joint, float position);
     void set_joint_motor_angular_velocity(JointHandle joint, Vec3 angular_velocity);
     void set_joint_motor_rotation(JointHandle joint, Quat target_rotation);
+    /// Hinge (radians), Slider (metres), Distance (min/max length). SixDOF and SwingTwist have no single range:
+    /// a warning is logged and nothing changes (use the JointLimitsDesc overload).
     void set_joint_limits(JointHandle joint, float min_limit, float max_limit);
     void set_joint_limits(JointHandle joint, const JointLimitsDesc& limits);
     void break_joint(JointHandle joint);

@@ -1,6 +1,7 @@
 // P0 Physics API v2 tests (ADR-0038): SixDOF, SwingTwist, motors, break events,
 // cooked shapes, physics materials, batched queries, capabilities, and origin shift.
 #include <astral/core/jobs.hpp>
+#include <astral/core/log.hpp>
 #include <astral/physics/physics.hpp>
 #include <doctest/doctest.h>
 
@@ -345,4 +346,26 @@ TEST_CASE("Origin shift preserves world-anchored joint geometry and stability") 
         worst = std::max(worst, std::abs(length(world.position(bob) - Vec3{0.0f, 5.0f, 0.0f}) - 2.0f));
     }
     CHECK(worst < 0.08f);
+}
+
+TEST_CASE("the single-range set_joint_limits says so when the joint type needs JointLimitsDesc") {
+    struct Capture final : ILogSink {
+        std::vector<std::string> lines;
+        void write(const LogRecord& r) override { lines.emplace_back(r.message); }
+    };
+    auto sink = std::make_shared<Capture>();
+    Logger log;
+    log.add_sink(sink);
+    PhysicsWorld world({.logger = &log});
+    const BodyHandle body = world.create_body({.shape = ShapeDesc::box({0.2f, 0.2f, 0.2f}), .position = {0, 2, 0}, .gravity_factor = 0.0f});
+    JointDesc six{};
+    six.type = JointType::SixDOF;
+    six.body_b = body;
+    six.anchor = {0, 2, 0};
+    const JointHandle j = world.create_joint(six);
+    REQUIRE(j.valid());
+    world.set_joint_limits(j, -0.5f, 0.5f); // has no meaning for SixDOF: it must not pass silently
+    const bool warned = std::any_of(sink->lines.begin(), sink->lines.end(),
+                                    [](const std::string& l) { return l.find("JointLimitsDesc") != std::string::npos; });
+    CHECK(warned);
 }
