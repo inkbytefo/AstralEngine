@@ -59,3 +59,4 @@ ADR eskisini "yerini aldı" diye işaretler.
 | [0052](0052-script-budget-per-module.md) | Luau zaman bütçesi modül ve faz başına; aşımdan sonra yeniden kurulur (status §4) | Kabul |
 | [0053](0053-editor-rollback-and-hierarchy-rules.md) | Editör: oluşturulan dosyaların geri alınması, ebeveyn döngüsü, silmede çocuklar köke (status §4) | Kabul |
 | [0054](0054-headless-silent-mixer-clock.md) | Başsız çalışmada sessiz mikser oyun saatiyle ilerler (status §4) | Kabul |
+| [0055](0055-material-shader-hardening-and-layers.md) | Material/shader sertleştirme, shader'da texture, PBR tamamlama, katman ve maske harmanı | Önerildi |
