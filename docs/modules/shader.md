@@ -109,12 +109,7 @@ azaltılır.
 
 - **SPIR-V optimize edilmez:** `disableOptimizer = true`, hata ayıklama bilgisi kapalı
   (`modules/shader/src/compile.cpp:141`). Üretilen SPIR-V'nin sürücü tarafındaki derleme/çalışma maliyeti etkisi ölçülmedi.
-- **Önişlemci satırı başlıktan önce gelirse başlık ifadesi bozulur:** üst düzey tarayıcı `;` veya `{`'ye kadar okur ve ifadenin ilk
-  sözcüğüne bakar; `#define N 4` satırının hemen ardından `uniform float a;` gelirse ifade `#define N 4 uniform float a` olarak
-  okunur, ilk sözcük boş kalır, başlık ifadesi olarak tanınmaz ve uniform gövdede ham GLSL olarak kalır
-  (`modules/shader/src/ashader.cpp:241`, `modules/shader/src/ashader.cpp:292`). Kod okumasından çıkarım; çalıştırılarak doğrulanmadı ve
-  testte yok. Güvenli kullanım: başlık ifadelerini `#define` satırlarından önce yazmak. Dilin `#ifdef` anahtarı da yoktur (bilinçli,
-  varyant patlamasını önlemek için ADR-0022).
+- **Önişlemci satırları** (`#define`, `#include` ...) başlık ifadelerini bozmaz: üst düzey tarayıcı `#` ile başlayan satırı atlar ve gövdede bırakır (`modules/shader/src/ashader.cpp`, test `modules/shader/tests/ashader_test.cpp` "a preprocessor line before a header statement ..."). Dilin `#ifdef` anahtarı yine yoktur (bilinçli, ADR-0022).
 - **`varying` tipi doğrulanmaz:** yazılan tip dizgesi olduğu gibi saklanır; yanlış tip derleme aşamasında glslang hatası olur
   (`modules/shader/src/ashader.cpp:273`).
 - **Yalnız `sampler2D`:** `sampler2DArray`, cube, 3B doku, dizi uniform'ları ve `struct` uniform'ları yok

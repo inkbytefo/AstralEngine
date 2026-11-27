@@ -90,7 +90,7 @@ Metin her zaman tek doğruluk kaynağı: diff'lenir, yapay zekâ yazar, insan ok
 
 ## M10'da uygulanan (sapmalar ve sınırlar)
 
-- Türler: `surface`, `post`, `sky` çalışıyor; `particle`/`volume` (M14) ve `ui` ayrıştırılır, derlenmez.
+- Türler: `surface`, `post`, `sky`, `particle`, `volume` çalışıyor (güncel: ADR-0055 incelemesi); `ui` ayrıştırılır, derlenmez.
 - `post` yalnız `after_tonemap`; `before_tonemap` (HDR) şimdilik yok.
 - Şeffaf: ayrı ileri geçiş, tonemap sonrası, kendi aydınlatması; gölge ve RT'ye girmez. "Ekran uzayı kırılma" ve
   "RT yansımada şeffaflar" ertelendi.
