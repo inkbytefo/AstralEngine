@@ -128,3 +128,15 @@ TEST_CASE("defaults fill what the material leaves out") {
     CHECK(std::bit_cast<float>(v.params[3]) == doctest::Approx(0.4f));
     CHECK(v.warnings.empty());
 }
+
+TEST_CASE("booleans are accepted as vector components like they are as scalars") {
+    const ShaderParse p = parse_ashader("shader_type surface;\nuniform vec2 mask = vec2(0.0);\nvoid surface() {}\n");
+    REQUIRE(p.errors.empty());
+    MaterialFile m;
+    m.shader = "s.ashader";
+    m.values.emplace_back("mask", *Json::parse("[true,false]", nullptr));
+    const UniformValues v = evaluate_uniforms(p.source, layout_uniforms(p.source), m);
+    CHECK(v.warnings.empty());
+    CHECK(std::bit_cast<float>(v.params[0]) == doctest::Approx(1.0f));
+    CHECK(std::bit_cast<float>(v.params[1]) == doctest::Approx(0.0f));
+}

@@ -107,7 +107,7 @@ UniformValues evaluate_uniforms(const ShaderSource& shader, const UniformLayout&
             } else if (v->is_array() && v->size() == n) {
                 ok = true;
                 for (const Json& c : v->as_array()) {
-                    const auto w = c.is_number() ? word(c) : std::nullopt;
+                    const auto w = (c.is_number() || c.is_bool()) ? word(c) : std::nullopt;
                     ok = ok && w.has_value();
                     given.push_back(w.value_or(0u));
                 }

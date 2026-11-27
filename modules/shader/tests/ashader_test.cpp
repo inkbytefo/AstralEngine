@@ -158,3 +158,21 @@ TEST_CASE("parse_ashader parses shading_model for surface shaders and rejects in
     const ShaderParse bad_type = parse_ashader("shader_type sky;\nshading_model clearcoat;\nvoid sky() {}\n");
     CHECK_FALSE(bad_type.errors.empty());
 }
+
+TEST_CASE("a preprocessor line before a header statement does not swallow it") {
+    const ShaderParse p = parse_ashader(
+        "shader_type surface;\n"
+        "#define STEPS 4\n"
+        "uniform float a = 1.0;\n"
+        "#define OTHER 2\n"
+        "render_mode alpha_test;\n"
+        "void surface() { ALBEDO = vec3(a); }\n");
+    REQUIRE_MESSAGE(p.errors.empty(), (p.errors.empty() ? "" : p.errors[0].message));
+    REQUIRE(p.source.uniforms.size() == 1);
+    CHECK(p.source.uniforms[0].name == "a");
+    CHECK(p.source.has_render_mode("alpha_test"));
+    // The preprocessor lines stay in the GLSL body; the header statements are blanked.
+    CHECK(p.source.body.find("#define STEPS 4") != std::string::npos);
+    CHECK(p.source.body.find("uniform") == std::string::npos);
+    CHECK(p.source.body.find("render_mode") == std::string::npos);
+}

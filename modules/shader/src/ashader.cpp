@@ -292,6 +292,10 @@ struct Parser {
         while (i < clean.size()) {
             while (i < clean.size() && std::isspace(static_cast<unsigned char>(clean[i]))) ++i;
             if (i >= clean.size()) break;
+            if (clean[i] == '#') { // a preprocessor line is GLSL body, not part of the next statement
+                while (i < clean.size() && clean[i] != '\n') ++i;
+                continue;
+            }
             const std::size_t start = i;
             int parens = 0;
             while (i < clean.size()) {
