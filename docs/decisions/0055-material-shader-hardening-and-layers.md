@@ -22,7 +22,7 @@ Material/shader incelemesinde (2026-11-27, master cdf2188) şunlar bulundu:
 
 **Tek branch (`claude/material-shader-hardening`), hotfix raporu olarak yayınlanır.** Dilimler bağımsız commit'lerdir; her biri önce başarısız testle başlar.
 
-### D1. Sağlamlık (dilim 1) — **uygulandı** (önişlemci satırı + vec içinde bool; bilinmeyen uniform sınıfı bekliyor)
+### D1. Sağlamlık (dilim 1) — **uygulandı** (önişlemci satırı + vec içinde bool; PBR'da bilinmeyen parametre uyarıya çekildi)
 - `vec` dizisinde bool bileşenleri 0/1 olarak kabul edilir.
 - Özel shader materyalinde bilinmeyen uniform adı da **hata** değil, ama PBR ile aynı sınıfta raporlanır: ikisi de `MaterialFile::warnings` benzeri tek kanaldan, aynı iletiyle (`unknown parameter`). Karar: ikisi de **uyarı + materyal kurulur**, çünkü hot reload sırasında yazım hatası çalışan sahneyi öldürmemeli. PBR'daki hata davranışı uyarıya çekilir.
 - Ayrıştırıcı: önişlemci satırı (`#define`, `#include`) başlık ifadesini bozmaz.

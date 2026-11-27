@@ -63,8 +63,8 @@ Değer kuralları (`modules/render/src/material_file.cpp:73-125`):
   `clearcoat`, `sheen`, `anisotropy`, `transmission`, `subsurface`, `detail`, `wetness`, `mapping`
   (`modules/render/include/astral/render/renderer.hpp:465-466`). İç içe alanlar nesne olarak yazılır (örnek: `"clearcoat": {"strength": 1}`).
 - `metallic_roughness_texture` glTF düzenindedir: G = roughness, B = metallic (`modules/render/include/astral/render/renderer.hpp:104`).
-- Bilinmeyen ad burada **hatadır** (`unknown PBR parameter`) ve materyal kurulmaz (`modules/app/src/material_library.cpp:203-209`).
-  Özel shader yolundaki uyarı davranışından farklıdır.
+- Bilinmeyen ad **uyarıdır** (`is not a PBR parameter`), materyal kurulur ve geçerli değerler uygulanır; özel shader yoluyla aynı davranış (ADR-0055 D1). Yazım hatası çalışan sahneyi hot reload sırasında öldürmez, günlükte görünür.
+  
 
 ## 2. Ebeveyn zinciri (`parent`)
 

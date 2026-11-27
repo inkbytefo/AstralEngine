@@ -202,7 +202,7 @@ bool MaterialLibrary::build_pbr(const MaterialFile& file, MaterialDesc& desc, st
         }
         bool known = false;
         for_each_field<MaterialDesc>([&](auto field) { known |= field.name == name; });
-        if (!known) errors.push_back(name + ": unknown PBR parameter");
+        if (!known) log_.log(LogLevel::Warn, "material " + file.dependencies.front() + ": '" + name + "' is not a PBR parameter"); // a typo must not kill a running scene on hot reload
         else factors[name] = value;
     }
     const bool parsed = from_json(factors, desc, {.resolve = {}, .errors = &errors, .path = "values"});

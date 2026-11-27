@@ -212,3 +212,17 @@ TEST_CASE("standard PBR material assets inherit values and draw a primitive") {
     CHECK(c.g > 150);
     CHECK(c.r < 30);
 }
+
+TEST_CASE("a misspelled standard PBR parameter warns instead of refusing the material") {
+    const auto dir = test::temp_dir("app_pbr_unknown_parameter");
+    write_text(dir / "typo.material", R"({"format":"astral.material","version":1,"type":"pbr",
+        "values":{"roughness":0.3,"metalicness":1.0}})");
+    App app({.width = 80, .height = 60, .render = {.ray_tracing = false},
+             .asset_root = dir.string(), .offscreen = true});
+    if (!app.context().renderer) return;
+    const auto handle = app.context().materials().load_material("typo.material");
+    REQUIRE(handle.valid());
+    const auto* desc = app.context().renderer->material(handle);
+    REQUIRE(desc);
+    CHECK(desc->roughness == doctest::Approx(0.3f)); // the valid values still apply
+}
