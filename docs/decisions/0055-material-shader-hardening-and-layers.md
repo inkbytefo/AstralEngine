@@ -28,7 +28,7 @@ Material/shader incelemesinde (2026-11-27, master cdf2188) şunlar bulundu:
 - Ayrıştırıcı: önişlemci satırı (`#define`, `#include`) başlık ifadesini bozmaz.
 - `ui` türü ve diğer tüketicisiz türler dokümanda "tüketicisiz" diye kalır; ADR-0022 durumu güncellenir (particle/volume derlenir).
 
-### D2. Ebeveyn zincirinde derin birleştirme (dilim 2)
+### D2. Ebeveyn zincirinde derin birleştirme (dilim 2) — **uygulandı**
 Çocuk `mapping`/`clearcoat`/`detail` gibi nesne yazarsa ebeveynin nesnesi alan alan birleşir (çocuk kazanır). Diziler ve skalerler değişmez. Sınır: `resolve_material` içinde, JSON'a özgü; render'a sızmaz.
 
 ### D3. Shader'da texture (dilim 3)

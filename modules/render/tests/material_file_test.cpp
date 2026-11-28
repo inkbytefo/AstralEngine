@@ -140,3 +140,34 @@ TEST_CASE("booleans are accepted as vector components like they are as scalars")
     CHECK(std::bit_cast<float>(v.params[0]) == doctest::Approx(1.0f));
     CHECK(std::bit_cast<float>(v.params[1]) == doctest::Approx(0.0f));
 }
+
+TEST_CASE("nested objects merge field by field through the parent chain, the child winning") {
+    Files files;
+    files.text["base.material"] = R"({"format":"astral.material","version":1,"type":"pbr",
+        "values":{"mapping":{"projection":"Triplanar","tile_size_m":2,"blend_sharpness":6},
+                  "clearcoat":{"strength":0.8,"roughness":0.2}, "roughness":0.5}})";
+    files.text["child.material"] = R"({"format":"astral.material","version":1,"parent":"base.material",
+        "values":{"mapping":{"tile_size_m":4},"clearcoat":{"strength":0.1}}})";
+    const MaterialFile m = resolve_material("child.material", files.reader());
+    REQUIRE(m.ok());
+    const Json* mapping = m.value("mapping");
+    REQUIRE(mapping != nullptr);
+    CHECK((*mapping)["tile_size_m"].as_number() == doctest::Approx(4.0));        // child wins
+    CHECK((*mapping)["projection"].as_string() == "Triplanar");                  // kept from the parent
+    CHECK((*mapping)["blend_sharpness"].as_number() == doctest::Approx(6.0));    // kept from the parent
+    const Json* coat = m.value("clearcoat");
+    REQUIRE(coat != nullptr);
+    CHECK((*coat)["strength"].as_number() == doctest::Approx(0.1));
+    CHECK((*coat)["roughness"].as_number() == doctest::Approx(0.2));
+    CHECK(m.value("roughness")->as_number() == doctest::Approx(0.5));
+}
+
+TEST_CASE("arrays and scalars are replaced, not merged, by the child") {
+    Files files;
+    files.text["base.material"] = R"({"format":"astral.material","version":1,"type":"pbr","values":{"base_color":[1,1,1,1]}})";
+    files.text["child.material"] = R"({"format":"astral.material","version":1,"parent":"base.material","values":{"base_color":[0,0,1,1]}})";
+    const MaterialFile m = resolve_material("child.material", files.reader());
+    REQUIRE(m.ok());
+    CHECK((*m.value("base_color"))[0].as_number() == doctest::Approx(0.0));
+    CHECK((*m.value("base_color"))[2].as_number() == doctest::Approx(1.0));
+}

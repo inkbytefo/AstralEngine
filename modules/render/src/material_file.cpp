@@ -17,6 +17,16 @@ std::size_t component_count(UniformType t) {
     }
 }
 
+/// Adds the members `from` has and `into` lacks, recursing into objects; `into` (the child) wins.
+void fill_missing(Json& into, const Json& from) {
+    for (const auto& [key, value] : from.as_object()) {
+        const bool present = into.find(key) != nullptr;
+        Json& slot = into[key];
+        if (!present) slot = value;
+        else if (slot.is_object() && value.is_object()) fill_missing(slot, value);
+    }
+}
+
 } // namespace
 
 const Json* MaterialFile::value(std::string_view name) const noexcept {
@@ -60,7 +70,9 @@ MaterialFile resolve_material(std::string_view path, const MaterialReader& read)
             if (shader.is_string()) m.shader = shader.as_string();
         }
         for (const auto& [name, v] : (*doc)["values"].as_object()) {
-            if (!m.value(name)) m.values.emplace_back(name, v); // the child (read first) wins
+            auto existing = std::find_if(m.values.begin(), m.values.end(), [&](const auto& e) { return e.first == name; });
+            if (existing == m.values.end()) m.values.emplace_back(name, v); // the child (read first) wins
+            else if (existing->second.is_object() && v.is_object()) fill_missing(existing->second, v); // field by field (ADR-0055 D2)
         }
         const Json& parent = (*doc)["parent"];
         if (!parent.is_string() || parent.as_string().empty()) break;

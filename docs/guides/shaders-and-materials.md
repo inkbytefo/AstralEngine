@@ -80,9 +80,7 @@ Değer kuralları (`modules/render/src/material_file.cpp:73-125`):
 - `shader`/`type` zincirde ilk bulunan yerden alınır. Çocuk başka bir `shader` yazarak shader'ı değiştirebilir
   (`modules/render/src/material_file.cpp:58-61`, test `modules/render/tests/material_file_test.cpp:48`).
 - En fazla 16 seviye; döngü hatadır (`parent cycle through ...`) (`modules/render/src/material_file.cpp:9`, `modules/render/src/material_file.cpp:33-40`).
-- **Birleştirme yalnız üst düzey adlarda yapılır.** Çocukta yazılan `mapping` ya da `clearcoat` nesnesi ebeveynin aynı nesnesini **tamamen**
-  değiştirir. Alan alan birleştirme yoktur: ebeveyndeki `mapping.uv_scale`, çocuk `mapping` yazınca varsayılana döner
-  (`modules/render/src/material_file.cpp:63`: anahtar bazlı `value(name)` kontrolü).
+- **İç içe nesneler alan alan birleşir** (ADR-0055 D2): çocuk `mapping: {"tile_size_m": 4}` yazarsa ebeveynin `projection` ve `blend_sharpness` değerleri korunur, yalnız `tile_size_m` değişir. Diziler ve skalerler (örn. `base_color`) tamamen değiştirilir, eleman eleman birleşmez (`modules/render/src/material_file.cpp`, testler `modules/render/tests/material_file_test.cpp`).
 - Hot reload zincirin tüm dosyalarını izler (`MaterialFile::dependencies`, `modules/render/include/astral/render/material_file.hpp:33`).
 
 ## 3. Doku projeksiyonu (`mapping`, yalnız `type: pbr`)
