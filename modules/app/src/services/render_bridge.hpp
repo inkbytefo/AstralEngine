@@ -93,6 +93,8 @@ public:
     void update_materials(double elapsed);
     void sync_models();
     void sync_primitives();
+    /// ADR-0055 D5: gives MaterialOverride entities their own derived material (and takes it back when they lose it).
+    void sync_material_overrides();
     void shift_origin(Vec3 offset);
     void render_frame(const RenderFrameInput& input);
 
@@ -135,6 +137,14 @@ private:
     gpu::BufferHandle offscreen_readback_{};
     std::unique_ptr<MaterialLibrary> material_library_;
     Tick primitives_seen_ = 0;
+    struct OverrideState {
+        Entity entity;
+        MaterialHandle base, derived;
+        std::vector<MaterialParam> applied;
+    };
+    std::unordered_map<std::uint64_t, OverrideState> overrides_;
+    std::uint64_t overrides_revision_ = 0;
+    std::vector<std::uint64_t> override_scratch_;
     std::unordered_map<PrimitiveMaterialKey, MaterialHandle, PrimitiveMaterialKeyHash> primitive_materials_;
     ViewportState viewport_{};
     RenderScratch scratch_;

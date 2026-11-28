@@ -75,7 +75,7 @@ adaptörleridir (`modules/app/src/app.cpp:99-166`, `modules/app/src/app.cpp:418-
 ### Bileşenler ve olaylar
 
 `components.hpp` motorun kendi bileşenlerini tanımlar ve `ASTRAL_REFLECT` ile kaydeder; `register_app_types` bunları `ctx.types`'a ekler (`modules/app/src/app.cpp:45-76`).
-Başlıcaları: `MeshRenderer`, `PrimitiveMesh`, `Camera`, `Atmosphere`, `Sdf`, `TerrainRef`, `RigidBody`, `CharacterController`, `Joint`, `JointMotor`,
+Başlıcaları: `MeshRenderer`, `PrimitiveMesh`, `MaterialOverride` (entity başına materyal değeri, ADR-0055 D5), `Camera`, `Atmosphere`, `Sdf`, `TerrainRef`, `RigidBody`, `CharacterController`, `Joint`, `JointMotor`,
 `WindZone`, `WaterBody`, `Buoyant`, `AirDrag`, `Airfoil`, `AudioSource`, `AudioListener`, `StreamingSource`
 (`modules/app/include/astral/app/components.hpp:17-262`). Olaylar: `Contact`, `TriggerEntered`, `TriggerExited`, `JointBroken`, `JointDetached`
 (`modules/app/include/astral/app/components.hpp:208-244`, kayıt `modules/app/src/app.cpp:70-74`). `Time` (`ctx.time`): `fixed_delta`, `delta`, `elapsed`, `frame`

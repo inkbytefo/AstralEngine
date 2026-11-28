@@ -178,6 +178,10 @@ RenderBridge::~RenderBridge() {
             if (handle.valid()) renderer_->destroy(handle);
         }
         primitive_materials_.clear();
+        for (const auto& [key, state] : overrides_) {
+            if (state.derived.valid()) renderer_->destroy(state.derived);
+        }
+        overrides_.clear();
         if (builtin_meshes_.cube.valid()) renderer_->destroy(builtin_meshes_.cube);
         if (builtin_meshes_.sphere.valid()) renderer_->destroy(builtin_meshes_.sphere);
         if (builtin_meshes_.plane.valid()) renderer_->destroy(builtin_meshes_.plane);
@@ -266,6 +270,50 @@ void RenderBridge::shift_origin(Vec3 offset) {
 }
 
 void RenderBridge::sync_primitives() { sync_primitives_in(world_, true); }
+
+void RenderBridge::sync_material_overrides() {
+    if (!renderer_ || !material_library_) return;
+    // Entities that lost the override (or the draw, or themselves): hand the base back and free the copy.
+    override_scratch_.clear();
+    for (const auto& [key, state] : overrides_) {
+        const bool alive = world_.alive(state.entity);
+        if (!alive || !world_.has<MaterialOverride>(state.entity) || !world_.has<MeshRenderer>(state.entity)) override_scratch_.push_back(key);
+    }
+    for (const std::uint64_t key : override_scratch_) {
+        const auto it = overrides_.find(key);
+        if (MeshRenderer* r = world_.alive(it->second.entity) ? world_.get<MeshRenderer>(it->second.entity) : nullptr) {
+            if (r->material == it->second.derived) r->material = it->second.base;
+        }
+        renderer_->destroy(it->second.derived);
+        overrides_.erase(it);
+    }
+    // Everything the library rebuilt since last time (hot reload, edits) is applied again.
+    const std::uint64_t revision = material_library_->revision();
+    const bool library_changed = revision != overrides_revision_;
+    overrides_revision_ = revision;
+    world_.each<MeshRenderer, const MaterialOverride>([&](Entity e, MeshRenderer& r, const MaterialOverride& o) {
+        const std::uint64_t key = to_user_data(e);
+        auto it = overrides_.find(key);
+        if (it == overrides_.end()) {
+            const MaterialHandle derived = material_library_->derive(r.material, o.params, {});
+            if (!derived.valid()) return;
+            overrides_.emplace(key, OverrideState{e, r.material, derived, o.params});
+            r.material = derived;
+            return;
+        }
+        OverrideState& s = it->second;
+        bool dirty = library_changed || s.applied != o.params;
+        if (r.material != s.derived) { // something re-assigned the base (a primitive was edited): derive from the new one
+            s.base = r.material;
+            r.material = s.derived;
+            dirty = true;
+        }
+        if (dirty) {
+            material_library_->derive(s.base, o.params, s.derived);
+            s.applied = o.params;
+        }
+    });
+}
 
 void RenderBridge::sync_primitives_in(World& w, bool incremental) {
     sync_scratch_.gone.clear();

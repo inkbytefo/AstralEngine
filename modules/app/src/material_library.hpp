@@ -5,12 +5,14 @@
 
 #include "string_hash.hpp"
 
+#include <astral/app/components.hpp>
 #include <astral/render/material_file.hpp>
 #include <astral/render/renderer.hpp>
 
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -32,6 +34,11 @@ public:
 
     /// The material for a .material path, loaded on first use; invalid (and logged) if it cannot be built.
     MaterialHandle get(std::string_view path);
+    /// ADR-0055 D5: a copy of `base` with `params` applied. `derived` invalid: creates the copy (invalid result if `base` is
+    /// unknown); valid: updates that copy in place and returns it. Unknown names and wrong types are logged and skipped.
+    MaterialHandle derive(MaterialHandle base, std::span<const MaterialParam> params, MaterialHandle derived);
+    /// Bumps whenever any material is (re)built, edited or gets a texture back; derived materials follow it.
+    [[nodiscard]] std::uint64_t revision() const noexcept { return revision_; }
     /// Hot reload: checks the files every 0.25 s of `now` (seconds).
     void update(double now);
 
@@ -95,6 +102,7 @@ private:
     bool watch_;
     Logger& log_;
     double next_check_ = 0.0;
+    std::uint64_t revision_ = 0;
     std::vector<std::unique_ptr<Shader>> shaders_;
     std::unordered_map<std::string, std::size_t, StringHash, std::equal_to<>> shader_index_;
     std::vector<std::unique_ptr<Material>> materials_;

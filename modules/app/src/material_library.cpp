@@ -8,6 +8,7 @@
 #include <astral/world/serialize.hpp>
 
 #include <algorithm>
+#include <array>
 #include <system_error>
 
 namespace astral {
@@ -71,6 +72,7 @@ void MaterialLibrary::update_textures() {
         if (reload_texture(tex) && missing) recovered = true;
     }
     if (!recovered) return;
+    ++revision_;
 
     for (auto& material : materials_) {
         if (material->file.standard_pbr) {
@@ -188,26 +190,31 @@ MaterialLibrary::Shader* MaterialLibrary::install_shader(const std::string& path
     return shaders_.back().get();
 }
 
+namespace {
+struct PbrTextureSlot {
+    std::string_view name;
+    TextureHandle& handle;
+    bool srgb;
+};
+/// The standard PBR texture parameters of `desc` (names as in .material files).
+std::array<PbrTextureSlot, 8> pbr_texture_slots(MaterialDesc& desc) {
+    return {{{"base_color_texture", desc.base_color_texture, true},
+             {"metallic_roughness_texture", desc.metallic_roughness_texture, false},
+             {"normal_texture", desc.normal_texture, false},
+             {"emissive_texture", desc.emissive_texture, true},
+             {"occlusion_texture", desc.occlusion_texture, false},
+             {"detail_albedo_texture", desc.detail.albedo_texture, true},
+             {"detail_normal_texture", desc.detail.normal_texture, false},
+             {"detail_height_texture", desc.detail.height_texture, false}}};
+}
+} // namespace
+
 bool MaterialLibrary::build_pbr(const MaterialFile& file, MaterialDesc& desc, std::vector<std::string>& errors) {
-    struct TextureSlot {
-        std::string_view name;
-        TextureHandle& handle;
-        bool srgb;
-    };
-    TextureSlot slots[] = {
-        {"base_color_texture", desc.base_color_texture, true},
-        {"metallic_roughness_texture", desc.metallic_roughness_texture, false},
-        {"normal_texture", desc.normal_texture, false},
-        {"emissive_texture", desc.emissive_texture, true},
-        {"occlusion_texture", desc.occlusion_texture, false},
-        {"detail_albedo_texture", desc.detail.albedo_texture, true},
-        {"detail_normal_texture", desc.detail.normal_texture, false},
-        {"detail_height_texture", desc.detail.height_texture, false},
-    };
+    auto slots = pbr_texture_slots(desc);
     Json factors = Json::object();
     for (const auto& [name, value] : file.values) {
-        const auto slot = std::find_if(std::begin(slots), std::end(slots), [&](const auto& s) { return s.name == name; });
-        if (slot != std::end(slots)) {
+        const auto slot = std::find_if(slots.begin(), slots.end(), [&](const auto& s) { return s.name == name; });
+        if (slot != slots.end()) {
             if (!value.is_string()) errors.push_back(name + ": expected an asset path");
             else if (!value.as_string().empty()) slot->handle = texture(value.as_string(), slot->srgb);
             continue;
@@ -298,8 +305,92 @@ bool MaterialLibrary::build(Material& material, bool create) {
     material.texture_sources = values.textures;
     material.watched.clear();
     for (const std::string& dep : material.file.dependencies) material.watched.emplace_back(dep, time_of(dep));
+    ++revision_;
     retire_shader(retired_old); // a regenerated layered shader: the material is rebound, the old pipelines can go
     return true;
+}
+
+MaterialHandle MaterialLibrary::derive(MaterialHandle base, std::span<const MaterialParam> params, MaterialHandle derived) {
+    const Material* lib = nullptr;
+    for (const auto& m : materials_) {
+        if (m->handle == base) lib = m.get();
+    }
+    MaterialDesc desc;
+    if (lib) {
+        desc = lib->desc;
+    } else if (const MaterialDesc* d = renderer_.material(base)) {
+        desc = *d;
+    } else {
+        return derived;
+    }
+    const std::string label = "material override (" + (lib ? lib->path : std::string("handle")) + ")";
+    const auto warn = [&](const std::string& message) { log_.log(LogLevel::Warn, label + ": " + message); };
+    if (desc.shader.valid() && lib && lib->shader) {
+        const ShaderSource& source = lib->shader->source;
+        const UniformLayout& layout = lib->shader->layout;
+        for (const MaterialParam& p : params) {
+            const auto it = std::find_if(source.uniforms.begin(), source.uniforms.end(), [&](const ShaderUniform& u) { return u.name == p.name; });
+            if (it == source.uniforms.end()) {
+                warn("'" + p.name + "' is not a uniform of the shader");
+                continue;
+            }
+            const ShaderUniform& u = *it;
+            const std::uint32_t offset = layout.offsets[static_cast<std::size_t>(it - source.uniforms.begin())];
+            if (u.type == UniformType::Sampler2D) {
+                const TextureHandle tex = p.texture.empty() ? TextureHandle{} : texture(p.texture, u.hints.source_color);
+                const auto bound = std::find_if(desc.textures.begin(), desc.textures.end(), [&](const auto& t) { return t.offset == offset; });
+                if (bound != desc.textures.end()) bound->texture = tex;
+                else desc.textures.push_back({offset, tex, u.hints.hint_normal});
+                continue;
+            }
+            const std::size_t n = u.type == UniformType::Vec2 ? 2 : u.type == UniformType::Vec3 ? 3 : u.type == UniformType::Vec4 ? 4 : 1;
+            const float comps[4] = {p.value.x, p.value.y, p.value.z, p.value.w};
+            std::vector<std::uint32_t> words;
+            for (std::size_t k = 0; k < n; ++k) {
+                if (const auto w = uniform_word(u.type, comps[k])) words.push_back(*w);
+            }
+            if (words.size() != n || offset + n > desc.params.size()) {
+                warn("'" + p.name + "': the value does not fit a " + std::string(to_string(u.type)));
+                continue;
+            }
+            std::copy(words.begin(), words.end(), desc.params.begin() + offset);
+        }
+    } else {
+        auto slots = pbr_texture_slots(desc);
+        for (const MaterialParam& p : params) {
+            if (const auto slot = std::find_if(slots.begin(), slots.end(), [&](const auto& s) { return s.name == p.name; }); slot != slots.end()) {
+                slot->handle = p.texture.empty() ? TextureHandle{} : texture(p.texture, slot->srgb);
+                continue;
+            }
+            bool known = false;
+            for_each_field<MaterialDesc>([&](auto field) { known |= field.name == p.name; });
+            if (!known) {
+                warn("'" + p.name + "' is not a PBR parameter");
+                continue;
+            }
+            // The field's type decides the shape: try a number, then 2, 3 and 4 components until it reads cleanly.
+            const Json candidates[] = {Json(p.value.x), Json::array({p.value.x, p.value.y}), Json::array({p.value.x, p.value.y, p.value.z}),
+                                       Json::array({p.value.x, p.value.y, p.value.z, p.value.w})};
+            bool applied = false;
+            for (const Json& candidate : candidates) {
+                Json factors = Json::object();
+                factors[p.name] = candidate;
+                std::vector<std::string> errors;
+                MaterialDesc trial = desc;
+                if (from_json(factors, trial, {.resolve = {}, .errors = &errors, .path = "values"}) && errors.empty()) {
+                    desc = std::move(trial);
+                    applied = true;
+                    break;
+                }
+            }
+            if (!applied) warn("'" + p.name + "': the value does not fit the field");
+        }
+    }
+    if (derived.valid()) {
+        (void)renderer_.update_material(derived, desc);
+        return derived;
+    }
+    return renderer_.create_material(desc);
 }
 
 MaterialHandle MaterialLibrary::get(std::string_view path) {
@@ -381,6 +472,7 @@ void MaterialLibrary::apply(std::string_view path) {
     Material& m = *materials_[it->second];
     m.desc.params = m.values;
     renderer_.update_material(m.handle, m.desc);
+    ++revision_;
 }
 
 } // namespace astral

@@ -334,3 +334,129 @@ TEST_CASE("a layered material blends its layers by mask and takes per-layer over
     CHECK(right.b > 120); // mask 1 through the override: the second layer (blue)
     CHECK(right.r < 40);
 }
+
+namespace {
+std::vector<float> first_words(Context& ctx, MaterialHandle m, std::size_t n = 3) {
+    std::vector<float> out;
+    if (const MaterialDesc* d = ctx.renderer->material(m)) {
+        for (std::size_t i = 0; i < n && i < d->params.size(); ++i) out.push_back(std::bit_cast<float>(d->params[i]));
+    }
+    return out;
+}
+} // namespace
+
+TEST_CASE("MaterialOverride gives one entity its own values, follows edits in place, and restores the base when removed") {
+    const auto dir = test::temp_dir("app_material_override");
+    write_text(dir / "shaders/solid.ashader", solid_shader);
+    write_text(dir / "red.material", material(nullptr, "[1,0,0]"));
+    App app({.width = 80, .height = 60, .render = {.ray_tracing = false}, .asset_root = dir.string(), .offscreen = true});
+    if (!app.context().renderer) return;
+    struct G final : Game {
+        Entity tinted{}, plain{};
+        MaterialHandle base{}, tinted_at_3{}, plain_at_3{}, tinted_at_6{}, tinted_at_9{}, derived_count_probe{};
+        std::vector<float> params_3, params_6, base_params_9, plain_params_3;
+        void on_start(Context& ctx) override {
+            base = ctx.materials().load_material("red.material");
+            tinted = ctx.world.create(Transform{.position = {-1.3f, 0, 0}}, PrimitiveMesh{.material_file = "red.material"},
+                                      MaterialOverride{.params = {{.name = "color", .value = {0, 0, 1, 0}}, {.name = "no_such", .value = {1, 1, 1, 1}}}});
+            plain = ctx.world.create(Transform{.position = {1.3f, 0, 0}}, PrimitiveMesh{.material_file = "red.material"});
+            ctx.world.create(Transform{.position = {0, 0, 5}}, Camera{});
+        }
+        void on_update(Context& ctx) override {
+            switch (ctx.time.frame) {
+            case 3:
+                tinted_at_3 = ctx.world.get<MeshRenderer>(tinted)->material;
+                plain_at_3 = ctx.world.get<MeshRenderer>(plain)->material;
+                params_3 = first_words(ctx, tinted_at_3);
+                plain_params_3 = first_words(ctx, plain_at_3);
+                ctx.world.get<MaterialOverride>(tinted)->params[0].value = {0, 1, 0, 0};
+                break;
+            case 6:
+                tinted_at_6 = ctx.world.get<MeshRenderer>(tinted)->material;
+                params_6 = first_words(ctx, tinted_at_6);
+                ctx.world.remove<MaterialOverride>(tinted);
+                break;
+            case 9:
+                tinted_at_9 = ctx.world.get<MeshRenderer>(tinted)->material;
+                base_params_9 = first_words(ctx, base);
+                break;
+            default: break;
+            }
+        }
+    } game;
+    app.run_frames(game, 10);
+    REQUIRE(game.base.valid());
+    CHECK(game.plain_at_3 == game.base);                      // an entity without an override shares the base material
+    CHECK(game.plain_params_3 == std::vector<float>{1, 0, 0});
+    CHECK(game.tinted_at_3 != game.base);                     // the overridden one has its own material
+    CHECK(game.params_3 == std::vector<float>{0, 0, 1});
+    CHECK(game.tinted_at_6 == game.tinted_at_3);              // edits update it in place
+    CHECK(game.params_6 == std::vector<float>{0, 1, 0});
+    CHECK(game.tinted_at_9 == game.base);                     // removing the component restores the base
+    CHECK(game.base_params_9 == std::vector<float>{1, 0, 0}); // and the base itself was never touched
+}
+
+TEST_CASE("an overridden entity draws its own colour next to a shared-material neighbour") {
+    const auto dir = test::temp_dir("app_material_override_draw");
+    write_text(dir / "shaders/solid.ashader", solid_shader);
+    write_text(dir / "red.material", material(nullptr, "[1,0,0]"));
+    App app({.width = 160, .height = 60, .render = {.ray_tracing = false}, .asset_root = dir.string(), .offscreen = true});
+    if (!app.context().renderer) return;
+    struct G final : Game {
+        void on_start(Context& ctx) override {
+            ctx.world.create(Transform{.position = {-1.3f, 0, 0}}, PrimitiveMesh{.material_file = "red.material"},
+                             MaterialOverride{.params = {{.name = "color", .value = {0, 0, 1, 0}}}});
+            ctx.world.create(Transform{.position = {1.3f, 0, 0}}, PrimitiveMesh{.material_file = "red.material"});
+            ctx.world.create(Transform{.position = {0, 0, 5}}, Camera{});
+            ctx.sun.intensity = 0.0f;
+            ctx.environment.ambient = 0.0f;
+        }
+    } game;
+    app.run_frames(game, 3);
+    std::vector<std::uint8_t> frame;
+    REQUIRE(app.read_frame(frame));
+    const auto px = [&](int x) {
+        const std::size_t i = (std::size_t{30} * 160 + static_cast<std::size_t>(x)) * 4;
+        return Rgb{frame[i], frame[i + 1], frame[i + 2]};
+    };
+    const Rgb left = px(66), right = px(94);
+    CHECK(left.b > 120);
+    CHECK(left.r < 40);
+    CHECK(right.r > 120);
+    CHECK(right.b < 40);
+}
+
+TEST_CASE("MaterialOverride on a standard PBR primitive sets fields by name and keeps entities apart") {
+    const auto dir = test::temp_dir("app_material_override_pbr");
+    App app({.width = 80, .height = 60, .render = {.ray_tracing = false}, .asset_root = dir.string(), .offscreen = true});
+    if (!app.context().renderer) return;
+    struct G final : Game {
+        Entity a{}, b{}, shared{};
+        MaterialDesc da{}, db{};
+        MaterialHandle ma{}, mb{}, mshared{};
+        void on_start(Context& ctx) override {
+            PrimitiveMesh prim{.material = {.base_color = {1, 1, 1, 1}, .roughness = 0.5f}};
+            a = ctx.world.create(Transform{}, prim, MaterialOverride{.params = {{.name = "roughness", .value = {0.9f, 0, 0, 0}},
+                                                                                 {.name = "emissive", .value = {1, 2, 3, 0}},
+                                                                                 {.name = "base_color", .value = {0, 1, 0, 1}}}});
+            b = ctx.world.create(Transform{}, prim, MaterialOverride{.params = {{.name = "roughness", .value = {0.1f, 0, 0, 0}}}});
+            shared = ctx.world.create(Transform{}, prim);
+        }
+        void on_update(Context& ctx) override {
+            if (ctx.time.frame != 3) return;
+            ma = ctx.world.get<MeshRenderer>(a)->material;
+            mb = ctx.world.get<MeshRenderer>(b)->material;
+            mshared = ctx.world.get<MeshRenderer>(shared)->material;
+            if (const auto* d = ctx.renderer->material(ma)) da = *d;
+            if (const auto* d = ctx.renderer->material(mb)) db = *d;
+        }
+    } game;
+    app.run_frames(game, 4);
+    CHECK(game.ma != game.mb);
+    CHECK(game.ma != game.mshared);
+    CHECK(game.da.roughness == doctest::Approx(0.9f));
+    CHECK(game.da.emissive == Vec3{1, 2, 3});
+    CHECK(game.da.base_color == Vec4{0, 1, 0, 1});
+    CHECK(game.db.roughness == doctest::Approx(0.1f));
+    CHECK(game.db.base_color == Vec4{1, 1, 1, 1}); // only what was named changes
+}

@@ -227,6 +227,22 @@ Ayrıntılar ve kaynaklar [ashader-language.md §4 ve §9](ashader-language.md#9
 - [ADR-0047](../decisions/0047-spirv-disk-cache.md): SPIR-V disk önbelleği.
 - [ADR-0051](../decisions/0051-projected-texture-orientation.md): planar/triplanar doku yönü.
 
+## Entity başına değer (`MaterialOverride`, ADR-0055 D5)
+
+Kaplama normalde materyal başınadır; aynı materyali kullanan iki entity farklı renk isteyemez. `MaterialOverride` bileşeni bir entity'ye kendi değerlerini verir, tabanı değiştirmez:
+
+```cpp
+world.create(Transform{}, PrimitiveMesh{.material_file = "materials/lava.material"},
+             MaterialOverride{.params = {{.name = "glow_color", .value = {1, 0.2f, 0, 0}},
+                                         {.name = "noise", .texture = "textures/other_noise.png"}}});
+```
+
+- `name`: shader uniform'u ya da standart PBR alanı (`roughness`, `base_color`, `emissive`, `base_color_texture`...). `value`: float `x`, vec2 `xy`, vec3 `xyz`, vec4 `xyzw`, int/bool `x`. `texture`: sampler2D uniform'u ya da PBR doku yuvası için yol (`""` doku yok).
+- Değişiklik her karede yerinde uygulanır (animasyon için güvenli: yeni materyal oluşmaz). Bileşeni kaldırırsan taban materyal geri gelir. Taban `.material` dosyası düzenlenirse (hot reload) türev yeniden uygulanır.
+- Her override'lı entity kendi materyalini alır (ölçülen maliyet ≈0.22 µs/materyal/kare); yüzlerce entity için sorun değil, on binlerce için önce ADR-0055 D6'daki sınıra bak.
+- Bilinmeyen ad ya da yanlış tip **uyarıdır** ve atlanır. Sahne dosyasına bileşen olarak yazılır (`MaterialOverride`).
+- Model (glTF) parçaları kendi entity'leridir; override'ı parça entity'sine ekle (ya da `ModelRef.material_overrides` ile slot başına `.material` ver).
+
 ## Bilinen sınırlar (ADR-0055 D4)
 
 - **Standart PBR'da alfa modu yok** (`Mask`/`Blend`): kesme veya şeffaflık gerekiyorsa `render_mode alpha_test` / `blend_mix` ile özel `.ashader` yaz. Nedeni: standart yolda gölge fragment'ı ve RT alpha yolu yok; yalnız G-buffer'da kesmek gölgeyi ve RT'yi tutarsız bırakırdı.

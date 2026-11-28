@@ -152,6 +152,7 @@ void FrameLoop::update_transforms_and_primitives() {
     update_transforms(world_, &context_.jobs);
     terrain_bridge_.update_lod();
     render_bridge_.sync_primitives();
+    render_bridge_.sync_material_overrides();
 }
 
 void FrameLoop::update_audio() {

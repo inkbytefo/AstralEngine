@@ -8,6 +8,7 @@
 #include <astral/world/world.hpp>
 
 #include <string>
+#include <vector>
 
 namespace astral {
 
@@ -17,6 +18,25 @@ namespace astral {
 struct MeshRenderer {
     MeshHandle mesh{};
     MaterialHandle material{};
+};
+
+/// One value of a MaterialOverride: a shader uniform or a standard PBR field, by name (ADR-0055 D5).
+/// `value` carries the numbers (float: x, vec2: xy, vec3: xyz, vec4: xyzw, int/bool: x); `texture` is an asset path for
+/// a sampler2D uniform or a PBR texture slot ("" = no texture).
+struct MaterialParam {
+    std::string name;
+    Vec4 value{};
+    std::string texture{};
+    bool operator==(const MaterialParam&) const = default;
+};
+
+/// Gives this entity its own values on top of the material it draws with (the base can be a .material, a primitive's
+/// inline material or a model piece). The App derives a private material for the entity (the way Unreal makes dynamic
+/// material instances): edits update it in place, removing the component restores the base material, and nothing
+/// else that shares the base changes. Unknown names or values of the wrong type are logged and skipped.
+struct MaterialOverride {
+    std::vector<MaterialParam> params;
+    bool operator==(const MaterialOverride&) const = default;
 };
 
 /// Built-in shapes for PrimitiveMesh (unit size: scale them with the Transform).
@@ -290,6 +310,8 @@ ASTRAL_REFLECT(astral::CharacterDesc, radius, height, max_slope, mass)
 ASTRAL_REFLECT(astral::CharacterController, desc, jump_speed)
 ASTRAL_REFLECT_ENUM(astral::Primitive, Cube, Sphere, Plane)
 ASTRAL_REFLECT(astral::PrimitiveMesh, shape, material, material_file)
+ASTRAL_REFLECT(astral::MaterialParam, name, value, texture)
+ASTRAL_REFLECT(astral::MaterialOverride, params)
 ASTRAL_REFLECT(astral::TerrainRef, asset, material_file, render_radius_m, collision_radius_m)
 ASTRAL_REFLECT(astral::Atmosphere, hour, hours_per_second, orbit_tilt_deg, heading_deg, sun_intensity, sky_material, enabled,
                twilight_color, twilight_strength, horizon_tint, sky_tint, drive_sun, drive_sky)

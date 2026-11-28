@@ -53,6 +53,7 @@ void register_app_types(Context& ctx) {
     types.add<Sdf>();
     types.add<ModelRef>();
     types.add<PrimitiveMesh>();
+    types.add<MaterialOverride>();
     types.add<TerrainRef>();
     types.exclude<TerrainTileDraw>();
     types.add<RigidBody>();
