@@ -203,3 +203,10 @@ Ayrıntılar ve kaynaklar [ashader-language.md §4 ve §9](ashader-language.md#9
 - [ADR-0042](../decisions/0042-typed-shader-parameter-words.md): tipli parametre kelimeleri.
 - [ADR-0047](../decisions/0047-spirv-disk-cache.md): SPIR-V disk önbelleği.
 - [ADR-0051](../decisions/0051-projected-texture-orientation.md): planar/triplanar doku yönü.
+
+## Bilinen sınırlar (ADR-0055 D4)
+
+- **Standart PBR'da alfa modu yok** (`Mask`/`Blend`): kesme veya şeffaflık gerekiyorsa `render_mode alpha_test` / `blend_mix` ile özel `.ashader` yaz. Nedeni: standart yolda gölge fragment'ı ve RT alpha yolu yok; yalnız G-buffer'da kesmek gölgeyi ve RT'yi tutarsız bırakırdı.
+- **Dielektrik F0 sabit (0.04):** `ior` alanı yok; G-buffer'da boş kanal olmadığı için ayrı iş. Cam/sıvı için `transmission.ior` kullan.
+- `emissive` zaten sınırsız HDR ışımadır; ayrıca `emissive_strength` yoktur (glTF'nin çarpanı emissive'e katlanır).
+

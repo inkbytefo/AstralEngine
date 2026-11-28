@@ -38,11 +38,11 @@ Material/shader incelemesinde (2026-11-27, master cdf2188) şunlar bulundu:
 - `.ashader` dosyası doğrudan materyal olarak kullanılabilir (`MaterialLibrary::get("x.ashader")` → tüm değerler varsayılan).
 - Cook düz görselleri materyal kullanımına göre sınıflamadığı için ek cook işi yoktur; yalnız `.ashader` ayrıştırması (hatalı varsayılan sözdizimi) cook'ta `dosya:satır` ile raporlanır.
 
-### D4. Standart PBR tamamlama (dilim 4)
+### D4. Standart PBR tamamlama (dilim 4) — **kısmen uygulandı** (oklüzyon; emissive_strength gereksiz; ior ve alpha_mode ertelendi)
 - **`occlusion_texture` + `occlusion_strength` — uygulandı.** GPU tablosundaki boş yuvalar kullanıldı (`detail_textures[3]`, `detail_params.w`); düzen değişmedi. Raster ve RT aynı çarpanı uygular.
 - **`emissive_strength` eklenmeyecek:** `MaterialDesc::emissive` zaten sınırsız HDR ışıma (rgb); glTF'nin `emissiveStrength` çarpanı doğrudan buna katlanır. İkinci bir alan yalnız kafa karıştırır.
 - **`ior` (dielektrik F0) ertelendi:** F0 şu an 0.04 sabit ve G-buffer'da boş kanal yok; eklemek G-buffer yeniden düzeni ister (ayrı ADR). `Transmission.ior` kırılma için çalışmaya devam eder.
-- **`alpha_mode` (`Mask`/`Blend`) için karar:** standart PBR sabit G-buffer pipeline'ını kullanır; `Mask` için cutoff'u G-buffer'a ve gölge/RT any-hit yoluna işlemek gerekir, `Blend` ise standart yolda forward pass'i yoktur. glTF içe aktarma bu ihtiyacı üretilen `.ashader` ile zaten karşılar. Karar: `type: pbr` + `alpha_mode` verilirse materyal kütüphanesi aynı üretici ile bir shader'a yönlendirilir (dilim 4b, ayrı commit).
+- **`alpha_mode` (`Mask`/`Blend`) standart PBR'da ertelendi:** yalnız G-buffer'da `Mask` gölge ve RT any-hit yolunda tutarsız kalır (görünür hata); tam çözüm standart yola gölge fragment'ı ve RT alpha yolu ekler. Bugünkü yol: `render_mode alpha_test` / `blend_mix` kullanan özel `.ashader` (glTF içe aktarma bunu otomatik üretir). Bilinen sınır olarak `docs/guides/shaders-and-materials.md`'ye yazıldı.
 
 ### D5. Örnek başına override (dilim 5)
 `MaterialOverride` ECS bileşeni (reflect edilmiş): uniform adı → değer. Değerler paylaşılan parametre tamponuna **örnek başına ofsetle** yazılır; `Instance` yapısına `param_offset` eklenir. Materyal sayısı patlamaz, hot reload bozulmaz.
