@@ -47,8 +47,10 @@ Material/shader incelemesinde (2026-11-27, master cdf2188) şunlar bulundu:
 ### D5. Örnek başına override (dilim 5)
 `MaterialOverride` ECS bileşeni (reflect edilmiş): uniform adı → değer. Değerler paylaşılan parametre tamponuna **örnek başına ofsetle** yazılır; `Instance` yapısına `param_offset` eklenir. Materyal sayısı patlamaz, hot reload bozulmaz.
 
-### D6. Performans (dilim 6)
-Önce `bench` ile ölç; `MaterialStore::upload` için sürüm sayacıyla kirli takibi (yalnız değişen satırlar). SPIR-V optimizasyonu ölçülür, kazanç yoksa kapalı kalır ve "Bilinen sınırlar"a yazılır.
+### D6. Performans (dilim 6) — **ölçüldü, kod değişmedi**
+`MaterialStore::upload` her karede tüm tabloyu yeniden kurar. Ölçüm (2026-11-28, llvmpipe üzerinde `Fixture::draw`, 20 kare ortalaması, tek küp; gecikme farkı CPU'daki kurma + tampon yazımıdır): 1 materyal 1.02 ms/kare; 500 → +0.12 ms; 5000 → +1.15 ms; 20000 → +4.4 ms, yani **≈0.22 µs materyal/kare**, doğrusal. 1000 materyalli bir sahnede ≈0.2 ms (kare bütçesinin ~%1'i).
+Kirli takibi bilinçli yapılmadı: `to_gpu` çıktısı materyal alanları dışında doku handle'larına (yüklenince değişir) ve `world_origin` fazına (projeksiyonlu dünya-uzayı materyallerde her karede) bağlıdır; bunları doğru izlemek, kazancın (≈0.2 ms) üstünde hata riski getirir. **Eşik:** sahnede ≳5000 materyal (≥1 ms/kare) görülürse yeniden değerlendirilir; yöntem olarak GPU tablosunu kayan-orijin fazından ayırıp (faz ayrı küçük tampon) yalnız değişen satırları yazmak önerilir.
+SPIR-V optimizasyonu ölçülmedi (`spirv-opt` bu ortamda yok, gerçek GPU yok); `docs/modules/shader.md` "Bilinen sınırlar" maddesi geçerli.
 
 ### D7. Materyal katmanları ve maske harmanı (dilim 7–8) — **uygulandı** (kütüphane + `type: layered`; vertex rengi maskesi yok)
 İki parça, ikisi de **metin kaynağı tek doğruluk** ilkesine bağlı (ADR-0022 §5):

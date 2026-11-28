@@ -309,7 +309,7 @@ G-buffer'dadır (bkz. zayıf yanlar) (`modules/render/shaders/include/astral/rt.
 |---|---|---|---|
 | `MeshStore` | Vertex (storage) ve indeks tamponları, yerel AABB, RT açıkken BLAS | İndeks ≥ vertex sayısı ya da boş veri reddedilir; `update_mesh` yeni tamponu kurup eskisini bırakır; mesh'ler statiktir (BLAS güncelleme/yeniden sığdırma yok) | `modules/render/src/stores/mesh_store.cpp:16-62,79-91` |
 | `TextureStore` | RGBA8 (sRGB/UNORM) ya da BC7/BC5 hazır zincir; 1×1 beyaz ve düz normal stand-in'ler; render target'lar | Mip: `build_mips` (CPU). BC kodlama yok (yalnız cook edilmiş veri alınır). `update_texture` yeni texture'ı kurup eskisini erteler | `modules/render/src/stores/texture_store.cpp:126-195` |
-| `MaterialStore` | `HandlePool<MaterialDesc>`, varsayılan materyal (silinemez), GPU tablosu + parametre bloğu paketleme | Her karede tüm tablo yeniden kurulur | `modules/render/src/stores/material_store.cpp:11-134` |
+| `MaterialStore` | `HandlePool<MaterialDesc>`, varsayılan materyal (silinemez), GPU tablosu + parametre bloğu paketleme | Her karede tüm tablo yeniden kurulur: ölçüm ≈0.22 µs/materyal/kare (1000 materyalde ≈0.2 ms), ADR-0055 D6'ya bak | `modules/render/src/stores/material_store.cpp:11-134` |
 | `ShaderStore` | Yüzey/post/sky/particle/volume pipeline havuzu; özel RT pipeline'ları | `find_by_key` kayıtlı tüm shader'lar üzerinde doğrusal tarama yapar (G-buffer ve gölge çizimlerinde shader anahtarı değiştikçe çağrılır) | `modules/render/src/stores/shader_store.cpp:49-212`, `modules/render/src/stores/shader_store.cpp:159-166` |
 
 ### Geçmiş / zamansal durum
