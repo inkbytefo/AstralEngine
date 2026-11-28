@@ -90,7 +90,10 @@ UniformValues evaluate_uniforms(const ShaderSource& shader, const UniformLayout&
         const std::uint32_t offset = layout.offsets[i];
         const Json* v = material.value(u.name);
         if (u.type == UniformType::Sampler2D) {
-            if (!v) continue;
+            if (!v) {
+                if (!u.default_texture.empty()) out.textures.push_back({offset, u.default_texture, u.hints.source_color, u.hints.hint_normal});
+                continue;
+            }
             if (!v->is_string()) {
                 out.warnings.push_back("'" + u.name + "': a texture takes a path (string)");
                 continue;

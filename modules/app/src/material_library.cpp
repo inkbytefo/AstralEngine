@@ -212,7 +212,13 @@ bool MaterialLibrary::build_pbr(const MaterialFile& file, MaterialDesc& desc, st
 /// (Re)builds a material from its files. On failure nothing changes (false).
 bool MaterialLibrary::build(Material& material, bool create) {
     const MaterialReader reader = [this](std::string_view path, std::string* error) { return read_document(path, error); };
-    MaterialFile file = resolve_material(material.path, reader);
+    MaterialFile file;
+    if (material.path.ends_with(".ashader")) { // a shader on its own: every value is its default (ADR-0055 D3)
+        file.shader = material.path;
+        file.dependencies.push_back(material.path);
+    } else {
+        file = resolve_material(material.path, reader);
+    }
     if (!file.ok()) {
         for (const std::string& e : file.errors) log_error("material " + material.path, e);
         return false;

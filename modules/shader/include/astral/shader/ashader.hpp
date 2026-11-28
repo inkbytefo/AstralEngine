@@ -39,6 +39,9 @@ struct ShaderUniform {
     /// Components (vec4(1.0) → 4 ones); empty = zeros / no texture. double holds every int32 and float
     /// exactly; each component already passed uniform_word() (ADR-0042).
     std::vector<double> default_value;
+    /// sampler2D only: asset path from `= "path"`; a .material that names no texture for this uniform uses it
+    /// (an empty string in the material removes it). Resolved from the asset root like any .material path.
+    std::string default_texture;
     std::uint32_t line = 0;
 };
 

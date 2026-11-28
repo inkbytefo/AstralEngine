@@ -176,3 +176,33 @@ TEST_CASE("a preprocessor line before a header statement does not swallow it") {
     CHECK(p.source.body.find("uniform") == std::string::npos);
     CHECK(p.source.body.find("render_mode") == std::string::npos);
 }
+
+TEST_CASE("a sampler2D uniform can name its default texture") {
+    const ShaderParse p = parse_ashader(
+        "shader_type surface;\n"
+        "uniform sampler2D albedo : source_color, repeat = \"textures/leaf, v2.png\";\n"
+        "uniform sampler2D mask;\n"
+        "void surface() { ALBEDO = texture(albedo, UV).rgb * texture(mask, UV).r; }\n");
+    REQUIRE_MESSAGE(p.errors.empty(), (p.errors.empty() ? "" : p.errors[0].message));
+    REQUIRE(p.source.uniforms.size() == 2);
+    CHECK(p.source.uniforms[0].default_texture == "textures/leaf, v2.png");
+    CHECK(p.source.uniforms[0].hints.source_color);
+    CHECK(p.source.uniforms[1].default_texture.empty());
+}
+
+TEST_CASE("texture defaults are only valid as a quoted string on a sampler2D") {
+    SUBCASE("unquoted on a sampler") {
+        const ShaderParse p = parse_ashader("shader_type surface;\nuniform sampler2D a = textures/x.png;\nvoid surface() {}\n");
+        REQUIRE_FALSE(p.errors.empty());
+        CHECK(p.errors[0].line == 2);
+        CHECK(p.errors[0].message.find("texture") != std::string::npos);
+    }
+    SUBCASE("a string on a float") {
+        const ShaderParse p = parse_ashader("shader_type surface;\nuniform float a = \"textures/x.png\";\nvoid surface() {}\n");
+        REQUIRE_FALSE(p.errors.empty());
+    }
+    SUBCASE("a number on a sampler") {
+        const ShaderParse p = parse_ashader("shader_type surface;\nuniform sampler2D a = 1.0;\nvoid surface() {}\n");
+        REQUIRE_FALSE(p.errors.empty());
+    }
+}

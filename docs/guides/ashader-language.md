@@ -145,7 +145,21 @@ uniform <tip> <ad> [: ipucu, ipucu, ...] [= varsayılan];
 | `vec2/vec3/vec4` | 2/3/4 | `= vec3(1, 0.2, 0.1)` veya tek sayı (tüm bileşenlere kopyalanır) | `[x,y,z]` veya tek sayı |
 | `int` | 1 | `= 4` | `4` (kesirli değer reddedilir) |
 | `bool` | 1 | `= true` | `true/false/1/0` |
-| `sampler2D` | 1 (bindless indeks) | varsayılan **alamaz** | doku yolu (string) |
+| `sampler2D` | 1 (bindless indeks) | tırnaklı varlık yolu: `= "textures/leaf.png"` (sayı/tırnaksız ifade hatadır) | doku yolu (string); boş string varsayılanı kaldırır |
+
+**Shader içinde texture (ADR-0055 D3).** Doku `.ashader` dosyasında bildirilir ve varsayılan yolunu taşıyabilir; `.material` yazmak zorunlu değildir:
+
+```glsl
+shader_type surface;
+uniform sampler2D albedo : source_color, repeat = "textures/leaf.png";
+uniform sampler2D bump : hint_normal;          // varsayılan yok: .material verirse bağlanır, yoksa düz normal
+void surface() { ALBEDO = texture(albedo, UV).rgb; }
+```
+
+- Yol varlık kökünden çözülür (`.material` yollarıyla aynı kural). Uzantıdan bağımsız, yazım `"..."` olmalı; yol içinde virgül ve boşluk olabilir.
+- `.material` aynı adı yazarsa onun yolu kazanır; `""` varsayılanı kaldırır (doku yok, `hint_normal` ise düz normal).
+- Bir `.ashader` dosyası doğrudan materyal olarak da yüklenir (`load_material("shaders/glow.ashader")`, `PrimitiveMesh.material_file`): tüm değerler varsayılandır. Hot reload bu dosyayı izler.
+- Cook düz görselleri sınıflamaz; varsayılan doku, diğer yüklenen dokular gibi çalışma anında `source_color` ipucuna göre sRGB/lineer yüklenir. Dosya yoksa materyal yine kurulur ve beyaz doku kullanılır (mevcut "kayıp doku" davranışı).
 
 Başka tip yoktur: `mat*`, dizi, `struct`, `sampler3D`, `samplerCube`, `sampler2DArray` uniform olamaz (`modules/shader/src/ashader.cpp:77-86`).
 

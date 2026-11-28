@@ -44,12 +44,15 @@ std::string strip_comments(std::string_view text) {
     return out;
 }
 
-/// Splits on commas that are not inside parentheses.
+/// Splits on `sep` outside parentheses and quoted strings.
 std::vector<std::string_view> split_top(std::string_view s, char sep) {
     std::vector<std::string_view> parts;
     int depth = 0;
+    bool in_string = false;
     std::size_t start = 0;
     for (std::size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '"') in_string = !in_string;
+        if (in_string) continue;
         if (s[i] == '(') ++depth;
         else if (s[i] == ')') --depth;
         else if (s[i] == sep && depth == 0) {
@@ -230,7 +233,12 @@ struct Parser {
                 }
             }
         }
-        if (!def.empty()) {
+        if (!def.empty() && u.type == UniformType::Sampler2D) {
+            if (def.size() < 2 || def.front() != '"' || def.back() != '"' || def.find('"', 1) != def.size() - 1) {
+                return error(pos, "uniform '" + u.name + "': a texture default is a quoted asset path, e.g. = \"textures/a.png\"");
+            }
+            u.default_texture = std::string(def.substr(1, def.size() - 2));
+        } else if (!def.empty()) {
             auto value = parse_default(def, u.type);
             if (!value) return error(pos, "uniform '" + u.name + "': cannot read default '" + std::string(def) + "'");
             u.default_value = std::move(*value);

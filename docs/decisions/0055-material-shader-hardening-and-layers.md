@@ -31,12 +31,12 @@ Material/shader incelemesinde (2026-11-27, master cdf2188) şunlar bulundu:
 ### D2. Ebeveyn zincirinde derin birleştirme (dilim 2) — **uygulandı**
 Çocuk `mapping`/`clearcoat`/`detail` gibi nesne yazarsa ebeveynin nesnesi alan alan birleşir (çocuk kazanır). Diziler ve skalerler değişmez. Sınır: `resolve_material` içinde, JSON'a özgü; render'a sızmaz.
 
-### D3. Shader'da texture (dilim 3)
+### D3. Shader'da texture (dilim 3) — **uygulandı**
 - `.ashader` başlığında `sampler2D` uniform'u varsayılan yol alır: `uniform sampler2D albedo : source_color, repeat = "textures/leaf.png";`.
 - Varsayılan yol `ShaderUniform::default_texture` (string); `.material` değeri yazmazsa kullanılır, boş string "doku yok" olarak geçersiz kılar.
 - Yol, shader dosyasından değil **asset kökünden** çözülür (mevcut `.material` kuralıyla aynı).
 - `.ashader` dosyası doğrudan materyal olarak kullanılabilir (`MaterialLibrary::get("x.ashader")` → tüm değerler varsayılan).
-- Cook, varsayılan dokuları bağımlılık olarak paketler.
+- Cook düz görselleri materyal kullanımına göre sınıflamadığı için ek cook işi yoktur; yalnız `.ashader` ayrıştırması (hatalı varsayılan sözdizimi) cook'ta `dosya:satır` ile raporlanır.
 
 ### D4. Standart PBR tamamlama (dilim 4)
 `MaterialDesc`'e: `occlusion_texture` + `occlusion_strength`, `alpha_mode` (`Opaque`/`Mask`/`Blend`) + `alpha_cutoff`, `emissive_strength`, `ior` (dielektrik F0). İçeride standart PBR, mevcut yolları bozmadan bu alanları G-buffer/forward şablonuna alır; glTF üretilen `.ashader` yolu daha sonra bu alanlara taşınabilir (ayrı iş, bu ADR'de yok).

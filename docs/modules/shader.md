@@ -40,7 +40,7 @@ Header'lar `modules/shader/include/astral/shader/` altındadır.
 | `shader_type <tür>;` | Zorunlu. `surface`, `particle`, `volume`, `post`, `sky`, `ui` | `modules/shader/src/ashader.cpp:246` |
 | `shading_model <model>;` | Yalnız `surface`: `standard` (varsayılan), `clearcoat`, `sheen`, `anisotropic`, `transmission`, `subsurface` | `modules/shader/src/ashader.cpp:255` |
 | `render_mode a, b;` | Türe göre doğrulanır: surface → `alpha_test`, `cull_disabled`, `cull_front`, `unshaded`, `blend_mix`, `blend_add`, `shadows_disabled`, `rt_simple`; particle → `blend_mix`, `blend_add`, `unshaded`; volume → `unshaded`; post → `after_tonemap`; ui → `blend_mix`, `blend_add`; sky → yok | `modules/shader/src/ashader.cpp:372` |
-| `uniform <tip> ad [: ipuçları] [= varsayılan];` | Tipler `float vec2 vec3 vec4 int bool sampler2D`; ipuçları `source_color`, `hint_normal`, `range(min,max[,adım])` (`hint_range` de), `filter_linear`, `filter_linear_mipmap`, `filter_nearest`, `filter_nearest_mipmap`, `repeat`, `repeat_disable` | `modules/shader/src/ashader.cpp:176` |
+| `uniform <tip> ad [: ipuçları] [= varsayılan];` | `sampler2D` varsayılanı tırnaklı yoldur (`ShaderUniform::default_texture`). Tipler `float vec2 vec3 vec4 int bool sampler2D`; ipuçları `source_color`, `hint_normal`, `range(min,max[,adım])` (`hint_range` de), `filter_linear`, `filter_linear_mipmap`, `filter_nearest`, `filter_nearest_mipmap`, `repeat`, `repeat_disable` | `modules/shader/src/ashader.cpp:176` |
 | `varying <tip> ad;` | `vertex()`'ten `surface()`'e değer; tip yazıldığı gibi saklanır | `modules/shader/src/ashader.cpp:273` |
 
 Başlık ifadeleri gövdede boşlukla silinir (yeni satırlar kalır), böylece üretilen GLSL `#line 1` ile başlayıp derleyici
@@ -112,7 +112,7 @@ azaltılır.
 - **Önişlemci satırları** (`#define`, `#include` ...) başlık ifadelerini bozmaz: üst düzey tarayıcı `#` ile başlayan satırı atlar ve gövdede bırakır (`modules/shader/src/ashader.cpp`, test `modules/shader/tests/ashader_test.cpp` "a preprocessor line before a header statement ..."). Dilin `#ifdef` anahtarı yine yoktur (bilinçli, ADR-0022).
 - **`varying` tipi doğrulanmaz:** yazılan tip dizgesi olduğu gibi saklanır; yanlış tip derleme aşamasında glslang hatası olur
   (`modules/shader/src/ashader.cpp:273`).
-- **Yalnız `sampler2D`:** `sampler2DArray`, cube, 3B doku, dizi uniform'ları ve `struct` uniform'ları yok
+- **Yalnız `sampler2D`** (varsayılan yol `default_texture` ile verilebilir, ADR-0055 D3): `sampler2DArray`, cube, 3B doku, dizi uniform'ları ve `struct` uniform'ları yok
   (`modules/shader/src/ashader.cpp:77`).
 - **`ui` türü tüketicisiz:** `shader_type ui` ayrıştırılır ve render modları tanımlıdır, ama Render/App/Assets tarafında bu türü
   derleyen veya kullanan kod bulunmadı (`modules/shader/src/ashader.cpp:152`; `ShaderType::Ui` için modül dışında referans yok).
@@ -142,7 +142,7 @@ azaltılır.
 | Render düzeyinde | `modules/render/tests/surface_shader_test.cpp` (soğuk/sıcak önbellek ile yüzey shader'ı), `modules/render/tests/msr_regression_test.cpp` (AS13 tipli sözcükler), `modules/render/tests/material_file_test.cpp`, `modules/render/tests/material_crlf_test.cpp` |
 | App düzeyinde | `modules/app/tests/shader_cache_location_test.cpp` (`ASTRAL_SHADER_CACHE` çözümü) |
 
-Kapsanmayanlar: önişlemci satırı + başlık sırası, include bulunamama hatası, `sampler2D` varsayılan değer reddi, Render'ın ürettiği şablonların tüm
+Kapsanmayanlar: önişlemci satırı + başlık sırası, include bulunamama hatası, Render'ın ürettiği şablonların tüm
 shading_model/render_mode birleşimleri (kısmen Render testlerinde), önbellek klasörünün çoklu süreç yarışı (yalnız çoklu thread).
 
 ## Performans

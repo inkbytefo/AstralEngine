@@ -171,3 +171,30 @@ TEST_CASE("arrays and scalars are replaced, not merged, by the child") {
     CHECK((*m.value("base_color"))[0].as_number() == doctest::Approx(0.0));
     CHECK((*m.value("base_color"))[2].as_number() == doctest::Approx(1.0));
 }
+
+TEST_CASE("a shader's default texture applies unless the material names another or clears it") {
+    const ShaderParse p = parse_ashader(
+        "shader_type surface;\nuniform sampler2D albedo : source_color = \"textures/default.png\";\n"
+        "uniform sampler2D bump : hint_normal;\nvoid surface() {}\n");
+    REQUIRE(p.errors.empty());
+    const UniformLayout layout = layout_uniforms(p.source);
+    MaterialFile m;
+    m.shader = "s.ashader";
+    SUBCASE("nothing written: the default is used, with the uniform's colour space") {
+        const UniformValues v = evaluate_uniforms(p.source, layout, m);
+        REQUIRE(v.textures.size() == 1);
+        CHECK(v.textures[0].path == "textures/default.png");
+        CHECK(v.textures[0].offset == layout.offsets[0]);
+        CHECK(v.textures[0].srgb);
+    }
+    SUBCASE("the material's path wins") {
+        m.values.emplace_back("albedo", Json("textures/other.png"));
+        const UniformValues v = evaluate_uniforms(p.source, layout, m);
+        REQUIRE(v.textures.size() == 1);
+        CHECK(v.textures[0].path == "textures/other.png");
+    }
+    SUBCASE("an empty string removes the default") {
+        m.values.emplace_back("albedo", Json(""));
+        CHECK(evaluate_uniforms(p.source, layout, m).textures.empty());
+    }
+}

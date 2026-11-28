@@ -226,3 +226,31 @@ TEST_CASE("a misspelled standard PBR parameter warns instead of refusing the mat
     REQUIRE(desc);
     CHECK(desc->roughness == doctest::Approx(0.3f)); // the valid values still apply
 }
+
+TEST_CASE("an .ashader is a material by itself and draws its own default texture") {
+    const auto dir = test::temp_dir("app_ashader_direct");
+    write_text(dir / "glow.ashader", R"(shader_type surface;
+uniform sampler2D tex : source_color = "red.png";
+void surface() { ALBEDO = vec3(0.0); EMISSION = texture(tex, UV).rgb * 2.0; ROUGHNESS = 1.0; }
+)");
+    test::write_bytes(dir / "red.png", test::png(200, 0, 0));
+    App app({.width = 80, .height = 60, .render = {.ray_tracing = false},
+             .asset_root = dir.string(), .offscreen = true});
+    if (!app.context().renderer) return;
+    struct G final : Game {
+        void on_start(Context& ctx) override {
+            REQUIRE(ctx.materials().load_material("glow.ashader").valid());
+            ctx.world.create(Transform{}, PrimitiveMesh{.material_file = "glow.ashader"});
+            ctx.world.create(Transform{.position = {0, 0, 3}}, Camera{});
+            ctx.sun.intensity = 0.0f;
+            ctx.environment.ambient = 0.0f;
+        }
+    } game;
+    app.run_frames(game, 2);
+    std::vector<std::uint8_t> frame;
+    REQUIRE(app.read_frame(frame));
+    const Rgb c = center(frame, 80, 60);
+    CHECK(c.r > 150);
+    CHECK(c.g < 30);
+    CHECK(c.b < 30);
+}
