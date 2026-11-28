@@ -147,6 +147,36 @@ uniform <tip> <ad> [: ipucu, ipucu, ...] [= varsayılan];
 | `bool` | 1 | `= true` | `true/false/1/0` |
 | `sampler2D` | 1 (bindless indeks) | tırnaklı varlık yolu: `= "textures/leaf.png"` (sayı/tırnaksız ifade hatadır) | doku yolu (string); boş string varsayılanı kaldırır |
 
+**Katman ve maske harmanı (ADR-0055 D7).** Her `surface()` shader'ında (raster, RT ve path tracer'da aynı) `astral/layers.glsl` hazırdır, `#include` gerekmez:
+
+```glsl
+void surface() {
+    AstralLayer rock = astral_layer_default();   // albedo, roughness, metallic, emission, ao, normal_map, height
+    rock.albedo = texture(rock_albedo, UV * 4.0).rgb;
+    rock.height = texture(rock_height, UV * 4.0).r;
+    AstralLayer moss = astral_layer_default();
+    moss.albedo = vec3(0.1, 0.5, 0.1);
+    moss.height = astral_mask_noise(WORLD_POSITION * 6.0);
+    float cover = astral_mask_slope(NORMAL, 0.6, 0.9) * texture(moss_mask, UV).r;
+    AstralLayer l = astral_layer_blend_height(rock, moss, cover, 0.2);   // yükseklik harmanı: yosun çatlaklarda birikir
+    ALBEDO = l.albedo; ROUGHNESS = l.roughness; METALLIC = l.metallic; EMISSION = l.emission; AO = l.ao;
+    NORMAL_MAP = l.normal_map;
+}
+```
+
+| Fonksiyon | Ne yapar |
+|---|---|
+| `astral_layer_default()` | Düz bir katman (beyaz, pürüzlülük 0.6, düz normal, yükseklik 0.5) |
+| `astral_layer_mix(a, b, t)` | Tüm alanlarda doğrusal harman (t=0 → a, t=1 → b) |
+| `astral_layer_blend_height(a, b, mask, depth)` | Yükseklik harmanı: `b` daha yüksekse daha erken baskın olur; `depth` geçiş genişliği (0.05..0.3) |
+| `astral_height_weight(ha, hb, mask, depth)` | Yukarıdakinin ağırlığı (kendi karışımını yazmak için) |
+| `astral_mask_slope(NORMAL, from, to)` | Yukarı bakışa göre maske (duvar 0, düz zemin 1) |
+| `astral_mask_height(WORLD_POSITION, low, high)` | Dünya yüksekliğine göre maske (metre) |
+| `astral_mask_noise(p)` | Yumuşak 3B değer gürültüsü [0,1]; konumu kendin ölçekle |
+| `astral_mask_contrast(m, c)` | Maskeyi 0.5 etrafında keskinleştirir (c: 0..1) |
+
+Kütüphane yalnız saf fonksiyonlardır, yerleşik değişkeni kendisi okumaz; bu yüzden RT/path tracer vuruşlarında da aynı sonucu verir (RT'de `texture()` sabit mip'tedir, bkz. sınırlar). Materyal dosyası olarak yazmak için [`type: layered`](shaders-and-materials.md).
+
 **Shader içinde texture (ADR-0055 D3).** Doku `.ashader` dosyasında bildirilir ve varsayılan yolunu taşıyabilir; `.material` yazmak zorunlu değildir:
 
 ```glsl

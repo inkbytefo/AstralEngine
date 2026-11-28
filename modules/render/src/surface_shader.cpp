@@ -135,7 +135,8 @@ vec3 VERTEX; vec3 NORMAL; vec2 UV; vec2 UV1; vec3 WORLD_POSITION; mat4 MODEL_MAT
     for (std::size_t i = 0; i < source.varyings.size(); ++i) {
         s += "layout(location = " + std::to_string(7 + i) + ") out " + source.varyings[i].type + " " + source.varyings[i].name + ";\n";
     }
-    s += detail::wrap_body(source, layout, source.body_without("surface"));
+    // Without vertex() the stage needs none of the body; skipping it also keeps helpers that read fragment built-ins out of it.
+    if (source.has_function("vertex")) s += detail::wrap_body(source, layout, source.body_without("surface"));
     s += R"(void main() {
     Vertex v = pc.vertices.data[gl_VertexIndex];
     uint id = pc.first_instance + gl_InstanceIndex;

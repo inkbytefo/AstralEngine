@@ -198,3 +198,26 @@ TEST_CASE("a shader's default texture applies unless the material names another 
         CHECK(evaluate_uniforms(p.source, layout, m).textures.empty());
     }
 }
+
+TEST_CASE("a layered material keeps its layer list, shading model and render modes through the parent chain") {
+    Files files;
+    files.text["base.material"] = R"({"format":"astral.material","version":1,"type":"layered","shading_model":"clearcoat",
+        "render_mode":["cull_disabled"],"layers":[{"material":"a.material"}],"values":{"layer0_roughness":0.2}})";
+    files.text["child.material"] = R"({"format":"astral.material","version":1,"parent":"base.material","values":{"layer0_roughness":0.7}})";
+    const MaterialFile m = resolve_material("child.material", files.reader());
+    REQUIRE(m.ok());
+    CHECK(m.layered);
+    CHECK_FALSE(m.standard_pbr);
+    CHECK(m.layers.size() == 1);
+    CHECK(m.shading_model == "clearcoat");
+    CHECK(m.render_modes == std::vector<std::string>{"cull_disabled"});
+    CHECK(m.value("layer0_roughness")->as_number() == doctest::Approx(0.7));
+}
+
+TEST_CASE("a layered material needs layers and cannot name a shader") {
+    Files files;
+    files.text["none.material"] = R"({"format":"astral.material","version":1,"type":"layered"})";
+    files.text["both.material"] = R"({"format":"astral.material","version":1,"type":"layered","shader":"x.ashader","layers":[]})";
+    CHECK_FALSE(resolve_material("none.material", files.reader()).ok());
+    CHECK_FALSE(resolve_material("both.material", files.reader()).ok());
+}

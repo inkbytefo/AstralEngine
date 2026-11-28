@@ -1,6 +1,6 @@
 # ADR-0055 — Material/shader sertleştirme, shader'da texture, PBR tamamlama, katman ve maske harmanı
 
-- **Durum:** Önerildi (uygulama dilim dilim; her dilim bu dosyada işaretlenir)
+- **Durum:** Kabul; uygulama dilim dilim sürüyor (her dilim aşağıda işaretli)
 - **Tarih:** 2026-11-27
 - **İlişkili:** [ADR-0022](0022-shader-and-material-language.md), [ADR-0033](0033-advanced-pbr-and-path-tracer.md), [ADR-0042](0042-typed-shader-parameter-words.md), [ADR-0051](0051-projected-texture-orientation.md)
 
@@ -50,7 +50,7 @@ Material/shader incelemesinde (2026-11-27, master cdf2188) şunlar bulundu:
 ### D6. Performans (dilim 6)
 Önce `bench` ile ölç; `MaterialStore::upload` için sürüm sayacıyla kirli takibi (yalnız değişen satırlar). SPIR-V optimizasyonu ölçülür, kazanç yoksa kapalı kalır ve "Bilinen sınırlar"a yazılır.
 
-### D7. Materyal katmanları ve maske harmanı (dilim 7–8)
+### D7. Materyal katmanları ve maske harmanı (dilim 7–8) — **uygulandı** (kütüphane + `type: layered`; vertex rengi maskesi yok)
 İki parça, ikisi de **metin kaynağı tek doğruluk** ilkesine bağlı (ADR-0022 §5):
 
 1. **Yardımcı kütüphane `astral/layers.glsl`** (her yüzey shader'ına otomatik eklenir): `AstralLayer` yapısı (albedo, roughness, metallic, normal, emission, ao, alpha) ve `astral_layer_mix(a, b, mask)`, `astral_layer_height_blend(a, ha, b, hb, mask, contrast)`, maske yardımcıları: `astral_mask_slope`, `astral_mask_height_world`, `astral_mask_noise`. Her `.ashader` bunu doğrudan kullanabilir.

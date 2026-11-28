@@ -4,6 +4,7 @@
 #include <astral/assets/asset_manager.hpp>
 #include <astral/assets/model.hpp>
 #include <astral/core/log.hpp>
+#include <astral/render/layered_material.hpp>
 #include <astral/world/serialize.hpp>
 
 #include <algorithm>
@@ -133,6 +134,16 @@ MaterialLibrary::Shader* MaterialLibrary::load_shader(const std::string& path, b
         for (const ShaderError& e : parsed.errors) all += "\n  " + path + ":" + std::to_string(e.line) + ": " + e.message;
         return fail(all);
     }
+    return install_shader(path, parsed, existing, retired_old);
+}
+
+/// Compiles an already parsed shader and registers it under `path` (a file, or a layered material's generated shader).
+MaterialLibrary::Shader* MaterialLibrary::install_shader(const std::string& path, const ShaderParse& parsed, Shader* existing,
+                                                         ShaderHandle* retired_old) {
+    auto fail = [&](const std::string& message) -> Shader* {
+        log_error("shader " + path, message);
+        return existing;
+    };
     ShaderHandle handle;
     UniformLayout layout;
     if (parsed.source.type == ShaderType::Surface) {
@@ -227,7 +238,40 @@ bool MaterialLibrary::build(Material& material, bool create) {
     const Shader* shader = nullptr;
     UniformValues values;
     MaterialDesc desc;
-    if (file.standard_pbr) {
+    ShaderHandle retired_old{};
+    if (file.layered) { // one generated shader per layered material (ADR-0055 D7)
+        const TextReader text_reader = [this](std::string_view path, std::string* error) -> std::optional<std::string> {
+            auto bytes = assets_.read(path, error);
+            if (!bytes) return std::nullopt;
+            return std::string(reinterpret_cast<const char*>(bytes->data()), bytes->size());
+        };
+        const LayeredShader generated = compose_layered_shader(file.layers, file.shading_model, file.render_modes, reader, text_reader);
+        for (const std::string& dep : generated.dependencies) {
+            if (std::find(file.dependencies.begin(), file.dependencies.end(), dep) == file.dependencies.end()) file.dependencies.push_back(dep);
+        }
+        if (!generated.ok()) {
+            for (const std::string& e : generated.errors) log_error("material " + material.path, e);
+            return false;
+        }
+        const ShaderParse parsed = parse_ashader(generated.source);
+        if (!parsed.errors.empty()) {
+            for (const ShaderError& e : parsed.errors) log_error("material " + material.path, "generated shader:" + std::to_string(e.line) + ": " + e.message);
+            return false;
+        }
+        const std::string key = material.path + "#layered";
+        Shader* existing = nullptr;
+        if (const auto it = shader_index_.find(key); it != shader_index_.end()) existing = shaders_[it->second].get();
+        Shader* installed = install_shader(key, parsed, existing, &retired_old);
+        if (!installed) return false;
+        shader = installed;
+        values = evaluate_uniforms(shader->source, shader->layout, file);
+        for (const auto& warning : values.warnings) log_.log(LogLevel::Warn, "material " + material.path + ": " + warning);
+        desc.shader = shader->handle;
+        desc.params = values.params;
+        for (const auto& source : values.textures) {
+            desc.textures.push_back({source.offset, texture(source.path, source.srgb), source.normal});
+        }
+    } else if (file.standard_pbr) {
         std::vector<std::string> errors;
         if (!build_pbr(file, desc, errors)) {
             for (const auto& error : errors) log_error("material " + material.path, error);
@@ -254,6 +298,7 @@ bool MaterialLibrary::build(Material& material, bool create) {
     material.texture_sources = values.textures;
     material.watched.clear();
     for (const std::string& dep : material.file.dependencies) material.watched.emplace_back(dep, time_of(dep));
+    retire_shader(retired_old); // a regenerated layered shader: the material is rebound, the old pipelines can go
     return true;
 }
 

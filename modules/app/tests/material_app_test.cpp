@@ -297,3 +297,40 @@ void surface() {
     CHECK(std::max(upper.r, upper.b) > 120);
     CHECK(std::max(lower.r, lower.b) > 120);
 }
+
+TEST_CASE("a layered material blends its layers by mask and takes per-layer overrides") {
+    const auto dir = test::temp_dir("app_layered");
+    write_text(dir / "shaders/solid.ashader", solid_shader);
+    write_text(dir / "red.material", material(nullptr, "[1,0,0]"));
+    write_text(dir / "blue.material", material(nullptr, "[0,0,1]"));
+    const char* layers = R"("layers":[{"material":"red.material"},{"material":"blue.material","mask":{"value":0.0}}])";
+    write_text(dir / "covered_none.material", std::string(R"({"format":"astral.material","version":1,"type":"layered",)") + layers + "}");
+    write_text(dir / "covered_all.material", std::string(R"({"format":"astral.material","version":1,"type":"layered",)") + layers +
+                                                 R"(,"values":{"layer1_mask":1.0}})");
+    App app({.width = 160, .height = 60, .render = {.ray_tracing = false},
+             .asset_root = dir.string(), .offscreen = true});
+    if (!app.context().renderer) return;
+    struct G final : Game {
+        void on_start(Context& ctx) override {
+            REQUIRE(ctx.materials().load_material("covered_none.material").valid());
+            REQUIRE(ctx.materials().load_material("covered_all.material").valid());
+            ctx.world.create(Transform{.position = {-1.3f, 0, 0}}, PrimitiveMesh{.material_file = "covered_none.material"});
+            ctx.world.create(Transform{.position = {1.3f, 0, 0}}, PrimitiveMesh{.material_file = "covered_all.material"});
+            ctx.world.create(Transform{.position = {0, 0, 5}}, Camera{});
+            ctx.sun.intensity = 0.0f;
+            ctx.environment.ambient = 0.0f;
+        }
+    } game;
+    app.run_frames(game, 2);
+    std::vector<std::uint8_t> frame;
+    REQUIRE(app.read_frame(frame));
+    const auto px = [&](int x, int y) {
+        const std::size_t i = (std::size_t{static_cast<std::size_t>(y)} * 160 + static_cast<std::size_t>(x)) * 4;
+        return Rgb{frame[i], frame[i + 1], frame[i + 2]};
+    };
+    const Rgb left = px(160 / 2 - 14, 30), right = px(160 / 2 + 14, 30); // cube centres: 1.3 m at 5 m, ~10 px/m
+    CHECK(left.r > 120);  // mask 0: the base layer (red)
+    CHECK(left.b < 40);
+    CHECK(right.b > 120); // mask 1 through the override: the second layer (blue)
+    CHECK(right.r < 40);
+}

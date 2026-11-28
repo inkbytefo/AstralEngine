@@ -57,6 +57,7 @@ astral_add_module(NAME render
         src/surface_shader.cpp
         src/surface_shader_rt.cpp
         src/material_file.cpp
+        src/layered_material.cpp
     DEPS
         Astral::Core
         Astral::Gpu
@@ -117,6 +118,7 @@ astral_add_tests(MODULE render
         tests/render_graph_test.cpp
         tests/surface_shader_test.cpp
         tests/material_file_test.cpp
+        tests/layered_material_test.cpp
         tests/material_crlf_test.cpp
         tests/msr_regression_test.cpp
         tests/particle_builtins_test.cpp)

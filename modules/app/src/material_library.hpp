@@ -77,6 +77,7 @@ private:
     };
 
     Shader* load_shader(const std::string& path, bool reload, ShaderHandle* retired_old = nullptr);
+    Shader* install_shader(const std::string& path, const ShaderParse& parsed, Shader* existing, ShaderHandle* retired_old);
     bool build(Material& material, bool create);
     bool build_pbr(const MaterialFile& file, MaterialDesc& desc, std::vector<std::string>& errors);
     bool reload_texture(Texture& texture);

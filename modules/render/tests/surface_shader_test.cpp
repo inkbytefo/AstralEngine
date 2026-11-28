@@ -236,3 +236,13 @@ void surface() {
     const RtVariants variants = compile_rt_variants(rt);
     CHECK_MESSAGE(variants.ok(), (variants.errors.empty() ? "" : variants.errors[0].message));
 }
+
+TEST_CASE("a helper that reads fragment built-ins does not break shaders without vertex()") {
+    const ShaderParse p = parse_ashader(R"(shader_type surface;
+float shade_from_albedo() { return dot(ALBEDO, vec3(0.3)); }
+void surface() { ALBEDO = vec3(0.5); ROUGHNESS = shade_from_albedo(); }
+)");
+    REQUIRE(p.errors.empty());
+    const SurfaceShaderBuild build = compile_surface_shader(p.source, "helper.ashader");
+    CHECK_MESSAGE(build.ok(), (build.errors.empty() ? "" : build.errors[0].message));
+}

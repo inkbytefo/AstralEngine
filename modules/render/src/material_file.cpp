@@ -61,13 +61,25 @@ MaterialFile resolve_material(std::string_view path, const MaterialReader& read)
         }
         const Json& type = (*doc)["type"];
         const Json& shader = (*doc)["shader"];
-        if ((!type.is_null() && type.as_string() != "pbr") || (type.as_string() == "pbr" && !shader.is_null())) {
-            m.errors.push_back(current + ": expected type pbr or a shader path");
+        const std::string type_name = type.as_string();
+        const bool typed = type_name == "pbr" || type_name == "layered";
+        if ((!type.is_null() && !typed) || (typed && !shader.is_null())) {
+            m.errors.push_back(current + ": expected type pbr, type layered or a shader path");
             return m;
         }
-        if (!m.standard_pbr && m.shader.empty()) {
-            m.standard_pbr = type.as_string() == "pbr";
+        if (!m.standard_pbr && !m.layered && m.shader.empty()) {
+            m.standard_pbr = type_name == "pbr";
+            m.layered = type_name == "layered";
             if (shader.is_string()) m.shader = shader.as_string();
+        }
+        if (m.layered && type_name != "pbr") {
+            if (m.layers.is_null() && (*doc)["layers"].is_array()) m.layers = (*doc)["layers"];
+            if (m.shading_model.empty() && (*doc)["shading_model"].is_string()) m.shading_model = (*doc)["shading_model"].as_string();
+            if (m.render_modes.empty() && (*doc)["render_mode"].is_array()) {
+                for (const Json& r : (*doc)["render_mode"].as_array()) {
+                    if (r.is_string()) m.render_modes.push_back(r.as_string());
+                }
+            }
         }
         for (const auto& [name, v] : (*doc)["values"].as_object()) {
             auto existing = std::find_if(m.values.begin(), m.values.end(), [&](const auto& e) { return e.first == name; });
@@ -78,7 +90,8 @@ MaterialFile resolve_material(std::string_view path, const MaterialReader& read)
         if (!parent.is_string() || parent.as_string().empty()) break;
         current = parent.as_string();
     }
-    if (!m.standard_pbr && m.shader.empty()) m.errors.push_back(std::string(path) + ": no shader or PBR type in the material or its parents");
+    if (!m.standard_pbr && !m.layered && m.shader.empty()) m.errors.push_back(std::string(path) + ": no shader or PBR type in the material or its parents");
+    if (m.layered && !m.layers.is_array()) m.errors.push_back(std::string(path) + ": a layered material needs a \"layers\" array");
     return m;
 }
 

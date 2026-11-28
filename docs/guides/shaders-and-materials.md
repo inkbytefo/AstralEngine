@@ -66,6 +66,29 @@ Değer kuralları (`modules/render/src/material_file.cpp:73-125`):
 - Bilinmeyen ad **uyarıdır** (`is not a PBR parameter`), materyal kurulur ve geçerli değerler uygulanır; özel shader yoluyla aynı davranış (ADR-0055 D1). Yazım hatası çalışan sahneyi hot reload sırasında öldürmez, günlükte görünür.
   
 
+### 1.3 Katmanlı materyal (`type: layered`, ADR-0055 D7)
+
+Birden çok materyali maskeyle üst üste harmanlar: kaya + yosun + kar gibi. Motor bu dosyadan **tek bir `.ashader` üretir** (tek doğruluk kaynağı metin; derlenir, önbelleğe alınır, hot reload ve RT'de diğer shader'larla aynı çalışır).
+
+```json
+{ "format": "astral.material", "version": 1, "type": "layered",
+  "layers": [
+    { "material": "materials/rock.material" },
+    { "material": "materials/moss.material",
+      "mask": { "texture": "textures/moss_mask.png", "channel": "r", "slope": [0.6, 0.9],
+                "height_world": [0, 8], "noise": { "scale": 2, "amount": 0.4 },
+                "value": 1.0, "invert": false, "contrast": 0.3, "height_blend": true, "depth": 0.2 },
+      "height": { "texture": "textures/moss_height.png", "channel": "g", "scale": 1.0 } } ],
+  "values": { "layer1_mask": 0.8 } }
+```
+
+- Bir katman standart PBR materyali, özel shader materyali ya da doğrudan bir `.ashader` olabilir (ebeveyn zinciri ve değerleri uygulanır). İlk katman tabandır, maskesi yoktur. En çok 8 katman.
+- Maske faktörleri **çarpılır**: `value` × doku kanalı × `slope` × `height_world` × `noise`; sonra `invert` ve `contrast`. `height_blend: true` ise katman düz karışım yerine yüksekliğe göre harmanlanır (`height`: sayı ya da `{texture, channel, scale}`, varsayılan 0.5; `depth` geçiş genişliği).
+- Üretilen shader'daki uniform'lar `layer<N>_<ad>` adını alır (`layer1_mask`, `layer0_roughness`, `layer1_tint`...). Üst düzey `values` bunları geçersiz kılar; katman materyallerinin kendi değerleri varsayılan olur.
+- `"shading_model"` ve `"render_mode": [...]` üretilen shader'ın başlığına geçer.
+- **Sınırlar:** her katmandan yalnız `ALBEDO`, `ROUGHNESS`, `METALLIC`, `EMISSION`, `AO` ve `NORMAL_MAP` harmanlanır. Katman shader'ında `vertex()` ve `varying` olamaz; clearcoat, ıslaklık gibi diğer yerleşikler kullanılmaz. PBR katmanda `mapping` yalnız `uv_scale` olarak uygulanır (planar/triplanar yok), `detail` ve POM yok. Katmanlı materyal başka katmanlı materyali katman olarak alamaz. Vertex rengi maskesi yok (mesh biçimi değişikliği gerekir).
+- Üretilen metin hata mesajlarında `<materyal>.material#layered:<satır>` olarak görünür.
+
 ## 2. Ebeveyn zinciri (`parent`)
 
 ```json
