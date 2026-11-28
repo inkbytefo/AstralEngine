@@ -181,7 +181,7 @@ layout(location = 0) out vec4 astral_out_color;
 } // namespace
 
 std::string compose_rt_surfaces(std::span<const RtSurface> surfaces) {
-    std::string s = "// Generated: the custom surface() functions for ray-traced hits.\n";
+    std::string s = "// Generated: the custom surface() functions for ray-traced hits.\n#include <astral/layers.glsl>\n";
     s += detail::kSurfaceBuiltinsDecl;
     for (const RtSurface& surface : surfaces) {
         std::string chunk = surface.chunk;

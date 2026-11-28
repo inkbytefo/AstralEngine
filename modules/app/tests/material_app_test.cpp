@@ -254,3 +254,46 @@ void surface() { ALBEDO = vec3(0.0); EMISSION = texture(tex, UV).rgb * 2.0; ROUG
     CHECK(c.g < 30);
     CHECK(c.b < 30);
 }
+
+TEST_CASE("layer helpers blend by mask and by height") {
+    const auto dir = test::temp_dir("app_layers");
+    // Columns pick the mask (left 0.5 / right 0.5 with the other layer taller), rows swap which layer is taller:
+    // at an equal mask the taller layer must win; the result shows as red (layer a) or blue (layer b).
+    write_text(dir / "blend.ashader", R"(shader_type surface;
+void surface() {
+    AstralLayer a = astral_layer_default();
+    AstralLayer b = astral_layer_default();
+    a.emission = vec3(2.0, 0.0, 0.0);
+    b.emission = vec3(0.0, 0.0, 2.0);
+    bool top = UV.y < 0.5;
+    a.height = top ? 0.2 : 0.9;
+    b.height = top ? 0.9 : 0.2;
+    AstralLayer l = astral_layer_blend_height(a, b, 0.5, 0.1);
+    ALBEDO = vec3(0.0); EMISSION = l.emission; ROUGHNESS = 1.0;
+}
+)");
+    App app({.width = 80, .height = 60, .render = {.ray_tracing = false},
+             .asset_root = dir.string(), .offscreen = true});
+    if (!app.context().renderer) return;
+    struct G final : Game {
+        void on_start(Context& ctx) override {
+            ctx.world.create(Transform{}, PrimitiveMesh{.material_file = "blend.ashader"});
+            ctx.world.create(Transform{.position = {0, 0, 3}}, Camera{});
+            ctx.sun.intensity = 0.0f;
+            ctx.environment.ambient = 0.0f;
+        }
+    } game;
+    app.run_frames(game, 2);
+    std::vector<std::uint8_t> frame;
+    REQUIRE(app.read_frame(frame));
+    const auto px = [&](int x, int y) {
+        const std::size_t i = (std::size_t{static_cast<std::size_t>(y)} * 80 + static_cast<std::size_t>(x)) * 4;
+        return Rgb{frame[i], frame[i + 1], frame[i + 2]};
+    };
+    const Rgb upper = px(40, 24), lower = px(40, 36); // either side of the face centre; one is a top-UV row, one is not
+    // Exactly one of the two rows shows the red layer and the other the blue one: the taller layer wins.
+    const bool upper_red = upper.r > upper.b, lower_red = lower.r > lower.b;
+    CHECK(upper_red != lower_red);
+    CHECK(std::max(upper.r, upper.b) > 120);
+    CHECK(std::max(lower.r, lower.b) > 120);
+}

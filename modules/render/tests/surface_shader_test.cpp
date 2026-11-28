@@ -212,3 +212,27 @@ TEST_CASE("the ray-traced variants compile in parallel and warm from the cache")
     REQUIRE(compile_rt_variants(other, {.cache = &other_cache, .jobs = &jobs}).ok());
     CHECK(other_cache.stats().misses == 5);
 }
+
+TEST_CASE("the layer library is available to surface() in the raster stages and the ray-traced variants") {
+    const ShaderParse p = parse_ashader(R"(shader_type surface;
+uniform float coverage : range(0.0, 1.0) = 0.5;
+void surface() {
+    AstralLayer a = astral_layer_default();
+    AstralLayer b = astral_layer_default();
+    b.albedo = vec3(0.0, 1.0, 0.0);
+    b.height = 0.9;
+    float m = coverage * astral_mask_slope(NORMAL, 0.5, 0.9) * astral_mask_height(WORLD_POSITION, 0.0, 2.0);
+    m = astral_mask_contrast(m + 0.1 * astral_mask_noise(WORLD_POSITION * 3.0), 0.4);
+    AstralLayer l = astral_layer_blend_height(a, b, m, 0.2);
+    ALBEDO = l.albedo; ROUGHNESS = l.roughness; METALLIC = l.metallic; EMISSION = l.emission; AO = l.ao;
+    NORMAL_MAP = l.normal_map;
+}
+)");
+    REQUIRE(p.errors.empty());
+    const SurfaceShaderBuild build = compile_surface_shader(p.source, "layers.ashader");
+    REQUIRE_MESSAGE(build.ok(), (build.errors.empty() ? "" : build.errors[0].message));
+    REQUIRE_FALSE(build.rt_chunk.empty());
+    const RtSurface rt[] = {{1, build.rt_chunk}};
+    const RtVariants variants = compile_rt_variants(rt);
+    CHECK_MESSAGE(variants.ok(), (variants.errors.empty() ? "" : variants.errors[0].message));
+}

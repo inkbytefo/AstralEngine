@@ -17,6 +17,7 @@ std::vector<GlslInclude> engine_includes() {
             {"astral/color.glsl", embedded_text(embedded::astral_color_glsl, embedded::astral_color_glsl_size)},
             {"astral/brdf.glsl", embedded_text(embedded::astral_brdf_glsl, embedded::astral_brdf_glsl_size)},
             {"astral/bsdf.glsl", embedded_text(embedded::astral_bsdf_glsl, embedded::astral_bsdf_glsl_size)},
+            {"astral/layers.glsl", embedded_text(embedded::astral_layers_glsl, embedded::astral_layers_glsl_size)},
             {"astral/particle_state.glsl",
              embedded_text(embedded::astral_particle_state_glsl, embedded::astral_particle_state_glsl_size)},
             {"astral/smoke_atlas.glsl",
@@ -92,6 +93,7 @@ std::string prelude() {
 #include <astral/scene.glsl>
 #include <astral/color.glsl>
 #include <astral/bsdf.glsl>
+#include <astral/layers.glsl>
 layout(push_constant, scalar) uniform Push {
     Vertices vertices; Instances instances; FrameRef frame; Materials materials; uint first_instance;
     uint64_t params; float time; uint fog_atlas; PointLights lights;
