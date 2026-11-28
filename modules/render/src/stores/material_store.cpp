@@ -86,8 +86,8 @@ GpuMaterial MaterialStore::to_gpu(const MaterialDesc& d, const std::array<double
     gm.detail_textures[0] = textures_.bindless_or(d.detail.albedo_texture, no_texture);
     gm.detail_textures[1] = textures_.bindless_or(d.detail.normal_texture, no_texture);
     gm.detail_textures[2] = textures_.bindless_or(d.detail.height_texture, no_texture);
-    gm.detail_textures[3] = no_texture;
-    gm.detail_params = {d.detail.uv_scale, d.detail.normal_scale, d.detail.parallax_scale, 0.0f};
+    gm.detail_textures[3] = textures_.bindless_or(d.occlusion_texture, no_texture);
+    gm.detail_params = {d.detail.uv_scale, d.detail.normal_scale, d.detail.parallax_scale, std::clamp(d.occlusion_strength, 0.0f, 1.0f)};
     const auto& m = d.mapping;
     const float size = std::isfinite(m.tile_size_m) ? std::max(m.tile_size_m, 0.001f) : 1.0f;
     gm.uv_transform = {m.uv_scale.x, m.uv_scale.y, m.uv_offset.x, m.uv_offset.y};

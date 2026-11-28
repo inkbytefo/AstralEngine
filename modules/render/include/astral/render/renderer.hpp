@@ -104,7 +104,9 @@ struct MaterialDesc {
     TextureHandle metallic_roughness_texture{}; ///< glTF layout: G = roughness, B = metallic.
     TextureHandle normal_texture{};             ///< Tangent space; no vertex tangents needed.
     TextureHandle emissive_texture{};
+    TextureHandle occlusion_texture{};          ///< Red channel multiplies the albedo (ADR-0055 D4); also fits a packed ORM map.
     float normal_scale = 1.0f;
+    float occlusion_strength = 1.0f;            ///< [0, 1]: 0 ignores the occlusion texture.
     ShadingModel shading_model = ShadingModel::Standard;
     ClearcoatDesc clearcoat{};
     SheenDesc sheen{};
@@ -462,7 +464,7 @@ ASTRAL_REFLECT(astral::SubsurfaceDesc, strength, color, radius)
 ASTRAL_REFLECT(astral::DetailDesc, uv_scale, normal_scale, parallax_scale)
 ASTRAL_REFLECT_ENUM(astral::TextureProjection, MeshUV, PlanarXY, PlanarXZ, PlanarYZ, Triplanar)
 ASTRAL_REFLECT(astral::TextureMapping, projection, uv_scale, uv_offset, uv_rotation, tile_size_m, blend_sharpness, world_space)
-ASTRAL_REFLECT(astral::MaterialDesc, base_color, roughness, metallic, emissive, normal_scale, shading_model, clearcoat,
+ASTRAL_REFLECT(astral::MaterialDesc, base_color, roughness, metallic, emissive, normal_scale, occlusion_strength, shading_model, clearcoat,
                sheen, anisotropy, transmission, subsurface, detail, wetness, mapping)
 ASTRAL_REFLECT(astral::Decal, transform, color, roughness, metallic, wetness, normal_strength, affect_roughness)
 ASTRAL_REFLECT_ENUM(astral::DebugView, None, Albedo, Normals, DiffuseLight, Specular, Motion)

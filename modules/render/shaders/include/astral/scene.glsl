@@ -22,8 +22,8 @@ struct Material {
     vec4 transmission;       // x strength, y ior, z thickness, w attenuation_distance
     vec4 subsurface;         // rgb subsurface_color, a subsurface_strength
     vec4 attenuation;        // rgb attenuation_color, a subsurface_radius
-    uvec4 detail_textures;   // bindless: x detail_albedo, y detail_normal, z height_map, w unused
-    vec4 detail_params;      // x uv_scale, y normal_scale, z parallax_scale, w unused
+    uvec4 detail_textures;   // bindless: x detail_albedo, y detail_normal, z height_map, w occlusion
+    vec4 detail_params;      // x uv_scale, y normal_scale, z parallax_scale, w occlusion_strength
     vec4 uv_transform;
     vec4 projection;
     vec4 projection_phase;

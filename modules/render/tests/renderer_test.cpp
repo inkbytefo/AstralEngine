@@ -588,6 +588,29 @@ TEST_CASE("base colour textures are sampled with the mesh uvs, and can be replac
     CHECK(rgb(Fixture::center(f.draw(scene))).g > 120); // material colour (white) under the sun: bright
 }
 
+TEST_CASE("an occlusion texture darkens the albedo by its red channel, scaled by occlusion_strength") {
+    Fixture f;
+    if (!f.device) return;
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const TextureHandle ao = f.renderer->create_texture(solid_halves({255, 0, 0, 255}, {0, 0, 0, 255})); // lit | occluded
+    REQUIRE(ao.valid());
+    auto draw_with = [&](float strength) {
+        const MaterialHandle mat = f.renderer->create_material({.roughness = 1.0f, .occlusion_texture = ao, .occlusion_strength = strength});
+        const MeshInstance inst{.mesh = cube, .material = mat, .transform = scale({2, 2, 2})};
+        const RenderScene scene{.meshes = std::span(&inst, 1), .sun = front_sun};
+        const auto pixels = f.draw(scene);
+        return std::pair{rgb(f.at(pixels, {-0.5f, 0, 1})), rgb(f.at(pixels, {0.5f, 0, 1}))};
+    };
+    const auto [lit_full, dark_full] = draw_with(1.0f);
+    CHECK(lit_full.g > 120);
+    CHECK(dark_full.g < lit_full.g / 3);        // fully occluded: the albedo goes dark (ambient aside)
+    const auto [lit_half, dark_half] = draw_with(0.5f);
+    CHECK(dark_half.g > dark_full.g + 20);      // half strength keeps half the albedo
+    CHECK(dark_half.g < lit_half.g);
+    const auto [lit_none, dark_none] = draw_with(0.0f);
+    CHECK(dark_none.g > lit_none.g - 10);       // strength 0 ignores the texture
+}
+
 TEST_CASE("meter-based wall projection is preserved across a floating origin shift") {
     Fixture f;
     if (!f.device) return;

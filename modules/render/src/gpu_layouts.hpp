@@ -70,8 +70,8 @@ struct GpuMaterial {
     Vec4 transmission{};                    // x strength, y ior, z thickness, w attenuation_distance
     Vec4 subsurface{};                      // rgb subsurface_color, a subsurface_strength
     Vec4 attenuation{};                     // rgb attenuation_color, a subsurface_radius
-    std::uint32_t detail_textures[4] = {no_texture, no_texture, no_texture, no_texture}; // albedo, normal, height, unused
-    Vec4 detail_params{4.0f, 0.5f, 0.0f, 0.0f}; // x uv_scale, y normal_scale, z parallax_scale, w unused
+    std::uint32_t detail_textures[4] = {no_texture, no_texture, no_texture, no_texture}; // albedo, normal, height, occlusion
+    Vec4 detail_params{4.0f, 0.5f, 0.0f, 0.0f}; // x uv_scale, y normal_scale, z parallax_scale, w occlusion_strength
     Vec4 uv_transform{1, 1, 0, 0};
     Vec4 projection{0, 1, 4, 1}; // mode, inverse tile size, sharpness, world space
     Vec4 projection_phase{}; // wrapped origin phase and UV rotation in w

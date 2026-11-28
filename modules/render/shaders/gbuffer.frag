@@ -79,6 +79,7 @@ void main() {
         if (m.textures.z != NO_TEXTURE && m.projection.x > 0.5) n = projected_normal(m.textures.z, m, coords, n, 0.0);
     }
     if (m.textures.w != NO_TEXTURE) emissive *= material_sample(m.textures.w, m, coords, 0.0).rgb;
+    if (m.detail_textures.w != NO_TEXTURE) albedo *= mix(1.0, material_sample(m.detail_textures.w, m, coords, 0.0).r, m.detail_params.w);
 
     float coat = m.coat_aniso.x;
     float coat_r = m.coat_aniso.y;

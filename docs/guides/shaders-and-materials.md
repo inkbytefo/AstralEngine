@@ -57,8 +57,8 @@ Değer kuralları (`modules/render/src/material_file.cpp:73-125`):
 (`examples/materials_showcase/assets/workflow/materials/stone.material`)
 
 - Doku yuvaları (string yol): `base_color_texture`, `metallic_roughness_texture`, `normal_texture`, `emissive_texture`,
-  `detail_albedo_texture`, `detail_normal_texture`, `detail_height_texture` (`modules/app/src/material_library.cpp:186-194`).
-  Renk yuvaları sRGB, diğerleri doğrusal yüklenir.
+  `occlusion_texture`, `detail_albedo_texture`, `detail_normal_texture`, `detail_height_texture` (`modules/app/src/material_library.cpp:186-194`).
+  Renk yuvaları sRGB, diğerleri doğrusal yüklenir. `occlusion_texture`'ın **kırmızı** kanalı albedo'yu çarpar, `occlusion_strength` (0..1, varsayılan 1) ağırlığını belirler; paketli ORM dokusunu hem bu yuvaya hem `metallic_roughness_texture`'a verebilirsin (ADR-0055 D4). Raster G-buffer ve RT/path tracer vuruşlarında aynı uygulanır (`modules/render/shaders/gbuffer.frag`, `modules/render/shaders/include/astral/rt.glsl`).
 - Diğer adlar `MaterialDesc` reflect alanlarıdır: `base_color`, `roughness`, `metallic`, `emissive`, `normal_scale`, `shading_model`,
   `clearcoat`, `sheen`, `anisotropy`, `transmission`, `subsurface`, `detail`, `wetness`, `mapping`
   (`modules/render/include/astral/render/renderer.hpp:465-466`). İç içe alanlar nesne olarak yazılır (örnek: `"clearcoat": {"strength": 1}`).

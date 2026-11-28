@@ -39,7 +39,10 @@ Material/shader incelemesinde (2026-11-27, master cdf2188) şunlar bulundu:
 - Cook düz görselleri materyal kullanımına göre sınıflamadığı için ek cook işi yoktur; yalnız `.ashader` ayrıştırması (hatalı varsayılan sözdizimi) cook'ta `dosya:satır` ile raporlanır.
 
 ### D4. Standart PBR tamamlama (dilim 4)
-`MaterialDesc`'e: `occlusion_texture` + `occlusion_strength`, `alpha_mode` (`Opaque`/`Mask`/`Blend`) + `alpha_cutoff`, `emissive_strength`, `ior` (dielektrik F0). İçeride standart PBR, mevcut yolları bozmadan bu alanları G-buffer/forward şablonuna alır; glTF üretilen `.ashader` yolu daha sonra bu alanlara taşınabilir (ayrı iş, bu ADR'de yok).
+- **`occlusion_texture` + `occlusion_strength` — uygulandı.** GPU tablosundaki boş yuvalar kullanıldı (`detail_textures[3]`, `detail_params.w`); düzen değişmedi. Raster ve RT aynı çarpanı uygular.
+- **`emissive_strength` eklenmeyecek:** `MaterialDesc::emissive` zaten sınırsız HDR ışıma (rgb); glTF'nin `emissiveStrength` çarpanı doğrudan buna katlanır. İkinci bir alan yalnız kafa karıştırır.
+- **`ior` (dielektrik F0) ertelendi:** F0 şu an 0.04 sabit ve G-buffer'da boş kanal yok; eklemek G-buffer yeniden düzeni ister (ayrı ADR). `Transmission.ior` kırılma için çalışmaya devam eder.
+- **`alpha_mode` (`Mask`/`Blend`) için karar:** standart PBR sabit G-buffer pipeline'ını kullanır; `Mask` için cutoff'u G-buffer'a ve gölge/RT any-hit yoluna işlemek gerekir, `Blend` ise standart yolda forward pass'i yoktur. glTF içe aktarma bu ihtiyacı üretilen `.ashader` ile zaten karşılar. Karar: `type: pbr` + `alpha_mode` verilirse materyal kütüphanesi aynı üretici ile bir shader'a yönlendirilir (dilim 4b, ayrı commit).
 
 ### D5. Örnek başına override (dilim 5)
 `MaterialOverride` ECS bileşeni (reflect edilmiş): uniform adı → değer. Değerler paylaşılan parametre tamponuna **örnek başına ofsetle** yazılır; `Instance` yapısına `param_offset` eklenir. Materyal sayısı patlamaz, hot reload bozulmaz.

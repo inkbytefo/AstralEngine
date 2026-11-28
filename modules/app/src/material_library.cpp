@@ -188,6 +188,7 @@ bool MaterialLibrary::build_pbr(const MaterialFile& file, MaterialDesc& desc, st
         {"metallic_roughness_texture", desc.metallic_roughness_texture, false},
         {"normal_texture", desc.normal_texture, false},
         {"emissive_texture", desc.emissive_texture, true},
+        {"occlusion_texture", desc.occlusion_texture, false},
         {"detail_albedo_texture", desc.detail.albedo_texture, true},
         {"detail_normal_texture", desc.detail.normal_texture, false},
         {"detail_height_texture", desc.detail.height_texture, false},

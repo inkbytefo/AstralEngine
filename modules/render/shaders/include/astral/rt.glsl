@@ -229,6 +229,7 @@ Surface triangle_surface(Instances instances, Materials materials, uint instance
         s.metallic *= mr.b;
     }
     if (mat.textures.w != NO_TEXTURE) s.emissive *= material_sample(mat.textures.w, mat, coords, lod).rgb;
+    if (mat.detail_textures.w != NO_TEXTURE) s.albedo *= mix(1.0, material_sample(mat.detail_textures.w, mat, coords, lod).r, mat.detail_params.w);
     if (mat.textures.z != NO_TEXTURE && mat.projection.x > 0.5) {
         s.n = projected_normal(mat.textures.z, mat, coords, s.n, lod);
     }
