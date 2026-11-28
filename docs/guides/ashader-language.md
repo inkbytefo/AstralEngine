@@ -175,7 +175,7 @@ void surface() {
 | `astral_mask_noise(p)` | Yumuşak 3B değer gürültüsü [0,1]; konumu kendin ölçekle |
 | `astral_mask_contrast(m, c)` | Maskeyi 0.5 etrafında keskinleştirir (c: 0..1) |
 
-Kütüphane yalnız saf fonksiyonlardır, yerleşik değişkeni kendisi okumaz; bu yüzden RT/path tracer vuruşlarında da aynı sonucu verir (RT'de `texture()` sabit mip'tedir, bkz. sınırlar). Materyal dosyası olarak yazmak için [`type: layered`](shaders-and-materials.md).
+Kütüphane yalnız saf fonksiyonlardır, yerleşik değişkeni kendisi okumaz; bu yüzden RT/path tracer vuruşlarında da aynı sonucu verir (RT'de `texture()` ışın ayak izinden mip seçer, bkz. sınırlar). Materyal dosyası olarak yazmak için [`type: layered`](shaders-and-materials.md).
 
 **Shader içinde texture (ADR-0055 D3).** Doku `.ashader` dosyasında bildirilir ve varsayılan yolunu taşıyabilir; `.material` yazmak zorunlu değildir:
 
@@ -343,7 +343,7 @@ Opak `surface` shader'ın `surface()` gövdesinden bir **RT parçası** da üret
 (`rt_lighting`, `ddgi_trace`, ReSTIR temporal/spatial, `path_tracer`) bunlarla yeniden derlenir (`modules/render/src/surface_shader_rt.cpp:206-253`). RT vuruşunda:
 
 - `vertex()` çalışmaz (deformasyon yok; BLAS özgün köşelerle bir kez kurulur), varying'ler 0.
-- `dFdx/dFdy` 0 döner; `texture(s, uv)` sabit kaba mip (`textureLod(s, uv, 2.0)`) ile örneklenir; `SCREEN_UV = vec2(0)`.
+- `dFdx/dFdy` 0 döner; `texture(s, uv)` ışının vuruş yüzeyindeki ayak izinden seçilen mip ile örneklenir (mesh UV'sine göre; `surface()` içinde UV'yi ölçeklersen ayak izi buna göre ayarlanmaz, `alpha_test` kesmesi en keskin mip'i okur; ADR-0055 D8); `SCREEN_UV = vec2(0)`.
 - `NORMAL_MAP` ve (opak) `ALPHA` yok sayılır; `alpha_test` için ayrı eşik işlevi çalışır (`modules/render/src/surface_shader.cpp:303-355`).
 - Her shader'ın üst düzey fonksiyon adları `astral_s<ID>_<ad>` makrolarıyla ad alanına alınır; **fonksiyon dışı global sabitler/değişkenler alınmaz**: iki `surface`
   shader'ında aynı adlı global sabit birleşik RT derlemesini bozar (`modules/render/src/surface_shader.cpp:305-310`). Sabitleri fonksiyon içinde tanımla.

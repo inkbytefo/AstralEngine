@@ -989,6 +989,51 @@ void surface() {
     f.renderer->destroy(shader);
 }
 
+TEST_CASE("ray-traced hits of a custom shader sample textures at the ray's footprint, not a fixed mip") {
+    Fixture f(rt_settings());
+    if (!rt_available(f)) return;
+    const ShaderParse p = parse_ashader(R"(shader_type surface;
+uniform sampler2D checker : source_color;
+void surface() { ALBEDO = vec3(0.0); EMISSION = vec3(0.0, 3.0, 0.0) * texture(checker, UV).r; }
+)");
+    REQUIRE(p.errors.empty());
+    const SurfaceShaderBuild build = compile_surface_shader(p.source, "checker.ashader");
+    REQUIRE(build.ok());
+    const ShaderHandle shader = f.renderer->create_shader(build, "checker");
+    REQUIRE(shader.valid());
+    // 2 x 2 black/white texels: any mip above 0 averages it to grey.
+    ImageData image{.width = 2, .height = 2, .rgba = {}, .srgb = false, .format = ImageFormat::RGBA8, .levels = {}};
+    for (int y = 0; y < 2; ++y) {
+        for (int x = 0; x < 2; ++x) {
+            const std::uint8_t v = ((x + y) & 1) ? 255 : 0;
+            image.rgba.insert(image.rgba.end(), {v, v, v, 255});
+        }
+    }
+    const TextureHandle texture = f.renderer->create_texture(image);
+    REQUIRE(texture.valid());
+    const MeshHandle cube = f.renderer->create_mesh(make_cube());
+    const MaterialHandle mirror = f.renderer->create_material({.base_color = {0.95f, 0.95f, 0.95f, 1}, .roughness = 0.02f, .metallic = 1.0f});
+    MaterialDesc desc{.shader = shader, .params = float_words({0, 0, 0, 0})};
+    desc.textures.push_back({.offset = 0, .texture = texture});
+    const MaterialHandle checker = f.renderer->create_material(desc);
+    const std::array items{
+        MeshInstance{.mesh = cube, .material = mirror, .transform = translate({0, 0, -1.5f}) * scale({6, 6, 1})},
+        MeshInstance{.mesh = cube, .material = checker, .transform = translate({0, 0, 9}) * scale({6, 6, 1})},
+    };
+    const DirectionalLight sun{.direction = {0, 0, 1}, .intensity = 0.0f};
+    const auto pixels = converge(f, {.meshes = items, .sun = sun}, 6);
+    // "Greenness" (g minus the mean of r and b): the emissive white texels are pure green, the black ones show the sky.
+    int lo = 255, hi = -255;
+    for (int dx = -24; dx <= 24; ++dx) {
+        const Rgb c = rgb(f.at(pixels, {dx * 0.02f, 0.3f, 1.0f}));
+        const int greenness = c.g - (c.r + c.b) / 2;
+        lo = std::min(lo, greenness);
+        hi = std::max(hi, greenness);
+    }
+    CHECK_MESSAGE(hi - lo > 60, "the reflected checker is blurred: greenness spans only " << lo << ".." << hi);
+    f.renderer->destroy(shader);
+}
+
 TEST_CASE("a custom shader the ray-traced build cannot take does not break rendering and reports why") {
     Fixture f(rt_settings());
     if (!rt_available(f)) return;

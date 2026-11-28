@@ -71,8 +71,10 @@ SPIR-V optimizasyonu ölçülmedi (`spirv-opt` bu ortamda yok, gerçek GPU yok);
    Motor bu dosyadan **üretilen bir `.ashader`** yazar (glTF içe aktarmanın kullandığı yolla aynı). Her katmanın `surface()` gövdesi önek adıyla fonksiyona çevrilir (RT parçasında kullanılan yeniden adlandırma tekniği), çıktıları `AstralLayer` olarak toplanır ve sırayla harmanlanır. Üst sınır 8 katman (RT uber-shader ve parametre bloğu boyutu için). Katman uniform'ları `layerN_<ad>` önekiyle tek parametre bloğunda birleşir; katman başına parametre geçersiz kılma `.material` `values`'ında aynı önekle yapılır.
 3. Maske kaynakları v1: doku kanalı, skaler parametre, eğim, dünya yüksekliği, gürültü, önceki katmanın yüksekliği (height blend). **Vertex color v1'de yok** (mesh formatı değişikliği gerektirir; ayrı ADR).
 
-### D8. RT/raster parite (dilim 9, ölçüm öncelikli)
-Önce raster ve RT çıktısını aynı materyalle karşılaştıran altın test (ADR-0031 donanımsız yol + varsa GPU). Sonra: RT'de `texture()` için ışın konisi tabanlı mip seçimi, varying'lerin RT'de temsili değerle (UV'den) doldurulması. Kapanamayan fark "Bilinen sınırlar"a yazılır ve ADR-0022'nin "aynı görünür" vaadi buna göre düzeltilir.
+### D8. RT/raster parite (dilim 9) — **kısmen uygulandı**
+Bu ortamdaki yazılım Vulkan (Mesa 25.2 lavapipe) `ray_query` destekler; RT testleri atlanmadan koşar. Ölçüldü ve düzeltildi:
+- **`texture()` sabit mip 2 idi** (2×2 satranç dokusu yansımada tamamen gri, "greenness" yayılımı 217..218). Artık ışın ayak izinden (`t * açısal_yayılım * uv_yoğunluğu`) mip seçilir; alpha-test kesmesi en keskin mip'i okur. Test: `modules/render/tests/renderer_test.cpp` "ray-traced hits of a custom shader sample textures at the ray's footprint, not a fixed mip". Not: `texture()` bir **makro**dur (sampler ifadesi `nonuniformEXT` indeksini korusun diye); fonksiyon parametresi olarak geçirmek mevcut RT testini bozdu.
+- **Kapanmayanlar (bilinçli, "Bilinen sınırlar"):** `dFdx/dFdy` RT'de 0; `vertex()` RT'de çalışmaz ve `varying`'ler 0'dır; `NORMAL_MAP` ve `ALPHA` (alpha_test dışında) RT vuruşlarında yok sayılır; `SCREEN_UV` 0. Bunları kapatmak RT'ye vertex aşaması çalıştırmayı gerektirir (ayrı iş, maliyetli). ADR-0022'nin "aynı görünür" vaadi bu istisnalarla birlikte okunmalıdır: yüzey rengi/pürüzlülük/emisyon aynı, vertex'e bağlı ve ekran uzayı terimler RT'de yok.
 
 ## Sonuçlar
 

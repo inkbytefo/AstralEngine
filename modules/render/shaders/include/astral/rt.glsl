@@ -178,6 +178,10 @@ void astral_rt_begin(Frame f, Instances instances, Materials materials) {
     astral_rt_instances = instances;
     astral_rt_materials = materials;
 }
+// The ray's footprint on the hit surface in mesh-UV units (0 = sharpest): what texture() of a custom surface() uses
+// to pick its mip, since ray-traced hits have no screen-space derivatives. (texture() is a macro in the generated chunk,
+// so the sampler expression keeps its nonuniformEXT index.)
+float astral_rt_footprint = 0.0;
 void astral_custom_surface(uint shader, uint base, vec2 uv, vec2 uv1, vec3 view_dir, inout Surface s);
 bool astral_custom_alpha_test(uint shader, uint base, vec2 uv, vec2 uv1, vec3 p, vec3 n, vec3 view_dir, bool backface);
 
@@ -255,6 +259,7 @@ Surface triangle_surface(Instances instances, Materials materials, uint instance
     }
     s.attenuation_color = mat.attenuation.rgb;
     s.sss_radius = mat.attenuation.a;
+    astral_rt_footprint = lod;
     if (mat.custom.y != 0u) astral_custom_surface(mat.custom.y - 1u, mat.custom.x, uv, uv1, -dir, s);
     return s;
 }
@@ -283,6 +288,7 @@ bool confirm_candidate_hit(rayQueryEXT q, vec3 dir) {
     vec3 ng = dot(ce, ce) > 1e-20 ? normalize(ce) : -dir;
     bool backface = dot(ng, dir) > 0.0;
     vec3 n = backface ? -ng : ng;
+    astral_rt_footprint = 0.0; // cut-outs read the sharpest mip
     return astral_custom_alpha_test(mat.custom.y - 1u, mat.custom.x, uv, uv1, p, n, -dir, backface);
 }
 #endif

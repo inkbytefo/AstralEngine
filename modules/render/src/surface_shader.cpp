@@ -309,7 +309,7 @@ std::string rt_chunk(const ShaderSource& source, const UniformLayout& layout) {
     std::string s = "// ---- shader slot @ID@\n";
     for (const std::string& f : source.functions) s += "#define " + f + " " + prefix + f + "\n";
     for (const ShaderVarying& v : source.varyings) s += "#define " + v.name + " " + prefix + v.name + "\n" + v.type + " " + v.name + ";\n";
-    s += "#define ASTRAL_RT_CHUNK 1\n#define texture(s, uv) textureLod(s, uv, 2.0)\n#define dFdx(x) ((x) * 0.0)\n#define dFdy(x) ((x) * 0.0)\n";
+    s += "#define ASTRAL_RT_CHUNK 1\n#define texture(s, uv) textureLod(s, uv, log2(max(astral_rt_footprint * float(max(textureSize(s, 0).x, textureSize(s, 0).y)), 1.0)))\n#define dFdx(x) ((x) * 0.0)\n#define dFdy(x) ((x) * 0.0)\n";
     s += detail::wrap_body(source, layout, source.body_without("vertex"));
     s += R"(void astral_run_@ID@(uint base, vec2 uv, vec2 uv1, vec3 view_dir, inout Surface s) {
     astral_base = base;

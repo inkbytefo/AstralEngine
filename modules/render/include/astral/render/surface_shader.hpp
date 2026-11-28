@@ -76,7 +76,7 @@ struct RtSurface {
 };
 /// The text of <astral/rt_custom.glsl>: every shader's surface() as a function of the ray-traced
 /// hit, and astral_custom_surface() choosing by slot. Differences from the raster stage: no
-/// derivatives (dFdx/dFdy read 0), texture() samples a fixed coarse mip, varyings are 0 (vertex() does
+/// derivatives (dFdx/dFdy read 0), texture() picks its mip from the ray's footprint on the surface (a UV scale inside surface() is not accounted for), varyings are 0 (vertex() does
 /// not run), NORMAL_MAP and ALPHA are ignored.
 [[nodiscard]] std::string compose_rt_surfaces(std::span<const RtSurface> surfaces);
 
