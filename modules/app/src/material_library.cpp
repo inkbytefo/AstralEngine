@@ -228,6 +228,49 @@ bool MaterialLibrary::build_pbr(const MaterialFile& file, MaterialDesc& desc, st
     return parsed && errors.empty();
 }
 
+/// The material's values laid out for `shader`: parameter words and textures into `desc`.
+void MaterialLibrary::bind_shader_values(const Material& material, const Shader& shader, const MaterialFile& file, MaterialDesc& desc,
+                                         UniformValues& values) {
+    values = evaluate_uniforms(shader.source, shader.layout, file);
+    for (const auto& warning : values.warnings) log_.log(LogLevel::Warn, "material " + material.path + ": " + warning);
+    desc.shader = shader.handle;
+    desc.params = values.params;
+    for (const auto& source : values.textures) {
+        desc.textures.push_back({source.offset, texture(source.path, source.srgb), source.normal});
+    }
+}
+
+/// A layered material's generated shader (ADR-0055 D7): composed from its layers, compiled under "<path>#layered" and
+/// bound. nullptr (logged) if any step fails. The layers' files join the material's dependencies for hot reload.
+const MaterialLibrary::Shader* MaterialLibrary::build_layered(const Material& material, MaterialFile& file, const MaterialReader& reader,
+                                                              MaterialDesc& desc, UniformValues& values, ShaderHandle& retired_old) {
+    const TextReader text_reader = [this](std::string_view path, std::string* error) -> std::optional<std::string> {
+        auto bytes = assets_.read(path, error);
+        if (!bytes) return std::nullopt;
+        return std::string(reinterpret_cast<const char*>(bytes->data()), bytes->size());
+    };
+    const LayeredShader generated = compose_layered_shader(file.layers, file.shading_model, file.render_modes, reader, text_reader);
+    for (const std::string& dep : generated.dependencies) {
+        if (std::find(file.dependencies.begin(), file.dependencies.end(), dep) == file.dependencies.end()) file.dependencies.push_back(dep);
+    }
+    const std::string what = "material " + material.path;
+    if (!generated.ok()) {
+        for (const std::string& e : generated.errors) log_error(what, e);
+        return nullptr;
+    }
+    const ShaderParse parsed = parse_ashader(generated.source);
+    if (!parsed.errors.empty()) {
+        for (const ShaderError& e : parsed.errors) log_error(what, "generated shader:" + std::to_string(e.line) + ": " + e.message);
+        return nullptr;
+    }
+    const std::string key = material.path + "#layered";
+    Shader* existing = nullptr;
+    if (const auto it = shader_index_.find(key); it != shader_index_.end()) existing = shaders_[it->second].get();
+    const Shader* installed = install_shader(key, parsed, existing, &retired_old);
+    if (installed) bind_shader_values(material, *installed, file, desc, values);
+    return installed;
+}
+
 /// (Re)builds a material from its files. On failure nothing changes (false).
 bool MaterialLibrary::build(Material& material, bool create) {
     const MaterialReader reader = [this](std::string_view path, std::string* error) { return read_document(path, error); };
@@ -247,37 +290,8 @@ bool MaterialLibrary::build(Material& material, bool create) {
     MaterialDesc desc;
     ShaderHandle retired_old{};
     if (file.layered) { // one generated shader per layered material (ADR-0055 D7)
-        const TextReader text_reader = [this](std::string_view path, std::string* error) -> std::optional<std::string> {
-            auto bytes = assets_.read(path, error);
-            if (!bytes) return std::nullopt;
-            return std::string(reinterpret_cast<const char*>(bytes->data()), bytes->size());
-        };
-        const LayeredShader generated = compose_layered_shader(file.layers, file.shading_model, file.render_modes, reader, text_reader);
-        for (const std::string& dep : generated.dependencies) {
-            if (std::find(file.dependencies.begin(), file.dependencies.end(), dep) == file.dependencies.end()) file.dependencies.push_back(dep);
-        }
-        if (!generated.ok()) {
-            for (const std::string& e : generated.errors) log_error("material " + material.path, e);
-            return false;
-        }
-        const ShaderParse parsed = parse_ashader(generated.source);
-        if (!parsed.errors.empty()) {
-            for (const ShaderError& e : parsed.errors) log_error("material " + material.path, "generated shader:" + std::to_string(e.line) + ": " + e.message);
-            return false;
-        }
-        const std::string key = material.path + "#layered";
-        Shader* existing = nullptr;
-        if (const auto it = shader_index_.find(key); it != shader_index_.end()) existing = shaders_[it->second].get();
-        Shader* installed = install_shader(key, parsed, existing, &retired_old);
-        if (!installed) return false;
-        shader = installed;
-        values = evaluate_uniforms(shader->source, shader->layout, file);
-        for (const auto& warning : values.warnings) log_.log(LogLevel::Warn, "material " + material.path + ": " + warning);
-        desc.shader = shader->handle;
-        desc.params = values.params;
-        for (const auto& source : values.textures) {
-            desc.textures.push_back({source.offset, texture(source.path, source.srgb), source.normal});
-        }
+        shader = build_layered(material, file, reader, desc, values, retired_old);
+        if (!shader) return false;
     } else if (file.standard_pbr) {
         std::vector<std::string> errors;
         if (!build_pbr(file, desc, errors)) {
@@ -287,13 +301,7 @@ bool MaterialLibrary::build(Material& material, bool create) {
     } else {
         shader = load_shader(file.shader, false);
         if (!shader) return false;
-        values = evaluate_uniforms(shader->source, shader->layout, file);
-        for (const auto& warning : values.warnings) log_.log(LogLevel::Warn, "material " + material.path + ": " + warning);
-        desc.shader = shader->handle;
-        desc.params = values.params;
-        for (const auto& source : values.textures) {
-            desc.textures.push_back({source.offset, texture(source.path, source.srgb), source.normal});
-        }
+        bind_shader_values(material, *shader, file, desc, values);
     }
     if (create) material.handle = renderer_.create_material(desc);
     else if (!renderer_.update_material(material.handle, desc)) return false;
@@ -310,11 +318,73 @@ bool MaterialLibrary::build(Material& material, bool create) {
     return true;
 }
 
-MaterialHandle MaterialLibrary::derive(MaterialHandle base, std::span<const MaterialParam> params, MaterialHandle derived) {
-    const Material* lib = nullptr;
-    for (const auto& m : materials_) {
-        if (m->handle == base) lib = m.get();
+void MaterialLibrary::apply_uniform_params(const Shader& shader, std::span<const MaterialParam> params, MaterialDesc& desc,
+                                           const std::string& label) {
+    const ShaderSource& source = shader.source;
+    for (const MaterialParam& p : params) {
+        const auto it = std::find_if(source.uniforms.begin(), source.uniforms.end(), [&](const ShaderUniform& u) { return u.name == p.name; });
+        if (it == source.uniforms.end()) {
+            log_.log(LogLevel::Warn, label + ": '" + p.name + "' is not a uniform of the shader");
+            continue;
+        }
+        const ShaderUniform& u = *it;
+        const std::uint32_t offset = shader.layout.offsets[static_cast<std::size_t>(it - source.uniforms.begin())];
+        if (u.type == UniformType::Sampler2D) {
+            const TextureHandle tex = p.texture.empty() ? TextureHandle{} : texture(p.texture, u.hints.source_color);
+            const auto bound = std::find_if(desc.textures.begin(), desc.textures.end(), [&](const auto& t) { return t.offset == offset; });
+            if (bound != desc.textures.end()) bound->texture = tex;
+            else desc.textures.push_back({offset, tex, u.hints.hint_normal});
+            continue;
+        }
+        const std::size_t n = u.type == UniformType::Vec2 ? 2 : u.type == UniformType::Vec3 ? 3 : u.type == UniformType::Vec4 ? 4 : 1;
+        const float comps[4] = {p.value.x, p.value.y, p.value.z, p.value.w};
+        std::vector<std::uint32_t> words;
+        for (std::size_t k = 0; k < n; ++k) {
+            if (const auto w = uniform_word(u.type, comps[k])) words.push_back(*w);
+        }
+        if (words.size() != n || offset + n > desc.params.size()) {
+            log_.log(LogLevel::Warn, label + ": '" + p.name + "': the value does not fit a " + std::string(to_string(u.type)));
+            continue;
+        }
+        std::copy(words.begin(), words.end(), desc.params.begin() + offset);
     }
+}
+
+/// Sets one standard PBR field by name. The field's type decides the shape: try a number, then 2, 3 and 4 components
+/// until the reflected reader accepts it.
+bool MaterialLibrary::set_pbr_field(MaterialDesc& desc, const MaterialParam& p) {
+    const Json candidates[] = {Json(p.value.x), Json::array({p.value.x, p.value.y}), Json::array({p.value.x, p.value.y, p.value.z}),
+                               Json::array({p.value.x, p.value.y, p.value.z, p.value.w})};
+    for (const Json& candidate : candidates) {
+        Json factors = Json::object();
+        factors[p.name] = candidate;
+        std::vector<std::string> errors;
+        MaterialDesc trial = desc;
+        if (from_json(factors, trial, {.resolve = {}, .errors = &errors, .path = "values"}) && errors.empty()) {
+            desc = std::move(trial);
+            return true;
+        }
+    }
+    return false;
+}
+
+void MaterialLibrary::apply_pbr_params(std::span<const MaterialParam> params, MaterialDesc& desc, const std::string& label) {
+    auto slots = pbr_texture_slots(desc);
+    for (const MaterialParam& p : params) {
+        if (const auto slot = std::find_if(slots.begin(), slots.end(), [&](const auto& s) { return s.name == p.name; }); slot != slots.end()) {
+            slot->handle = p.texture.empty() ? TextureHandle{} : texture(p.texture, slot->srgb);
+            continue;
+        }
+        bool known = false;
+        for_each_field<MaterialDesc>([&](auto field) { known |= field.name == p.name; });
+        if (!known) log_.log(LogLevel::Warn, label + ": '" + p.name + "' is not a PBR parameter");
+        else if (!set_pbr_field(desc, p)) log_.log(LogLevel::Warn, label + ": '" + p.name + "': the value does not fit the field");
+    }
+}
+
+MaterialHandle MaterialLibrary::derive(MaterialHandle base, std::span<const MaterialParam> params, MaterialHandle derived) {
+    const auto found = std::find_if(materials_.begin(), materials_.end(), [&](const auto& m) { return m->handle == base; });
+    const Material* lib = found == materials_.end() ? nullptr : found->get();
     MaterialDesc desc;
     if (lib) {
         desc = lib->desc;
@@ -324,68 +394,8 @@ MaterialHandle MaterialLibrary::derive(MaterialHandle base, std::span<const Mate
         return derived;
     }
     const std::string label = "material override (" + (lib ? lib->path : std::string("handle")) + ")";
-    const auto warn = [&](const std::string& message) { log_.log(LogLevel::Warn, label + ": " + message); };
-    if (desc.shader.valid() && lib && lib->shader) {
-        const ShaderSource& source = lib->shader->source;
-        const UniformLayout& layout = lib->shader->layout;
-        for (const MaterialParam& p : params) {
-            const auto it = std::find_if(source.uniforms.begin(), source.uniforms.end(), [&](const ShaderUniform& u) { return u.name == p.name; });
-            if (it == source.uniforms.end()) {
-                warn("'" + p.name + "' is not a uniform of the shader");
-                continue;
-            }
-            const ShaderUniform& u = *it;
-            const std::uint32_t offset = layout.offsets[static_cast<std::size_t>(it - source.uniforms.begin())];
-            if (u.type == UniformType::Sampler2D) {
-                const TextureHandle tex = p.texture.empty() ? TextureHandle{} : texture(p.texture, u.hints.source_color);
-                const auto bound = std::find_if(desc.textures.begin(), desc.textures.end(), [&](const auto& t) { return t.offset == offset; });
-                if (bound != desc.textures.end()) bound->texture = tex;
-                else desc.textures.push_back({offset, tex, u.hints.hint_normal});
-                continue;
-            }
-            const std::size_t n = u.type == UniformType::Vec2 ? 2 : u.type == UniformType::Vec3 ? 3 : u.type == UniformType::Vec4 ? 4 : 1;
-            const float comps[4] = {p.value.x, p.value.y, p.value.z, p.value.w};
-            std::vector<std::uint32_t> words;
-            for (std::size_t k = 0; k < n; ++k) {
-                if (const auto w = uniform_word(u.type, comps[k])) words.push_back(*w);
-            }
-            if (words.size() != n || offset + n > desc.params.size()) {
-                warn("'" + p.name + "': the value does not fit a " + std::string(to_string(u.type)));
-                continue;
-            }
-            std::copy(words.begin(), words.end(), desc.params.begin() + offset);
-        }
-    } else {
-        auto slots = pbr_texture_slots(desc);
-        for (const MaterialParam& p : params) {
-            if (const auto slot = std::find_if(slots.begin(), slots.end(), [&](const auto& s) { return s.name == p.name; }); slot != slots.end()) {
-                slot->handle = p.texture.empty() ? TextureHandle{} : texture(p.texture, slot->srgb);
-                continue;
-            }
-            bool known = false;
-            for_each_field<MaterialDesc>([&](auto field) { known |= field.name == p.name; });
-            if (!known) {
-                warn("'" + p.name + "' is not a PBR parameter");
-                continue;
-            }
-            // The field's type decides the shape: try a number, then 2, 3 and 4 components until it reads cleanly.
-            const Json candidates[] = {Json(p.value.x), Json::array({p.value.x, p.value.y}), Json::array({p.value.x, p.value.y, p.value.z}),
-                                       Json::array({p.value.x, p.value.y, p.value.z, p.value.w})};
-            bool applied = false;
-            for (const Json& candidate : candidates) {
-                Json factors = Json::object();
-                factors[p.name] = candidate;
-                std::vector<std::string> errors;
-                MaterialDesc trial = desc;
-                if (from_json(factors, trial, {.resolve = {}, .errors = &errors, .path = "values"}) && errors.empty()) {
-                    desc = std::move(trial);
-                    applied = true;
-                    break;
-                }
-            }
-            if (!applied) warn("'" + p.name + "': the value does not fit the field");
-        }
-    }
+    if (desc.shader.valid() && lib && lib->shader) apply_uniform_params(*lib->shader, params, desc, label);
+    else apply_pbr_params(params, desc, label);
     if (derived.valid()) {
         (void)renderer_.update_material(derived, desc);
         return derived;

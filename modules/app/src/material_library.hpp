@@ -86,6 +86,12 @@ private:
     Shader* load_shader(const std::string& path, bool reload, ShaderHandle* retired_old = nullptr);
     Shader* install_shader(const std::string& path, const ShaderParse& parsed, Shader* existing, ShaderHandle* retired_old);
     bool build(Material& material, bool create);
+    void bind_shader_values(const Material& material, const Shader& shader, const MaterialFile& file, MaterialDesc& desc, UniformValues& values);
+    const Shader* build_layered(const Material& material, MaterialFile& file, const MaterialReader& reader, MaterialDesc& desc,
+                                UniformValues& values, ShaderHandle& retired_old);
+    void apply_uniform_params(const Shader& shader, std::span<const MaterialParam> params, MaterialDesc& desc, const std::string& label);
+    void apply_pbr_params(std::span<const MaterialParam> params, MaterialDesc& desc, const std::string& label);
+    static bool set_pbr_field(MaterialDesc& desc, const MaterialParam& param);
     bool build_pbr(const MaterialFile& file, MaterialDesc& desc, std::vector<std::string>& errors);
     bool reload_texture(Texture& texture);
     void update_textures();
