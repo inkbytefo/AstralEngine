@@ -4,6 +4,26 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/). Sürümler [SemVer](htt
 
 ## [Unreleased]
 
+### Added (material/shader sertleştirme, ADR-0055, hotfix dalı `claude/material-shader-hardening`)
+- `.ashader`: `uniform sampler2D t : source_color = "textures/x.png";` varsayılan doku; `.ashader` dosyası doğrudan materyal olarak yüklenir.
+- `astral/layers.glsl`: her `surface()` shader'ında `AstralLayer`, `astral_layer_mix`, yükseklik harmanı ve eğim/yükseklik/gürültü/kontrast maskeleri (raster ve RT).
+- `.material` `type: layered`: katmanlar + maskeler (doku kanalı, eğim, dünya yüksekliği, gürültü, yükseklik harmanı) tek bir üretilen `.ashader`'a çevrilir (`compose_layered_shader`).
+- `MaterialOverride` bileşeni: entity başına materyal değeri (türetilmiş materyal, yerinde güncelleme, kaldırınca taban geri gelir).
+- Standart PBR: `occlusion_texture` + `occlusion_strength` (raster ve RT).
+
+### Changed
+- `.material` ebeveyn zinciri iç içe nesneleri (`mapping`, `clearcoat`...) alan alan birleştirir; diziler ve skalerler çocuktan gelir.
+- Standart PBR'da bilinmeyen parametre artık hata değil uyarıdır (özel shader yoluyla aynı).
+- RT/path tracer'da özel `surface()` içindeki `texture()` mip'i ışın ayak izinden seçer (sabit mip 2 idi).
+
+### Fixed
+- `.ashader`: `#define`/`#include` satırı sonraki başlık ifadesini (`uniform`, `render_mode`) artık yutmaz.
+- `.material`: `vecN` uniform'unda bool bileşenleri kabul edilir.
+- Yüzey shader'ında `vertex()` yoksa vertex aşaması gövdeyi derlemez (fragment yerleşiği okuyan yardımcılar artık derlemeyi bozmaz).
+
+### Known (ölçüldü, ertelendi)
+- Standart PBR'da `alpha_mode` ve `ior` yok; `MaterialStore::upload` ≈0.22 µs/materyal/kare (ADR-0055 D4/D6).
+
 ### Removed (examples yenileme E5)
 - `physics_demo`, `physics_lab`, `physics_playground`, `rt_showcase`, `sdf_scene`, `material_showcase`, `material_workflow`, `shader_showcase`, `model_viewer`, `scene_viewer`, `open_world`, `terrain_lab`, `vfx_lab` örnekleri; bunlara ait 7 golden test bloğu ve 9 referans görüntü. Vitrinlerin golden testi henüz yok (referans yalnız CI/lavapipe’ta üretilir).
 
